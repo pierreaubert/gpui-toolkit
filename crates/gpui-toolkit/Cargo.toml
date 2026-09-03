@@ -41,6 +41,7 @@ all = ["core", "tooling", "platform"]
 ios = ["dep:gpui-ios"]
 
 [dependencies]
+gpui-release-gates = { workspace = true }
 gpui-au = { workspace = true, optional = true }
 gpui-audio-kit = { workspace = true, optional = true }
 gpui-builder = { workspace = true, optional = true }

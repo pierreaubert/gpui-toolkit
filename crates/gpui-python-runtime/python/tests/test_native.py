@@ -1593,6 +1593,10 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertIn("M", triangulation.render_hull_to_path())
 
         voronoi = triangulation.voronoi((0.0, 0.0, 10.0, 10.0))
+        self.assertEqual(
+            native.Voronoi.new(triangulation, (0.0, 0.0, 10.0, 10.0)).bounds(),
+            voronoi.bounds(),
+        )
         self.assertEqual(voronoi.bounds(), (0.0, 0.0, 10.0, 10.0))
         self.assertEqual(voronoi.cell_count(), 5)
         self.assertEqual(len(voronoi.bounds_polygon()), 5)
@@ -1602,14 +1606,49 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertIn("M", voronoi.render_to_path())
         self.assertIn("M", voronoi.render_bounds_to_path())
         self.assertIsNotNone(voronoi.render_cell_to_path(4))
+        triangulation_buffer = io.StringIO("prefix:")
+        triangulation_buffer.seek(0, io.SEEK_END)
+        self.assertIsNone(triangulation.render_to_path_into(triangulation_buffer))
+        self.assertTrue(triangulation_buffer.getvalue().startswith("prefix:M"))
+        voronoi_buffer = io.StringIO()
+        self.assertIsNone(voronoi.render_to_path_into(voronoi_buffer))
+        self.assertEqual(voronoi_buffer.getvalue(), voronoi.render_to_path())
+        cell_buffer = io.StringIO()
+        self.assertTrue(voronoi.render_cell_to_path_into(4, cell_buffer))
+        self.assertEqual(cell_buffer.getvalue(), voronoi.render_cell_to_path(4))
+        self.assertFalse(voronoi.render_cell_to_path_into(99, io.StringIO()))
+        self.assertEqual(triangulation.len(), len(triangulation))
+        self.assertIs(triangulation.inner(), triangulation)
         self.assertIs(d3rs.Delaunay, native.Delaunay)
 
-        with self.assertRaisesRegex(ValueError, "finite"):
+        with self.assertRaises(native.DelaunayError) as point_error:
             native.Delaunay(((math.nan, 0.0),))
-        with self.assertRaisesRegex(ValueError, "non-negative"):
-            triangulation.find_within_radius(0.0, 0.0, -1.0)
-        with self.assertRaisesRegex(ValueError, "reversed"):
+        self.assertEqual(
+            point_error.exception.kind,
+            native.DelaunayErrorKind.NON_FINITE_POINT_COORDINATE,
+        )
+        self.assertEqual(
+            (point_error.exception.index, point_error.exception.coordinate), (0, "x")
+        )
+        self.assertIsNone(triangulation.find(math.nan, 0.0))
+        with self.assertRaises(native.DelaunayError) as query_error:
+            triangulation.try_find(math.nan, 0.0)
+        self.assertEqual(
+            query_error.exception.kind,
+            native.DelaunayErrorKind.NON_FINITE_QUERY_COORDINATE,
+        )
+        self.assertIsNone(triangulation.find_within_radius(0.0, 0.0, -1.0))
+        with self.assertRaises(native.DelaunayError) as radius_error:
+            triangulation.try_find_within_radius(0.0, 0.0, -1.0)
+        self.assertEqual(
+            radius_error.exception.kind, native.DelaunayErrorKind.NEGATIVE_RADIUS
+        )
+        with self.assertRaises(native.DelaunayError) as bounds_error:
             triangulation.voronoi((10.0, 0.0, 0.0, 10.0))
+        self.assertEqual(
+            bounds_error.exception.kind,
+            native.DelaunayErrorKind.REVERSED_VORONOI_BOUNDS,
+        )
 
     def test_installed_extension_runs_immutable_force_simulation(self) -> None:
         if not native.AVAILABLE:
@@ -1687,7 +1726,7 @@ class NativeWrapperTests(unittest.TestCase):
         from gpui_toolkit import d3rs
 
         datum = (
-            native.ArcDatum()
+            native.ArcDatum.new()
             .inner_radius(20.0)
             .outer_radius(50.0)
             .start_angle(0.0)
@@ -1696,7 +1735,7 @@ class NativeWrapperTests(unittest.TestCase):
             .corner_radius(2.0)
         )
         self.assertEqual(native.ArcDatum()._inner_radius, 0.0)
-        arc = native.Arc().center(100.0, 80.0)
+        arc = native.Arc.new().center(100.0, 80.0)
         path = arc.generate(datum, segments=24)
         self.assertTrue(path.svg.startswith("M"))
         self.assertGreater(len(path.points), 20)
@@ -1706,7 +1745,7 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertEqual(len(native.arc_points(datum, 8)), 19)
 
         for symbol_type in native.SymbolType:
-            symbol = native.Symbol().symbol_type(symbol_type).size(64.0)
+            symbol = native.Symbol.new(symbol_type, 64.0)
             symbol_path = symbol.generate_at(10.0, 20.0)
             self.assertTrue(symbol_path.svg.startswith("M"))
             self.assertTrue(symbol_path.points)
@@ -1715,13 +1754,14 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertIs(d3rs.Symbol, native.Symbol)
 
         link = native.Link.from_points((0.0, 10.0), (100.0, 80.0))
+        self.assertEqual(link, native.Link.new(0.0, 10.0, 100.0, 80.0))
         link.validate()
         self.assertTrue(native.link_horizontal(link).startswith("M"))
         self.assertTrue(native.link_vertical(link).startswith("M"))
         self.assertTrue(
             native.link_step(link, native.LinkDirection.HORIZONTAL).startswith("M")
         )
-        radial_link = native.RadialLink(0.0, 10.0, math.pi / 2.0, 20.0)
+        radial_link = native.RadialLink.new(0.0, 10.0, math.pi / 2.0, 20.0)
         cartesian = radial_link.to_cartesian(50.0, 50.0)
         self.assertAlmostEqual(cartesian.source_x, 60.0)
         self.assertAlmostEqual(cartesian.target_y, 70.0)
@@ -1729,7 +1769,7 @@ class NativeWrapperTests(unittest.TestCase):
 
         data = ({"name": "a", "value": 1.0}, {"name": "b", "value": 3.0})
         pie = (
-            native.Pie()
+            native.Pie.new()
             .inner_radius(20.0)
             .outer_radius(80.0)
             .pad_angle(0.01)
@@ -1747,16 +1787,92 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertEqual(len(native.donut((1.0, 2.0), 50.0, 100.0)), 2)
         self.assertEqual(len(native.half_pie((1.0, 2.0), 100.0)), 2)
 
-        with self.assertRaisesRegex(ValueError, "inner_radius"):
-            native.Arc().generate(native.ArcDatum().inner_radius(-1.0))
-        with self.assertRaisesRegex(ValueError, "segment"):
-            native.arc_points(datum, 0)
-        with self.assertRaisesRegex(ValueError, "size"):
-            native.Symbol.circle(-1.0).generate()
-        with self.assertRaisesRegex(ValueError, "source_x"):
-            native.link_horizontal(native.Link(math.nan, 0.0, 1.0, 1.0))
-        with self.assertRaisesRegex(ValueError, "negative"):
-            native.pie((1.0, -1.0), 100.0)
+        permissive = native.Arc.new().generate(native.ArcDatum.new().inner_radius(-1.0))
+        self.assertTrue(permissive.svg)
+        with self.assertRaises(native.ArcGenerationError) as negative_radius:
+            native.Arc.new().try_generate(native.ArcDatum.new().inner_radius(-1.0))
+        self.assertEqual(
+            negative_radius.exception.kind,
+            native.ArcGenerationErrorKind.NEGATIVE_PARAMETER,
+        )
+        self.assertEqual(negative_radius.exception.parameter, "inner_radius")
+        self.assertEqual(negative_radius.exception.value, -1.0)
+        with self.assertRaises(native.ArcGenerationError) as reversed_radii:
+            native.Arc.new().try_generate(
+                native.ArcDatum.new().inner_radius(20.0).outer_radius(10.0)
+            )
+        self.assertEqual(
+            reversed_radii.exception.kind,
+            native.ArcGenerationErrorKind.INNER_RADIUS_EXCEEDS_OUTER_RADIUS,
+        )
+        self.assertEqual(reversed_radii.exception.inner_radius, 20.0)
+        self.assertEqual(reversed_radii.exception.outer_radius, 10.0)
+        self.assertGreater(len(native.arc_points(datum, 0)), 0)
+        with self.assertRaises(native.ArcGenerationError) as zero_segments:
+            native.try_arc_points(datum, 0)
+        self.assertEqual(
+            zero_segments.exception.kind,
+            native.ArcGenerationErrorKind.ZERO_SEGMENTS,
+        )
+        self.assertTrue(native.Symbol.circle(-1.0).generate().svg)
+        with self.assertRaises(native.SymbolGenerationError) as negative_size:
+            native.Symbol.circle(-1.0).try_generate()
+        self.assertEqual(
+            negative_size.exception.kind,
+            native.SymbolGenerationErrorKind.NEGATIVE_SIZE,
+        )
+        self.assertEqual(negative_size.exception.size, -1.0)
+        with self.assertRaises(native.SymbolGenerationError) as non_finite_coordinate:
+            native.Symbol.circle(64.0).try_generate_at(math.nan, 0.0)
+        self.assertEqual(
+            non_finite_coordinate.exception.kind,
+            native.SymbolGenerationErrorKind.NON_FINITE_COORDINATE,
+        )
+        self.assertEqual(non_finite_coordinate.exception.coordinate, "x")
+        with self.assertRaises(native.SymbolGenerationError):
+            native.try_symbol_radius(native.SymbolType.CIRCLE, math.inf)
+        invalid_link = native.Link.new(math.nan, 0.0, 1.0, 1.0)
+        self.assertTrue(native.link_horizontal(invalid_link).startswith("M"))
+        with self.assertRaises(native.LinkGenerationError) as non_finite_link:
+            native.try_link_horizontal(invalid_link)
+        self.assertEqual(
+            non_finite_link.exception.kind,
+            native.LinkGenerationErrorKind.NON_FINITE_PARAMETER,
+        )
+        self.assertEqual(non_finite_link.exception.parameter, "source_x")
+        negative_radial = native.RadialLink.new(0.0, -1.0, 1.0, 2.0)
+        self.assertIsInstance(negative_radial.to_cartesian(), native.Link)
+        with self.assertRaises(native.LinkGenerationError) as negative_radius:
+            negative_radial.try_to_cartesian()
+        self.assertEqual(
+            negative_radius.exception.kind,
+            native.LinkGenerationErrorKind.NEGATIVE_RADIUS,
+        )
+        self.assertEqual(negative_radius.exception.parameter, "source_radius")
+        self.assertEqual(len(native.pie((1.0, -1.0), 100.0)), 2)
+        with self.assertRaises(native.PieLayoutError) as negative_value:
+            native.try_pie((1.0, -1.0), 100.0)
+        self.assertEqual(
+            negative_value.exception.kind,
+            native.PieLayoutErrorKind.NEGATIVE_VALUE,
+        )
+        self.assertEqual(negative_value.exception.index, 1)
+        self.assertEqual(negative_value.exception.value, -1.0)
+        with self.assertRaises(native.PieLayoutError) as invalid_radius:
+            native.Pie.new().outer_radius(-1.0).try_generate((1.0,))
+        self.assertEqual(
+            invalid_radius.exception.kind,
+            native.PieLayoutErrorKind.NEGATIVE_LAYOUT_PARAMETER,
+        )
+        self.assertEqual(invalid_radius.exception.parameter, "outer_radius")
+        with self.assertRaises(native.PieLayoutError) as non_finite:
+            native.Pie.new().try_generate((math.nan,))
+        self.assertEqual(
+            non_finite.exception.kind,
+            native.PieLayoutErrorKind.NON_FINITE_VALUE,
+        )
+        with self.assertRaisesRegex(TypeError, "sort must be bool"):
+            native.Pie.new().sort(1)
 
     def test_installed_extension_runs_stack_curve_and_radial_shapes(self) -> None:
         if not native.AVAILABLE:
@@ -1780,6 +1896,29 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertEqual(len(native.stack(data)), 2)
         self.assertEqual(len(native.stack_expand(data)), 2)
         self.assertEqual(len(native.streamgraph(data)), 2)
+        checked = native.Stack.new().keys(("left", "right"))
+        ragged = ((1.0, 2.0), (3.0,))
+        self.assertEqual(len(checked.generate(ragged)), 2)
+        with self.assertRaises(native.StackLayoutError) as mismatch:
+            checked.try_generate(ragged)
+        self.assertEqual(
+            mismatch.exception.kind,
+            native.StackLayoutErrorKind.ROW_LENGTH_MISMATCH,
+        )
+        self.assertEqual(mismatch.exception.row_index, 1)
+        self.assertEqual(mismatch.exception.expected, 2)
+        self.assertEqual(mismatch.exception.actual, 1)
+        with self.assertRaises(native.StackLayoutError) as non_finite:
+            checked.try_generate(((1.0, math.nan),))
+        self.assertEqual(
+            non_finite.exception.kind,
+            native.StackLayoutErrorKind.NON_FINITE_VALUE,
+        )
+        self.assertEqual(non_finite.exception.row_index, 0)
+        self.assertEqual(non_finite.exception.series_index, 1)
+        self.assertEqual(len(native.stack(ragged)), 2)
+        with self.assertRaises(native.StackLayoutError):
+            native.try_stack(ragged)
         self.assertIs(d3rs.Stack, native.Stack)
 
         points = ((0.0, 0.0), (10.0, 20.0), (20.0, 5.0))
@@ -1788,6 +1927,10 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertGreater(
             len(native.Curve.catmull_rom(0.5).interpolate(points)), len(points)
         )
+        self.assertEqual(native.Curve.cardinal(-1.0).parameter, 0.0)
+        self.assertEqual(native.Curve.cardinal(2.0).parameter, 1.0)
+        self.assertEqual(native.Curve.catmull_rom(-1.0).parameter, 0.0)
+        self.assertEqual(native.Curve.catmull_rom(2.0).parameter, 1.0)
         interpolated: list[tuple[float, float]] = [(99.0, 99.0)]
         native.Curve.step().interpolate_into(points, interpolated)
         self.assertEqual(native.Curve.step().subdivisions(), 2)
@@ -1835,13 +1978,59 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertEqual(
             len(native.polar_grid_rays(0.0, 0.0, 20.0, (0.0, math.pi))), 2
         )
+        self.assertEqual(native.RadialPoint.new(0.0, 10.0), radial_points[0])
+        self.assertEqual(
+            native.RadialLineConfig.new(5.0, 7.0), native.RadialLineConfig(5.0, 7.0)
+        )
+        self.assertEqual(
+            native.RadialAreaConfig.new(5.0, 7.0), native.RadialAreaConfig(5.0, 7.0)
+        )
+        self.assertEqual(
+            native.try_radial_line(radial_points, line_config),
+            native.radial_line(radial_points, line_config),
+        )
+        self.assertEqual(
+            native.try_radial_area(radial_points, area_config),
+            native.radial_area(radial_points, area_config),
+        )
 
-        with self.assertRaisesRegex(ValueError, "expected 2"):
-            layout.generate(((1.0,),))
-        with self.assertRaisesRegex(ValueError, "negative"):
-            native.RadialPoint(0.0, -1.0).to_cartesian()
-        with self.assertRaisesRegex(ValueError, "negative"):
-            native.polar_grid_circles(0.0, 0.0, (-1.0,))
+        with self.assertRaisesRegex(native.StackLayoutError, "expected 2"):
+            layout.try_generate(((1.0,),))
+        self.assertEqual(native.RadialPoint(0.0, -1.0).to_cartesian(), (-1.0, 0.0))
+        with self.assertRaises(native.RadialGenerationError) as negative_point:
+            native.RadialPoint(0.0, -1.0).try_to_cartesian()
+        self.assertEqual(
+            negative_point.exception.kind,
+            native.RadialGenerationErrorKind.NEGATIVE_POINT_RADIUS,
+        )
+        with self.assertRaises(native.RadialGenerationError) as negative_grid:
+            native.try_polar_grid_circles(0.0, 0.0, (-1.0,))
+        self.assertEqual(
+            negative_grid.exception.kind,
+            native.RadialGenerationErrorKind.NEGATIVE_GRID_RADIUS,
+        )
+        with self.assertRaises(native.RadialGenerationError) as nonfinite_point:
+            native.try_radial_line(
+                (native.RadialPoint(math.nan, 1.0),),
+                line_config,
+            )
+        self.assertEqual(
+            nonfinite_point.exception.kind,
+            native.RadialGenerationErrorKind.NON_FINITE_POINT,
+        )
+        self.assertEqual(nonfinite_point.exception.index, 0)
+        self.assertEqual(
+            nonfinite_point.exception.field, native.RadialPointField.ANGLE
+        )
+        with self.assertRaises(native.RadialGenerationError) as negative_inner:
+            native.RadialAreaConfig.new(0.0, 0.0).inner_radius(-1.0).try_generate(
+                radial_points
+            )
+        self.assertEqual(
+            negative_inner.exception.kind,
+            native.RadialGenerationErrorKind.NEGATIVE_RADIUS,
+        )
+        self.assertEqual(negative_inner.exception.parameter, "inner_radius")
         with self.assertRaisesRegex(ValueError, "does not accept"):
             native.Curve(native.CurveKind.LINEAR, 1.0).interpolate(points)
         with self.assertRaisesRegex(ValueError, r"points\[0\]\.x"):
@@ -1943,7 +2132,7 @@ class NativeWrapperTests(unittest.TestCase):
             (3.0, 0.0, 5.0),
             (1.0, 6.0, 0.0),
         )
-        original = native.ChordLayout()
+        original = native.ChordLayout.new()
         layout = (
             original.pad_angle(0.04)
             .sort_groups(native.ChordSort.DESCENDING)
@@ -1952,22 +2141,38 @@ class NativeWrapperTests(unittest.TestCase):
         )
         result = layout.compute(matrix)
         self.assertEqual(original._pad_angle, 0.0)
+        self.assertEqual(layout.pad_angle_value, 0.04)
+        self.assertEqual(layout.sort_groups_value, native.ChordSort.DESCENDING)
+        self.assertEqual(layout.sort_subgroups_value, native.ChordSort.ASCENDING)
+        self.assertEqual(layout.sort_chords_value, native.ChordSort.DESCENDING)
         self.assertEqual(len(result.groups), 3)
         self.assertTrue(result.chords)
         self.assertEqual([group.index for group in result.groups], [0, 1, 2])
         self.assertEqual(sum(group.value for group in result.groups), 21.0)
         self.assertIs(d3rs.ChordLayout, native.ChordLayout)
 
-        ribbon = native.RibbonGenerator(80.0).center(100.0, 120.0)
+        ribbon = native.RibbonGenerator.new(80.0).center(100.0, 120.0)
         ribbon_path = ribbon.generate_path(result.chords[0])
         self.assertFalse(ribbon_path.is_empty())
         self.assertTrue(ribbon.generate(result.chords[0]).startswith("M"))
         self.assertIsNotNone(ribbon_path.bounds())
 
-        with self.assertRaisesRegex(ValueError, "expected 2"):
+        with self.assertRaises(native.ChordLayoutError) as square_error:
             layout.compute(((1.0, 2.0), (3.0,)))
-        with self.assertRaisesRegex(ValueError, "negative"):
+        self.assertEqual(
+            square_error.exception.kind,
+            native.ChordLayoutErrorKind.NON_SQUARE_MATRIX,
+        )
+        self.assertEqual(
+            (square_error.exception.row, square_error.exception.expected, square_error.exception.actual),
+            (1, 2, 1),
+        )
+        with self.assertRaises(native.ChordLayoutError) as negative_error:
             layout.compute(((0.0, -1.0), (1.0, 0.0)))
+        self.assertEqual(
+            negative_error.exception.kind,
+            native.ChordLayoutErrorKind.NEGATIVE_VALUE,
+        )
         with self.assertRaisesRegex(ValueError, "pad_angle"):
             native.ChordLayout().pad_angle(math.nan).compute(((0.0,),))
         with self.assertRaisesRegex(ValueError, "radius"):
@@ -2397,6 +2602,7 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertIsNotNone(extent)
         self.assertGreaterEqual(extent.width(), 4.0)
         self.assertTrue(extent.contains(2.0, 2.0))
+        self.assertTrue(native.Extent.new(0.0, 0.0, 1.0, 1.0).contains(1.0, 1.0))
         union = extent.union(native.Extent(-10.0, -10.0, -9.0, -9.0))
         self.assertEqual(union.x0, -10.0)
         aggregate = native.Aggregate(1.0, 0.0, 0.0).merge(
@@ -2404,6 +2610,16 @@ class NativeWrapperTests(unittest.TestCase):
         )
         self.assertEqual(aggregate.mass, 4.0)
         self.assertEqual(aggregate.x, 3.0)
+        self.assertEqual(native.Aggregate.new(1.0, 2.0, 3.0).y, 3.0)
+        point = native.QuadPoint.new(1.0, 2.0, {"id": "point"})
+        self.assertEqual((point.x, point.y, point.data["id"]), (1.0, 2.0, "point"))
+        internal = native.QuadNode.new_internal()
+        internal.set_aggregate(aggregate)
+        self.assertEqual(internal.aggregate, aggregate)
+        with self.assertRaisesRegex(ValueError, "leaf"):
+            native.QuadNode(native.QuadNodeKind.LEAF, point, None).set_aggregate(
+                aggregate
+            )
 
         duplicate = {"id": "duplicate", "x": 2.0, "y": 2.0}
         self.assertIs(tree.add(2.0, 2.0, duplicate), tree)
@@ -2616,6 +2832,12 @@ class NativeWrapperTests(unittest.TestCase):
         )
         self.assertEqual(tuple(link.value for link in input_order.links), (2.0, 1.0, 2.0, 1.0))
         self.assertNotEqual(layout, layout.link_sort(native.SankeyLinkSort.INPUT_ORDER))
+        unchecked = layout.compute(
+            ("source", "sink"),
+            (native.SankeyLinkInput("source", "missing", 1.0),),
+        )
+        self.assertEqual(tuple(node.id for node in unchecked.nodes), ("source", "sink"))
+        self.assertEqual(unchecked.links, ())
 
         error_cases = (
             (
@@ -2644,6 +2866,13 @@ class NativeWrapperTests(unittest.TestCase):
                 with self.assertRaises(native.SankeyLayoutError) as raised:
                     layout.try_compute(names, invalid_links)
                 self.assertEqual(raised.exception.kind, expected_kind)
+        with self.assertRaises(native.SankeyLayoutError) as endpoint_error:
+            layout.try_compute(
+                ("source", "sink"),
+                (native.SankeyLinkInput("source", "missing", 1.0),),
+            )
+        self.assertEqual(endpoint_error.exception.name, "missing")
+        self.assertEqual(endpoint_error.exception.link_index, 0)
 
         with self.assertRaises(native.SankeyLayoutError) as invalid_width:
             layout.width(0.0).try_compute(("source", "sink"), links[:1])
@@ -2662,6 +2891,7 @@ class NativeWrapperTests(unittest.TestCase):
             native.SankeyLayoutErrorKind.INVALID_DRAWABLE_AREA,
         )
         self.assertEqual(invalid_area.exception.axis, "x")
+        self.assertEqual(invalid_area.exception.available, -18.0)
 
     def test_installed_extension_runs_renderer_independent_legend_layout(self):
         if not native.AVAILABLE:
@@ -2696,6 +2926,13 @@ class NativeWrapperTests(unittest.TestCase):
 
         self.assertIs(d3rs.LegendConfig, native.LegendConfig)
         self.assertNotEqual(original, config)
+        color_item = native.LegendItem.color(
+            "Native color", d3rs.D3Color.rgba(31, 119, 180, 128)
+        )
+        self.assertTrue(color_item.color_value.startswith("#"))
+        self.assertEqual(color_item.label_value, "Native color")
+        self.assertEqual(color_item.symbol_value, native.LegendSymbol.CIRCLE)
+        self.assertIsNone(color_item.data_value)
         self.assertEqual(len(layout.items), len(items))
         self.assertEqual(tuple(item.symbol for item in layout.items), tuple(native.LegendSymbol))
         self.assertEqual(layout.title.text, "Measurements")
@@ -2703,6 +2940,26 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertGreater(layout.columns, 0)
         self.assertGreater(layout.rows, 0)
         self.assertFalse(layout.is_empty())
+        self.assertEqual(
+            native.LegendLayout.try_from_config_with_char_width(
+                config, 800.0, 7.0
+            ),
+            layout,
+        )
+        self.assertEqual(
+            native.LegendLayout.from_config(config, 800.0),
+            config.layout(800.0),
+        )
+        self.assertEqual(
+            native.LegendLayout.try_from_config(config, 800.0),
+            config.try_layout(800.0),
+        )
+        point = native.LegendPoint.new(1, 2)
+        self.assertEqual(point, native.LegendPoint(1.0, 2.0))
+        self.assertEqual(
+            native.LegendRect.new(1, 2, 3, 4),
+            native.LegendRect(point, 3.0, 4.0),
+        )
         for item in layout.items:
             for bounds in (item.item_bounds, item.symbol_bounds, item.label_bounds):
                 self.assertTrue(
@@ -2728,7 +2985,7 @@ class NativeWrapperTests(unittest.TestCase):
         scaled_items = native.legend_from_scale(
             lambda value: "#ff0000" if value < 0.5 else "#0000ff",
             (0.0, 1.0),
-            lambda value: f"{value:.1f}",
+            format=lambda value: f"{value:.1f}",
         )
         scaled = original.items(scaled_items).layout(400.0)
         self.assertEqual(tuple(item.symbol for item in scaled.items), (
@@ -2765,6 +3022,12 @@ class NativeWrapperTests(unittest.TestCase):
             native.LegendLayoutErrorKind.NON_POSITIVE_AVERAGE_CHAR_WIDTH,
         )
         self.assertEqual(invalid_char_width.exception.value, 0.0)
+        with self.assertRaisesRegex(RuntimeError, "owned by the GPUI host"):
+            native.LegendConfig.from_design(object())
+        with self.assertRaisesRegex(RuntimeError, "owned by the GPUI host"):
+            original.with_design(object())
+        with self.assertRaisesRegex(RuntimeError, "owned by the GPUI host"):
+            native.render_legend(config, 800.0, "#000000", None)
 
     def test_installed_extension_runs_renderer_independent_axis_layout(self):
         if not native.AVAILABLE:
@@ -2790,6 +3053,7 @@ class NativeWrapperTests(unittest.TestCase):
         )
         layout = native.axis_layout(scale, config, 80.0)
         self.assertIs(d3rs.AxisConfig, native.AxisConfig)
+        self.assertIs(d3rs.AxisTheme, native.AxisTheme)
         self.assertNotEqual(original, config)
         self.assertEqual(layout.orientation, native.AxisOrientation.BOTTOM)
         self.assertEqual(tuple(tick.value for tick in layout.major_ticks), (0.0, 50.0, 100.0))
@@ -2797,6 +3061,13 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertEqual(tuple(tick.value for tick in layout.minor_ticks), (25.0, 75.0))
         self.assertTrue(all(tick.is_minor for tick in layout.minor_ticks))
         self.assertEqual(len(layout.ticks()), 5)
+        self.assertEqual(layout.all_ticks(), layout.ticks())
+        self.assertEqual(
+            native.AxisLayout.from_scale(scale, config, 80.0), layout
+        )
+        self.assertEqual(
+            native.AxisLayout.try_from_scale(scale, config, 80.0), layout
+        )
         self.assertIsNotNone(layout.domain_line)
         self.assertEqual(layout.title.text, "Frequency")
         self.assertGreater(config.total_size(), original.total_size())
@@ -2825,6 +3096,19 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertIsNone(hidden.domain_line)
         self.assertTrue(native.AxisOrientation.TOP.is_horizontal())
         self.assertTrue(native.AxisOrientation.LEFT.is_vertical())
+        point = native.AxisPoint.new(1, 2)
+        self.assertEqual(point, native.AxisPoint(1.0, 2.0))
+        self.assertEqual(native.AxisLine.new(point, point), native.AxisLine(point, point))
+        theme = native.DefaultAxisTheme()
+        self.assertEqual(theme.axis_line_color(), native.AxisRgba(0.5, 0.5, 0.5, 1.0))
+        self.assertEqual(theme.axis_label_color(), native.AxisRgba(0.3, 0.3, 0.3, 1.0))
+        self.assertIsNone(theme.background_color())
+        with self.assertRaisesRegex(RuntimeError, "owned by the GPUI host"):
+            native.AxisConfig.from_design(object())
+        with self.assertRaisesRegex(RuntimeError, "owned by the GPUI host"):
+            original.with_design(object())
+        with self.assertRaisesRegex(RuntimeError, "owned by the GPUI host"):
+            native.render_axis(scale, config, 80.0, theme)
 
         with self.assertRaises(native.AxisLayoutError) as invalid_size:
             config.try_layout(scale, -1.0)
@@ -2863,6 +3147,16 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertEqual(len(layout.horizontal_lines), 3)
         self.assertEqual(len(layout.dots), 12)
         self.assertFalse(layout.is_empty())
+        self.assertEqual(
+            native.GridLayout.from_scales(x_scale, y_scale, config, 600.0, 400.0),
+            layout,
+        )
+        self.assertEqual(
+            native.GridLayout.try_from_scales(
+                x_scale, y_scale, config, 600.0, 400.0
+            ),
+            layout,
+        )
         self.assertAlmostEqual(layout.vertical_lines[0].start.x, 0.0)
         self.assertAlmostEqual(layout.vertical_lines[-1].start.x, 600.0)
         self.assertAlmostEqual(layout.horizontal_lines[0].start.y, 400.0)
@@ -2874,6 +3168,29 @@ class NativeWrapperTests(unittest.TestCase):
                 for value in (dot.x_value, dot.y_value, dot.center.x, dot.center.y)
             )
         )
+        point = native.GridPoint.new(1, 2)
+        self.assertEqual(point, native.GridPoint(1.0, 2.0))
+        self.assertEqual(
+            native.GridLine.new(3, point, point),
+            native.GridLine(3.0, point, point),
+        )
+        self.assertEqual(
+            native.GridDot.new(4, 5, point),
+            native.GridDot(4.0, 5.0, point),
+        )
+        with self.assertRaisesRegex(RuntimeError, "owned by the GPUI host"):
+            native.GridConfig.from_design(object())
+        with self.assertRaisesRegex(RuntimeError, "owned by the GPUI host"):
+            original.with_design(object())
+        with self.assertRaisesRegex(RuntimeError, "owned by the GPUI host"):
+            native.render_grid(
+                x_scale,
+                y_scale,
+                config,
+                600.0,
+                400.0,
+                native.DefaultAxisTheme(),
+            )
 
         dots = native.GridConfig.dots_only().with_vertical_values((1.0,)).with_horizontal_values((0.0,)).layout(
             x_scale, y_scale, 600.0, 400.0
@@ -2918,6 +3235,11 @@ class NativeWrapperTests(unittest.TestCase):
 
         lifecycle: list[str] = []
         original = native.Transition.new()
+        defaults = native.TransitionConfig()
+        self.assertEqual(defaults.duration, 250.0)
+        self.assertEqual(defaults.delay, 0.0)
+        self.assertEqual(defaults.ease, native.TransitionEase.LINEAR)
+        self.assertIsNone(defaults.name)
         transition = (
             original.duration(100.0)
             .delay(20.0)
@@ -2974,8 +3296,10 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertIsNone(manager.get("x"))
         manager.add("a", native.Transition.new().duration(100.0))
         manager.add("b", native.Transition.new().duration(100.0))
-        manager.interrupt_all()
+        manager.interrupt("a")
         self.assertIsNone(manager.get("a"))
+        manager.interrupt_all()
+        self.assertIsNone(manager.get("b"))
 
         with self.assertRaisesRegex(ValueError, "non-negative"):
             native.Transition.new().duration(-1.0).start()
@@ -2991,6 +3315,10 @@ class NativeWrapperTests(unittest.TestCase):
         native.timer_flush()
         native.set_now(before)
         self.assertGreaterEqual(native.now(), before)
+        with self.assertRaisesRegex(RuntimeError, "owned by the GPUI host"):
+            native.set_ui_dispatcher(lambda callback: callback())
+        with self.assertRaisesRegex(RuntimeError, "owned by the GPUI host"):
+            native.clear_ui_dispatcher()
         self.assertIs(d3rs.Timer, native.Timer)
 
         timer_elapsed: list[float] = []
@@ -3053,6 +3381,10 @@ class NativeWrapperTests(unittest.TestCase):
 
         extent = native.DragExtent.try_new(0.0, 0.0, 100.0, 50.0)
         config = native.DragConfig().with_click_distance(5.0).with_extent(extent)
+        self.assertIs(config.validate(), config)
+        point = native.DragPoint.try_new(8.0, 9.0)
+        self.assertEqual(point.delta_from(native.DragPoint(3.0, 5.0)), native.DragDelta(5.0, 4.0))
+        self.assertEqual(extent.clamp(native.DragPoint(120.0, -2.0)), native.DragPoint(100.0, 0.0))
         drag = native.DragState.with_config(config)
         self.assertIs(d3rs.DragState, native.DragState)
         self.assertEqual(drag.config(), config)
@@ -3076,6 +3408,7 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertEqual(end.current, native.DragPoint(100.0, 0.0))
         self.assertFalse(drag.is_active())
         self.assertIsNone(drag.active_pointer_id())
+        self.assertIsNone(drag.current_update())
 
         drag.start(9, 10.0, 10.0)
         with self.assertRaises(native.DragError) as already_active:
@@ -3130,6 +3463,15 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertAlmostEqual(domain.y1, 5.0)
         self.assertEqual(brush.end(), current)
         self.assertFalse(brush.is_active())
+        brush.start(1.0, 2.0)
+        brush.update(3.0, 4.0)
+        brush.reset()
+        self.assertFalse(brush.is_active())
+        self.assertIsNone(brush.current_selection())
+        self.assertEqual(
+            native.DomainSelection.new(8.0, 9.0, 2.0, 1.0),
+            native.DomainSelection(2.0, 1.0, 8.0, 9.0),
+        )
 
         log_domain = native.BrushSelection.new(0.0, 0.0, 250.0, 100.0).to_domain(
             native.AxisScale.log().with_domain(20.0, 20000.0).with_range(0.0, 500.0),
@@ -3137,7 +3479,11 @@ class NativeWrapperTests(unittest.TestCase):
         )
         self.assertAlmostEqual(log_domain.x0, 20.0)
         self.assertAlmostEqual(log_domain.x1, 632.4555, delta=1.0)
-        self.assertEqual(native.BrushConfig().min_size, 5.0)
+        brush_config = native.BrushConfig()
+        self.assertEqual(brush_config.fill_color, (100, 150, 200, 80))
+        self.assertEqual(brush_config.stroke_color, (70, 130, 180))
+        self.assertEqual(brush_config.stroke_width, 1.0)
+        self.assertEqual(brush_config.min_size, 5.0)
 
         zoom = native.ZoomState.new(0.0, 100.0, -10.0, 10.0)
         self.assertIs(d3rs.ZoomState, native.ZoomState)
@@ -3160,9 +3506,17 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertEqual(positive.x_domain(), (20.0, 20000.0))
         log_zoom.set_original(10.0, 10000.0, 1.0, 200.0)
         self.assertEqual(log_zoom.original_x_domain(), (10.0, 10000.0))
+        self.assertEqual(log_zoom.original_y_domain(), (1.0, 200.0))
         self.assertFalse(log_zoom.is_zoomed())
         log_zoom.reset()
-        self.assertEqual(native.ZoomConfig().min_extent, 0.001)
+        log_y = positive.with_log_y(True)
+        log_y.zoom_to(20.0, 1000.0, -10.0, 50.0)
+        self.assertEqual(log_y.y_domain(), (1.0, 50.0))
+        zoom_config = native.ZoomConfig()
+        self.assertTrue(zoom_config.zoom_x)
+        self.assertTrue(zoom_config.zoom_y)
+        self.assertEqual(zoom_config.min_extent, 0.001)
+        self.assertEqual(zoom_config.max_extent, 100.0)
 
         with self.assertRaisesRegex(ValueError, "strictly increasing"):
             native.ZoomState.new(1.0, 1.0, 0.0, 1.0)
@@ -3178,10 +3532,10 @@ class NativeWrapperTests(unittest.TestCase):
         payload = {"revision": 7}
         received: list[tuple[str, object]] = []
         persistent = dispatcher.on(
-            "update", lambda event: received.append((event.type_, event.data))
+            "update", lambda event: received.append((event.type_, event.payload))
         )
         dispatcher.once(
-            "update", lambda event: received.append(("once", event.data))
+            "update", lambda event: received.append(("once", event.payload))
         )
         dispatcher.on("close", lambda _event: None)
 
@@ -3206,4 +3560,9 @@ class NativeWrapperTests(unittest.TestCase):
 
         event = native.Event.with_data("data", payload)
         self.assertEqual(event.type_, "data")
-        self.assertIs(event.data, payload)
+        self.assertIs(event.payload, payload)
+        self.assertIs(event.data(dict), payload)
+        self.assertIsNone(event.data(list))
+        self.assertIs(event.data(), payload)
+        with self.assertRaisesRegex(TypeError, "must be a type"):
+            event.data("dict")

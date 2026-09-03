@@ -199,6 +199,7 @@ pub struct Showcase {
     pub toggle_on: bool,
     pub toggle_lg: bool,
     pub checkbox_checked: bool,
+    pub radio_selected: Option<SharedString>,
     // Slider value
     pub slider_value: f32,
     // Vertical slider value
@@ -318,6 +319,7 @@ impl Showcase {
             toggle_on: true,
             toggle_lg: false,
             checkbox_checked: true,
+            radio_selected: Some("radio-a".into()),
             slider_value: 0.5,
             number_value: 42.0,
             number_freq: 1000.0,
@@ -606,6 +608,7 @@ impl Showcase {
         let entity = self.weak_entity_handle();
         let toggle_on = self.toggle_on;
         let checkbox_checked = self.checkbox_checked;
+        let radio_selected = self.radio_selected.clone();
         let slider_value = self.slider_value;
 
         match section {
@@ -618,6 +621,7 @@ impl Showcase {
                     toggle_on,
                     self.toggle_lg,
                     checkbox_checked,
+                    radio_selected,
                     slider_value,
                     self.number_value,
                     self.number_freq,

@@ -1,0 +1,11 @@
+[package]
+name = "gpui-release-gates"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Release-QA metadata (stability, gates, publish plan) for the GPUI toolkit workspace"
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false

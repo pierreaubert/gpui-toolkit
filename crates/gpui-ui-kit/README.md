@@ -43,6 +43,7 @@ gpui-ui-kit = { version = "0.6.12", git="https://github.com/pierreaubert/sotf/tr
 | `Input` | Text input with label, placeholder, validation, mouse drag selection, clipboard (Cmd+C/V/X), and Emacs keybindings |
 | `NumberInput` | Numeric input with +/- buttons, min/max bounds, step size, scroll wheel support, and keyboard navigation |
 | `Checkbox` | Checkbox with label and indeterminate state |
+| `RadioGroup` | Single-select radio group with keyboard navigation and disabled options |
 | `Toggle` | Toggle switch |
 | `Select` | Dropdown select with options |
 | `ButtonSet` | Grouped button options for single selection |
@@ -132,6 +133,7 @@ Button::new("link-btn", "Visit website")
 // All components auto-register with sensible defaults:
 // Button -> AriaRole::Button
 // Checkbox -> AriaRole::Checkbox
+// RadioGroup -> AriaRole::Radiogroup (options -> AriaRole::Radio)
 // Toggle -> AriaRole::Switch
 // Slider -> AriaRole::Slider (with value_range)
 // Select -> AriaRole::Combobox
@@ -579,6 +581,24 @@ Toggle::new("notifications")
     .label("Enable notifications")
     .checked(false)
     .size(ToggleSize::Md)
+```
+
+### RadioGroup
+
+```rust
+use gpui_ui_kit::{RadioGroup, RadioGroupSize, RadioOption};
+
+RadioGroup::new("shipping")
+    .options(vec![
+        RadioOption::new("standard", "Standard (5 days)"),
+        RadioOption::new("express", "Express (2 days)"),
+        RadioOption::new("overnight", "Overnight").disabled(true),
+    ])
+    .selected(Some("standard"))
+    .size(RadioGroupSize::Md)
+    .on_change(|value, window, cx| {
+        println!("Selected: {}", value);
+    })
 ```
 
 ### Select

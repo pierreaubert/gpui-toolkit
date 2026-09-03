@@ -1,8 +1,8 @@
-use crate::ComponentTheme;
+use crate::{ComponentTheme, ComponentVariant};
 use gpui::Rgba;
 
 /// Button visual variant
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ComponentVariant)]
 pub enum ButtonVariant {
     /// Primary action button (accent color)
     #[default]

@@ -16,6 +16,7 @@ members = [
     "crates/gpui-profiler",
     "crates/gpui-px",
     "crates/gpui-python-runtime",
+    "crates/gpui-release-gates",
     "crates/gpui-scaffolder",
     "crates/gpui-showcase",
     "crates/gpui-showcase/android",
@@ -112,6 +113,7 @@ gpui-pretext = { path = "crates/gpui-pretext", version = "0.9" }
 gpui-profiler = { path = "crates/gpui-profiler", version = "0.9" }
 gpui-px = { path = "crates/gpui-px", version = "0.9", default-features = false }
 gpui-python-runtime = { path = "crates/gpui-python-runtime", version = "0.9" }
+gpui-release-gates = { path = "crates/gpui-release-gates", version = "0.9" }
 gpui-scaffolder = { path = "crates/gpui-scaffolder", version = "0.9" }
 gpui-showcase = { path = "crates/gpui-showcase", version = "0.9" }
 gpui-themes = { path = "crates/gpui-themes", version = "0.9" }

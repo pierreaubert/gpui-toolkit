@@ -6,7 +6,7 @@ use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{Data, DeriveInput, Expr, Fields, Lit, LitInt, Meta, Token};
 
-fn combined_compile_error(errors: Vec<syn::Error>) -> TokenStream {
+pub(crate) fn combined_compile_error(errors: Vec<syn::Error>) -> TokenStream {
     let mut iter = errors.into_iter();
     let mut combined = iter.next().expect("expected at least one macro error");
     for error in iter {
@@ -209,6 +209,35 @@ fn parse_string_attribute(
 /// - A field is missing `from` or `from_expr`
 /// - An expression in `from_expr` or `default_expr` fails to parse
 /// - A numeric literal is out of range for the expected type
+// Scan a `from_expr` string for `theme.<field>` references. The coverage
+// gate in `THEME_SOURCES` uses this so fields consumed indirectly — for
+// example via `from_expr = "with_alpha(theme.accent, 0.2)"` — are still
+// attributed to the component theme.
+fn theme_refs_in_expr(expr: &str) -> Vec<String> {
+    let chars: Vec<char> = expr.chars().collect();
+    let mut refs = Vec::new();
+    let mut index = 0;
+    while index < chars.len() {
+        let rest: String = chars[index..].iter().collect();
+        if let Some(stripped) = rest.strip_prefix("theme.") {
+            let end: usize = stripped
+                .chars()
+                .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+                .map(|ch| ch.len_utf8())
+                .sum();
+            if end > 0 {
+                refs.push(stripped[..end].to_string());
+                index += "theme.".len() + end;
+            } else {
+                index += chars[index].len_utf8();
+            }
+        } else {
+            index += chars[index].len_utf8();
+        }
+    }
+    refs
+}
+
 pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
     let input = match syn::parse2::<DeriveInput>(input) {
         Ok(input) => input,
@@ -290,6 +319,7 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
     let field_count = fields.len();
     let mut default_fields = Vec::with_capacity(field_count);
     let mut from_fields = Vec::with_capacity(field_count);
+    let mut theme_sources: Vec<String> = Vec::with_capacity(field_count);
     let mut errors: Vec<syn::Error> = Vec::with_capacity(field_count);
 
     for field in fields {
@@ -540,6 +570,7 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
 
         // Generate From<&Theme> field
         if let Some(expr_str) = from_expr {
+            theme_sources.extend(theme_refs_in_expr(&expr_str));
             let expr: syn::Expr = match syn::parse_str(&expr_str) {
                 Ok(e) => e,
                 Err(error) => {
@@ -554,6 +585,7 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
                 #field_name: #expr
             });
         } else if let Some(from) = from_field {
+            theme_sources.push(from.to_string());
             from_fields.push(quote! {
                 #field_name: theme.#from
             });
@@ -569,6 +601,9 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
     if !errors.is_empty() {
         return combined_compile_error(errors);
     }
+
+    theme_sources.sort();
+    theme_sources.dedup();
 
     let expanded = quote! {
         #[automatically_derived]
@@ -601,6 +636,18 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
             fn from(theme: &std::sync::Arc<#theme_path>) -> Self {
                 Self::from(theme.as_ref())
             }
+        }
+
+        #[automatically_derived]
+        impl #impl_generics #name #ty_generics #where_clause {
+            /// Global theme fields consumed by this component theme.
+            ///
+            /// Sorted, deduplicated list of `from = <field>` targets plus
+            /// `theme.<field>` references scraped from `from_expr` strings.
+            /// The theme-coverage test asserts that every global `Theme` field
+            /// appears in at least one component theme's list, catching drift
+            /// when theme fields are added or renamed.
+            pub const THEME_SOURCES: &'static [&'static str] = &[#(#theme_sources),*];
         }
     };
 
@@ -672,6 +719,9 @@ pub(crate) fn derive_component_builder_impl(input: TokenStream) -> TokenStream {
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
+    let docs_json = super::prop_docs::build_prop_docs_json(fields, &parsed_fields);
+    let docs_literal = proc_macro2::Literal::string(&docs_json);
+
     let expanded = quote! {
         #[automatically_derived]
         impl #impl_generics #name #ty_generics #where_clause {
@@ -682,6 +732,13 @@ pub(crate) fn derive_component_builder_impl(input: TokenStream) -> TokenStream {
             }
 
             #(#setters)*
+
+            /// Machine-readable prop table for showcase/Storybook-style docs.
+            ///
+            /// Generated from the `#[field(...)]` attributes and `///` doc
+            /// comments. Parse with any JSON reader; see
+            /// `prop_docs` module docs for the entry shape.
+            pub const __PROP_DOCS_JSON: &'static str = #docs_literal;
         }
     };
 
@@ -743,7 +800,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(theme.matches("automatically_derived").count(), 4);
+        assert_eq!(theme.matches("automatically_derived").count(), 5);
 
         let builder = builder_derive(
             r#"
@@ -898,6 +955,46 @@ mod tests {
 
     fn builder_derive(input: &str) -> String {
         derive_component_builder_impl(input.parse().unwrap()).to_string()
+    }
+
+    #[test]
+    fn theme_sources_lists_from_fields_and_expr_refs() {
+        let out = theme_derive(
+            r#"
+            #[derive(ComponentTheme)]
+            pub struct MyTheme {
+                #[theme(default = 0x007acc, from = accent)]
+                pub primary: u32,
+                #[theme(default = 0x007acc, from = accent)]
+                pub secondary: u32,
+                #[theme(default_expr = "0", from_expr = "with_alpha(theme.surface, 0.2)")]
+                pub tinted: u32,
+            }
+            "#,
+        );
+        assert!(out.contains("pub const THEME_SOURCES"), "{out}");
+        assert!(out.contains("\"accent\""), "{out}");
+        assert!(out.contains("\"surface\""), "{out}");
+        // Deduplicated: accent appears once despite two `from = accent` fields.
+        assert_eq!(out.matches("\"accent\"").count(), 1, "{out}");
+    }
+
+    #[test]
+    fn builder_emits_prop_docs_json() {
+        let out = builder_derive(
+            r#"
+            #[derive(ComponentBuilder)]
+            pub struct MyBuilder {
+                /// Element id.
+                #[field(required)]
+                pub id: String,
+                #[field(optional)]
+                pub label: Option<String>,
+            }
+            "#,
+        );
+        assert!(out.contains("__PROP_DOCS_JSON"), "{out}");
+        assert!(out.contains("Element id."), "{out}");
     }
 
     #[test]

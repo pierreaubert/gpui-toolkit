@@ -46,6 +46,7 @@ cx.register_accessible(AccessibilityNode {
 |---------------|-----------------|
 | Buttons | `Button` |
 | Checkboxes | `Checkbox` |
+| Radio groups | `Radiogroup` (options: `Radio`) |
 | Toggles | `Switch` |
 | Text inputs | `Textbox` |
 | Number inputs | `Spinbutton` |

@@ -45,8 +45,11 @@ pub mod size;
 pub mod checkbox;
 pub mod color;
 pub mod color_picker;
+// pub mod combobox; // lands with the Combobox component
+// pub mod date_picker; // lands with the DatePicker component
 pub mod input;
 pub mod number_input;
+pub mod radio_group;
 pub mod select;
 pub mod slider;
 pub mod toggle;
@@ -147,6 +150,9 @@ pub use toast::{Toast, ToastContainer, ToastPosition, ToastVariant};
 pub use checkbox::{Checkbox, CheckboxSize, CheckboxTheme};
 pub use color::Color;
 pub use color_picker::{ColorPickerMode, ColorPickerView};
+pub use radio_group::{
+    RadioGroup, RadioGroupOrientation, RadioGroupSize, RadioGroupTheme, RadioOption,
+};
 pub use input::{
     Input, InputSize, InputTheme, InputVariant, cleanup_input_state, cleanup_stale_input_states,
     clear_all_input_states, input_state_count, is_input_editing,
@@ -257,5 +263,5 @@ pub use tree_view::{TreeNode, TreeView, TreeViewTheme};
 // Shared size definitions
 pub use size::ComponentSize;
 
-// Derive macros for theme and builder generation
-pub use gpui_ui_kit_macros::{ComponentBuilder, ComponentTheme, FormField};
+// Derive macros for theme, builder, and variant generation
+pub use gpui_ui_kit_macros::{ComponentBuilder, ComponentTheme, ComponentVariant, FormField};

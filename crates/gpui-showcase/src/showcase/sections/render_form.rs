@@ -7,6 +7,7 @@ impl Showcase {
         toggle_on: bool,
         toggle_lg: bool,
         checkbox_checked: bool,
+        radio_selected: Option<SharedString>,
         slider_value: f32,
         number_value: f64,
         number_freq: f64,
@@ -26,6 +27,7 @@ impl Showcase {
         let section_title = cx.t(TranslationKey::SectionFormControls);
         let toggles_label = cx.t(TranslationKey::LabelToggles);
         let checkboxes_label = cx.t(TranslationKey::LabelCheckboxes);
+        let radio_group_label = cx.t(TranslationKey::LabelRadioGroup);
         let slider_label = cx.t(TranslationKey::LabelSlider);
         let small = cx.t(TranslationKey::LabelSmall);
         let medium = cx.t(TranslationKey::LabelMedium);
@@ -141,6 +143,33 @@ impl Showcase {
                                     .disabled(true)
                                     .checked(true),
                             ),
+                    ),
+            )
+            // Radio group
+            .child(
+                VStack::new()
+                    .spacing(StackSpacing::Sm)
+                    .child(Text::new(radio_group_label).weight(TextWeight::Medium))
+                    .child(
+                        RadioGroup::new("rg-demo")
+                            .options(vec![
+                                RadioOption::new("radio-a", small.clone()),
+                                RadioOption::new("radio-b", medium.clone()),
+                                RadioOption::new(
+                                    "radio-c",
+                                    large.clone(),
+                                )
+                                .disabled(true),
+                            ])
+                            .selected(radio_selected)
+                            .on_change({
+                                let entity = entity.clone();
+                                move |value, _window, cx| {
+                                    entity.update(cx, |showcase, _| {
+                                        showcase.radio_selected = Some(value);
+                                    });
+                                }
+                            }),
                     ),
             )
             // Slider

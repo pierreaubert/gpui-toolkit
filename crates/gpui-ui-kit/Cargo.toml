@@ -103,6 +103,9 @@ name = "card_debug"
 name = "checkbox_debug"
 
 [[example]]
+name = "radio_group_debug"
+
+[[example]]
 name = "command_palette_debug"
 
 [[example]]

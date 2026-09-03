@@ -399,7 +399,7 @@ const RELEASE_NOTES_ARTIFACTS: &[ReleaseNotesArtifact] = &[
         id: "public-core-dry-runs",
         crate_name: "public-core crates",
         artifact: "Crates.io publish dry-run outputs",
-        source: "gpui_toolkit::publish_plan()",
+        source: "gpui_release_gates::publish_plan()",
         status: ReleaseNotesArtifactStatus::PendingCommand,
         evidence: "Publish plan records command order and predecessor blockers.",
         release_requirement: "Run and attach dry-run output in dependency order before publishing.",
@@ -408,7 +408,7 @@ const RELEASE_NOTES_ARTIFACTS: &[ReleaseNotesArtifact] = &[
         id: "platform-qa-artifacts",
         crate_name: "platform/mobile/showcase lanes",
         artifact: "Platform runtime, simulator/device, and showcase visual QA evidence",
-        source: "gpui_toolkit::release_qa_matrix()",
+        source: "gpui_release_gates::release_qa_matrix()",
         status: ReleaseNotesArtifactStatus::ExternalGate,
         evidence: "The matrix links automated Android/iOS/tvOS runtime and visual artifacts while retaining macOS, AU, Windows, native screen-reader, and physical-device manual gates.",
         release_requirement: "Attach platform/device/manual QA artifacts or keep these lanes internal.",
@@ -426,7 +426,7 @@ const RELEASE_NOTES_ARTIFACTS: &[ReleaseNotesArtifact] = &[
         id: "aggregate-exclusion",
         crate_name: "gpui-toolkit",
         artifact: "Aggregate crate exclusion rationale",
-        source: "gpui_toolkit::{crate_stability_manifest, release_packaging_report}",
+        source: "gpui_release_gates::{crate_stability_manifest, release_packaging_report}",
         status: ReleaseNotesArtifactStatus::Excluded,
         evidence: "Aggregate crate is publish-disabled and documents feature/lane boundaries.",
         release_requirement: "Keep excluded until constituent crates pass release gates.",
@@ -634,7 +634,7 @@ mod tests {
     #[test]
     fn release_note_stability_labels_match_manifest() {
         for entry in release_notes_entries() {
-            if let Some(manifest) = crate::crate_stability_manifest()
+            if let Some(manifest) = crate::stability::crate_stability_manifest()
                 .iter()
                 .find(|manifest| manifest.crate_name == entry.crate_name)
             {

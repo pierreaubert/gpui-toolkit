@@ -313,7 +313,7 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
     ReleaseQaGate {
         id: "publish-dry-runs",
         area: "Crate publishing",
-        command: "gpui_toolkit::publish_plan() and cargo publish --dry-run per selected public crate",
+        command: "gpui_release_gates::publish_plan() and cargo publish --dry-run per selected public crate",
         status: ReleaseQaStatus::Passed,
         evidence: "Locked package verification passes for wave-1 gpui-design, gpui-profiler, and gpui-ui-kit-macros. gpui-pretext is deliberately deferred until gpui-profiler exists on crates.io, and GPUI-dependent crates remain source-tag beta.",
         release_requirement: "Publish only the reviewed wave-1 crates, then rerun deferred packages in dependency order; do not imply a registry path for GPUI-dependent crates.",
@@ -321,7 +321,7 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
     ReleaseQaGate {
         id: "release-notes",
         area: "Release notes/changelog",
-        command: "gpui_toolkit::release_notes_report()",
+        command: "gpui_release_gates::release_notes_report()",
         status: ReleaseQaStatus::Passed,
         evidence: "The stable release-note readiness report and release contract record crate-level stability, platform support, accepted preview exclusions, limitations, and artifact requirements.",
         release_requirement: "Resolve or explicitly accept release-note blockers before tagging or publishing.",
@@ -337,7 +337,7 @@ const RELEASE_QA_GATES: &[ReleaseQaGate] = &[
     ReleaseQaGate {
         id: "dependency-hygiene",
         area: "Security/dependency hygiene",
-        command: "gpui_toolkit::dependency_hygiene_report(), cargo audit, and cargo deny",
+        command: "gpui_release_gates::dependency_hygiene_report(), cargo audit, and cargo deny",
         status: ReleaseQaStatus::Passed,
         evidence: "dependency_hygiene_report() records accepted cargo-audit and cargo-deny runs; the latest recorded cargo-deny run passed advisories, bans, licenses, and sources with the documented warning-class exceptions.",
         release_requirement: "Attach the accepted outputs, review every warning and advisory exception, and remove exceptions when upstream dependencies permit.",

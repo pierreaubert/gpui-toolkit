@@ -95,9 +95,13 @@ use d3rs::shape::{
     LinkDirection, Path as NativeShapePath, PathBuilder as ShapePathBuilder, PathCommand,
     Pie as ShapePie, Point as ShapePoint, RadialAreaConfig, RadialLineConfig, RadialLink,
     RadialPoint, SimpleArea, Stack as ShapeStack, StackOffset, StackOrder, StackSeries,
-    Symbol as ShapeSymbol, SymbolType, try_arc_points, try_link_horizontal, try_link_radial,
-    try_link_step, try_link_vertical, try_polar_grid_circles, try_polar_grid_rays, try_radial_area,
-    try_radial_line,
+    Symbol as ShapeSymbol, SymbolType, arc_points, link_horizontal as shape_link_horizontal,
+    link_radial as shape_link_radial, link_step as shape_link_step,
+    link_vertical as shape_link_vertical, polar_grid_circles as shape_polar_grid_circles,
+    polar_grid_rays as shape_polar_grid_rays, radial_area as shape_radial_area,
+    radial_line as shape_radial_line, try_arc_points, try_link_horizontal, try_link_radial,
+    try_link_step, try_link_vertical, try_polar_grid_circles, try_polar_grid_rays,
+    try_radial_area, try_radial_line,
 };
 use d3rs::tile::{TileError as D3TileError, TileLayout as D3TileLayout};
 use d3rs::time::{Interval, TimeFormat, TimeFormatParts, TimeInterval, TimeScale};
@@ -4234,23 +4238,31 @@ fn native_arc_datum(value: ArcDatum) -> NativeArcDatum {
 }
 
 #[pyfunction]
-#[pyo3(signature = (datum, *, center=(0.0, 0.0), segments=32))]
+#[pyo3(signature = (datum, *, center=(0.0, 0.0), segments=32, checked=true))]
 fn shape_arc(
     datum: NativeArcDatum,
     center: NativePoint,
     segments: usize,
+    checked: bool,
 ) -> PyResult<NativeArcResult> {
     let datum = arc_datum(datum);
     let arc = ShapeArc::new().center(center.0, center.1);
-    let path = arc
-        .try_path_string(&datum)
-        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    let path = if checked {
+        arc.try_path_string(&datum)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?
+    } else {
+        arc.path_string(&datum)
+    };
     let centroid = datum.centroid();
-    let points = try_arc_points(&datum, segments, center.0, center.1)
-        .map_err(|error| PyValueError::new_err(error.to_string()))?
-        .into_iter()
-        .map(|point| (point.x, point.y))
-        .collect();
+    let points = if checked {
+        try_arc_points(&datum, segments, center.0, center.1)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?
+    } else {
+        arc_points(&datum, segments, center.0, center.1)
+    }
+    .into_iter()
+    .map(|point| (point.x, point.y))
+    .collect();
     Ok((path, (centroid.x + center.0, centroid.y + center.1), points))
 }
 
@@ -4273,54 +4285,104 @@ fn symbol_type(kind: &str) -> PyResult<SymbolType> {
 }
 
 #[pyfunction]
-#[pyo3(signature = (kind, size, *, center=(0.0, 0.0)))]
-fn shape_symbol(kind: &str, size: f64, center: NativePoint) -> PyResult<NativeSymbolResult> {
+#[pyo3(signature = (kind, size, *, center=(0.0, 0.0), checked=true))]
+fn shape_symbol(
+    kind: &str,
+    size: f64,
+    center: NativePoint,
+    checked: bool,
+) -> PyResult<NativeSymbolResult> {
     let symbol = ShapeSymbol::new(symbol_type(kind)?, size);
-    let path = symbol
-        .try_generate_at(center.0, center.1)
-        .map_err(|error| PyValueError::new_err(error.to_string()))?;
-    let points = symbol
-        .try_points()
-        .map_err(|error| PyValueError::new_err(error.to_string()))?
+    let path = if checked {
+        symbol
+            .try_generate_at(center.0, center.1)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?
+    } else {
+        symbol.generate_at(center.0, center.1)
+    };
+    let raw_points = if checked {
+        symbol
+            .try_points()
+            .map_err(|error| PyValueError::new_err(error.to_string()))?
+    } else {
+        symbol.points()
+    };
+    let radius = if checked {
+        symbol
+            .try_radius()
+            .map_err(|error| PyValueError::new_err(error.to_string()))?
+    } else {
+        raw_points
+            .iter()
+            .map(|point| point.x.hypot(point.y))
+            .fold(0.0_f64, f64::max)
+    };
+    let points = raw_points
         .into_iter()
         .map(|point| (point.x + center.0, point.y + center.1))
         .collect();
-    let radius = symbol
-        .try_radius()
-        .map_err(|error| PyValueError::new_err(error.to_string()))?;
     Ok((path.to_svg_string(), points, radius))
 }
 
 #[pyfunction]
-fn shape_link(kind: &str, source: NativePoint, target: NativePoint) -> PyResult<String> {
+#[pyo3(signature = (kind, source, target, *, checked=true))]
+fn shape_link(
+    kind: &str,
+    source: NativePoint,
+    target: NativePoint,
+    checked: bool,
+) -> PyResult<String> {
     let link = ShapeLink::from_points(source, target);
-    match kind {
-        "horizontal" => try_link_horizontal(&link),
-        "vertical" => try_link_vertical(&link),
-        "step_horizontal" => try_link_step(&link, LinkDirection::Horizontal),
-        "step_vertical" => try_link_step(&link, LinkDirection::Vertical),
-        "step_radial" => try_link_step(&link, LinkDirection::Radial),
+    let direction = match kind {
+        "horizontal" | "vertical" => None,
+        "step_horizontal" => Some(LinkDirection::Horizontal),
+        "step_vertical" => Some(LinkDirection::Vertical),
+        "step_radial" => Some(LinkDirection::Radial),
         _ => {
             return Err(PyValueError::new_err(format!("unknown link type {kind:?}")));
         }
+    };
+    if checked {
+        match direction {
+            Some(direction) => try_link_step(&link, direction),
+            None if kind == "horizontal" => try_link_horizontal(&link),
+            None => try_link_vertical(&link),
+        }
+        .map_err(|error| PyValueError::new_err(error.to_string()))
+    } else {
+        Ok(match direction {
+            Some(direction) => shape_link_step(&link, direction),
+            None if kind == "horizontal" => shape_link_horizontal(&link),
+            None => shape_link_vertical(&link),
+        })
     }
-    .map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
 #[pyfunction]
+#[pyo3(signature = (
+    source_angle, source_radius, target_angle, target_radius, center, *, checked=true
+))]
 fn shape_radial_link(
     source_angle: f64,
     source_radius: f64,
     target_angle: f64,
     target_radius: f64,
     center: NativePoint,
+    checked: bool,
 ) -> PyResult<(String, NativePoint, NativePoint)> {
     let link = RadialLink::new(source_angle, source_radius, target_angle, target_radius);
-    let cartesian = link
-        .try_to_cartesian(center.0, center.1)
-        .map_err(|error| PyValueError::new_err(error.to_string()))?;
-    let path = try_link_radial(&link, center.0, center.1)
-        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    let cartesian = if checked {
+        link.try_to_cartesian(center.0, center.1)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?
+    } else {
+        link.to_cartesian(center.0, center.1)
+    };
+    let path = if checked {
+        try_link_radial(&link, center.0, center.1)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?
+    } else {
+        shape_link_radial(&link, center.0, center.1)
+    };
     Ok((
         path,
         (cartesian.source_x, cartesian.source_y),
@@ -4332,7 +4394,7 @@ fn shape_radial_link(
 #[pyo3(signature = (
     values, *, start_angle=0.0, end_angle=std::f64::consts::TAU,
     pad_angle=0.0, inner_radius=0.0, outer_radius=100.0,
-    corner_radius=0.0, sort=false, descending=true
+    corner_radius=0.0, sort=false, descending=true, checked=true
 ))]
 #[allow(clippy::too_many_arguments)]
 fn shape_pie(
@@ -4345,6 +4407,7 @@ fn shape_pie(
     corner_radius: f64,
     sort: bool,
     descending: bool,
+    checked: bool,
 ) -> PyResult<Vec<NativePieSlice>> {
     let pie = ShapePie::new()
         .start_angle(start_angle)
@@ -4355,9 +4418,13 @@ fn shape_pie(
         .corner_radius(corner_radius)
         .sort(sort)
         .sort_descending(descending);
-    Ok(pie
-        .try_generate(&values, |value| *value)
-        .map_err(|error| PyValueError::new_err(error.to_string()))?
+    let slices = if checked {
+        pie.try_generate(&values, |value| *value)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?
+    } else {
+        pie.generate(&values, |value| *value)
+    };
+    Ok(slices
         .into_iter()
         .map(|slice| (slice.index, slice.value, native_arc_datum(slice.arc)))
         .collect())
@@ -4399,15 +4466,17 @@ fn shape_stack(
     keys: Vec<String>,
     order: &str,
     offset: &str,
+    checked: bool,
 ) -> PyResult<Vec<NativeStackSeries>> {
     let order = stack_order(order)?;
     let offset = stack_offset(offset)?;
     let result = py.allow_threads(move || {
-        ShapeStack::new()
-            .keys(keys)
-            .order(order)
-            .offset(offset)
-            .try_generate(&data)
+        let stack = ShapeStack::new().keys(keys).order(order).offset(offset);
+        if checked {
+            stack.try_generate(&data)
+        } else {
+            Ok(stack.generate(&data))
+        }
     });
     Ok(result
         .map_err(|error| PyValueError::new_err(error.to_string()))?
@@ -4502,18 +4571,39 @@ fn shape_curve_interpolate(
 }
 
 #[pyfunction]
-fn radial_point_to_cartesian(angle: f64, radius: f64, cx: f64, cy: f64) -> PyResult<NativePoint> {
-    RadialPoint::new(angle, radius)
-        .try_to_cartesian(cx, cy)
-        .map_err(|error| PyValueError::new_err(error.to_string()))
+#[pyo3(signature = (angle, radius, cx, cy, *, checked=true))]
+fn radial_point_to_cartesian(
+    angle: f64,
+    radius: f64,
+    cx: f64,
+    cy: f64,
+    checked: bool,
+) -> PyResult<NativePoint> {
+    let point = RadialPoint::new(angle, radius);
+    if checked {
+        point
+            .try_to_cartesian(cx, cy)
+            .map_err(|error| PyValueError::new_err(error.to_string()))
+    } else {
+        Ok(point.to_cartesian(cx, cy))
+    }
 }
 
 #[pyfunction]
-fn radial_point_from_cartesian(x: f64, y: f64, cx: f64, cy: f64) -> PyResult<NativePoint> {
-    finite("x", x)?;
-    finite("y", y)?;
-    finite("cx", cx)?;
-    finite("cy", cy)?;
+#[pyo3(signature = (x, y, cx, cy, *, checked=true))]
+fn radial_point_from_cartesian(
+    x: f64,
+    y: f64,
+    cx: f64,
+    cy: f64,
+    checked: bool,
+) -> PyResult<NativePoint> {
+    if checked {
+        finite("x", x)?;
+        finite("y", y)?;
+        finite("cx", cx)?;
+        finite("cy", cy)?;
+    }
     let point = RadialPoint::from_cartesian(x, y, cx, cy);
     Ok((point.angle, point.radius))
 }
@@ -4526,7 +4616,7 @@ fn radial_points(values: Vec<NativePoint>) -> Vec<RadialPoint> {
 }
 
 #[pyfunction]
-#[pyo3(signature = (points, cx, cy, kind, parameter=None, closed=false))]
+#[pyo3(signature = (points, cx, cy, kind, parameter=None, closed=false, checked=true))]
 fn radial_line_path(
     py: Python<'_>,
     points: Vec<NativePoint>,
@@ -4535,20 +4625,23 @@ fn radial_line_path(
     kind: &str,
     parameter: Option<f64>,
     closed: bool,
+    checked: bool,
 ) -> PyResult<String> {
     let curve = shape_curve(kind, parameter)?;
     let points = radial_points(points);
     py.allow_threads(move || {
-        try_radial_line(
-            &points,
-            &RadialLineConfig::new(cx, cy).curve(curve).closed(closed),
-        )
+        let config = RadialLineConfig::new(cx, cy).curve(curve).closed(closed);
+        if checked {
+            try_radial_line(&points, &config)
+        } else {
+            Ok(shape_radial_line(&points, &config))
+        }
     })
     .map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
 #[pyfunction]
-#[pyo3(signature = (points, cx, cy, inner_radius, kind, parameter=None))]
+#[pyo3(signature = (points, cx, cy, inner_radius, kind, parameter=None, checked=true))]
 fn radial_area_path(
     py: Python<'_>,
     points: Vec<NativePoint>,
@@ -4557,32 +4650,44 @@ fn radial_area_path(
     inner_radius: f64,
     kind: &str,
     parameter: Option<f64>,
+    checked: bool,
 ) -> PyResult<String> {
     let curve = shape_curve(kind, parameter)?;
     let points = radial_points(points);
     py.allow_threads(move || {
-        try_radial_area(
-            &points,
-            &RadialAreaConfig::new(cx, cy)
-                .inner_radius(inner_radius)
-                .curve(curve),
-        )
+        let config = RadialAreaConfig::new(cx, cy)
+            .inner_radius(inner_radius)
+            .curve(curve);
+        if checked {
+            try_radial_area(&points, &config)
+        } else {
+            Ok(shape_radial_area(&points, &config))
+        }
     })
     .map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
 #[pyfunction]
+#[pyo3(signature = (cx, cy, radii, *, checked=true))]
 fn polar_grid_circle_paths(
     py: Python<'_>,
     cx: f64,
     cy: f64,
     radii: Vec<f64>,
+    checked: bool,
 ) -> PyResult<Vec<String>> {
-    py.allow_threads(move || try_polar_grid_circles(cx, cy, &radii))
+    py.allow_threads(move || {
+        if checked {
+            try_polar_grid_circles(cx, cy, &radii)
+        } else {
+            Ok(shape_polar_grid_circles(cx, cy, &radii))
+        }
+    })
         .map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
 #[pyfunction]
+#[pyo3(signature = (cx, cy, outer_radius, angles, inner_radius, *, checked=true))]
 fn polar_grid_ray_paths(
     py: Python<'_>,
     cx: f64,
@@ -4590,8 +4695,21 @@ fn polar_grid_ray_paths(
     outer_radius: f64,
     angles: Vec<f64>,
     inner_radius: f64,
+    checked: bool,
 ) -> PyResult<Vec<String>> {
-    py.allow_threads(move || try_polar_grid_rays(cx, cy, outer_radius, &angles, inner_radius))
+    py.allow_threads(move || {
+        if checked {
+            try_polar_grid_rays(cx, cy, outer_radius, &angles, inner_radius)
+        } else {
+            Ok(shape_polar_grid_rays(
+                cx,
+                cy,
+                outer_radius,
+                &angles,
+                inner_radius,
+            ))
+        }
+    })
         .map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
@@ -6539,7 +6657,7 @@ fn native_sankey_error(error: D3SankeyLayoutError) -> NativeSankeyError {
 }
 
 #[pyfunction]
-#[pyo3(signature = (node_names, links, width, height, margins, extent, node_width, node_padding, iterations, node_align, input_order))]
+#[pyo3(signature = (node_names, links, width, height, margins, extent, node_width, node_padding, iterations, node_align, input_order, checked))]
 fn sankey_layout(
     py: Python<'_>,
     node_names: Vec<String>,
@@ -6553,6 +6671,7 @@ fn sankey_layout(
     iterations: usize,
     node_align: &str,
     input_order: bool,
+    checked: bool,
 ) -> PyResult<(Option<NativeSankeyResult>, Option<NativeSankeyError>)> {
     let align = match node_align {
         "left" => D3SankeyNodeAlign::Left,
@@ -6587,8 +6706,12 @@ fn sankey_layout(
     if input_order {
         layout = layout.link_sort_input_order();
     }
-    Ok(
-        py.allow_threads(move || match layout.try_compute(&node_names, &links) {
+    Ok(py.allow_threads(move || {
+        match if checked {
+            layout.try_compute(&node_names, &links)
+        } else {
+            Ok(layout.compute(&node_names, &links))
+        } {
             Ok(result) => (
                 Some((
                     result
@@ -6628,8 +6751,8 @@ fn sankey_layout(
                 None,
             ),
             Err(error) => (None, Some(native_sankey_error(error))),
-        }),
-    )
+        }
+    }))
 }
 
 type NativeHexPoint = (f64, f64, usize);

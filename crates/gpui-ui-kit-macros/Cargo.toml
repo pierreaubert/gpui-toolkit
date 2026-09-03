@@ -24,6 +24,9 @@ urlencoding = []
 [lib]
 proc-macro = true
 
+[dev-dependencies]
+serde_json = { workspace = true }
+
 [dependencies]
 proc-macro2 = { workspace = true }
 quote = { workspace = true }

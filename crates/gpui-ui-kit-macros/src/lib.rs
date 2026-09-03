@@ -4,6 +4,14 @@
 //! The primary macro is [`ComponentTheme`] which generates `Default` and `From<&Theme>`
 //! implementations for theme structs, reducing repetitive boilerplate code.
 //!
+//! - [`ComponentTheme`] also emits `THEME_SOURCES`, the sorted list of global
+//!   theme fields a component consumes (coverage gate in
+//!   `gpui-ui-kit/tests/theme_coverage.rs`).
+//! - [`ComponentBuilder`] / [`FormField`] also emit `__PROP_DOCS_JSON`, a
+//!   machine-readable prop table for showcase/Storybook-style docs.
+//! - [`ComponentVariant`] generates cva-style matchers (`all()`, `as_str()`,
+//!   `Display`/`FromStr`) for `*Variant`/`*Size` enums.
+//!
 //! # Quick Start
 //!
 //! ```ignore
@@ -33,6 +41,13 @@ use proc_macro::TokenStream;
 mod builder_field;
 mod derive;
 mod misc;
+mod prop_docs;
+mod variant;
+
+#[cfg(test)]
+mod snapshots;
+#[cfg(test)]
+mod ui_fail;
 
 #[proc_macro_derive(ComponentTheme, attributes(theme, theme_path, gpui_path))]
 pub fn derive_component_theme(input: TokenStream) -> TokenStream {
@@ -47,4 +62,9 @@ pub fn derive_component_builder(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(FormField, attributes(field, builder))]
 pub fn derive_form_field(input: TokenStream) -> TokenStream {
     derive::derive_component_builder_impl(input.into()).into()
+}
+
+#[proc_macro_derive(ComponentVariant, attributes(variant))]
+pub fn derive_component_variant(input: TokenStream) -> TokenStream {
+    variant::derive_component_variant_impl(input.into()).into()
 }

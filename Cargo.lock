@@ -3181,6 +3181,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-release-gates"
+version = "0.9.25"
+
+[[package]]
 name = "gpui-scaffolder"
 version = "0.9.3"
 dependencies = [
@@ -3273,6 +3277,7 @@ dependencies = [
  "gpui-profiler",
  "gpui-px",
  "gpui-python-runtime",
+ "gpui-release-gates",
  "gpui-scaffolder",
  "gpui-themes",
  "gpui-ui-kit",
@@ -3749,6 +3754,7 @@ version = "0.9.6"
 dependencies = [
  "proc-macro2",
  "quote",
+ "serde_json",
  "syn 3.0.4",
 ]
 

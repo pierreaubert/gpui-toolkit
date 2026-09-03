@@ -202,6 +202,7 @@ pub enum AriaRole {
     Button,
     Checkbox,
     Radio,
+    Radiogroup,
     Textbox,
     Spinbutton,
     Slider,
@@ -249,6 +250,7 @@ impl AriaRole {
             Self::Button => Some(Role::Button),
             Self::Checkbox => Some(Role::CheckBox),
             Self::Radio => Some(Role::RadioButton),
+            Self::Radiogroup => Some(Role::RadioGroup),
             Self::Textbox => Some(Role::TextInput),
             Self::Spinbutton => Some(Role::SpinButton),
             Self::Slider => Some(Role::Slider),
@@ -430,6 +432,7 @@ impl AriaRole {
             Self::Button => "button",
             Self::Checkbox => "checkbox",
             Self::Radio => "radio",
+            Self::Radiogroup => "radiogroup",
             Self::Textbox => "textbox",
             Self::Spinbutton => "spinbutton",
             Self::Slider => "slider",
@@ -1079,6 +1082,8 @@ mod tests {
         assert_eq!(AriaRole::Button.as_str(), "button");
         assert_eq!(AriaRole::Alertdialog.as_str(), "alertdialog");
         assert_eq!(AriaRole::Columnheader.as_str(), "columnheader");
+        assert_eq!(AriaRole::Radio.as_str(), "radio");
+        assert_eq!(AriaRole::Radiogroup.as_str(), "radiogroup");
         assert_eq!(
             AriaState::Checked(true).bridge_name_value(),
             ("checked", Some(true))
@@ -1098,6 +1103,11 @@ mod tests {
             Some(gpui::Role::ProgressIndicator)
         );
         assert_eq!(AriaRole::Slider.native_role(), Some(gpui::Role::Slider));
+        assert_eq!(AriaRole::Radio.native_role(), Some(gpui::Role::RadioButton));
+        assert_eq!(
+            AriaRole::Radiogroup.native_role(),
+            Some(gpui::Role::RadioGroup)
+        );
         assert_eq!(AriaRole::Tablist.native_role(), Some(gpui::Role::TabList));
         assert_eq!(AriaRole::None.native_role(), None);
         assert_eq!(AriaRole::Separator.native_role(), None);

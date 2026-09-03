@@ -1,4 +1,4 @@
-use gpui_ui_kit_macros::{ComponentBuilder, ComponentTheme, FormField};
+use gpui_ui_kit_macros::{ComponentBuilder, ComponentTheme, ComponentVariant, FormField};
 
 mod gpui {
     #[derive(Debug, Clone, Copy, PartialEq)]
@@ -200,4 +200,55 @@ fn test_form_field_required_fields_accept_into_like_readme() {
 
     assert_eq!(component.id, "input");
     assert_eq!(component.value.as_deref(), Some("hello"));
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ComponentVariant)]
+pub enum SampleVariant {
+    #[default]
+    Primary,
+    Secondary,
+    #[variant(name = "danger")]
+    Destructive,
+}
+
+#[test]
+fn test_component_variant_matchers_round_trip() {
+    use std::str::FromStr;
+
+    assert_eq!(SampleVariant::all().len(), 3);
+    assert_eq!(SampleVariant::variant_count(), 3);
+    assert_eq!(SampleVariant::Primary.as_str(), "primary");
+    assert_eq!(SampleVariant::Secondary.as_str(), "secondary");
+    assert_eq!(SampleVariant::Destructive.as_str(), "danger");
+    assert!(SampleVariant::Primary.is_default_variant());
+    assert!(!SampleVariant::Secondary.is_default_variant());
+    assert_eq!(SampleVariant::Primary.to_string(), "primary");
+    assert_eq!(SampleVariant::from_str("primary"), Ok(SampleVariant::Primary));
+    assert_eq!(
+        SampleVariant::from_str("danger"),
+        Ok(SampleVariant::Destructive)
+    );
+    assert!(SampleVariant::from_str("unknown").is_err());
+}
+
+#[test]
+fn test_prop_docs_json_parses_with_expected_entries() {
+    let value: serde_json::Value =
+        serde_json::from_str(BuilderComponent::__PROP_DOCS_JSON).expect("valid JSON");
+    let entries = value.as_array().expect("top-level array");
+    assert_eq!(entries.len(), 6);
+
+    let by_name = |name: &str| {
+        entries
+            .iter()
+            .find(|entry| entry["name"] == name)
+            .unwrap_or_else(|| panic!("missing prop entry `{name}`"))
+    };
+    assert_eq!(by_name("id")["required"], true);
+    assert_eq!(by_name("id")["type"], "String");
+    assert_eq!(by_name("label")["optional"], true);
+    assert_eq!(by_name("label")["default"], "None");
+    assert_eq!(by_name("kind")["setter"], "variant");
+    assert_eq!(by_name("skipped")["has_setter"], false);
+    assert_eq!(by_name("skipped")["default"], "99");
 }

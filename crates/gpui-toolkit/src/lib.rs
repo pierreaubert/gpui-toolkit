@@ -4,8 +4,9 @@
 //! `gpui-toolkit` workspace so that a single dependency gives access to the
 //! whole toolkit.
 //!
-//! This crate is intentionally unpublished while the workspace stabilizes. Its
-//! feature sets define the public boundary used by release QA:
+//! This crate is intentionally unpublished while the workspace stabilizes
+//! (`publish = false`; see `gpui-release-gates` docs for the publish story).
+//! Its feature sets define the public boundary used by release QA:
 //!
 //! - `ui` (default): UI components, design, layout, text, and keybindings.
 //! - `audio`, `charts`, and `themes`: opt-in product surfaces. Charts retain
@@ -19,30 +20,11 @@
 //! - `ios`: iOS integration as a target-specific opt-in.
 //! - `all`: every aggregate feature.
 //!
-//! `crate_stability_manifest()` exposes the current per-crate stability notes
-//! used by release QA and should be updated before changing publish scope.
-//! `release_qa_matrix()` exposes the platform/release gate matrix used to keep
-//! compile checks, manual device passes, publish dry-runs, and dependency
-//! hygiene visible before an external release.
-//! `platform_capability_matrix()` separately records declared platform
-//! capabilities and executed evidence, preventing compile support or shared
-//! component tests from being mistaken for runtime, visual, accessibility, or
-//! performance qualification.
-//! `dependency_hygiene_report()` exposes the dependency security policy,
-//! required audit/deny commands, local tool availability, and remaining release
-//! blockers for dependency checks.
-//! `publish_plan()` exposes ordered crate dry-run/publish status so workspace
-//! crates that depend on each other are not treated as independent gates.
-//! `release_notes_report()` exposes crate-level release-note readiness,
-//! including required stability, limitation, platform-support, and artifact
-//! sections.
-//! `release_notes_artifact_report()` records the stable release-note
-//! attachment inventory, separating generated in-repo reports from publish,
-//! platform, and manual QA gates.
-//! `release_packaging_report()` exposes the packaging pass/fail evidence ledger
-//! for public, beta, internal, patched, and platform delivery lanes.
-//! `vendored_patch_manifest()` exposes the active/inactive vendored dependency
-//! patch stack so upstream refs, local changes, and upgrade gates stay visible.
+//! Release-QA metadata (`crate_stability_manifest`, `release_qa_matrix`, …)
+//! lives in [`gpui_release_gates`](https://github.com/pierreaubert/gpui-toolkit)
+//! and is re-exported here unchanged so existing `gpui_toolkit::…` paths keep
+//! resolving. New code should import gates directly from `gpui-release-gates`
+//! to avoid pulling the aggregate feature surface.
 //!
 //! ```rust
 //! use gpui_toolkit::{
@@ -64,47 +46,41 @@
 //! assert!(!vendored_patch_manifest().patches.is_empty());
 //! ```
 
-mod dependency_hygiene;
-mod publish_plan;
-mod release_notes;
-mod release_packaging;
-mod release_qa;
-mod stability;
-mod vendored_patches;
-
-pub use dependency_hygiene::{
+// Release gates live in their own dependency-free crate; re-export the full
+// surface here so `gpui_toolkit::release_qa_matrix` and friends keep working.
+pub use gpui_release_gates::{
     DEPENDENCY_HYGIENE_REPORT_TYPE, DEPENDENCY_HYGIENE_SCHEMA_VERSION, DependencyAdvisoryTriage,
     DependencyAdvisoryTriageStatus, DependencyHygieneCheck, DependencyHygieneReport,
     DependencyHygieneStatus, dependency_advisory_triage, dependency_hygiene_checks,
     dependency_hygiene_report,
 };
-pub use publish_plan::{
+pub use gpui_release_gates::{
     PUBLISH_PLAN_REPORT_TYPE, PUBLISH_PLAN_SCHEMA_VERSION, PublishPlan, PublishPlanEntry,
     PublishPlanStatus, publish_plan, publish_plan_entries,
 };
-pub use release_notes::{
+pub use gpui_release_gates::{
     RELEASE_NOTES_ARTIFACT_REPORT_TYPE, RELEASE_NOTES_REPORT_TYPE, RELEASE_NOTES_SCHEMA_VERSION,
     ReleaseNotesArtifact, ReleaseNotesArtifactReport, ReleaseNotesArtifactStatus,
     ReleaseNotesEntry, ReleaseNotesReport, ReleaseNotesStatus, release_notes_artifact_report,
     release_notes_artifacts, release_notes_entries, release_notes_report,
 };
-pub use release_packaging::{
+pub use gpui_release_gates::{
     RELEASE_PACKAGING_REPORT_TYPE, RELEASE_PACKAGING_SCHEMA_VERSION, ReleasePackagingEntry,
     ReleasePackagingReport, ReleasePackagingStatus, release_packaging_entries,
     release_packaging_report,
 };
-pub use release_qa::{
+pub use gpui_release_gates::{
     PLATFORM_CAPABILITY_MATRIX_REPORT_TYPE, PLATFORM_CAPABILITY_MATRIX_SCHEMA_VERSION,
     PlatformCapability, PlatformCapabilityMatrix, PlatformCapabilityStatus, PlatformEvidence,
     RELEASE_QA_MATRIX_REPORT_TYPE, RELEASE_QA_MATRIX_SCHEMA_VERSION, ReleaseQaGate,
     ReleaseQaMatrix, ReleaseQaStatus, platform_capabilities, platform_capability_matrix,
     release_qa_gates, release_qa_matrix,
 };
-pub use stability::{
+pub use gpui_release_gates::{
     AggregateFeature, CRATE_STABILITY_MANIFEST, CrateStability, PublishDecision, StabilityLevel,
     crate_stability_manifest,
 };
-pub use vendored_patches::{
+pub use gpui_release_gates::{
     VENDORED_PATCH_REPORT_TYPE, VENDORED_PATCH_SCHEMA_VERSION, VendoredPatch,
     VendoredPatchMaintenance, VendoredPatchManifest, VendoredPatchStatus, vendored_patch_manifest,
     vendored_patches,

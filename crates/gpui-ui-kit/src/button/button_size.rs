@@ -1,5 +1,7 @@
+use crate::ComponentVariant;
+
 /// Button size
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ComponentVariant)]
 pub enum ButtonSize {
     /// Extra small button
     Xs,

@@ -107,6 +107,9 @@ impl Translations {
         t.insert((L, TranslationKey::LabelStates), "States");
         t.insert((L, TranslationKey::LabelToggles), "Toggles");
         t.insert((L, TranslationKey::LabelCheckboxes), "Checkboxes");
+        t.insert((L, TranslationKey::LabelRadioGroup), "Radio group");
+        t.insert((L, TranslationKey::LabelCombobox), "Combobox");
+        t.insert((L, TranslationKey::LabelDatePicker), "Date picker");
         t.insert((L, TranslationKey::LabelSlider), "Slider");
         t.insert((L, TranslationKey::LabelInput), "Input");
         t.insert((L, TranslationKey::LabelSmall), "Small");
@@ -268,6 +271,9 @@ impl Translations {
         t.insert((L, TranslationKey::LabelStates), "Etats");
         t.insert((L, TranslationKey::LabelToggles), "Interrupteurs");
         t.insert((L, TranslationKey::LabelCheckboxes), "Cases a cocher");
+        t.insert((L, TranslationKey::LabelRadioGroup), "Groupe radio");
+        t.insert((L, TranslationKey::LabelCombobox), "Zone de liste");
+        t.insert((L, TranslationKey::LabelDatePicker), "Sélecteur de date");
         t.insert((L, TranslationKey::LabelSlider), "Curseur");
         t.insert((L, TranslationKey::LabelInput), "Champ de saisie");
         t.insert((L, TranslationKey::LabelSmall), "Petit");
@@ -411,6 +417,9 @@ impl Translations {
         t.insert((L, TranslationKey::LabelStates), "Zustande");
         t.insert((L, TranslationKey::LabelToggles), "Schalter");
         t.insert((L, TranslationKey::LabelCheckboxes), "Kontrollkastchen");
+        t.insert((L, TranslationKey::LabelRadioGroup), "Optionsfeldgruppe");
+        t.insert((L, TranslationKey::LabelCombobox), "Kombinationsfeld");
+        t.insert((L, TranslationKey::LabelDatePicker), "Datumsauswahl");
         t.insert((L, TranslationKey::LabelSlider), "Schieberegler");
         t.insert((L, TranslationKey::LabelInput), "Eingabe");
         t.insert((L, TranslationKey::LabelSmall), "Klein");
@@ -566,6 +575,9 @@ impl Translations {
         t.insert((L, TranslationKey::LabelStates), "Estados");
         t.insert((L, TranslationKey::LabelToggles), "Interruptores");
         t.insert((L, TranslationKey::LabelCheckboxes), "Casillas");
+        t.insert((L, TranslationKey::LabelRadioGroup), "Grupo de opciones");
+        t.insert((L, TranslationKey::LabelCombobox), "Cuadro combinado");
+        t.insert((L, TranslationKey::LabelDatePicker), "Selector de fecha");
         t.insert((L, TranslationKey::LabelSlider), "Deslizador");
         t.insert((L, TranslationKey::LabelInput), "Entrada");
         t.insert((L, TranslationKey::LabelSmall), "Pequeno");
@@ -724,6 +736,9 @@ impl Translations {
         t.insert((L, TranslationKey::LabelStates), "状態");
         t.insert((L, TranslationKey::LabelToggles), "トグル");
         t.insert((L, TranslationKey::LabelCheckboxes), "チェックボックス");
+        t.insert((L, TranslationKey::LabelRadioGroup), "ラジオグループ");
+        t.insert((L, TranslationKey::LabelCombobox), "コンボボックス");
+        t.insert((L, TranslationKey::LabelDatePicker), "日付ピッカー");
         t.insert((L, TranslationKey::LabelSlider), "スライダー");
         t.insert((L, TranslationKey::LabelInput), "入力");
         t.insert((L, TranslationKey::LabelSmall), "小");

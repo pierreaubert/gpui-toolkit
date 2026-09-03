@@ -12,6 +12,7 @@ mod color_picker_test;
 mod input_test;
 mod input_typing_regression_test;
 mod number_input_test;
+mod radio_group_test;
 mod select_test;
 mod slider_test;
 mod toggle_test;

@@ -2274,6 +2274,47 @@ def polygon_hull(
     return _polygon_hull(points)
 
 
+class DelaunayErrorKind(str, Enum):
+    NON_FINITE_POINT_COORDINATE = "non_finite_point_coordinate"
+    NON_FINITE_QUERY_COORDINATE = "non_finite_query_coordinate"
+    NON_FINITE_RADIUS = "non_finite_radius"
+    NEGATIVE_RADIUS = "negative_radius"
+    NON_FINITE_VORONOI_BOUND = "non_finite_voronoi_bound"
+    REVERSED_VORONOI_BOUNDS = "reversed_voronoi_bounds"
+
+
+class DelaunayError(ValueError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: DelaunayErrorKind,
+        index: int | None = None,
+        coordinate: str | None = None,
+        value: float | None = None,
+        radius: float | None = None,
+        axis: str | None = None,
+        minimum: float | None = None,
+        maximum: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.index = index
+        self.coordinate = coordinate
+        self.value = value
+        self.radius = radius
+        self.axis = axis
+        self.minimum = minimum
+        self.maximum = maximum
+
+
+def _write_path_buffer(buffer: object, value: str) -> None:
+    writer = getattr(buffer, "write", None)
+    if not callable(writer):
+        raise TypeError("buffer must provide write(str)")
+    writer(value)
+
+
 @dataclass(frozen=True)
 class Voronoi:
     _bounds: tuple[float, float, float, float]
@@ -2283,6 +2324,16 @@ class Voronoi:
     _bounds_path: str
     _cell_paths: tuple[str | None, ...]
     _neighbors: tuple[tuple[int, ...], ...]
+
+    @classmethod
+    def new(
+        cls, delaunay: "Delaunay", bounds: Sequence[float]
+    ) -> "Voronoi":
+        if not isinstance(delaunay, Delaunay):
+            raise TypeError("delaunay must be a Delaunay")
+        if len(bounds) != 4:
+            raise ValueError("bounds must contain exactly four values")
+        return delaunay.try_voronoi(tuple(float(value) for value in bounds))
 
     @classmethod
     def _from_snapshot(cls, snapshot: tuple[object, ...]) -> "Voronoi":
@@ -2326,19 +2377,26 @@ class Voronoi:
     def render_to_path(self) -> str:
         return self._path
 
-    render_to_path_into = render_to_path
+    def render_to_path_into(self, buffer: object) -> None:
+        _write_path_buffer(buffer, self._path)
 
     def render_bounds_to_path(self) -> str:
         return self._bounds_path
 
-    render_bounds_to_path_into = render_bounds_to_path
+    def render_bounds_to_path_into(self, buffer: object) -> None:
+        _write_path_buffer(buffer, self._bounds_path)
 
     def render_cell_to_path(self, index: int) -> str | None:
         if not 0 <= index < len(self._cell_paths):
             return None
         return self._cell_paths[index]
 
-    render_cell_to_path_into = render_cell_to_path
+    def render_cell_to_path_into(self, index: int, buffer: object) -> bool:
+        value = self.render_cell_to_path(index)
+        if value is None:
+            return False
+        _write_path_buffer(buffer, value)
+        return True
 
     def contains(self, index: int, x: float, y: float) -> bool:
         cell = self.cell_polygon(index)
@@ -2362,7 +2420,20 @@ class Delaunay:
     _voronoi: Voronoi = field(init=False)
 
     def __init__(self, points: Iterable[tuple[float, float]]) -> None:
-        normalized = tuple((float(x), float(y)) for x, y in points)
+        normalized_list: list[tuple[float, float]] = []
+        for index, (x, y) in enumerate(points):
+            point = (float(x), float(y))
+            for coordinate, value in zip(("x", "y"), point):
+                if not math.isfinite(value):
+                    raise DelaunayError(
+                        f"delaunay point coordinate {coordinate} at index {index} is not finite: {value}",
+                        kind=DelaunayErrorKind.NON_FINITE_POINT_COORDINATE,
+                        index=index,
+                        coordinate=coordinate,
+                        value=value,
+                    )
+            normalized_list.append(point)
+        normalized = tuple(normalized_list)
         snapshot = _delaunay_snapshot(normalized, None)
         triangles, hull, hull_polygon, edges, path, hull_path, voronoi = snapshot
         object.__setattr__(self, "_points", normalized)
@@ -2380,7 +2451,9 @@ class Delaunay:
     def new(cls, points: Sequence[tuple[float, float]]) -> "Delaunay":
         return cls(points)
 
-    try_new = new
+    @classmethod
+    def try_new(cls, points: Sequence[tuple[float, float]]) -> "Delaunay":
+        return cls(points)
 
     @classmethod
     def from_points_iter(
@@ -2388,10 +2461,17 @@ class Delaunay:
     ) -> "Delaunay":
         return cls(points)
 
-    try_from_points_iter = from_points_iter
+    @classmethod
+    def try_from_points_iter(
+        cls, points: Iterable[tuple[float, float]]
+    ) -> "Delaunay":
+        return cls(points)
 
     def __len__(self) -> int:
         return len(self._points)
+
+    def len(self) -> int:
+        return len(self)
 
     def is_empty(self) -> bool:
         return not self._points
@@ -2405,14 +2485,43 @@ class Delaunay:
         return self._points[index]
 
     def find(self, x: float, y: float, start: int | None = None) -> int | None:
+        if not math.isfinite(x) or not math.isfinite(y):
+            return None
         return _delaunay_find(self._points, x, y, start=start)
 
-    try_find = find
+    def try_find(self, x: float, y: float, start: int | None = None) -> int | None:
+        for coordinate, value in (("x", x), ("y", y)):
+            if not math.isfinite(value):
+                raise DelaunayError(
+                    f"delaunay query coordinate {coordinate} is not finite: {value}",
+                    kind=DelaunayErrorKind.NON_FINITE_QUERY_COORDINATE,
+                    coordinate=coordinate,
+                    value=value,
+                )
+        return self.find(x, y, start)
 
     def find_within_radius(self, x: float, y: float, radius: float) -> int | None:
+        if not math.isfinite(x) or not math.isfinite(y):
+            return None
+        if not math.isfinite(radius) or radius < 0.0:
+            return None
         return _delaunay_find(self._points, x, y, radius=radius)
 
-    try_find_within_radius = find_within_radius
+    def try_find_within_radius(self, x: float, y: float, radius: float) -> int | None:
+        self.try_find(x, y)
+        if not math.isfinite(radius):
+            raise DelaunayError(
+                f"delaunay query radius is not finite: {radius}",
+                kind=DelaunayErrorKind.NON_FINITE_RADIUS,
+                radius=radius,
+            )
+        if radius < 0.0:
+            raise DelaunayError(
+                f"delaunay query radius must be non-negative: {radius}",
+                kind=DelaunayErrorKind.NEGATIVE_RADIUS,
+                radius=radius,
+            )
+        return self.find_within_radius(x, y, radius)
 
     def neighbors(self, index: int) -> tuple[int, ...]:
         return self._voronoi.neighbors(index)
@@ -2432,7 +2541,8 @@ class Delaunay:
     def render_to_path(self) -> str:
         return self._path
 
-    render_to_path_into = render_to_path
+    def render_to_path_into(self, buffer: object) -> None:
+        _write_path_buffer(buffer, self._path)
 
     def render_hull_to_path(self) -> str:
         return self._hull_path
@@ -2443,11 +2553,38 @@ class Delaunay:
     def voronoi(
         self, bounds: tuple[float, float, float, float] | None = None
     ) -> Voronoi:
+        return self.try_voronoi(bounds)
+
+    def try_voronoi(
+        self, bounds: tuple[float, float, float, float] | None = None
+    ) -> Voronoi:
         if bounds is None:
             return self._voronoi
+        for coordinate, value in zip(("x0", "y0", "x1", "y1"), bounds):
+            if not math.isfinite(value):
+                raise DelaunayError(
+                    f"voronoi bound {coordinate} is not finite: {value}",
+                    kind=DelaunayErrorKind.NON_FINITE_VORONOI_BOUND,
+                    coordinate=coordinate,
+                    value=value,
+                )
+        for axis, minimum, maximum in (
+            ("x", bounds[0], bounds[2]),
+            ("y", bounds[1], bounds[3]),
+        ):
+            if minimum > maximum:
+                raise DelaunayError(
+                    f"voronoi bounds are reversed on {axis}: {minimum} > {maximum}",
+                    kind=DelaunayErrorKind.REVERSED_VORONOI_BOUNDS,
+                    axis=axis,
+                    minimum=minimum,
+                    maximum=maximum,
+                )
         return Voronoi._from_snapshot(_delaunay_snapshot(self._points, bounds)[6])
 
-    try_voronoi = voronoi
+    def inner(self) -> "Delaunay":
+        """Return the opaque native triangulation wrapper."""
+        return self
 
 
 @dataclass(frozen=True)
@@ -3031,6 +3168,32 @@ class ShapePath:
 ShapeGenerationError = ValueError
 
 
+class ArcGenerationErrorKind(str, Enum):
+    NON_FINITE_PARAMETER = "non_finite_parameter"
+    NEGATIVE_PARAMETER = "negative_parameter"
+    INNER_RADIUS_EXCEEDS_OUTER_RADIUS = "inner_radius_exceeds_outer_radius"
+    ZERO_SEGMENTS = "zero_segments"
+
+
+class ArcGenerationError(ValueError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: ArcGenerationErrorKind,
+        parameter: str | None = None,
+        value: float | None = None,
+        inner_radius: float | None = None,
+        outer_radius: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.parameter = parameter
+        self.value = value
+        self.inner_radius = inner_radius
+        self.outer_radius = outer_radius
+
+
 @dataclass(frozen=True)
 class ArcDatum:
     _inner_radius: float = 0.0
@@ -3040,23 +3203,27 @@ class ArcDatum:
     _corner_radius: float = 0.0
     _pad_angle: float = 0.0
 
-    def inner_radius(self, value: float) -> "ArcDatum":
-        return replace(self, _inner_radius=float(value))
+    @classmethod
+    def new(cls) -> "ArcDatum":
+        return cls()
 
-    def outer_radius(self, value: float) -> "ArcDatum":
-        return replace(self, _outer_radius=float(value))
+    def inner_radius(self, r: float) -> "ArcDatum":
+        return replace(self, _inner_radius=float(r))
 
-    def start_angle(self, value: float) -> "ArcDatum":
-        return replace(self, _start_angle=float(value))
+    def outer_radius(self, r: float) -> "ArcDatum":
+        return replace(self, _outer_radius=float(r))
 
-    def end_angle(self, value: float) -> "ArcDatum":
-        return replace(self, _end_angle=float(value))
+    def start_angle(self, a: float) -> "ArcDatum":
+        return replace(self, _start_angle=float(a))
 
-    def corner_radius(self, value: float) -> "ArcDatum":
-        return replace(self, _corner_radius=float(value))
+    def end_angle(self, a: float) -> "ArcDatum":
+        return replace(self, _end_angle=float(a))
 
-    def pad_angle(self, value: float) -> "ArcDatum":
-        return replace(self, _pad_angle=float(value))
+    def corner_radius(self, r: float) -> "ArcDatum":
+        return replace(self, _corner_radius=float(r))
+
+    def pad_angle(self, a: float) -> "ArcDatum":
+        return replace(self, _pad_angle=float(a))
 
     def _tuple(self) -> tuple[float, float, float, float, float, float]:
         return (
@@ -3069,28 +3236,90 @@ class ArcDatum:
         )
 
     def centroid(self) -> tuple[float, float]:
-        return tuple(_shape_arc(self._tuple(), segments=1)[1])
+        radius = (self._inner_radius + self._outer_radius) / 2.0
+        angle = (self._start_angle + self._end_angle) / 2.0 - math.pi / 2.0
+        return (radius * math.cos(angle), radius * math.sin(angle))
+
+
+def _validate_arc_geometry(
+    datum: ArcDatum,
+    center: tuple[float, float],
+    segments: int | None = None,
+) -> None:
+    if segments is not None and segments == 0:
+        raise ArcGenerationError(
+            "arc point sampling requires at least one segment",
+            kind=ArcGenerationErrorKind.ZERO_SEGMENTS,
+        )
+    for parameter, value, require_non_negative in (
+        ("center_x", center[0], False),
+        ("center_y", center[1], False),
+        ("inner_radius", datum._inner_radius, True),
+        ("outer_radius", datum._outer_radius, True),
+        ("start_angle", datum._start_angle, False),
+        ("end_angle", datum._end_angle, False),
+        ("corner_radius", datum._corner_radius, True),
+        ("pad_angle", datum._pad_angle, True),
+    ):
+        if not math.isfinite(value):
+            raise ArcGenerationError(
+                f"arc parameter {parameter} is not finite: {value}",
+                kind=ArcGenerationErrorKind.NON_FINITE_PARAMETER,
+                parameter=parameter,
+                value=value,
+            )
+        if require_non_negative and value < 0.0:
+            raise ArcGenerationError(
+                f"arc parameter {parameter} is negative: {value}",
+                kind=ArcGenerationErrorKind.NEGATIVE_PARAMETER,
+                parameter=parameter,
+                value=value,
+            )
+    if datum._inner_radius > datum._outer_radius:
+        raise ArcGenerationError(
+            f"arc inner_radius {datum._inner_radius} exceeds outer_radius {datum._outer_radius}",
+            kind=ArcGenerationErrorKind.INNER_RADIUS_EXCEEDS_OUTER_RADIUS,
+            inner_radius=datum._inner_radius,
+            outer_radius=datum._outer_radius,
+        )
 
 
 @dataclass(frozen=True)
 class Arc:
     _center: tuple[float, float] = (0.0, 0.0)
 
+    @classmethod
+    def new(cls) -> "Arc":
+        return cls()
+
     def center(self, x: float, y: float) -> "Arc":
         return replace(self, _center=(float(x), float(y)))
 
-    def generate(self, datum: ArcDatum, segments: int = 32) -> ShapePath:
+    def _generate(
+        self, datum: ArcDatum, segments: int, *, checked: bool
+    ) -> ShapePath:
+        if not isinstance(datum, ArcDatum):
+            raise TypeError("datum must be an ArcDatum")
+        if not isinstance(segments, int) or isinstance(segments, bool) or segments < 0:
+            raise ValueError("segments must be a non-negative integer")
+        if checked:
+            _validate_arc_geometry(datum, self._center, segments)
         path, _, points = _shape_arc(
-            datum._tuple(), center=self._center, segments=segments
+            datum._tuple(), center=self._center, segments=segments, checked=checked
         )
         return ShapePath(path, tuple(tuple(point) for point in points))
 
-    try_generate = generate
+    def generate(self, datum: ArcDatum, segments: int = 32) -> ShapePath:
+        return self._generate(datum, segments, checked=False)
+
+    def try_generate(self, datum: ArcDatum, segments: int = 32) -> ShapePath:
+        return self._generate(datum, segments, checked=True)
 
     def path_string(self, datum: ArcDatum) -> str:
         return self.generate(datum).svg
 
-    try_path_string = path_string
+    def try_path_string(self, datum: ArcDatum) -> str:
+        return self.try_generate(datum).svg
 
 
 def arc_points(
@@ -3099,10 +3328,39 @@ def arc_points(
     cx: float = 0.0,
     cy: float = 0.0,
 ) -> tuple[tuple[float, float], ...]:
-    return Arc().center(cx, cy).generate(datum, segments).points
+    return Arc.new().center(cx, cy).generate(datum, segments).points
 
 
-try_arc_points = arc_points
+def try_arc_points(
+    datum: ArcDatum,
+    segments: int,
+    cx: float = 0.0,
+    cy: float = 0.0,
+) -> tuple[tuple[float, float], ...]:
+    return Arc.new().center(cx, cy).try_generate(datum, segments).points
+
+
+class SymbolGenerationErrorKind(str, Enum):
+    NON_FINITE_SIZE = "non_finite_size"
+    NEGATIVE_SIZE = "negative_size"
+    NON_FINITE_COORDINATE = "non_finite_coordinate"
+
+
+class SymbolGenerationError(ValueError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: SymbolGenerationErrorKind,
+        size: float | None = None,
+        coordinate: str | None = None,
+        value: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.size = size
+        self.coordinate = coordinate
+        self.value = value
 
 
 class SymbolType(str, Enum):
@@ -3122,6 +3380,10 @@ class SymbolType(str, Enum):
 class Symbol:
     _symbol_type: SymbolType = SymbolType.CIRCLE
     _size: float = 64.0
+
+    @classmethod
+    def new(cls, symbol_type: SymbolType | str, size: float) -> "Symbol":
+        return cls(SymbolType(symbol_type), float(size))
 
     @classmethod
     def circle(cls, size: float) -> "Symbol":
@@ -3147,41 +3409,108 @@ class Symbol:
     def triangle(cls, size: float) -> "Symbol":
         return cls(SymbolType.TRIANGLE, float(size))
 
-    def symbol_type(self, value: SymbolType | str) -> "Symbol":
-        return replace(self, _symbol_type=SymbolType(value))
+    def symbol_type(self, t: SymbolType | str) -> "Symbol":
+        return replace(self, _symbol_type=SymbolType(t))
 
-    def size(self, value: float) -> "Symbol":
-        return replace(self, _size=float(value))
+    def size(self, size: float) -> "Symbol":
+        return replace(self, _size=float(size))
 
-    def generate_at(self, x: float = 0.0, y: float = 0.0) -> ShapePath:
+    def _validate(self, x: float | None = None, y: float | None = None) -> None:
+        if not math.isfinite(self._size):
+            raise SymbolGenerationError(
+                f"symbol size is not finite: {self._size}",
+                kind=SymbolGenerationErrorKind.NON_FINITE_SIZE,
+                size=self._size,
+            )
+        if self._size < 0.0:
+            raise SymbolGenerationError(
+                f"symbol size is negative: {self._size}",
+                kind=SymbolGenerationErrorKind.NEGATIVE_SIZE,
+                size=self._size,
+            )
+        for coordinate, value in (("x", x), ("y", y)):
+            if value is not None and not math.isfinite(value):
+                raise SymbolGenerationError(
+                    f"symbol coordinate {coordinate} is not finite: {value}",
+                    kind=SymbolGenerationErrorKind.NON_FINITE_COORDINATE,
+                    coordinate=coordinate,
+                    value=value,
+                )
+
+    def _generate_at(self, x: float, y: float, *, checked: bool) -> ShapePath:
+        x = float(x)
+        y = float(y)
+        if checked:
+            self._validate(x, y)
         path, points, _ = _shape_symbol(
-            self._symbol_type.value, self._size, center=(x, y)
+            self._symbol_type.value,
+            self._size,
+            center=(x, y),
+            checked=checked,
         )
         return ShapePath(path, tuple(tuple(point) for point in points))
 
-    try_generate_at = generate_at
+    def generate_at(self, x: float = 0.0, y: float = 0.0) -> ShapePath:
+        return self._generate_at(x, y, checked=False)
+
+    def try_generate_at(self, x: float = 0.0, y: float = 0.0) -> ShapePath:
+        return self._generate_at(x, y, checked=True)
 
     def generate(self) -> ShapePath:
         return self.generate_at()
 
-    try_generate = generate
+    def try_generate(self) -> ShapePath:
+        return self.try_generate_at()
 
     def points(self) -> tuple[tuple[float, float], ...]:
         return self.generate().points
 
-    try_points = points
+    def try_points(self) -> tuple[tuple[float, float], ...]:
+        self._validate()
+        return self.try_generate().points
 
     def radius(self) -> float:
-        return float(_shape_symbol(self._symbol_type.value, self._size)[2])
+        return float(
+            _shape_symbol(
+                self._symbol_type.value, self._size, checked=False
+            )[2]
+        )
 
-    try_radius = radius
+    def try_radius(self) -> float:
+        self._validate()
+        return float(
+            _shape_symbol(
+                self._symbol_type.value, self._size, checked=True
+            )[2]
+        )
 
 
 def symbol_radius(symbol_type: SymbolType | str, size: float) -> float:
-    return Symbol(SymbolType(symbol_type), float(size)).radius()
+    return Symbol.new(symbol_type, size).radius()
 
 
-try_symbol_radius = symbol_radius
+def try_symbol_radius(symbol_type: SymbolType | str, size: float) -> float:
+    return Symbol.new(symbol_type, size).try_radius()
+
+
+class LinkGenerationErrorKind(str, Enum):
+    NON_FINITE_PARAMETER = "non_finite_parameter"
+    NEGATIVE_RADIUS = "negative_radius"
+
+
+class LinkGenerationError(ValueError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: LinkGenerationErrorKind,
+        parameter: str,
+        value: float,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.parameter = parameter
+        self.value = value
 
 
 class LinkDirection(str, Enum):
@@ -3198,13 +3527,37 @@ class Link:
     target_y: float
 
     @classmethod
+    def new(
+        cls,
+        source_x: float,
+        source_y: float,
+        target_x: float,
+        target_y: float,
+    ) -> "Link":
+        return cls(
+            float(source_x), float(source_y), float(target_x), float(target_y)
+        )
+
+    @classmethod
     def from_points(
         cls, source: tuple[float, float], target: tuple[float, float]
     ) -> "Link":
         return cls(source[0], source[1], target[0], target[1])
 
     def validate(self) -> None:
-        _shape_link("horizontal", self.source, self.target)
+        for parameter, value in (
+            ("source_x", self.source_x),
+            ("source_y", self.source_y),
+            ("target_x", self.target_x),
+            ("target_y", self.target_y),
+        ):
+            if not math.isfinite(value):
+                raise LinkGenerationError(
+                    f"link parameter {parameter} is not finite: {value}",
+                    kind=LinkGenerationErrorKind.NON_FINITE_PARAMETER,
+                    parameter=parameter,
+                    value=value,
+                )
 
     @property
     def source(self) -> tuple[float, float]:
@@ -3216,24 +3569,40 @@ class Link:
 
 
 def link_horizontal(link: Link) -> str:
-    return _shape_link("horizontal", link.source, link.target)
+    return _shape_link("horizontal", link.source, link.target, checked=False)
 
 
-try_link_horizontal = link_horizontal
+def try_link_horizontal(link: Link) -> str:
+    link.validate()
+    return _shape_link("horizontal", link.source, link.target, checked=True)
 
 
 def link_vertical(link: Link) -> str:
-    return _shape_link("vertical", link.source, link.target)
+    return _shape_link("vertical", link.source, link.target, checked=False)
 
 
-try_link_vertical = link_vertical
+def try_link_vertical(link: Link) -> str:
+    link.validate()
+    return _shape_link("vertical", link.source, link.target, checked=True)
 
 
 def link_step(link: Link, direction: LinkDirection | str) -> str:
-    return _shape_link(f"step_{LinkDirection(direction).value}", link.source, link.target)
+    return _shape_link(
+        f"step_{LinkDirection(direction).value}",
+        link.source,
+        link.target,
+        checked=False,
+    )
 
 
-try_link_step = link_step
+def try_link_step(link: Link, direction: LinkDirection | str) -> str:
+    link.validate()
+    return _shape_link(
+        f"step_{LinkDirection(direction).value}",
+        link.source,
+        link.target,
+        checked=True,
+    )
 
 
 @dataclass(frozen=True)
@@ -3243,6 +3612,49 @@ class RadialLink:
     target_angle: float
     target_radius: float
 
+    @classmethod
+    def new(
+        cls,
+        source_angle: float,
+        source_radius: float,
+        target_angle: float,
+        target_radius: float,
+    ) -> "RadialLink":
+        return cls(
+            float(source_angle),
+            float(source_radius),
+            float(target_angle),
+            float(target_radius),
+        )
+
+    def _validate(self, cx: float, cy: float) -> None:
+        for parameter, value in (
+            ("cx", cx),
+            ("cy", cy),
+            ("source_angle", self.source_angle),
+            ("target_angle", self.target_angle),
+            ("source_radius", self.source_radius),
+            ("target_radius", self.target_radius),
+        ):
+            if not math.isfinite(value):
+                raise LinkGenerationError(
+                    f"link parameter {parameter} is not finite: {value}",
+                    kind=LinkGenerationErrorKind.NON_FINITE_PARAMETER,
+                    parameter=parameter,
+                    value=value,
+                )
+        for parameter, value in (
+            ("source_radius", self.source_radius),
+            ("target_radius", self.target_radius),
+        ):
+            if value < 0.0:
+                raise LinkGenerationError(
+                    f"link radius {parameter} is negative: {value}",
+                    kind=LinkGenerationErrorKind.NEGATIVE_RADIUS,
+                    parameter=parameter,
+                    value=value,
+                )
+
     def to_cartesian(self, cx: float = 0.0, cy: float = 0.0) -> Link:
         _, source, target = _shape_radial_link(
             self.source_angle,
@@ -3250,10 +3662,23 @@ class RadialLink:
             self.target_angle,
             self.target_radius,
             (cx, cy),
+            checked=False,
         )
         return Link.from_points(source, target)
 
-    try_to_cartesian = to_cartesian
+    def try_to_cartesian(self, cx: float = 0.0, cy: float = 0.0) -> Link:
+        cx = float(cx)
+        cy = float(cy)
+        self._validate(cx, cy)
+        _, source, target = _shape_radial_link(
+            self.source_angle,
+            self.source_radius,
+            self.target_angle,
+            self.target_radius,
+            (cx, cy),
+            checked=True,
+        )
+        return Link.from_points(source, target)
 
 
 def link_radial(link: RadialLink, cx: float = 0.0, cy: float = 0.0) -> str:
@@ -3263,10 +3688,22 @@ def link_radial(link: RadialLink, cx: float = 0.0, cy: float = 0.0) -> str:
         link.target_angle,
         link.target_radius,
         (cx, cy),
+        checked=False,
     )[0]
 
 
-try_link_radial = link_radial
+def try_link_radial(link: RadialLink, cx: float = 0.0, cy: float = 0.0) -> str:
+    cx = float(cx)
+    cy = float(cy)
+    link._validate(cx, cy)
+    return _shape_radial_link(
+        link.source_angle,
+        link.source_radius,
+        link.target_angle,
+        link.target_radius,
+        (cx, cy),
+        checked=True,
+    )[0]
 
 
 @dataclass(frozen=True)
@@ -3275,6 +3712,30 @@ class PieSlice:
     arc: ArcDatum
     index: int
     value: float
+
+
+class PieLayoutErrorKind(str, Enum):
+    NON_FINITE_VALUE = "non_finite_value"
+    NEGATIVE_VALUE = "negative_value"
+    NON_FINITE_LAYOUT_PARAMETER = "non_finite_layout_parameter"
+    NEGATIVE_LAYOUT_PARAMETER = "negative_layout_parameter"
+
+
+class PieLayoutError(ValueError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: PieLayoutErrorKind,
+        value: float,
+        index: int | None = None,
+        parameter: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.value = value
+        self.index = index
+        self.parameter = parameter
 
 
 @dataclass(frozen=True)
@@ -3288,36 +3749,84 @@ class Pie:
     _sort: bool = False
     _descending: bool = True
 
-    def start_angle(self, value: float) -> "Pie":
-        return replace(self, _start_angle=float(value))
+    @classmethod
+    def new(cls) -> "Pie":
+        return cls()
 
-    def end_angle(self, value: float) -> "Pie":
-        return replace(self, _end_angle=float(value))
+    def start_angle(self, angle: float) -> "Pie":
+        return replace(self, _start_angle=float(angle))
 
-    def pad_angle(self, value: float) -> "Pie":
-        return replace(self, _pad_angle=float(value))
+    def end_angle(self, angle: float) -> "Pie":
+        return replace(self, _end_angle=float(angle))
 
-    def inner_radius(self, value: float) -> "Pie":
-        return replace(self, _inner_radius=float(value))
+    def pad_angle(self, angle: float) -> "Pie":
+        return replace(self, _pad_angle=float(angle))
 
-    def outer_radius(self, value: float) -> "Pie":
-        return replace(self, _outer_radius=float(value))
+    def inner_radius(self, radius: float) -> "Pie":
+        return replace(self, _inner_radius=float(radius))
 
-    def corner_radius(self, value: float) -> "Pie":
-        return replace(self, _corner_radius=float(value))
+    def outer_radius(self, radius: float) -> "Pie":
+        return replace(self, _outer_radius=float(radius))
 
-    def sort(self, enabled: bool = True) -> "Pie":
-        return replace(self, _sort=enabled)
+    def corner_radius(self, radius: float) -> "Pie":
+        return replace(self, _corner_radius=float(radius))
 
-    def sort_descending(self, enabled: bool = True) -> "Pie":
-        return replace(self, _descending=enabled)
+    def sort(self, sort: bool = True) -> "Pie":
+        if not isinstance(sort, bool):
+            raise TypeError("sort must be bool")
+        return replace(self, _sort=sort)
 
-    def generate(
+    def sort_descending(self, descending: bool = True) -> "Pie":
+        if not isinstance(descending, bool):
+            raise TypeError("descending must be bool")
+        return replace(self, _descending=descending)
+
+    def _generate(
         self,
         data: Sequence[object],
-        value: Callable[[object], float] = float,
+        value: Callable[[object], float],
+        *,
+        checked: bool,
     ) -> list[PieSlice]:
         values = [float(value(item)) for item in data]
+        if checked:
+            for parameter, parameter_value, require_non_negative in (
+                ("start_angle", self._start_angle, False),
+                ("end_angle", self._end_angle, False),
+                ("pad_angle", self._pad_angle, True),
+                ("inner_radius", self._inner_radius, True),
+                ("outer_radius", self._outer_radius, True),
+                ("corner_radius", self._corner_radius, True),
+            ):
+                if not math.isfinite(parameter_value):
+                    raise PieLayoutError(
+                        f"pie layout parameter {parameter} is not finite: {parameter_value}",
+                        kind=PieLayoutErrorKind.NON_FINITE_LAYOUT_PARAMETER,
+                        parameter=parameter,
+                        value=parameter_value,
+                    )
+                if require_non_negative and parameter_value < 0.0:
+                    raise PieLayoutError(
+                        f"pie layout parameter {parameter} is negative: {parameter_value}",
+                        kind=PieLayoutErrorKind.NEGATIVE_LAYOUT_PARAMETER,
+                        parameter=parameter,
+                        value=parameter_value,
+                    )
+            for index, item_value in enumerate(values):
+                if not math.isfinite(item_value):
+                    raise PieLayoutError(
+                        f"pie value at index {index} is not finite: {item_value}",
+                        kind=PieLayoutErrorKind.NON_FINITE_VALUE,
+                        index=index,
+                        value=item_value,
+                    )
+                if item_value < 0.0:
+                    raise PieLayoutError(
+                        f"pie value at index {index} is negative: {item_value}",
+                        kind=PieLayoutErrorKind.NEGATIVE_VALUE,
+                        index=index,
+                        value=item_value,
+                    )
         result = _shape_pie(
             values,
             start_angle=self._start_angle,
@@ -3328,20 +3837,34 @@ class Pie:
             corner_radius=self._corner_radius,
             sort=self._sort,
             descending=self._descending,
+            checked=checked,
         )
         return [
             PieSlice(data[index], ArcDatum(*arc), index, slice_value)
             for index, slice_value, arc in result
         ]
 
-    try_generate = generate
+    def generate(
+        self,
+        data: Sequence[object],
+        value: Callable[[object], float] = float,
+    ) -> list[PieSlice]:
+        return self._generate(data, value, checked=False)
+
+    def try_generate(
+        self,
+        data: Sequence[object],
+        value: Callable[[object], float] = float,
+    ) -> list[PieSlice]:
+        return self._generate(data, value, checked=True)
 
 
 def pie(values: Sequence[float], radius: float) -> list[PieSlice]:
     return Pie().outer_radius(radius).generate(values)
 
 
-try_pie = pie
+def try_pie(values: Sequence[float], radius: float) -> list[PieSlice]:
+    return Pie.new().outer_radius(radius).try_generate(values)
 
 
 def donut(
@@ -3350,7 +3873,15 @@ def donut(
     return Pie().inner_radius(inner_radius).outer_radius(outer_radius).generate(values)
 
 
-try_donut = donut
+def try_donut(
+    values: Sequence[float], inner_radius: float, outer_radius: float
+) -> list[PieSlice]:
+    return (
+        Pie.new()
+        .inner_radius(inner_radius)
+        .outer_radius(outer_radius)
+        .try_generate(values)
+    )
 
 
 def half_pie(values: Sequence[float], radius: float) -> list[PieSlice]:
@@ -3363,10 +3894,38 @@ def half_pie(values: Sequence[float], radius: float) -> list[PieSlice]:
     )
 
 
-try_half_pie = half_pie
+def try_half_pie(values: Sequence[float], radius: float) -> list[PieSlice]:
+    return (
+        Pie.new()
+        .outer_radius(radius)
+        .start_angle(-math.pi / 2.0)
+        .end_angle(math.pi / 2.0)
+        .try_generate(values)
+    )
 
 
-StackLayoutError = ValueError
+class StackLayoutErrorKind(str, Enum):
+    ROW_LENGTH_MISMATCH = "row_length_mismatch"
+    NON_FINITE_VALUE = "non_finite_value"
+
+
+class StackLayoutError(ValueError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: StackLayoutErrorKind,
+        row_index: int,
+        series_index: int | None = None,
+        expected: int | None = None,
+        actual: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.row_index = row_index
+        self.series_index = series_index
+        self.expected = expected
+        self.actual = actual
 RadialGenerationError = ValueError
 
 
@@ -3406,22 +3965,47 @@ class Stack:
     _order: StackOrder = StackOrder.NONE
     _offset: StackOffset = StackOffset.NONE
 
-    def keys(self, values: Sequence[str]) -> "Stack":
-        return replace(self, _keys=tuple(str(value) for value in values))
+    @classmethod
+    def new(cls) -> "Stack":
+        return cls()
 
-    def order(self, value: StackOrder | str) -> "Stack":
-        return replace(self, _order=StackOrder(value))
+    def keys(self, keys: Sequence[str]) -> "Stack":
+        return replace(self, _keys=tuple(str(value) for value in keys))
 
-    def offset(self, value: StackOffset | str) -> "Stack":
-        return replace(self, _offset=StackOffset(value))
+    def order(self, order: StackOrder | str) -> "Stack":
+        return replace(self, _order=StackOrder(order))
 
-    def generate(self, data: Sequence[Sequence[float]]) -> list[StackSeries]:
+    def offset(self, offset: StackOffset | str) -> "Stack":
+        return replace(self, _offset=StackOffset(offset))
+
+    def _generate(
+        self, data: Sequence[Sequence[float]], *, checked: bool
+    ) -> list[StackSeries]:
         rows = [[float(value) for value in row] for row in data]
+        if checked and rows and self._keys:
+            for row_index, row in enumerate(rows):
+                if len(row) != len(self._keys):
+                    raise StackLayoutError(
+                        f"stack row {row_index} has {len(row)} values, expected {len(self._keys)}",
+                        kind=StackLayoutErrorKind.ROW_LENGTH_MISMATCH,
+                        row_index=row_index,
+                        expected=len(self._keys),
+                        actual=len(row),
+                    )
+                for series_index, value in enumerate(row):
+                    if not math.isfinite(value):
+                        raise StackLayoutError(
+                            f"stack value at row {row_index}, series {series_index} is not finite",
+                            kind=StackLayoutErrorKind.NON_FINITE_VALUE,
+                            row_index=row_index,
+                            series_index=series_index,
+                        )
         result = _shape_stack(
             rows,
             list(self._keys),
             self._order.value,
             self._offset.value,
+            checked,
         )
         return [
             StackSeries(
@@ -3433,7 +4017,11 @@ class Stack:
             for key, values, stacked, index in result
         ]
 
-    try_generate = generate
+    def generate(self, data: Sequence[Sequence[float]]) -> list[StackSeries]:
+        return self._generate(data, checked=False)
+
+    def try_generate(self, data: Sequence[Sequence[float]]) -> list[StackSeries]:
+        return self._generate(data, checked=True)
 
 
 def _stack_keys(data: Sequence[Sequence[float]]) -> tuple[str, ...]:
@@ -3444,14 +4032,21 @@ def stack(data: Sequence[Sequence[float]]) -> list[StackSeries]:
     return Stack().keys(_stack_keys(data)).generate(data)
 
 
-try_stack = stack
+def try_stack(data: Sequence[Sequence[float]]) -> list[StackSeries]:
+    return Stack.new().keys(_stack_keys(data)).try_generate(data)
 
 
 def stack_expand(data: Sequence[Sequence[float]]) -> list[StackSeries]:
     return Stack().keys(_stack_keys(data)).offset(StackOffset.EXPAND).generate(data)
 
 
-try_stack_expand = stack_expand
+def try_stack_expand(data: Sequence[Sequence[float]]) -> list[StackSeries]:
+    return (
+        Stack.new()
+        .keys(_stack_keys(data))
+        .offset(StackOffset.EXPAND)
+        .try_generate(data)
+    )
 
 
 def streamgraph(data: Sequence[Sequence[float]]) -> list[StackSeries]:
@@ -3464,7 +4059,14 @@ def streamgraph(data: Sequence[Sequence[float]]) -> list[StackSeries]:
     )
 
 
-try_streamgraph = streamgraph
+def try_streamgraph(data: Sequence[Sequence[float]]) -> list[StackSeries]:
+    return (
+        Stack.new()
+        .keys(_stack_keys(data))
+        .order(StackOrder.INSIDE_OUT)
+        .offset(StackOffset.WIGGLE)
+        .try_generate(data)
+    )
 
 
 class CurveKind(str, Enum):
@@ -3526,7 +4128,13 @@ class Curve:
 
     @classmethod
     def cardinal(cls, tension: float) -> "Curve":
-        return cls(CurveKind.CARDINAL, float(tension))
+        value = float(tension)
+        return cls(
+            CurveKind.CARDINAL,
+            value
+            if math.isnan(value)
+            else builtins.min(1.0, builtins.max(0.0, value)),
+        )
 
     @classmethod
     def cardinal_closed(cls, tension: float) -> "Curve":
@@ -3538,7 +4146,13 @@ class Curve:
 
     @classmethod
     def catmull_rom(cls, alpha: float) -> "Curve":
-        return cls(CurveKind.CATMULL_ROM, float(alpha))
+        value = float(alpha)
+        return cls(
+            CurveKind.CATMULL_ROM,
+            value
+            if math.isnan(value)
+            else builtins.min(1.0, builtins.max(0.0, value)),
+        )
 
     @classmethod
     def catmull_rom_closed(cls, alpha: float) -> "Curve":
@@ -3594,21 +4208,128 @@ def _curve(value: Curve | CurveKind | str) -> Curve:
     return Curve(CurveKind(value))
 
 
+class RadialPointField(str, Enum):
+    ANGLE = "angle"
+    RADIUS = "radius"
+
+
+class RadialGenerationError(ValueError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: "RadialGenerationErrorKind",
+        parameter: str | None = None,
+        value: float | None = None,
+        index: int | None = None,
+        field: RadialPointField | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.parameter = parameter
+        self.value = value
+        self.index = index
+        self.field = field
+
+
+class RadialGenerationErrorKind(str, Enum):
+    NON_FINITE_PARAMETER = "non_finite_parameter"
+    NEGATIVE_RADIUS = "negative_radius"
+    NON_FINITE_POINT = "non_finite_point"
+    NEGATIVE_POINT_RADIUS = "negative_point_radius"
+    NON_FINITE_GRID_RADIUS = "non_finite_grid_radius"
+    NEGATIVE_GRID_RADIUS = "negative_grid_radius"
+    NON_FINITE_GRID_ANGLE = "non_finite_grid_angle"
+
+
+def _validate_radial_center(cx: float, cy: float) -> None:
+    for parameter, value in (("cx", cx), ("cy", cy)):
+        if not math.isfinite(value):
+            raise RadialGenerationError(
+                f"radial parameter {parameter} is not finite: {value}",
+                kind=RadialGenerationErrorKind.NON_FINITE_PARAMETER,
+                parameter=parameter,
+                value=value,
+            )
+
+
+def _validate_radial_point(index: int, point: "RadialPoint") -> None:
+    for field, value in (
+        (RadialPointField.ANGLE, point.angle),
+        (RadialPointField.RADIUS, point.radius),
+    ):
+        if not math.isfinite(value):
+            raise RadialGenerationError(
+                f"radial point {index} {field.value} is not finite: {value}",
+                kind=RadialGenerationErrorKind.NON_FINITE_POINT,
+                index=index,
+                field=field,
+                value=value,
+            )
+    if point.radius < 0.0:
+        raise RadialGenerationError(
+            f"radial point {index} radius is negative: {point.radius}",
+            kind=RadialGenerationErrorKind.NEGATIVE_POINT_RADIUS,
+            index=index,
+            value=point.radius,
+        )
+
+
+def _validate_radial_radius(parameter: str, value: float) -> None:
+    if not math.isfinite(value):
+        raise RadialGenerationError(
+            f"radial parameter {parameter} is not finite: {value}",
+            kind=RadialGenerationErrorKind.NON_FINITE_PARAMETER,
+            parameter=parameter,
+            value=value,
+        )
+    if value < 0.0:
+        raise RadialGenerationError(
+            f"radial radius {parameter} is negative: {value}",
+            kind=RadialGenerationErrorKind.NEGATIVE_RADIUS,
+            parameter=parameter,
+            value=value,
+        )
+
+
 @dataclass(frozen=True)
 class RadialPoint:
     angle: float
     radius: float
 
-    def to_cartesian(self, cx: float = 0.0, cy: float = 0.0) -> tuple[float, float]:
-        return tuple(_radial_point_to_cartesian(self.angle, self.radius, cx, cy))
+    @classmethod
+    def new(cls, angle: float, radius: float) -> "RadialPoint":
+        return cls(float(angle), float(radius))
 
-    try_to_cartesian = to_cartesian
+    def to_cartesian(self, cx: float = 0.0, cy: float = 0.0) -> tuple[float, float]:
+        return tuple(
+            _radial_point_to_cartesian(
+                self.angle, self.radius, float(cx), float(cy), checked=False
+            )
+        )
+
+    def try_to_cartesian(
+        self, cx: float = 0.0, cy: float = 0.0
+    ) -> tuple[float, float]:
+        cx = float(cx)
+        cy = float(cy)
+        _validate_radial_center(cx, cy)
+        _validate_radial_point(0, self)
+        return tuple(
+            _radial_point_to_cartesian(
+                self.angle, self.radius, cx, cy, checked=True
+            )
+        )
 
     @classmethod
     def from_cartesian(
         cls, x: float, y: float, cx: float = 0.0, cy: float = 0.0
     ) -> "RadialPoint":
-        return cls(*_radial_point_from_cartesian(x, y, cx, cy))
+        return cls(
+            *_radial_point_from_cartesian(
+                float(x), float(y), float(cx), float(cy), checked=False
+            )
+        )
 
 
 def _radial_values(
@@ -3629,6 +4350,10 @@ class RadialLineConfig:
     _curve_value: Curve = Curve()
     _closed: bool = False
 
+    @classmethod
+    def new(cls, cx: float, cy: float) -> "RadialLineConfig":
+        return cls(float(cx), float(cy))
+
     def curve(self, value: Curve | CurveKind | str) -> "RadialLineConfig":
         return replace(self, _curve_value=_curve(value))
 
@@ -3636,13 +4361,34 @@ class RadialLineConfig:
         return replace(self, _closed=bool(value))
 
     def generate(self, points: Sequence[RadialPoint | tuple[float, float]]) -> str:
+        values = _radial_values(points)
         return _radial_line_path(
-            _radial_values(points),
+            values,
             self.cx,
             self.cy,
             self._curve_value.kind.value,
             self._curve_value.parameter,
             self._closed,
+            checked=False,
+        )
+
+    def try_generate(
+        self, points: Sequence[RadialPoint | tuple[float, float]]
+    ) -> str:
+        values = _radial_values(points)
+        _validate_radial_center(self.cx, self.cy)
+        for index, point in enumerate(
+            RadialPoint.new(angle, radius) for angle, radius in values
+        ):
+            _validate_radial_point(index, point)
+        return _radial_line_path(
+            values,
+            self.cx,
+            self.cy,
+            self._curve_value.kind.value,
+            self._curve_value.parameter,
+            self._closed,
+            checked=True,
         )
 
 
@@ -3653,6 +4399,10 @@ class RadialAreaConfig:
     _inner_radius: float = 0.0
     _curve_value: Curve = Curve()
 
+    @classmethod
+    def new(cls, cx: float, cy: float) -> "RadialAreaConfig":
+        return cls(float(cx), float(cy))
+
     def inner_radius(self, value: float) -> "RadialAreaConfig":
         return replace(self, _inner_radius=float(value))
 
@@ -3660,13 +4410,35 @@ class RadialAreaConfig:
         return replace(self, _curve_value=_curve(value))
 
     def generate(self, points: Sequence[RadialPoint | tuple[float, float]]) -> str:
+        values = _radial_values(points)
         return _radial_area_path(
-            _radial_values(points),
+            values,
             self.cx,
             self.cy,
             self._inner_radius,
             self._curve_value.kind.value,
             self._curve_value.parameter,
+            checked=False,
+        )
+
+    def try_generate(
+        self, points: Sequence[RadialPoint | tuple[float, float]]
+    ) -> str:
+        values = _radial_values(points)
+        _validate_radial_center(self.cx, self.cy)
+        _validate_radial_radius("inner_radius", self._inner_radius)
+        for index, point in enumerate(
+            RadialPoint.new(angle, radius) for angle, radius in values
+        ):
+            _validate_radial_point(index, point)
+        return _radial_area_path(
+            values,
+            self.cx,
+            self.cy,
+            self._inner_radius,
+            self._curve_value.kind.value,
+            self._curve_value.parameter,
+            checked=True,
         )
 
 
@@ -3676,7 +4448,10 @@ def radial_line(
     return config.generate(points)
 
 
-try_radial_line = radial_line
+def try_radial_line(
+    points: Sequence[RadialPoint | tuple[float, float]], config: RadialLineConfig
+) -> str:
+    return config.try_generate(points)
 
 
 def radial_area(
@@ -3685,14 +4460,43 @@ def radial_area(
     return config.generate(points)
 
 
-try_radial_area = radial_area
+def try_radial_area(
+    points: Sequence[RadialPoint | tuple[float, float]], config: RadialAreaConfig
+) -> str:
+    return config.try_generate(points)
 
 
 def polar_grid_circles(cx: float, cy: float, radii: Sequence[float]) -> list[str]:
-    return list(_polar_grid_circle_paths(cx, cy, [float(radius) for radius in radii]))
+    return list(
+        _polar_grid_circle_paths(
+            float(cx), float(cy), [float(radius) for radius in radii], checked=False
+        )
+    )
 
 
-try_polar_grid_circles = polar_grid_circles
+def try_polar_grid_circles(
+    cx: float, cy: float, radii: Sequence[float]
+) -> list[str]:
+    cx = float(cx)
+    cy = float(cy)
+    _validate_radial_center(cx, cy)
+    values = [float(radius) for radius in radii]
+    for index, radius in enumerate(values):
+        if not math.isfinite(radius):
+            raise RadialGenerationError(
+                f"polar grid radius {index} is not finite: {radius}",
+                kind=RadialGenerationErrorKind.NON_FINITE_GRID_RADIUS,
+                index=index,
+                value=radius,
+            )
+        if radius < 0.0:
+            raise RadialGenerationError(
+                f"polar grid radius {index} is negative: {radius}",
+                kind=RadialGenerationErrorKind.NEGATIVE_GRID_RADIUS,
+                index=index,
+                value=radius,
+            )
+    return list(_polar_grid_circle_paths(cx, cy, values, checked=True))
 
 
 def polar_grid_rays(
@@ -3709,11 +4513,44 @@ def polar_grid_rays(
             outer_radius,
             [float(angle) for angle in angles],
             inner_radius,
+            checked=False,
         )
     )
 
 
-try_polar_grid_rays = polar_grid_rays
+def try_polar_grid_rays(
+    cx: float,
+    cy: float,
+    outer_radius: float,
+    angles: Sequence[float],
+    inner_radius: float = 0.0,
+) -> list[str]:
+    cx = float(cx)
+    cy = float(cy)
+    outer_radius = float(outer_radius)
+    inner_radius = float(inner_radius)
+    _validate_radial_center(cx, cy)
+    _validate_radial_radius("outer_radius", outer_radius)
+    _validate_radial_radius("inner_radius", inner_radius)
+    values = [float(angle) for angle in angles]
+    for index, angle in enumerate(values):
+        if not math.isfinite(angle):
+            raise RadialGenerationError(
+                f"polar grid angle {index} is not finite: {angle}",
+                kind=RadialGenerationErrorKind.NON_FINITE_GRID_ANGLE,
+                index=index,
+                value=angle,
+            )
+    return list(
+        _polar_grid_ray_paths(
+            cx,
+            cy,
+            outer_radius,
+            values,
+            inner_radius,
+            checked=True,
+        )
+    )
 
 
 AreaGenerationError = ValueError
@@ -3854,13 +4691,37 @@ def area_points(
 try_area_points = area_points
 
 
-ChordLayoutError = ValueError
-
-
 class ChordSort(str, Enum):
     NONE = "none"
     ASCENDING = "ascending"
     DESCENDING = "descending"
+
+
+class ChordLayoutErrorKind(str, Enum):
+    NON_SQUARE_MATRIX = "non_square_matrix"
+    NON_FINITE_VALUE = "non_finite_value"
+    NEGATIVE_VALUE = "negative_value"
+
+
+class ChordLayoutError(ValueError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: ChordLayoutErrorKind,
+        row: int,
+        column: int | None = None,
+        expected: int | None = None,
+        actual: int | None = None,
+        value: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.row = row
+        self.column = column
+        self.expected = expected
+        self.actual = actual
+        self.value = value
 
 
 @dataclass(frozen=True)
@@ -3901,6 +4762,26 @@ class ChordLayout:
     _sort_subgroups: ChordSort = ChordSort.NONE
     _sort_chords: ChordSort = ChordSort.NONE
 
+    @classmethod
+    def new(cls) -> "ChordLayout":
+        return cls()
+
+    @property
+    def pad_angle_value(self) -> float:
+        return self._pad_angle
+
+    @property
+    def sort_groups_value(self) -> ChordSort:
+        return self._sort_groups
+
+    @property
+    def sort_subgroups_value(self) -> ChordSort:
+        return self._sort_subgroups
+
+    @property
+    def sort_chords_value(self) -> ChordSort:
+        return self._sort_chords
+
     def pad_angle(self, angle: float) -> "ChordLayout":
         return replace(self, _pad_angle=float(angle))
 
@@ -3914,8 +4795,43 @@ class ChordLayout:
         return replace(self, _sort_chords=ChordSort(order))
 
     def compute(self, matrix: Sequence[Sequence[float]]) -> ChordResult:
+        return self.try_compute(matrix)
+
+    def try_compute(self, matrix: Sequence[Sequence[float]]) -> ChordResult:
+        size = len(matrix)
+        normalized: list[list[float]] = []
+        for row_index, row in enumerate(matrix):
+            if len(row) != size:
+                raise ChordLayoutError(
+                    f"chord matrix row {row_index} expected {size} columns, got {len(row)}",
+                    kind=ChordLayoutErrorKind.NON_SQUARE_MATRIX,
+                    row=row_index,
+                    expected=size,
+                    actual=len(row),
+                )
+            normalized_row: list[float] = []
+            for column_index, raw_value in enumerate(row):
+                value = float(raw_value)
+                if not math.isfinite(value):
+                    raise ChordLayoutError(
+                        f"chord matrix value at ({row_index}, {column_index}) is not finite: {value}",
+                        kind=ChordLayoutErrorKind.NON_FINITE_VALUE,
+                        row=row_index,
+                        column=column_index,
+                        value=value,
+                    )
+                if value < 0.0:
+                    raise ChordLayoutError(
+                        f"chord matrix value at ({row_index}, {column_index}) is negative: {value}",
+                        kind=ChordLayoutErrorKind.NEGATIVE_VALUE,
+                        row=row_index,
+                        column=column_index,
+                        value=value,
+                    )
+                normalized_row.append(value)
+            normalized.append(normalized_row)
         chords, groups = _chord_layout(
-            [[float(value) for value in row] for row in matrix],
+            normalized,
             self._pad_angle,
             self._sort_groups.value,
             self._sort_subgroups.value,
@@ -3929,14 +4845,15 @@ class ChordLayout:
             tuple(ChordGroup(*group) for group in groups),
         )
 
-    try_compute = compute
-
-
 @dataclass(frozen=True)
 class RibbonGenerator:
     radius: float
     center_x: float = 0.0
     center_y: float = 0.0
+
+    @classmethod
+    def new(cls, radius: float) -> "RibbonGenerator":
+        return cls(float(radius))
 
     def center(self, x: float, y: float) -> "RibbonGenerator":
         return replace(self, center_x=float(x), center_y=float(y))
@@ -5548,6 +6465,20 @@ class SankeyLayoutError(ValueError):
         self.first_index = first_index
         self.duplicate_index = duplicate_index
         self.value = value
+        self.name = node_name
+        self.link_index = (
+            index
+            if kind
+            in {
+                SankeyLayoutErrorKind.UNKNOWN_LINK_ENDPOINT,
+                SankeyLayoutErrorKind.NON_FINITE_LINK_VALUE,
+                SankeyLayoutErrorKind.NEGATIVE_LINK_VALUE,
+            }
+            else None
+        )
+        self.available = (
+            value if kind is SankeyLayoutErrorKind.INVALID_DRAWABLE_AREA else None
+        )
 
 
 def _decode_sankey_error(value: tuple[object, ...]) -> SankeyLayoutError:
@@ -5632,7 +6563,11 @@ class SankeyLayout:
         return self.link_sort(SankeyLinkSort.INPUT_ORDER)
 
     def try_compute(
-        self, node_names: Sequence[str], links: Sequence[SankeyLinkInput]
+        self,
+        node_names: Sequence[str],
+        links: Sequence[SankeyLinkInput],
+        *,
+        _checked: bool = True,
     ) -> SankeyResult:
         names = tuple(node_names)
         if not all(isinstance(name, str) for name in names):
@@ -5654,6 +6589,7 @@ class SankeyLayout:
             self._iterations,
             self._node_align.value,
             self._link_sort is SankeyLinkSort.INPUT_ORDER,
+            _checked,
         )
         if error is not None:
             raise _decode_sankey_error(tuple(error))
@@ -5668,7 +6604,7 @@ class SankeyLayout:
     def compute(
         self, node_names: Sequence[str], links: Sequence[SankeyLinkInput]
     ) -> SankeyResult:
-        return self.try_compute(node_names, links)
+        return self.try_compute(node_names, links, _checked=False)
 
 
 @dataclass(frozen=True, order=True)
@@ -6122,6 +7058,18 @@ class TimerCallbackError(RuntimeError):
     pass
 
 
+TimerDispatcher = Callable[[Callable[[], None]], None]
+
+
+def set_ui_dispatcher(dispatcher: TimerDispatcher) -> None:
+    del dispatcher
+    raise RuntimeError("timer UI dispatch is owned by the GPUI host")
+
+
+def clear_ui_dispatcher() -> None:
+    raise RuntimeError("timer UI dispatch is owned by the GPUI host")
+
+
 class _TimerHandleBase:
     def __init__(self, resource: object) -> None:
         self._resource = resource
@@ -6527,7 +7475,7 @@ class TransitionManager:
 @dataclass(frozen=True)
 class Event:
     type_: str
-    data: object | None = None
+    _data: object | None = field(default=None, repr=False)
 
     @classmethod
     def new(cls, type_: str, data: object | None = None) -> "Event":
@@ -6536,6 +7484,19 @@ class Event:
     @classmethod
     def with_data(cls, type_: str, data: object) -> "Event":
         return cls(str(type_), data)
+
+    @property
+    def payload(self) -> object | None:
+        """Return the untyped Python payload while preserving object identity."""
+        return self._data
+
+    def data(self, expected_type: type | None = None) -> object | None:
+        """Translate Rust's typed downcast, or return the payload when untyped."""
+        if expected_type is None:
+            return self._data
+        if not isinstance(expected_type, type):
+            raise TypeError("expected_type must be a type")
+        return self._data if isinstance(self._data, expected_type) else None
 
 
 @dataclass(frozen=True)
@@ -6567,8 +7528,8 @@ class Dispatcher:
     def once(self, type_: str, callback: Callable[[Event], None]) -> ListenerId:
         return self._add(type_, callback, True)
 
-    def off(self, listener_id: ListenerId) -> None:
-        self._listeners = [entry for entry in self._listeners if entry[0] != listener_id]
+    def off(self, id: ListenerId) -> None:
+        self._listeners = [entry for entry in self._listeners if entry[0] != id]
 
     def off_all(self, type_: str) -> None:
         self._listeners = [entry for entry in self._listeners if entry[1] != type_]
@@ -6694,11 +7655,21 @@ class AxisPoint:
     x: float
     y: float
 
+    @classmethod
+    def new(cls, x: float, y: float) -> "AxisPoint":
+        return cls(float(x), float(y))
+
 
 @dataclass(frozen=True)
 class AxisLine:
     start: AxisPoint
     end: AxisPoint
+
+    @classmethod
+    def new(cls, start: AxisPoint, end: AxisPoint) -> "AxisLine":
+        if not isinstance(start, AxisPoint) or not isinstance(end, AxisPoint):
+            raise TypeError("start and end must be AxisPoint values")
+        return cls(start, end)
 
 
 @dataclass(frozen=True)
@@ -6728,8 +7699,52 @@ class AxisLayout:
     minor_ticks: tuple[AxisTick, ...]
     title: AxisTitle | None
 
-    def ticks(self) -> tuple[AxisTick, ...]:
+    @classmethod
+    def try_from_scale(
+        cls, scale: AxisScale, config: "AxisConfig", size: float
+    ) -> "AxisLayout":
+        if not isinstance(config, AxisConfig):
+            raise TypeError("config must be an AxisConfig")
+        return config.try_layout(scale, size)
+
+    @classmethod
+    def from_scale(
+        cls, scale: AxisScale, config: "AxisConfig", size: float
+    ) -> "AxisLayout":
+        return cls.try_from_scale(scale, config, size)
+
+    def all_ticks(self) -> tuple[AxisTick, ...]:
         return (*self.major_ticks, *self.minor_ticks)
+
+    def ticks(self) -> tuple[AxisTick, ...]:
+        """Compatibility alias for :meth:`all_ticks`."""
+        return self.all_ticks()
+
+
+@dataclass(frozen=True)
+class AxisRgba:
+    r: float
+    g: float
+    b: float
+    a: float = 1.0
+
+
+class AxisTheme(Protocol):
+    def axis_line_color(self) -> AxisRgba: ...
+    def axis_label_color(self) -> AxisRgba: ...
+    def background_color(self) -> AxisRgba | None: ...
+
+
+@dataclass(frozen=True)
+class DefaultAxisTheme:
+    def axis_line_color(self) -> AxisRgba:
+        return AxisRgba(0.5, 0.5, 0.5, 1.0)
+
+    def axis_label_color(self) -> AxisRgba:
+        return AxisRgba(0.3, 0.3, 0.3, 1.0)
+
+    def background_color(self) -> AxisRgba | None:
+        return None
 
 
 class AxisLayoutErrorKind(str, Enum):
@@ -6802,6 +7817,15 @@ class AxisConfig:
     @classmethod
     def right(cls) -> "AxisConfig": return cls(_orientation=AxisOrientation.RIGHT)
 
+    @classmethod
+    def from_design(cls, design: object) -> "AxisConfig":
+        del design
+        raise RuntimeError("native DesignSystem objects are owned by the GPUI host")
+
+    def with_design(self, design: object) -> "AxisConfig":
+        del design
+        raise RuntimeError("native DesignSystem objects are owned by the GPUI host")
+
     def with_ticks(self, count: int) -> "AxisConfig":
         if not isinstance(count, int) or isinstance(count, bool): raise TypeError("count must be int")
         return replace(self, _tick_count=count)
@@ -6865,10 +7889,24 @@ def axis_layout(scale: AxisScale, config: AxisConfig, size: float) -> AxisLayout
     return config.try_layout(scale, size)
 
 
+def render_axis(
+    scale: AxisScale,
+    config: AxisConfig,
+    size: float,
+    theme: AxisTheme,
+) -> None:
+    del scale, config, size, theme
+    raise RuntimeError("axis rendering is owned by the GPUI host")
+
+
 @dataclass(frozen=True)
 class GridPoint:
     x: float
     y: float
+
+    @classmethod
+    def new(cls, x: float, y: float) -> "GridPoint":
+        return cls(float(x), float(y))
 
 
 @dataclass(frozen=True)
@@ -6877,12 +7915,24 @@ class GridLine:
     start: GridPoint
     end: GridPoint
 
+    @classmethod
+    def new(cls, value: float, start: GridPoint, end: GridPoint) -> "GridLine":
+        if not isinstance(start, GridPoint) or not isinstance(end, GridPoint):
+            raise TypeError("start and end must be GridPoint values")
+        return cls(float(value), start, end)
+
 
 @dataclass(frozen=True)
 class GridDot:
     x_value: float
     y_value: float
     center: GridPoint
+
+    @classmethod
+    def new(cls, x_value: float, y_value: float, center: GridPoint) -> "GridDot":
+        if not isinstance(center, GridPoint):
+            raise TypeError("center must be a GridPoint")
+        return cls(float(x_value), float(y_value), center)
 
 
 @dataclass(frozen=True)
@@ -6892,6 +7942,30 @@ class GridLayout:
     vertical_lines: tuple[GridLine, ...]
     horizontal_lines: tuple[GridLine, ...]
     dots: tuple[GridDot, ...]
+
+    @classmethod
+    def try_from_scales(
+        cls,
+        x_scale: AxisScale,
+        y_scale: AxisScale,
+        config: "GridConfig",
+        width: float,
+        height: float,
+    ) -> "GridLayout":
+        if not isinstance(config, GridConfig):
+            raise TypeError("config must be a GridConfig")
+        return config.try_layout(x_scale, y_scale, width, height)
+
+    @classmethod
+    def from_scales(
+        cls,
+        x_scale: AxisScale,
+        y_scale: AxisScale,
+        config: "GridConfig",
+        width: float,
+        height: float,
+    ) -> "GridLayout":
+        return cls.try_from_scales(x_scale, y_scale, config, width, height)
 
     def is_empty(self) -> bool:
         return not self.vertical_lines and not self.horizontal_lines and not self.dots
@@ -6957,6 +8031,15 @@ class GridConfig:
             _show_horizontal_lines=True,
             _show_dots=False,
         )
+
+    @classmethod
+    def from_design(cls, design: object) -> "GridConfig":
+        del design
+        raise RuntimeError("native DesignSystem objects are owned by the GPUI host")
+
+    def with_design(self, design: object) -> "GridConfig":
+        del design
+        raise RuntimeError("native DesignSystem objects are owned by the GPUI host")
 
     @staticmethod
     def _bool(name: str, value: bool) -> bool:
@@ -7078,6 +8161,18 @@ def grid_layout(
     return config.try_layout(x_scale, y_scale, width, height)
 
 
+def render_grid(
+    x_scale: AxisScale,
+    y_scale: AxisScale,
+    config: GridConfig,
+    _width: float,
+    _height: float,
+    theme: AxisTheme,
+) -> None:
+    del x_scale, y_scale, config, _width, _height, theme
+    raise RuntimeError("grid rendering is owned by the GPUI host")
+
+
 class LegendPosition(str, Enum):
     TOP_LEFT = "top_left"
     TOP_RIGHT = "top_right"
@@ -7103,6 +8198,18 @@ class LegendSymbol(str, Enum):
     NONE = "none"
 
 
+def _legend_color(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    to_hex_alpha = getattr(value, "to_hex_alpha", None)
+    if callable(to_hex_alpha):
+        return str(to_hex_alpha())
+    to_hex = getattr(value, "to_hex", None)
+    if callable(to_hex):
+        return str(to_hex())
+    raise TypeError("color must be a CSS color string or D3Color")
+
+
 @dataclass(frozen=True)
 class LegendItem:
     _label: str
@@ -7111,18 +8218,18 @@ class LegendItem:
     _data: str | None = field(default=None, repr=False)
 
     @classmethod
-    def color(cls, label: str, color: str) -> "LegendItem":
-        return cls(str(label), str(color))
+    def color(cls, label: str, color: object) -> "LegendItem":
+        return cls(str(label), _legend_color(color))
 
     @classmethod
-    def line(cls, label: str, color: str) -> "LegendItem":
-        return cls(str(label), str(color), LegendSymbol.LINE)
+    def line(cls, label: str, color: object) -> "LegendItem":
+        return cls(str(label), _legend_color(color), LegendSymbol.LINE)
 
     @classmethod
     def with_symbol(
-        cls, label: str, color: str, symbol: LegendSymbol
+        cls, label: str, color: object, symbol: LegendSymbol
     ) -> "LegendItem":
-        return cls(str(label), str(color), LegendSymbol(symbol))
+        return cls(str(label), _legend_color(color), LegendSymbol(symbol))
 
     def symbol(self, symbol: LegendSymbol) -> "LegendItem":
         return replace(self, _symbol=LegendSymbol(symbol))
@@ -7130,11 +8237,31 @@ class LegendItem:
     def data(self, data: str) -> "LegendItem":
         return replace(self, _data=str(data))
 
+    @property
+    def label_value(self) -> str:
+        return self._label
+
+    @property
+    def color_value(self) -> str:
+        return self._color
+
+    @property
+    def symbol_value(self) -> LegendSymbol:
+        return self._symbol
+
+    @property
+    def data_value(self) -> str | None:
+        return self._data
+
 
 @dataclass(frozen=True)
 class LegendPoint:
     x: float
     y: float
+
+    @classmethod
+    def new(cls, x: float, y: float) -> "LegendPoint":
+        return cls(float(x), float(y))
 
 
 @dataclass(frozen=True)
@@ -7142,6 +8269,12 @@ class LegendRect:
     origin: LegendPoint
     width: float
     height: float
+
+    @classmethod
+    def new(
+        cls, x: float, y: float, width: float, height: float
+    ) -> "LegendRect":
+        return cls(LegendPoint.new(x, y), float(width), float(height))
 
 
 @dataclass(frozen=True)
@@ -7171,6 +8304,31 @@ class LegendLayout:
     column_widths: tuple[float, ...]
     title: LegendTitleLayout | None
     items: tuple[LegendItemLayout, ...]
+
+    @classmethod
+    def try_from_config(
+        cls, config: "LegendConfig", available_width: float
+    ) -> "LegendLayout":
+        if not isinstance(config, LegendConfig):
+            raise TypeError("config must be a LegendConfig")
+        return config.try_layout(available_width)
+
+    @classmethod
+    def try_from_config_with_char_width(
+        cls,
+        config: "LegendConfig",
+        available_width: float,
+        avg_char_width: float,
+    ) -> "LegendLayout":
+        if not isinstance(config, LegendConfig):
+            raise TypeError("config must be a LegendConfig")
+        return config.try_layout(available_width, avg_char_width=avg_char_width)
+
+    @classmethod
+    def from_config(
+        cls, config: "LegendConfig", available_width: float
+    ) -> "LegendLayout":
+        return cls.try_from_config(config, available_width)
 
     def is_empty(self) -> bool:
         return self.title is None and not self.items
@@ -7223,6 +8381,15 @@ class LegendConfig:
     def new(cls) -> "LegendConfig":
         return cls()
 
+    @classmethod
+    def from_design(cls, design: object) -> "LegendConfig":
+        del design
+        raise RuntimeError("native DesignSystem objects are owned by the GPUI host")
+
+    def with_design(self, design: object) -> "LegendConfig":
+        del design
+        raise RuntimeError("native DesignSystem objects are owned by the GPUI host")
+
     def position(self, position: LegendPosition) -> "LegendConfig":
         return replace(self, _position=LegendPosition(position))
 
@@ -7257,14 +8424,14 @@ class LegendConfig:
             raise TypeError("enabled must be bool")
         return replace(self, _background=enabled)
 
-    def background_color(self, color: str) -> "LegendConfig":
-        return replace(self, _background_color=str(color))
+    def background_color(self, color: object) -> "LegendConfig":
+        return replace(self, _background_color=_legend_color(color))
 
     def border_width(self, width: float) -> "LegendConfig":
         return replace(self, _border_width=float(width))
 
-    def border_color(self, color: str) -> "LegendConfig":
-        return replace(self, _border_color=str(color))
+    def border_color(self, color: object) -> "LegendConfig":
+        return replace(self, _border_color=_legend_color(color))
 
     def font_size(self, size: float) -> "LegendConfig":
         return replace(self, _font_size=float(size))
@@ -7413,14 +8580,24 @@ def legend_layout(config: LegendConfig, available_width: float) -> LegendLayout:
 def legend_from_scale(
     scale: Callable[[float], str],
     ticks: Sequence[float],
-    formatter: Callable[[float], str],
+    format: Callable[[float], str],
 ) -> tuple[LegendItem, ...]:
     return tuple(
-        LegendItem.color(formatter(float(tick)), scale(float(tick))).symbol(
+        LegendItem.color(format(float(tick)), scale(float(tick))).symbol(
             LegendSymbol.SQUARE
         )
         for tick in ticks
     )
+
+
+def render_legend(
+    config: LegendConfig,
+    available_width: float,
+    text_color: object,
+    bg_color: object | None,
+) -> None:
+    del config, available_width, text_color, bg_color
+    raise RuntimeError("legend rendering is owned by the GPUI host")
 
 
 class TileErrorKind(str, Enum):
@@ -7559,6 +8736,9 @@ class Extent:
     y0: float
     x1: float
     y1: float
+    @classmethod
+    def new(cls, x0: float, y0: float, x1: float, y1: float) -> "Extent":
+        return cls(float(x0), float(y0), float(x1), float(y1))
 
     def union(self, other: "Extent") -> "Extent":
         if not isinstance(other, Extent):
@@ -7577,7 +8757,7 @@ class Extent:
         return self.y1 - self.y0
 
     def contains(self, x: float, y: float) -> bool:
-        return self.x0 <= x < self.x1 and self.y0 <= y < self.y1
+        return self.x0 <= x <= self.x1 and self.y0 <= y <= self.y1
 
 
 @dataclass(frozen=True)
@@ -7585,6 +8765,9 @@ class Aggregate:
     mass: float
     x: float
     y: float
+    @classmethod
+    def new(cls, mass: float, x: float, y: float) -> "Aggregate":
+        return cls(float(mass), float(x), float(y))
 
     def merge(self, other: "Aggregate") -> "Aggregate":
         if not isinstance(other, Aggregate):
@@ -7605,6 +8788,9 @@ class QuadPoint:
     y: float
     data: object
     next: "QuadPoint | None" = None
+    @classmethod
+    def new(cls, x: float, y: float, data: object) -> "QuadPoint":
+        return cls(float(x), float(y), data)
 
 
 class QuadNodeKind(str, Enum):
@@ -7617,6 +8803,15 @@ class QuadNode:
     kind: QuadNodeKind
     point: QuadPoint | None
     aggregate: Aggregate | None
+    @classmethod
+    def new_internal(cls) -> "QuadNode":
+        return cls(QuadNodeKind.INTERNAL, None, None)
+    def set_aggregate(self, aggregate: Aggregate) -> None:
+        if self.kind is QuadNodeKind.LEAF:
+            raise ValueError("cannot set aggregate on leaf node")
+        if not isinstance(aggregate, Aggregate):
+            raise TypeError("aggregate must be an Aggregate")
+        object.__setattr__(self, "aggregate", aggregate)
 
 
 class QuadTreeError(ValueError):
@@ -8206,6 +9401,8 @@ __all__ = [
     "epanechnikov_kernel",
     "gaussian_kernel",
     "Delaunay",
+    "DelaunayError",
+    "DelaunayErrorKind",
     "Voronoi",
     "polygon_area",
     "polygon_area_signed",
@@ -8230,15 +9427,21 @@ __all__ = [
     "PathBuilder",
     "ShapePath",
     "ShapeGenerationError",
+    "ArcGenerationError",
+    "ArcGenerationErrorKind",
     "ArcDatum",
     "Arc",
     "arc_points",
     "try_arc_points",
     "SymbolType",
+    "SymbolGenerationError",
+    "SymbolGenerationErrorKind",
     "Symbol",
     "symbol_radius",
     "try_symbol_radius",
     "LinkDirection",
+    "LinkGenerationError",
+    "LinkGenerationErrorKind",
     "Link",
     "RadialLink",
     "link_horizontal",
@@ -8250,6 +9453,8 @@ __all__ = [
     "link_radial",
     "try_link_radial",
     "PieSlice",
+    "PieLayoutError",
+    "PieLayoutErrorKind",
     "Pie",
     "pie",
     "try_pie",
@@ -8258,6 +9463,7 @@ __all__ = [
     "half_pie",
     "try_half_pie",
     "StackLayoutError",
+    "StackLayoutErrorKind",
     "StackOrder",
     "StackOffset",
     "StackSeries",
@@ -8288,6 +9494,7 @@ __all__ = [
     "area_points",
     "try_area_points",
     "ChordLayoutError",
+    "ChordLayoutErrorKind",
     "ChordSort",
     "ChordSubgroup",
     "ChordGroup",
@@ -8413,6 +9620,9 @@ __all__ = [
     "DragState",
     "TimerState",
     "TimerCallbackError",
+    "TimerDispatcher",
+    "set_ui_dispatcher",
+    "clear_ui_dispatcher",
     "Timer",
     "Interval",
     "Timeout",
@@ -8444,6 +9654,10 @@ __all__ = [
     "AxisLayoutError",
     "AxisConfig",
     "axis_layout",
+    "AxisRgba",
+    "AxisTheme",
+    "DefaultAxisTheme",
+    "render_axis",
     "GridPoint",
     "GridLine",
     "GridDot",
@@ -8452,6 +9666,7 @@ __all__ = [
     "GridLayoutError",
     "GridConfig",
     "grid_layout",
+    "render_grid",
     "LegendPosition",
     "LegendOrientation",
     "LegendSymbol",
@@ -8466,6 +9681,7 @@ __all__ = [
     "LegendConfig",
     "legend_layout",
     "legend_from_scale",
+    "render_legend",
     "Tile",
     "TileErrorKind",
     "TileError",
