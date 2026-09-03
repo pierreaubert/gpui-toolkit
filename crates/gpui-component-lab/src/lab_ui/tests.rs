@@ -1,4 +1,9 @@
 use super::component_lab::ComponentLab;
+use super::component_lab::ExportedStoryFamily;
+use super::component_lab::exported_story_family;
+use super::deep_link::coerce_prop_value;
+use super::deep_link::encode_lab_deep_link;
+use super::deep_link::parse_lab_deep_link;
 use super::initial_lab_state::InitialLabState;
 use super::misc::button_variant;
 use super::misc::design_for_theme_preset;
@@ -6,7 +11,12 @@ use super::misc::id_fragment;
 use super::misc::lab_id;
 use super::misc::prop_value_label;
 use super::misc::scatter_story_data;
+use super::misc::StoryPreviewKind;
+use super::misc::lock_recover;
+use super::misc::prop_number_label;
 use super::misc::showcase_section_for_story_id;
+use super::misc::sidebar_window;
+use super::misc::story_preview_kind;
 use super::misc::spectrum_axis_magnitudes;
 use super::misc::spectrum_magnitudes;
 use super::misc::surface_colormap;
@@ -35,6 +45,7 @@ use gpui_showcase::showcase::ShowcaseSection;
 use gpui_ui_kit::ButtonVariant;
 use serde_json::json;
 use std::collections::BTreeMap;
+use std::sync::Mutex;
 #[cfg(feature = "profiler")]
 #[test]
 fn story_file_names_are_stable() {
@@ -347,25 +358,15 @@ fn builtin_renderer_story_ids_have_preview_handlers() {
 }
 
 fn builtin_preview_handler_story_id(story_id: &str) -> bool {
-    matches!(
-        story_id,
-        "ui-kit.button"
-            | "ui-kit.form"
-            | "ui-kit.status"
-            | "ui-kit.navigation"
-            | "ui-kit.feedback"
-            | "ui-kit.card"
-            | "audio-kit.potentiometer"
-            | "audio-kit.vertical-slider"
-            | "audio-kit.volume-knob"
-            | "audio-kit.meter"
-            | "audio-kit.horizontal-meter"
-            | "audio-kit.spectrum"
-            | "audio-kit.spectrum-axis"
-    ) || UI_KIT_EXPORTED_COMPONENT_STORY_IDS.contains(&story_id)
-        || showcase_section_for_story_id(story_id).is_some()
-        || crate::PX_CHART_STORY_IDS.contains(&story_id)
-        || story_id.starts_with("px.mesh_plot.")
+    !matches!(
+        story_preview_kind(
+            story_id,
+            UI_KIT_EXPORTED_COMPONENT_STORY_IDS.contains(&story_id),
+            showcase_section_for_story_id(story_id).is_some(),
+            true,
+        ),
+        StoryPreviewKind::Missing | StoryPreviewKind::RendererFallback
+    )
 }
 
 #[test]
@@ -458,4 +459,218 @@ fn sidebar_labels_are_built_from_documents() {
     let labels = ComponentLab::build_sidebar_labels(&documents, &["ui-kit.button".to_string()]);
     assert_eq!(labels.len(), 1);
     assert_eq!(labels["ui-kit.button"], "gpui-ui-kit / Button");
+}
+
+#[test]
+fn cache_locks_recover_from_poison() {
+    let mutex = Mutex::new(7u32);
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _guard = mutex.lock().unwrap();
+        panic!("intentional poison for lock_recover");
+    }));
+    assert!(mutex.is_poisoned());
+    assert_eq!(*lock_recover(&mutex), 7);
+    *lock_recover(&mutex) = 8;
+    assert_eq!(*lock_recover(&mutex), 8);
+}
+
+#[test]
+fn prop_number_labels_are_cached_and_formatted() {
+    assert_eq!(prop_number_label(0.25), "0.25");
+    assert_eq!(prop_number_label(0.25), prop_number_label(0.25));
+    assert_eq!(prop_number_label(1.0), "1.00");
+    assert_eq!(
+        prop_value_label(&StoryPropValue::Number(2.5)),
+        prop_number_label(2.5)
+    );
+}
+
+#[test]
+fn sidebar_window_cases() {
+    assert_eq!(sidebar_window(0, 10, 200), (0, 10));
+    assert_eq!(sidebar_window(0, 0, 200), (0, 0));
+    assert_eq!(sidebar_window(5, 10, 0), (0, 10));
+    assert_eq!(sidebar_window(250, 500, 200), (150, 350));
+    assert_eq!(sidebar_window(0, 500, 200), (0, 200));
+    assert_eq!(sidebar_window(499, 500, 200), (300, 500));
+    assert_eq!(sidebar_window(9999, 500, 200), (300, 500));
+}
+
+#[test]
+fn story_preview_kind_covers_builtin_handlers() {
+    let extra_mesh = ["px.mesh_plot.mesh_only", "px.mesh_plot.surface3d"];
+    for story_id in crate::BUILTIN_RENDERER_STORY_IDS
+        .iter()
+        .copied()
+        .chain(crate::PX_CHART_STORY_IDS.iter().copied())
+        .chain(extra_mesh)
+    {
+        let kind = story_preview_kind(
+            story_id,
+            UI_KIT_EXPORTED_COMPONENT_STORY_IDS.contains(&story_id),
+            showcase_section_for_story_id(story_id).is_some(),
+            true,
+        );
+        assert!(
+            !matches!(
+                kind,
+                StoryPreviewKind::Missing | StoryPreviewKind::RendererFallback
+            ),
+            "{story_id} has no preview handler: {kind:?}"
+        );
+    }
+}
+
+#[test]
+fn story_preview_kind_fallbacks_and_precedence() {
+    assert_eq!(
+        story_preview_kind("ui-kit.button", false, false, false),
+        StoryPreviewKind::Button
+    );
+    assert_eq!(
+        story_preview_kind("ui-kit.button-set", true, true, true),
+        StoryPreviewKind::ExportedUiKit
+    );
+    assert_eq!(
+        story_preview_kind("ui-kit.buttons", false, true, true),
+        StoryPreviewKind::Showcase
+    );
+    assert_eq!(
+        story_preview_kind("px.mesh_plot.custom", false, false, false),
+        StoryPreviewKind::MeshPlot
+    );
+    assert_eq!(
+        story_preview_kind("other-thing", false, false, true),
+        StoryPreviewKind::RendererFallback
+    );
+    assert_eq!(
+        story_preview_kind("other-thing", false, false, false),
+        StoryPreviewKind::Missing
+    );
+    assert_eq!(
+        story_preview_kind("", false, false, false),
+        StoryPreviewKind::Missing
+    );
+}
+
+#[test]
+fn exported_story_families_cover_all_exported_ids() {
+    // Base ids such as `ui-kit.button` are in the exported set but are
+    // claimed by explicit preview arms before the exported guard runs.
+    for story_id in UI_KIT_EXPORTED_COMPONENT_STORY_IDS.iter().copied() {
+        let family = exported_story_family(story_id);
+        let explicit =
+            story_preview_kind(story_id, true, false, false) != StoryPreviewKind::ExportedUiKit;
+        assert!(
+            family != ExportedStoryFamily::Unknown || explicit,
+            "{story_id} reaches the exported renderer with no family"
+        );
+    }
+    assert_eq!(
+        exported_story_family("ui-kit.button-set"),
+        ExportedStoryFamily::Feedback
+    );
+    assert_eq!(
+        exported_story_family("ui-kit.toggle"),
+        ExportedStoryFamily::Input
+    );
+    assert_eq!(
+        exported_story_family("ui-kit.badge"),
+        ExportedStoryFamily::Display
+    );
+    assert_eq!(
+        exported_story_family("ui-kit.tabs-component"),
+        ExportedStoryFamily::Navigation
+    );
+    for story_id in ["", "ui-kit.nope", "ui-kit.button", "px.line"] {
+        assert_eq!(
+            exported_story_family(story_id),
+            ExportedStoryFamily::Unknown,
+            "{story_id}"
+        );
+    }
+}
+
+#[test]
+fn showcase_sections_cover_known_stories_and_reject_edges() {
+    for (story_id, section) in [
+        ("ui-kit.buttons", ShowcaseSection::Buttons),
+        ("ui-kit.text", ShowcaseSection::Text),
+        ("ui-kit.form-controls", ShowcaseSection::FormControls),
+        ("ui-kit.dialog", ShowcaseSection::Dialog),
+        ("ui-kit.tree-view", ShowcaseSection::TreeView),
+        ("ui-kit.accessibility", ShowcaseSection::Accessibility),
+    ] {
+        assert_eq!(showcase_section_for_story_id(story_id), Some(section));
+    }
+    for story_id in [
+        "",
+        "ui-kit.button",
+        "ui-kit.buttons ",
+        "UI-KIT.BUTTONS",
+        "ui-kit.buttons/ui",
+        "px.line",
+    ] {
+        assert_eq!(showcase_section_for_story_id(story_id), None, "{story_id}");
+    }
+}
+
+#[test]
+fn deep_links_round_trip() {
+    let link = encode_lab_deep_link(
+        "ui-kit.button",
+        &[("variant", "primary"), ("label", "Hello World & Co")],
+    );
+    let parsed = parse_lab_deep_link(&link).expect("round trip");
+    assert_eq!(parsed.story_id, "ui-kit.button");
+    assert_eq!(
+        parsed.props,
+        vec![
+            ("variant".to_string(), "primary".to_string()),
+            ("label".to_string(), "Hello World & Co".to_string()),
+        ]
+    );
+    assert_eq!(encode_lab_deep_link("px.line", &[]), "?story=px.line");
+}
+
+#[test]
+fn deep_links_reject_bad_input() {
+    assert_eq!(parse_lab_deep_link(""), None);
+    assert_eq!(parse_lab_deep_link("?"), None);
+    assert_eq!(parse_lab_deep_link("?story"), None);
+    assert_eq!(parse_lab_deep_link("?story="), None);
+    assert_eq!(parse_lab_deep_link("?prop.variant=primary"), None);
+    assert_eq!(parse_lab_deep_link("?story=%ZZ"), None);
+    assert_eq!(
+        parse_lab_deep_link("story=px.line").expect("bare query").story_id,
+        "px.line"
+    );
+}
+
+#[test]
+fn deep_link_prop_coercion_matches_declared_types() {
+    assert_eq!(
+        coerce_prop_value(&StoryPropValue::Bool(false), "on"),
+        StoryPropValue::Bool(true)
+    );
+    assert_eq!(
+        coerce_prop_value(&StoryPropValue::Bool(true), "maybe"),
+        StoryPropValue::Bool(true)
+    );
+    assert_eq!(
+        coerce_prop_value(&StoryPropValue::Number(1.0), "2.5"),
+        StoryPropValue::Number(2.5)
+    );
+    assert_eq!(
+        coerce_prop_value(&StoryPropValue::Number(1.0), "NaN"),
+        StoryPropValue::Number(1.0)
+    );
+    assert_eq!(
+        coerce_prop_value(&StoryPropValue::Number(1.0), "junk"),
+        StoryPropValue::Number(1.0)
+    );
+    assert_eq!(
+        coerce_prop_value(&StoryPropValue::Text("a".into()), "b"),
+        StoryPropValue::Text("b".into())
+    );
 }

@@ -1,5 +1,14 @@
 # Unreleased
 
+## Added
+
+- Split the solver pass (`solve`) for readability and added `child_info`
+  unit tests covering priority collapse.
+
+## Fixed
+
+- Split the layout-showcase render path so large scenes stay responsive.
+
 ## 0.9.9 - 2026-08-23
 
 ### Performance

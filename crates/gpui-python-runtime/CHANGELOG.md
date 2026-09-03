@@ -1,5 +1,13 @@
 # Unreleased
 
+## Performance
+
+- Added `MeshPlotSpec::validate_value`, which runs schema-version and
+  structural gates on the borrow so rejected specs skip the clone.
+- Added a `spec_validate` criterion bench (validate + frame ingest + decode
+  hot/cold) with documented budgets.
+- Fixed two `manual_contains` clippy lints in dataset-frame decoding.
+
 ## 0.9.10 - 2026-08-23
 
 ### Performance

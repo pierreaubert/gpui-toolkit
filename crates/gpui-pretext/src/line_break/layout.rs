@@ -5,6 +5,7 @@ use super::misc::fit_soft_hyphen_break;
 use super::types::InternalLayoutLine;
 use super::types::LineBreakCursor;
 use super::types::PreparedLineBreakData;
+use super::types::PreparedLineChunk;
 use super::types::find_chunk_index_for_start;
 use super::types::normalize_line_start;
 /// Line breaking algorithms, ported from chenglou/pretext.
@@ -21,6 +22,9 @@ use super::types::normalize_line_start;
 use crate::analysis::SegmentBreakKind;
 use crate::measurement::EngineProfile;
 
+/// Strategy split: the `_simple` fast path (no tabs/soft-hyphens) lives in
+/// `layout_next_line_range_simple`; everything else goes through
+/// `layout_next_line_range_complex` below.
 pub fn layout_next_line_range(
     prepared: &PreparedLineBreakData,
     start: LineBreakCursor,
@@ -45,6 +49,20 @@ pub fn layout_next_line_range(
             width: 0.0,
         });
     }
+
+    layout_next_line_range_complex(prepared, chunk, normalized_start, max_width, profile)
+}
+
+/// Complex greedy path: tabs, soft hyphens, and breakable (overflow-wrap)
+/// runs. Extracted from `layout_next_line_range` so each strategy reads and
+/// tests independently.
+fn layout_next_line_range_complex(
+    prepared: &PreparedLineBreakData,
+    chunk: &PreparedLineChunk,
+    normalized_start: LineBreakCursor,
+    max_width: f64,
+    profile: &EngineProfile,
+) -> Option<InternalLayoutLine> {
 
     let widths = &prepared.widths;
     let line_end_fit_advances = &prepared.line_end_fit_advances;

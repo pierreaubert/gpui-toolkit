@@ -813,6 +813,9 @@ impl ScatterChart {
         // Create data points for primary series, reusing the cache when the
         // source `Arc`s have not changed.
         let primary_data = cached_scatter_points(&self.x, &self.y, &mut self.primary_data_cache);
+        // Big-data path: min-max decimate past 10k points. The cache above
+        // keeps full resolution for export and hit-testing.
+        let primary_render_data = crate::decimation::decimate_scatter_points(&primary_data);
 
         let primary_config = ScatterConfig::new()
             .fill_color(D3Color::from_hex(self.color))
@@ -827,6 +830,7 @@ impl ScatterChart {
             .iter_mut()
             .map(|s| {
                 let points = cached_scatter_points(&s.x, &s.y, &mut s.data_cache);
+                let points = crate::decimation::decimate_scatter_points(&points);
                 let config = ScatterConfig::new()
                     .fill_color(D3Color::from_hex(s.color))
                     .point_radius(s.point_radius)
@@ -876,7 +880,7 @@ impl ScatterChart {
                 let child: AnyElement = render_scatter_selected(
                     &$x_scale,
                     &$y_scale,
-                    primary_data.as_ref(),
+                    primary_render_data.as_ref(),
                     &primary_config,
                 );
                 plot_area = plot_area.child(child);

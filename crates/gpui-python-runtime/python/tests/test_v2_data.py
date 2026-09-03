@@ -1649,6 +1649,18 @@ class V2DataTests(unittest.TestCase):
             array = data.ArrayData.from_dlpack(object(), id="dlpack")
         self.assertEqual(array.to_spec()["byte_length"], 2)
 
+    def test_array_data_accepts_small_typed_sequences(self) -> None:
+        grid = data.ArrayData.from_sequence(
+            [[1.0, 2.0], [3.0, 4.0]],
+            shape=(2, 2),
+            dtype="f32",
+            id="sequence-grid",
+        )
+        self.assertEqual(grid.to_spec()["byte_length"], 16)
+        self.assertEqual(grid.binary_chunks(), (b"\x00\x00\x80?\x00\x00\x00@\x00\x00@@\x00\x00\x80@",))
+        self.assertRaisesRegex(data.DataError, "shape mismatch", data.ArrayData.from_sequence, [[1.0]], shape=(2, 2), dtype="f32")
+        self.assertRaises(data.DataError, data.ArrayData.from_sequence, [1.0, "bad"], shape=(2,), dtype="f32")
+
 
 if __name__ == "__main__":
     unittest.main()

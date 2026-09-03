@@ -26,6 +26,24 @@ pub(super) fn is_simple_collapsible_space(kind: SegmentBreakKind) -> bool {
     kind == SegmentBreakKind::Space
 }
 
+/// Segments a fresh line never starts with.
+///
+/// Mirrors `normalize_line_start` (used by the incremental `layout_next_line`
+/// path) and the leading-space normalization in `breakpoints_to_lines` (used
+/// by the optimal path): break opportunities and collapsible spaces attach to
+/// the preceding line or collapse, so starting content with one would emit a
+/// zero-width ghost line that the other two paths do not produce. All three
+/// greedy entry points (`walk_prepared_lines_simple`, `walk_prepared_lines`,
+/// `count_prepared_lines_simple`) apply this so counts agree.
+pub(super) fn skipped_at_fresh_line_start(kind: SegmentBreakKind) -> bool {
+    matches!(
+        kind,
+        SegmentBreakKind::Space
+            | SegmentBreakKind::ZeroWidthBreak
+            | SegmentBreakKind::SoftHyphen
+    )
+}
+
 pub(super) fn fit_soft_hyphen_break(
     grapheme_widths: &[f64],
     initial_width: f64,

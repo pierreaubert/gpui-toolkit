@@ -504,11 +504,14 @@ pub struct MeshPlot {
     pub(crate) show_toolbar: bool,
     pub(crate) hidden_toolbar_actions: Vec<PlotToolbarAction>,
     pub(crate) renderer_backend: MeshPlotBackend,
-    /// Geometry-only preparation shared by live interaction frames. The
-    /// cache deliberately keys Arc backing pointers as well as the projected
-    /// plane so declarative parent rerenders can reuse O(N + T) work without
-    /// retaining stale data after a resource replacement.
-    prepared_planar_frame: Option<PreparedPlanarFrame>,
+    /// Dirty-flag retained projection cache shared by live interaction
+    /// frames. The cache keys Arc backing pointers as well as the projected
+    /// plane so declarative parent rerenders reuse O(N + T) work without
+    /// retaining stale data after a resource replacement. The `dirty` flag is
+    /// set whenever the view plane may have changed (see [`MeshPlot::view`]);
+    /// while clean, frames share the prepared buffers through `Arc` instead
+    /// of re-projecting.
+    prepared_planar_frame: PlanarFrameCache,
     #[cfg(all(feature = "gpu-2d", any(not(test), feature = "native-qa")))]
     retained_2d_draw_owner: Option<Rc<Mesh2dDrawOwner>>,
     #[cfg(feature = "gpu-2d")]
@@ -523,10 +526,41 @@ struct PreparedPlanarFrame {
     triangles_ptr: usize,
     horizontal: CoordinateAxis,
     vertical: CoordinateAxis,
-    projected: Rc<Vec<[f64; 2]>>,
+    projected: Arc<[[f64; 2]]>,
     x_domain: [f64; 2],
     y_domain: [f64; 2],
-    topology: Rc<MeshTopology>,
+    topology: Arc<MeshTopology>,
+}
+
+/// Dirty-flag retained mesh projection cache.
+///
+/// `dirty` is set by builder setters that can change the projection plane
+/// (camera/view changes) and cleared once the frame is re-prepared, so
+/// interaction-only frames (pan/zoom reuse the data-space projection and
+/// rescale) never redo O(N + T) projection/topology work.
+#[derive(Clone, Default)]
+struct PlanarFrameCache {
+    cached: Option<Arc<PreparedPlanarFrame>>,
+    dirty: bool,
+}
+
+impl PlanarFrameCache {
+    fn new() -> Self {
+        Self {
+            cached: None,
+            dirty: true,
+        }
+    }
+
+    /// Mark the retained projection stale after a camera/plane change.
+    fn invalidate(&mut self) {
+        self.dirty = true;
+    }
+
+    /// True when re-projection is required (never prepared or invalidated).
+    fn is_dirty(&self) -> bool {
+        self.dirty || self.cached.is_none()
+    }
 }
 
 impl MeshPlot {
@@ -553,6 +587,9 @@ impl MeshPlot {
     }
     pub fn view(mut self, view: MeshPlotView) -> Self {
         self.view = view;
+        // A new view may project a different plane; re-project on the next
+        // frame instead of reusing the retained buffers.
+        self.prepared_planar_frame.invalidate();
         self
     }
     pub fn mode(mut self, mode: MeshRenderMode) -> Self {
@@ -711,16 +748,18 @@ impl MeshPlot {
         &mut self,
         horizontal: CoordinateAxis,
         vertical: CoordinateAxis,
-    ) -> Result<PreparedPlanarFrame, ChartError> {
+    ) -> Result<Arc<PreparedPlanarFrame>, ChartError> {
         let positions_ptr = self.mesh.positions.as_ptr() as usize;
         let triangles_ptr = self.mesh.triangles.as_ptr() as usize;
-        if let Some(cached) = &self.prepared_planar_frame
+        if !self.prepared_planar_frame.is_dirty()
+            && let Some(cached) = &self.prepared_planar_frame.cached
             && cached.positions_ptr == positions_ptr
             && cached.triangles_ptr == triangles_ptr
             && cached.horizontal == horizontal
             && cached.vertical == vertical
         {
-            return Ok(cached.clone());
+            // Clean cache: share the prepared buffers without re-projecting.
+            return Ok(Arc::clone(cached));
         }
 
         // Mesh validation, projection, domains, and topology construction are
@@ -728,14 +767,14 @@ impl MeshPlot {
         // identities cover declarative builders that replace Arc storage
         // without updating the retained revision themselves.
         self.mesh.validate()?;
-        let projected = Rc::new(
-            self.mesh
-                .positions
-                .iter()
-                .copied()
-                .map(|point| project_2d(horizontal, vertical, point))
-                .collect::<Vec<_>>(),
-        );
+        let projected: Arc<[[f64; 2]]> = self
+            .mesh
+            .positions
+            .iter()
+            .copied()
+            .map(|point| project_2d(horizontal, vertical, point))
+            .collect::<Vec<_>>()
+            .into();
         let x_domain = finite_domain(&projected, 0).ok_or(ChartError::InvalidData {
             field: "mesh.positions",
             reason: "mesh projection must contain finite coordinates",
@@ -744,7 +783,7 @@ impl MeshPlot {
             field: "mesh.positions",
             reason: "mesh projection must contain finite coordinates",
         })?;
-        let prepared = PreparedPlanarFrame {
+        let prepared = Arc::new(PreparedPlanarFrame {
             positions_ptr,
             triangles_ptr,
             horizontal,
@@ -752,10 +791,77 @@ impl MeshPlot {
             projected,
             x_domain,
             y_domain,
-            topology: Rc::new(MeshTopology::build(&self.mesh.triangles)),
-        };
-        self.prepared_planar_frame = Some(prepared.clone());
+            topology: Arc::new(MeshTopology::build(&self.mesh.triangles)),
+        });
+        self.prepared_planar_frame.cached = Some(Arc::clone(&prepared));
+        self.prepared_planar_frame.dirty = false;
         Ok(prepared)
+    }
+
+    /// Camera stage of `build_frame`: ensure the retained interaction state,
+    /// creating and sizing it on first use. Returns `None` for static charts
+    /// that need no retained state.
+    fn ensure_frame_interaction_state(
+        &mut self,
+        x_domain: [f64; 2],
+        y_domain: [f64; 2],
+        plot_width: f32,
+        plot_height: f32,
+        first_frame: bool,
+        needs_interaction: bool,
+    ) -> Option<Rc<RefCell<MeshPlotState>>> {
+        if !needs_interaction {
+            return None;
+        }
+        let state = self.state.clone().unwrap_or_else(|| {
+            Rc::new(RefCell::new(MeshPlotState::new(
+                x_domain[0],
+                x_domain[1],
+                y_domain[0],
+                y_domain[1],
+            )))
+        });
+        // A builder-created state must live beyond this frame so toolbar
+        // actions, async preparation, and exporter snapshots all address
+        // the same retained plot instance.
+        self.state = Some(state.clone());
+        {
+            let mut state_ref = state.borrow_mut();
+            if state_ref.geometry_revision == 0 {
+                state_ref.mark_resources_changed(true, self.field.is_some());
+            }
+            state_ref.interaction = state_ref
+                .interaction
+                .clone()
+                .with_size(plot_width, plot_height);
+            if first_frame {
+                state_ref.set_style(self.mode.clone(), self.wireframe, self.color_range);
+                if state_ref.selection.is_none() {
+                    state_ref.selection = self.selection.clone();
+                }
+            }
+        }
+        Some(state)
+    }
+
+    /// Overlay stage of `build_frame`: resolve the authoritative style. After
+    /// the initial frame the live state owns every style value that native
+    /// controls can mutate; rebuilding from the original builder values
+    /// would immediately undo a toolbar action.
+    fn resolve_frame_style(
+        &self,
+        interaction_state: Option<&Rc<RefCell<MeshPlotState>>>,
+    ) -> (MeshRenderMode, Wireframe, ColorRange) {
+        interaction_state
+            .map(|state| {
+                let state = state.borrow();
+                (
+                    state.render_mode.clone(),
+                    state.wireframe,
+                    state.color_range,
+                )
+            })
+            .unwrap_or_else(|| (self.mode.clone(), self.wireframe, self.color_range))
     }
 
     /// Compose the current frame of a retained live plot. The public builder
@@ -779,24 +885,23 @@ impl MeshPlot {
 
         let (horizontal, vertical) = view_axes(&self.view);
         let prepared = self.prepared_planar_frame(horizontal, vertical)?;
-        let projected = prepared.projected;
+        let projected = Arc::clone(&prepared.projected);
         let mesh_x_domain = prepared.x_domain;
         let mesh_y_domain = prepared.y_domain;
         let (configured_x_domain, configured_y_domain) = self.axes.configured_ranges();
         let x_domain = configured_x_domain.unwrap_or(mesh_x_domain);
         let y_domain = configured_y_domain.unwrap_or(mesh_y_domain);
-        let topology = prepared.topology;
+        let topology = Arc::clone(&prepared.topology);
 
-        let margin_left = 50.0;
-        let margin_right = if self.colorbar.is_some() { 86.0 } else { 20.0 };
-        let margin_top = if self.title.is_some() {
-            TITLE_AREA_HEIGHT
-        } else {
-            10.0
-        };
-        let margin_bottom = 30.0;
-        let plot_width = (layout_width - margin_left - margin_right).max(1.0);
-        let plot_height = (layout_height - margin_top - margin_bottom).max(1.0);
+        // Prepare stage: plot-area geometry (margins fold into the size).
+        let frame_layout = frame_plot_layout(
+            layout_width,
+            layout_height,
+            self.colorbar.is_some(),
+            self.title.is_some(),
+        );
+        let plot_width = frame_layout.plot_width;
+        let plot_height = frame_layout.plot_height;
 
         let theme = DefaultAxisTheme;
         let (horizontal_title, vertical_title) = self.axes.titles(&self.view, horizontal, vertical);
@@ -836,10 +941,10 @@ impl MeshPlot {
         );
         #[cfg(not(feature = "gpu-2d"))]
         let needs_2d_retained_state = false;
-        let interaction_state = if self.interactions.is_interactive()
-            || self.show_toolbar
-            || needs_2d_retained_state
-            || {
+        // Camera stage: retained interaction state (see
+        // `ensure_frame_interaction_state`).
+        let needs_interaction =
+            self.interactions.is_interactive() || self.show_toolbar || needs_2d_retained_state || {
                 #[cfg(feature = "gpu-3d")]
                 {
                     needs_revolve_preparation_state
@@ -848,59 +953,24 @@ impl MeshPlot {
                 {
                     false
                 }
-            } {
-            let state = self.state.clone().unwrap_or_else(|| {
-                Rc::new(RefCell::new(MeshPlotState::new(
-                    x_domain[0],
-                    x_domain[1],
-                    y_domain[0],
-                    y_domain[1],
-                )))
-            });
-            // A builder-created state must live beyond this frame so toolbar
-            // actions, async preparation, and exporter snapshots all address
-            // the same retained plot instance.
-            self.state = Some(state.clone());
-            {
-                let mut state_ref = state.borrow_mut();
-                if state_ref.geometry_revision == 0 {
-                    state_ref.mark_resources_changed(true, self.field.is_some());
-                }
-                state_ref.interaction = state_ref
-                    .interaction
-                    .clone()
-                    .with_size(plot_width, plot_height);
-                if first_frame {
-                    state_ref.set_style(self.mode.clone(), self.wireframe, self.color_range);
-                    if state_ref.selection.is_none() {
-                        state_ref.selection = self.selection.clone();
-                    }
-                }
-            }
-            Some(state)
-        } else {
-            None
-        };
+            };
+        let interaction_state = self.ensure_frame_interaction_state(
+            x_domain,
+            y_domain,
+            plot_width,
+            plot_height,
+            first_frame,
+            needs_interaction,
+        );
         if let Some(state) = interaction_state.as_ref() {
             state
                 .borrow_mut()
                 .record_frame_preparation(preparation_started.elapsed());
         }
 
-        // After the initial frame, the live state is authoritative for all
-        // style values that native controls can mutate. Rebuilding from the
-        // original builder values would immediately undo a toolbar action.
-        let (mode, wireframe, active_color_range) = interaction_state
-            .as_ref()
-            .map(|state| {
-                let state = state.borrow();
-                (
-                    state.render_mode.clone(),
-                    state.wireframe,
-                    state.color_range,
-                )
-            })
-            .unwrap_or_else(|| (self.mode.clone(), self.wireframe, self.color_range));
+        // Overlay stage: authoritative style (see `resolve_frame_style`).
+        let (mode, wireframe, active_color_range) =
+            self.resolve_frame_style(interaction_state.as_ref());
         let value_range = resolve_value_range(self.field.as_ref(), active_color_range)?;
         let range_for_render = value_range;
         let toolbar_mode_label = toolbar_mode_name(&mode);
@@ -913,12 +983,9 @@ impl MeshPlot {
                 ([x.0, x.1], [y.0, y.1])
             })
             .unwrap_or((x_domain, y_domain));
-        let x_scale = LinearScale::new()
-            .domain(visible_x_domain[0], visible_x_domain[1])
-            .range(0.0, plot_width as f64);
-        let y_scale = LinearScale::new()
-            .domain(visible_y_domain[0], visible_y_domain[1])
-            .range(plot_height as f64, 0.0);
+        // Axes stage: data-to-pixel scales (see `frame_scales`).
+        let (x_scale, y_scale) =
+            frame_scales(visible_x_domain, visible_y_domain, plot_width, plot_height);
 
         #[cfg(all(feature = "gpu-3d", not(test)))]
         let revolve_preparing = match (&self.view, interaction_state.as_ref()) {
@@ -2828,7 +2895,7 @@ pub fn mesh_plot(mesh: TriangleMesh) -> MeshPlot {
         show_toolbar: false,
         hidden_toolbar_actions: Vec::new(),
         renderer_backend: MeshPlotBackend::default(),
-        prepared_planar_frame: None,
+        prepared_planar_frame: PlanarFrameCache::new(),
         #[cfg(all(feature = "gpu-2d", any(not(test), feature = "native-qa")))]
         retained_2d_draw_owner: None,
         #[cfg(feature = "gpu-2d")]
@@ -3275,6 +3342,46 @@ fn isoline_step(mode: &MeshRenderMode, range: Option<[f64; 2]>) -> Option<f64> {
         let step = pair[1] - pair[0];
         (step.is_finite() && step > 0.0).then_some(step)
     })
+}
+
+/// Plot-area geometry produced by the prepare stage of `build_frame`.
+struct FramePlotLayout {
+    plot_width: f32,
+    plot_height: f32,
+}
+
+/// Prepare stage of `build_frame`: margins and plot area from the layout
+/// dimensions and chrome (colorbar/title) presence.
+fn frame_plot_layout(
+    layout_width: f32,
+    layout_height: f32,
+    has_colorbar: bool,
+    has_title: bool,
+) -> FramePlotLayout {
+    let margin_left = 50.0;
+    let margin_right = if has_colorbar { 86.0 } else { 20.0 };
+    let margin_top = if has_title { TITLE_AREA_HEIGHT } else { 10.0 };
+    let margin_bottom = 30.0;
+    FramePlotLayout {
+        plot_width: (layout_width - margin_left - margin_right).max(1.0),
+        plot_height: (layout_height - margin_top - margin_bottom).max(1.0),
+    }
+}
+
+/// Axes stage of `build_frame`: data-to-pixel scales for the visible domain.
+fn frame_scales(
+    visible_x_domain: [f64; 2],
+    visible_y_domain: [f64; 2],
+    plot_width: f32,
+    plot_height: f32,
+) -> (LinearScale, LinearScale) {
+    let x_scale = LinearScale::new()
+        .domain(visible_x_domain[0], visible_x_domain[1])
+        .range(0.0, plot_width as f64);
+    let y_scale = LinearScale::new()
+        .domain(visible_y_domain[0], visible_y_domain[1])
+        .range(plot_height as f64, 0.0);
+    (x_scale, y_scale)
 }
 
 fn view_axes(view: &MeshPlotView) -> (CoordinateAxis, CoordinateAxis) {
@@ -3862,14 +3969,17 @@ mod tests {
             .prepared_planar_frame(CoordinateAxis::X, CoordinateAxis::Y)
             .unwrap();
 
-        assert!(Rc::ptr_eq(&first.projected, &second.projected));
-        assert!(Rc::ptr_eq(&first.topology, &second.topology));
+        // Allocation gate: repeated frames share one preparation (no
+        // re-projection, no new buffers) until the plane changes.
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(Arc::ptr_eq(&first.projected, &second.projected));
+        assert!(Arc::ptr_eq(&first.topology, &second.topology));
 
         let changed_plane = plot
             .prepared_planar_frame(CoordinateAxis::X, CoordinateAxis::Z)
             .unwrap();
-        assert!(!Rc::ptr_eq(&first.projected, &changed_plane.projected));
-        assert!(!Rc::ptr_eq(&first.topology, &changed_plane.topology));
+        assert!(!Arc::ptr_eq(&first.projected, &changed_plane.projected));
+        assert!(!Arc::ptr_eq(&first.topology, &changed_plane.topology));
     }
 
     #[cfg(feature = "gpu-2d")]
@@ -4307,6 +4417,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "gpu-3d")]
     fn contour_band_area(band: &ContourBand) -> f64 {
         band.triangles
             .iter()

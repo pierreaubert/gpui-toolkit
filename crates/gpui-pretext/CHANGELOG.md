@@ -1,5 +1,10 @@
 # Unreleased
 
+## Added
+
+- Reworked text measurement caching and the line-break walk, and added
+  allocation-contract tests, fuzz targets, and a temporaries bench.
+
 ## 0.9.9 - 2026-08-23
 
 ### Performance

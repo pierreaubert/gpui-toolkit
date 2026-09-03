@@ -111,7 +111,7 @@ fn test_walk_lines() {
         70.0,
         &profile,
         Some(&mut |line: &InternalLayoutLine| {
-            lines.push(line.clone());
+            lines.push(*line);
         }),
     );
     assert_eq!(count, 2);
@@ -190,7 +190,7 @@ fn test_kp_walk_lines() {
         &profile,
         &kp_params(),
         Some(&mut |line: &InternalLayoutLine| {
-            lines.push(line.clone());
+            lines.push(*line);
         }),
     );
     assert_eq!(count, 2);
@@ -268,7 +268,7 @@ fn test_kp_even_distribution() {
         &profile,
         &kp_params(),
         Some(&mut |line: &InternalLayoutLine| {
-            lines.push(line.clone());
+            lines.push(*line);
         }),
     );
 
@@ -786,7 +786,7 @@ fn test_walk_prepared_lines_simple_breakable() {
         50.0,
         &profile,
         Some(&mut |line: &InternalLayoutLine| {
-            lines.push(line.clone());
+            lines.push(*line);
         }),
     );
     assert_eq!(count, 3);
@@ -840,7 +840,7 @@ fn test_walk_prepared_lines_hard_break_chunks() {
         200.0,
         &profile,
         Some(&mut |line: &InternalLayoutLine| {
-            lines.push(line.clone());
+            lines.push(*line);
         }),
     );
     assert_eq!(count, 2);
@@ -880,7 +880,7 @@ fn test_walk_prepared_lines_tab_and_soft_hyphen() {
         200.0,
         &profile,
         Some(&mut |line: &InternalLayoutLine| {
-            lines.push(line.clone());
+            lines.push(*line);
         }),
     );
     assert_eq!(count, 1);
@@ -927,7 +927,7 @@ fn test_walk_prepared_lines_optimal_multi_chunk() {
         &profile,
         &kp_params(),
         Some(&mut |line: &InternalLayoutLine| {
-            lines.push(line.clone());
+            lines.push(*line);
         }),
     );
     assert_eq!(count, 2);
@@ -1257,7 +1257,7 @@ fn test_walk_prepared_lines_early_soft_hyphen() {
         25.0,
         &profile,
         Some(&mut |line: &InternalLayoutLine| {
-            lines.push(line.clone());
+            lines.push(*line);
         }),
     );
     assert!(count >= 2);
@@ -1336,7 +1336,7 @@ fn test_walk_prepared_lines_simple_leading_space_pending() {
         100.0,
         &profile,
         Some(&mut |line: &InternalLayoutLine| {
-            lines.push(line.clone());
+            lines.push(*line);
         }),
     );
     assert_eq!(count, 1);
@@ -1420,7 +1420,7 @@ fn test_walk_prepared_lines_optimal_multi_chunk_empty_first() {
         &profile,
         &kp_params(),
         Some(&mut |line: &InternalLayoutLine| {
-            lines.push(line.clone());
+            lines.push(*line);
         }),
     );
     assert_eq!(count, 2);

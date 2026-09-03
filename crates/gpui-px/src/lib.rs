@@ -241,6 +241,9 @@ mod chart_size;
 #[path = "lib/consts.rs"]
 mod consts;
 #[cfg(feature = "gpui")]
+#[path = "lib/decimation.rs"]
+mod decimation;
+#[cfg(feature = "gpui")]
 #[path = "lib/legend.rs"]
 mod legend;
 #[path = "lib/misc.rs"]
@@ -275,6 +278,11 @@ pub use chart_capabilities::{
 pub use chart_size::*;
 #[cfg(feature = "gpui")]
 pub(crate) use consts::*;
+#[cfg(feature = "gpui")]
+pub use decimation::{
+    DECIMATION_BUDGET, DECIMATION_THRESHOLD, decimate_line_points, decimate_scatter_points,
+    lttb_indices, min_max_indices,
+};
 #[cfg(feature = "gpui")]
 pub use legend::{ChartLegendItem, ChartLegendMarker, ChartLegendSummary};
 #[cfg(feature = "gpui")]

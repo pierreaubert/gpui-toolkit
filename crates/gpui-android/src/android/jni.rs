@@ -219,6 +219,68 @@ pub fn find_app_class<'local>(
     Ok(unsafe { jni::objects::JClass::from_raw(env, loaded.as_raw()) })
 }
 
+// ── cached application-class lookup ─────────────────────────────────────────
+//
+// `find_app_class` goes through the Activity classloader (`loadClass`) on
+// every call. Platform-view bounds/visibility updates and the lifecycle
+// helpers call it repeatedly, so the resolved class is retained as a JNI
+// global reference (same pattern as `KEY_CHARACTER_MAP` above and the IME
+// cache in `window.rs`). A failed call through a cached class invalidates the
+// entry so the next call transparently falls back to a fresh lookup.
+
+/// Application classes resolved via the Activity classloader, by dot name.
+///
+/// The global references are owned by this map; readers only borrow the raw
+/// pointer for the duration of one `Env` call.
+static CACHED_APP_CLASSES: std::sync::Mutex<
+    std::collections::HashMap<String, Global<JObject<'static>>>,
+> = std::sync::Mutex::new(std::collections::HashMap::new());
+
+/// Resolve an application class, reusing a cached global reference.
+///
+/// Falls back to [`find_app_class`] on a cache miss. Callers should invoke
+/// [`invalidate_app_class_cache`] when a call through the returned class
+/// fails, in case the retained reference went stale.
+pub fn find_cached_app_class<'local>(
+    env: &mut jni::Env<'local>,
+    class_name: &str,
+) -> Result<jni::objects::JClass<'local>, String> {
+    if let Some(raw) = CACHED_APP_CLASSES
+        .lock()
+        .unwrap()
+        .get(class_name)
+        .map(|global| global.as_obj().as_raw())
+    {
+        if !raw.is_null() {
+            return Ok(unsafe { jni::objects::JClass::from_raw(env, raw) });
+        }
+        CACHED_APP_CLASSES.lock().unwrap().remove(class_name);
+    }
+    let class = find_app_class(env, class_name)?;
+    // Best-effort: retain a global reference for subsequent calls. `class`
+    // converts into a plain `JObject` view; the global ref owns an
+    // independent lifetime, so the locals may drop at frame pop as usual.
+    let obj: JObject<'_> = class.into();
+    let raw = obj.as_raw();
+    if !raw.is_null()
+        && let Ok(global) = env.new_global_ref(&obj)
+    {
+        CACHED_APP_CLASSES
+            .lock()
+            .unwrap()
+            .insert(class_name.to_string(), global);
+    }
+    Ok(unsafe { jni::objects::JClass::from_raw(env, raw) })
+}
+
+/// Drop a cached application class, forcing a fresh lookup next time.
+///
+/// Call this when a JNI call through a cached class fails: the retained
+/// reference may predate an Activity recreation.
+pub fn invalidate_app_class_cache(class_name: &str) {
+    CACHED_APP_CLASSES.lock().unwrap().remove(class_name);
+}
+
 // ── global state ─────────────────────────────────────────────────────────────
 
 /// The `AndroidApp` handle from `android-activity`.
@@ -336,11 +398,6 @@ pub fn shared_platform() -> Option<SharedPlatform> {
 
 // ── input event types ─────────────────────────────────────────────────────────
 
-/// Motion event action constants from the NDK.
-const AMOTION_EVENT_ACTION_DOWN: u32 = 0;
-const AMOTION_EVENT_ACTION_UP: u32 = 1;
-const AMOTION_EVENT_ACTION_MOVE: u32 = 2;
-
 // ── night mode query via NDK Configuration ───────────────────────────────────
 
 /// Query the current night mode using the NDK Configuration API.
@@ -361,6 +418,24 @@ pub fn query_night_mode_via_jni() -> bool {
 }
 
 // ── input event processing ────────────────────────────────────────────────────
+
+/// Map an NDK motion action onto the testable [`crate::event_stages::MotionKind`].
+///
+/// This is the **decode** stage of the input pipeline: everything downstream
+/// (`decode_motion_slot`) is pure and unit-tested on any host.
+fn motion_kind(action: android_activity::input::MotionAction) -> crate::event_stages::MotionKind {
+    use crate::event_stages::MotionKind as Kind;
+    use android_activity::input::MotionAction as Native;
+    match action {
+        Native::Down => Kind::Down,
+        Native::PointerDown => Kind::PointerDown,
+        Native::Up => Kind::Up,
+        Native::PointerUp => Kind::PointerUp,
+        Native::Move => Kind::Move,
+        Native::Cancel => Kind::Cancel,
+        _ => Kind::Other,
+    }
+}
 
 /// Process input events from the `AndroidApp` and dispatch them to the window.
 fn process_input_events(app: &AndroidApp) {
@@ -438,30 +513,22 @@ fn process_input_events(app: &AndroidApp) {
                                 return android_activity::InputStatus::Unhandled;
                             }
 
+                            // Decode stage: one masked action per pointer slot.
+                            // Hover/scroll/button actions decode to `None` and
+                            // are skipped so the OS can route them elsewhere.
+                            let kind = motion_kind(action);
+                            let pointer_index = motion_event.pointer_index();
                             for i in 0..pointer_count {
-                                let pointer = motion_event.pointer_at_index(i);
-
-                                let touch_action = match action {
-                                    MotionAction::Down => AMOTION_EVENT_ACTION_DOWN,
-                                    MotionAction::PointerDown => {
-                                        // For pointer down, only dispatch the specific pointer
-                                        if i != motion_event.pointer_index() {
-                                            continue;
-                                        }
-                                        AMOTION_EVENT_ACTION_DOWN
-                                    }
-                                    MotionAction::Up => AMOTION_EVENT_ACTION_UP,
-                                    MotionAction::PointerUp => {
-                                        // For pointer up, only dispatch the specific pointer
-                                        if i != motion_event.pointer_index() {
-                                            continue;
-                                        }
-                                        AMOTION_EVENT_ACTION_UP
-                                    }
-                                    MotionAction::Move => AMOTION_EVENT_ACTION_MOVE,
-                                    MotionAction::Cancel => AMOTION_EVENT_ACTION_UP,
-                                    _ => continue,
+                                let Some(touch_action) =
+                                    crate::event_stages::decode_motion_slot(
+                                        kind,
+                                        pointer_index,
+                                        i,
+                                    )
+                                else {
+                                    continue;
                                 };
+                                let pointer = motion_event.pointer_at_index(i);
 
                                 let touch = crate::android::TouchPoint {
                                     id: pointer.pointer_id(),
@@ -482,12 +549,17 @@ fn process_input_events(app: &AndroidApp) {
                         }
                         InputEvent::KeyEvent(key_event) => {
                             use android_activity::input::KeyAction;
+                            use crate::event_stages::{KeyDirection, decode_key_action};
 
-                            let action = match key_event.action() {
-                                KeyAction::Down => 0,
-                                KeyAction::Up => 1,
+                            let direction = match key_event.action() {
+                                KeyAction::Down => KeyDirection::Press,
+                                KeyAction::Up => KeyDirection::Release,
                                 _ => return android_activity::InputStatus::Unhandled,
                             };
+                            // Single source of truth for the ACTION_DOWN = 0 /
+                            // ACTION_UP = 1 encoding stored in AndroidKeyEvent.
+                            let action = direction.action_int();
+                            debug_assert_eq!(decode_key_action(action), Some(direction));
 
                             let key_code: u32 = key_event.key_code().into();
                             let meta_state: u32 = key_event.meta_state().0;
@@ -535,6 +607,253 @@ fn process_input_events(app: &AndroidApp) {
 
 // ── main event loop ───────────────────────────────────────────────────────────
 
+/// Frame cadence while momentum scrolling or a fling animation is active.
+/// The tested twin lives in `crate::event_stages`.
+const FRAME_POLL_INTERVAL: Duration = Duration::from_millis(8);
+
+fn event_loop_poll_timeout(
+    needs_frame_pump: bool,
+    next_delayed_task: Option<Duration>,
+) -> Option<Duration> {
+    // Tested on every host in `crate::event_stages`; kept as a thin alias so
+    // the loop reads in domain terms.
+    crate::event_stages::frame_poll_timeout(needs_frame_pump, next_delayed_task)
+}
+
+/// Drain lifecycle events queued while a deferred handler ran.
+///
+/// Java UI-thread callbacks block on a condvar until the native thread drains
+/// the looper, so each deferred stage re-polls with a zero timeout before
+/// returning. This keeps the condvar wait short and prevents the
+/// InputDispatcher ANR (10 s timeout on MotionEvent delivery).
+fn drain_main_events(app: &AndroidApp) {
+    app.poll_events(Some(Duration::ZERO), |event| {
+        if let PollEvent::Main(main_event) = event {
+            handle_main_event(app, main_event);
+        }
+    });
+}
+
+/// Deferred `TerminateWindow` stage: drop the renderer/surface, keep the
+/// window struct (and its GPUI callbacks) alive for the next `InitWindow`.
+fn apply_term_window(iteration: u64) {
+    log::info!("deferred: TerminateWindow (iter={})", iteration);
+    INIT_WINDOW_DONE.store(false, Ordering::Relaxed);
+    *LAST_CHROME_STYLE.lock().unwrap() = None;
+    if let Some(platform) = PLATFORM.get() {
+        if let Some(win) = platform.primary_window() {
+            win.term_window();
+        }
+    }
+}
+
+/// Deferred `InitWindow` stage: bind the new surface onto the existing
+/// renderer, or open the primary window when there is none yet.
+fn apply_init_window(app: &AndroidApp, attempted_existing_window_init: &mut bool, iteration: u64) {
+    log::info!("deferred: InitWindow (iter={})", iteration);
+    *attempted_existing_window_init = true;
+    if let Some(platform) = PLATFORM.get() {
+        if let Some(native_window) = app.native_window() {
+            let width = native_window.width();
+            let height = native_window.height();
+            log::info!("InitWindow: {}×{}", width, height);
+
+            platform.update_primary_display(&native_window, &app.asset_manager());
+
+            let scale_factor = platform
+                .primary_display()
+                .map(|d| d.scale_factor())
+                .unwrap_or(1.0);
+
+            if let Some(existing) = platform.primary_window() {
+                let gpu_ctx = platform.gpu_context();
+                match existing.init_window(native_window, gpu_ctx) {
+                    Ok(()) => {
+                        log::info!("InitWindow: reinitialised existing window");
+                        existing.set_active(true);
+                    }
+                    Err(e) => {
+                        log::error!("failed to reinit window surface: {e:#}");
+                    }
+                }
+
+                // Trigger GPUI resize so layout adapts to new dimensions.
+                existing.handle_resize();
+
+                let cr = app.content_rect();
+                existing.update_safe_area_from_content_rect(cr.left, cr.top, cr.right, cr.bottom);
+
+                INIT_WINDOW_DONE.store(true, Ordering::Relaxed);
+            } else {
+                match platform.open_window(native_window, scale_factor, false) {
+                    Ok(win) => {
+                        log::info!(
+                            "window opened — id={:#x} scale={:.1}",
+                            win.id(),
+                            scale_factor
+                        );
+                        win.set_active(true);
+
+                        let cr = app.content_rect();
+                        win.update_safe_area_from_content_rect(
+                            cr.left, cr.top, cr.right, cr.bottom,
+                        );
+                    }
+                    Err(e) => {
+                        log::error!("failed to open window: {e:#}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Deferred `WindowResized` stage: reconfigure the surface and safe area.
+fn apply_window_resized(app: &AndroidApp) {
+    log::debug!("deferred: WindowResized");
+    if let Some(platform) = PLATFORM.get() {
+        if let Some(win) = platform.primary_window() {
+            win.handle_resize();
+            let cr = app.content_rect();
+            win.update_safe_area_from_content_rect(cr.left, cr.top, cr.right, cr.bottom);
+        }
+    }
+}
+
+/// Deferred `ConfigChanged` stage: refresh keyboard layout and dark-mode.
+fn apply_config_changed() {
+    log::debug!("deferred: ConfigChanged");
+    if let Some(platform) = PLATFORM.get() {
+        platform.notify_keyboard_layout_change();
+        let is_dark = query_night_mode_via_jni();
+        if let Some(win) = platform.primary_window() {
+            let appearance = if is_dark {
+                crate::android::window::WindowAppearance::Dark
+            } else {
+                crate::android::window::WindowAppearance::Light
+            };
+            win.set_appearance(appearance);
+        }
+    }
+}
+
+/// Deferred `Pause` stage: mark backgrounded and pause platform views.
+fn apply_pause(iteration: u64) {
+    log::info!("deferred: Pause (iter={})", iteration);
+    if let Some(platform) = PLATFORM.get() {
+        platform.did_enter_background();
+        if let Some(win) = platform.primary_window() {
+            win.set_active(false);
+        }
+    }
+    // Pause platform views
+    pause_platform_views();
+}
+
+/// Deferred `Resume` stage: mark foregrounded and resume platform views.
+fn apply_resume(iteration: u64) {
+    log::info!("deferred: Resume (iter={})", iteration);
+    if let Some(platform) = PLATFORM.get() {
+        platform.did_become_active();
+        if let Some(win) = platform.primary_window() {
+            win.set_active(true);
+        }
+    }
+    // Resume platform views
+    resume_platform_views();
+}
+
+/// Sync the loop's view of foreground state with the window.
+fn track_active_state(app_is_active: &mut bool, iteration: u64) {
+    if let Some(platform) = PLATFORM.get() {
+        if let Some(win) = platform.primary_window() {
+            let is_active = win.is_active();
+            if is_active != *app_is_active {
+                log::info!(
+                    "run_event_loop: active {} -> {} (iter={})",
+                    *app_is_active,
+                    is_active,
+                    iteration,
+                );
+                *app_is_active = is_active;
+            }
+        }
+    }
+}
+
+/// Run the one-shot finish-launching / init-window callbacks, then pump the
+/// first frame immediately so the surface never idles on black.
+fn maybe_run_init_callbacks(iteration: u64) {
+    if INIT_WINDOW_DONE.load(Ordering::Relaxed) {
+        return;
+    }
+    let Some(platform) = PLATFORM.get() else {
+        return;
+    };
+    if platform.primary_window().is_none() {
+        return;
+    }
+    if let Some(finish_cb) = platform.take_finish_launching_callback() {
+        log::info!("invoking finish_launching callback (iter={})", iteration);
+        finish_cb();
+    }
+
+    if let Some(init_cb) = platform.take_on_init_window_callback() {
+        let win = platform.primary_window().unwrap();
+        log::info!("invoking on_init_window callback (iter={})", iteration);
+        init_cb(win);
+    }
+
+    INIT_WINDOW_DONE.store(true, Ordering::Relaxed);
+    NATIVE_INITIALIZED.store(true, Ordering::Release);
+    log::info!("NATIVE_INITIALIZED = true");
+
+    // Render first frame immediately.
+    platform.flush_main_thread_tasks();
+    if let Some(win) = platform.primary_window() {
+        win.request_frame();
+    }
+}
+
+/// Render stage: pump one GPUI frame when a wake source fired.
+///
+/// The gate decision itself (`should_pump_frame`) is pure and unit-tested in
+/// `crate::event_stages`; this function only performs the effects. Note that
+/// `take_main_thread_wake` is consumed every iteration even when no frame is
+/// pumped, so a dispatched task is never lost.
+fn pump_frame_if_needed(
+    app: &AndroidApp,
+    force_frame_after_poll: bool,
+    platform_event_woke_frame: bool,
+    needs_frame_pump: bool,
+    app_is_active: bool,
+) {
+    let Some(platform) = PLATFORM.get() else {
+        return;
+    };
+    let main_wake = platform.take_main_thread_wake();
+    if !crate::event_stages::should_pump_frame(
+        INIT_WINDOW_DONE.load(Ordering::Relaxed),
+        app_is_active,
+        force_frame_after_poll,
+        platform_event_woke_frame,
+        main_wake,
+        needs_frame_pump,
+    ) {
+        return;
+    }
+    platform.flush_main_thread_tasks();
+    if let Some(win) = platform.primary_window() {
+        win.request_frame();
+    }
+
+    // Drain lifecycle events that arrived during rendering
+    // (e.g. rotation triggers TerminateWindow while we were
+    // in get_current_texture / present).
+    drain_main_events(app);
+    process_input_events(app);
+}
+
 /// The event loop that processes `android-activity` events and drives the
 /// platform.
 ///
@@ -542,19 +861,11 @@ fn process_input_events(app: &AndroidApp) {
 /// Runs until the platform requests quit or the activity is destroyed.
 /// Keep momentum scrolling responsive, but otherwise let the Android looper
 /// sleep until a platform event, foreground-task wake, or delayed task is due.
-const FRAME_POLL_INTERVAL: Duration = Duration::from_millis(8);
-
-fn event_loop_poll_timeout(
-    needs_frame_pump: bool,
-    next_delayed_task: Option<Duration>,
-) -> Option<Duration> {
-    if needs_frame_pump {
-        Some(FRAME_POLL_INTERVAL)
-    } else {
-        next_delayed_task
-    }
-}
-
+///
+/// The loop is staged as **poll → decode → dispatch → draw**: lifecycle work
+/// is deferred to the `apply_*` stage handlers, input mapping goes through
+/// the tested `crate::event_stages` decoders, and frames pump through
+/// `pump_frame_if_needed`.
 pub fn run_event_loop(app: &AndroidApp) {
     log::info!("run_event_loop: entering main loop");
 
@@ -653,219 +964,62 @@ pub fn run_event_loop(app: &AndroidApp) {
 
         // ── Deferred lifecycle processing ──
         //
-        // Between each handler, call poll_events again to drain any
-        // events the Java UI thread may have queued while we were
-        // processing.  This keeps the condvar wait short and prevents
+        // Between stages the loop re-polls with a zero timeout
+        // (`drain_main_events`) to drain events the Java UI thread queued
+        // while the stage ran. This keeps the condvar wait short and prevents
         // the InputDispatcher ANR (10s timeout on MotionEvent delivery).
-        //
-        // Helper closure to drain events quickly:
-        let drain_events = |app: &AndroidApp| {
-            app.poll_events(Some(Duration::ZERO), |event| {
-                if let PollEvent::Main(main_event) = event {
-                    handle_main_event(app, main_event);
-                }
-            });
-        };
 
         // 1. TerminateWindow — unconfigure surface, release native window
         if TERM_WINDOW_PENDING.swap(false, Ordering::Relaxed) {
-            log::info!("deferred: TerminateWindow (iter={})", iteration);
-            INIT_WINDOW_DONE.store(false, Ordering::Relaxed);
-            *LAST_CHROME_STYLE.lock().unwrap() = None;
-            if let Some(platform) = PLATFORM.get() {
-                if let Some(win) = platform.primary_window() {
-                    win.term_window();
-                }
-            }
+            apply_term_window(iteration);
             // Drain immediately — Java thread may be blocked on InitWindow condvar.
-            drain_events(app);
+            drain_main_events(app);
         }
 
         // 2. InitWindow — replace surface on existing renderer, or create new
         if INIT_WINDOW_PENDING.swap(false, Ordering::Relaxed) {
-            log::info!("deferred: InitWindow (iter={})", iteration);
-            attempted_existing_window_init = true;
-            if let Some(platform) = PLATFORM.get() {
-                if let Some(native_window) = app.native_window() {
-                    let width = native_window.width();
-                    let height = native_window.height();
-                    log::info!("InitWindow: {}×{}", width, height);
-
-                    platform.update_primary_display(&native_window, &app.asset_manager());
-
-                    let scale_factor = platform
-                        .primary_display()
-                        .map(|d| d.scale_factor())
-                        .unwrap_or(1.0);
-
-                    if let Some(existing) = platform.primary_window() {
-                        let gpu_ctx = platform.gpu_context();
-                        match existing.init_window(native_window, gpu_ctx) {
-                            Ok(()) => {
-                                log::info!("InitWindow: reinitialised existing window");
-                                existing.set_active(true);
-                            }
-                            Err(e) => {
-                                log::error!("failed to reinit window surface: {e:#}");
-                            }
-                        }
-
-                        // Trigger GPUI resize so layout adapts to new dimensions.
-                        existing.handle_resize();
-
-                        let cr = app.content_rect();
-                        existing.update_safe_area_from_content_rect(
-                            cr.left, cr.top, cr.right, cr.bottom,
-                        );
-
-                        INIT_WINDOW_DONE.store(true, Ordering::Relaxed);
-                    } else {
-                        match platform.open_window(native_window, scale_factor, false) {
-                            Ok(win) => {
-                                log::info!(
-                                    "window opened — id={:#x} scale={:.1}",
-                                    win.id(),
-                                    scale_factor
-                                );
-                                win.set_active(true);
-
-                                let cr = app.content_rect();
-                                win.update_safe_area_from_content_rect(
-                                    cr.left, cr.top, cr.right, cr.bottom,
-                                );
-                            }
-                            Err(e) => {
-                                log::error!("failed to open window: {e:#}");
-                            }
-                        }
-                    }
-                }
-            }
+            apply_init_window(app, &mut attempted_existing_window_init, iteration);
             // Drain — Java thread may have queued ConfigChanged/WindowResized.
-            drain_events(app);
+            drain_main_events(app);
         }
 
         // 3. WindowResized
         if WINDOW_RESIZED_PENDING.swap(false, Ordering::Relaxed) {
-            log::debug!("deferred: WindowResized");
-            if let Some(platform) = PLATFORM.get() {
-                if let Some(win) = platform.primary_window() {
-                    win.handle_resize();
-                    let cr = app.content_rect();
-                    win.update_safe_area_from_content_rect(cr.left, cr.top, cr.right, cr.bottom);
-                }
-            }
+            apply_window_resized(app);
         }
 
         // 4. ConfigChanged
         if CONFIG_CHANGED_PENDING.swap(false, Ordering::Relaxed) {
-            log::debug!("deferred: ConfigChanged");
-            if let Some(platform) = PLATFORM.get() {
-                platform.notify_keyboard_layout_change();
-                let is_dark = query_night_mode_via_jni();
-                if let Some(win) = platform.primary_window() {
-                    let appearance = if is_dark {
-                        crate::android::window::WindowAppearance::Dark
-                    } else {
-                        crate::android::window::WindowAppearance::Light
-                    };
-                    win.set_appearance(appearance);
-                }
-            }
+            apply_config_changed();
         }
 
         // 5. Pause / background
         if PAUSE_PENDING.swap(false, Ordering::Relaxed) {
-            log::info!("deferred: Pause (iter={})", iteration);
-            if let Some(platform) = PLATFORM.get() {
-                platform.did_enter_background();
-                if let Some(win) = platform.primary_window() {
-                    win.set_active(false);
-                }
-            }
-            // Pause platform views
-            pause_platform_views();
+            apply_pause(iteration);
         }
 
         // 6. Resume / foreground
         if RESUME_PENDING.swap(false, Ordering::Relaxed) {
-            log::info!("deferred: Resume (iter={})", iteration);
-            if let Some(platform) = PLATFORM.get() {
-                platform.did_become_active();
-                if let Some(win) = platform.primary_window() {
-                    win.set_active(true);
-                }
-            }
-            // Resume platform views
-            resume_platform_views();
+            apply_resume(iteration);
         }
 
         // Track active/focused state.
-        if let Some(platform) = PLATFORM.get() {
-            if let Some(win) = platform.primary_window() {
-                let is_active = win.is_active();
-                if is_active != app_is_active {
-                    log::info!(
-                        "run_event_loop: active {} -> {} (iter={})",
-                        app_is_active,
-                        is_active,
-                        iteration,
-                    );
-                    app_is_active = is_active;
-                }
-            }
-        }
+        track_active_state(&mut app_is_active, iteration);
 
         // Process input events.
         process_input_events(app);
 
         // Deferred initialisation callbacks (runs once).
-        if !INIT_WINDOW_DONE.load(Ordering::Relaxed) {
-            if let Some(platform) = PLATFORM.get() {
-                if platform.primary_window().is_some() {
-                    if let Some(finish_cb) = platform.take_finish_launching_callback() {
-                        log::info!("invoking finish_launching callback (iter={})", iteration);
-                        finish_cb();
-                    }
-
-                    if let Some(init_cb) = platform.take_on_init_window_callback() {
-                        let win = platform.primary_window().unwrap();
-                        log::info!("invoking on_init_window callback (iter={})", iteration);
-                        init_cb(win);
-                    }
-
-                    INIT_WINDOW_DONE.store(true, Ordering::Relaxed);
-                    NATIVE_INITIALIZED.store(true, Ordering::Release);
-                    log::info!("NATIVE_INITIALIZED = true");
-
-                    // Render first frame immediately.
-                    platform.flush_main_thread_tasks();
-                    if let Some(win) = platform.primary_window() {
-                        win.request_frame();
-                    }
-                }
-            }
-        }
+        maybe_run_init_callbacks(iteration);
 
         // ── Render ──
-        if let Some(platform) = PLATFORM.get() {
-            let should_pump_frame = force_frame_after_poll
-                || platform_event_woke_frame
-                || platform.take_main_thread_wake()
-                || needs_frame_pump;
-            if INIT_WINDOW_DONE.load(Ordering::Relaxed) && app_is_active && should_pump_frame {
-                platform.flush_main_thread_tasks();
-                if let Some(win) = platform.primary_window() {
-                    win.request_frame();
-                }
-
-                // Drain lifecycle events that arrived during rendering
-                // (e.g. rotation triggers TerminateWindow while we were
-                // in get_current_texture / present).
-                drain_events(app);
-                process_input_events(app);
-            }
-        }
+        pump_frame_if_needed(
+            app,
+            force_frame_after_poll,
+            platform_event_woke_frame,
+            needs_frame_pump,
+            app_is_active,
+        );
     }
 
     log::info!("run_event_loop: exiting main loop");
@@ -874,7 +1028,7 @@ pub fn run_event_loop(app: &AndroidApp) {
 /// Pause all platform views when the app goes to background.
 fn pause_platform_views() {
     let _ = with_env(|env| {
-        if let Ok(helper_class) = find_app_class(env, "dev.gpui.mobile.GpuiPlatformView") {
+        if let Ok(helper_class) = find_cached_app_class(env, "dev.gpui.mobile.GpuiPlatformView") {
             let _ = env.call_static_method(
                 &helper_class,
                 jni::jni_str!("pauseAll"),
@@ -890,7 +1044,7 @@ fn pause_platform_views() {
 /// Resume all platform views when the app returns to foreground.
 fn resume_platform_views() {
     let _ = with_env(|env| {
-        if let Ok(helper_class) = find_app_class(env, "dev.gpui.mobile.GpuiPlatformView") {
+        if let Ok(helper_class) = find_cached_app_class(env, "dev.gpui.mobile.GpuiPlatformView") {
             let _ = env.call_static_method(
                 &helper_class,
                 jni::jni_str!("resumeAll"),
@@ -906,7 +1060,7 @@ fn resume_platform_views() {
 /// Dispose all platform views during app shutdown.
 fn dispose_all_platform_views() {
     let _ = with_env(|env| {
-        if let Ok(helper_class) = find_app_class(env, "dev.gpui.mobile.GpuiPlatformView") {
+        if let Ok(helper_class) = find_cached_app_class(env, "dev.gpui.mobile.GpuiPlatformView") {
             let _ = env.call_static_method(
                 &helper_class,
                 jni::jni_str!("disposeAll"),
@@ -1513,16 +1667,10 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiMediaSession_nativeMediaAction
         let action_obj = unsafe { JObject::from_raw(env, action_raw) };
         let action_str = get_string(env, &action_obj);
 
-        let media_action = match action_str.as_str() {
-            "play" => crate::packages::media_session::MediaAction::Play,
-            "pause" => crate::packages::media_session::MediaAction::Pause,
-            "stop" => crate::packages::media_session::MediaAction::Stop,
-            "next" => crate::packages::media_session::MediaAction::Next,
-            "previous" => crate::packages::media_session::MediaAction::Previous,
-            other => {
-                log::warn!("nativeMediaAction: unknown action '{}'", other);
-                return Ok(());
-            }
+        let Some(media_action) = crate::packages::media_session::parse_media_action(&action_str)
+        else {
+            log::warn!("nativeMediaAction: unknown action '{action_str}'");
+            return Ok(());
         };
 
         log::info!("nativeMediaAction: {:?}", media_action);

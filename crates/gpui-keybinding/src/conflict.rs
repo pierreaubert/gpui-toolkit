@@ -40,16 +40,21 @@ fn conflict_identity(key_spec: &str) -> ConflictIdentity {
 /// Detect conflicting keybindings in a set of documented bindings.
 ///
 /// Returns conflicts where the same raw key spec (or display key when no raw
-/// spec is present) appears more than once.
+/// spec is present) appears more than once *in the same `when`-clause
+/// context*. Bindings scoped to different contexts never conflict with each
+/// other; always-active bindings (no context) only conflict with other
+/// always-active bindings. Cross-context shadowing still needs an executable
+/// context evaluator, which is out of scope for this crate.
 /// Operates on `DocumentedKeybinding` (which has the display key) rather than
 /// GPUI `KeyBinding` (which doesn't expose its key spec).
 pub fn detect_conflicts(bindings: &[DocumentedKeybinding]) -> Vec<KeyConflict> {
-    let mut groups: HashMap<ConflictIdentity, ConflictGroup<'_>> = HashMap::new();
+    let mut groups: HashMap<(ConflictIdentity, Option<String>), ConflictGroup<'_>> = HashMap::new();
 
     for binding in bindings {
         let conflict_key = binding.raw_key_spec.as_deref().unwrap_or(&binding.key);
+        let context_key = binding.normalized_context().map(str::to_string);
         groups
-            .entry(conflict_identity(conflict_key))
+            .entry((conflict_identity(conflict_key), context_key))
             .or_insert_with(|| ConflictGroup {
                 key: conflict_key,
                 descriptions: Vec::new(),
@@ -143,5 +148,39 @@ mod tests {
                 .with_raw_key_spec("secondary-o"),
         ];
         assert!(detect_conflicts(&bindings).is_empty());
+    }
+
+    #[test]
+    fn test_no_conflict_when_contexts_differ() {
+        let bindings = vec![
+            DocumentedKeybinding::new("Ctrl+S", "Save in editor", KeybindingCategory::FileOps)
+                .with_context("editorTextFocus"),
+            DocumentedKeybinding::new("Ctrl+S", "Save in terminal", KeybindingCategory::FileOps)
+                .with_context("terminalFocus"),
+        ];
+        assert!(detect_conflicts(&bindings).is_empty());
+    }
+
+    #[test]
+    fn test_no_conflict_between_scoped_and_unscoped_binding() {
+        let bindings = vec![
+            DocumentedKeybinding::new("Ctrl+S", "Save", KeybindingCategory::FileOps),
+            DocumentedKeybinding::new("Ctrl+S", "Save in editor", KeybindingCategory::FileOps)
+                .with_context("editorTextFocus"),
+        ];
+        assert!(detect_conflicts(&bindings).is_empty());
+    }
+
+    #[test]
+    fn test_detects_conflict_within_same_context() {
+        let bindings = vec![
+            DocumentedKeybinding::new("Ctrl+S", "Save", KeybindingCategory::FileOps)
+                .with_context("editorTextFocus"),
+            DocumentedKeybinding::new("Ctrl+S", "Save all", KeybindingCategory::FileOps)
+                .with_context("editorTextFocus"),
+        ];
+        let conflicts = detect_conflicts(&bindings);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].count, 2);
     }
 }

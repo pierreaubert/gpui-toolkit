@@ -14,7 +14,6 @@
 use crate::accessibility::{
     AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState, apply_native_accessibility,
 };
-use crate::i18n::{I18nExt, TranslationKey};
 use crate::input::{Input, InputSize};
 use crate::theme::ThemeExt;
 use crate::{ComponentTheme, ComponentVariant};
@@ -174,6 +173,7 @@ pub struct Combobox {
     on_query_change: Option<Box<dyn Fn(SharedString, &mut Window, &mut App) + 'static>>,
     on_toggle: Option<Box<dyn Fn(bool, &mut Window, &mut App) + 'static>>,
     on_highlight: Option<Box<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
+    empty_text: Option<SharedString>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
 }
@@ -199,6 +199,7 @@ impl Combobox {
             on_query_change: None,
             on_toggle: None,
             on_highlight: None,
+            empty_text: None,
             aria_label: None,
             aria_role: None,
         }
@@ -319,8 +320,7 @@ impl Combobox {
 
     /// Set the empty-list text shown when the filter matches nothing.
     ///
-    /// When unset, `render()` resolves the localized default; direct
-    /// `build_with_theme*` callers get the English fallback.
+    /// When unset, the English `"No matches"` fallback is used.
     pub fn empty_text(mut self, text: impl Into<SharedString>) -> Self {
         self.empty_text = Some(text.into());
         self
@@ -376,6 +376,14 @@ impl Combobox {
         let query_id: ElementId = (self.id.clone(), "query").into();
         let filtered = self.filtered_indices();
         let selected_value = self.selected.clone();
+        // Handlers fan out to several closures; share them up front.
+        let on_query_change = self.on_query_change;
+        let on_select: Option<std::rc::Rc<Box<dyn Fn(SharedString, &mut Window, &mut App)>>> =
+            self.on_select.map(|handler| std::rc::Rc::new(handler));
+        let on_toggle: Option<std::rc::Rc<Box<dyn Fn(bool, &mut Window, &mut App)>>> =
+            self.on_toggle.map(|handler| std::rc::Rc::new(handler));
+        let on_highlight: Option<std::rc::Rc<Box<dyn Fn(usize, &mut Window, &mut App)>>> =
+            self.on_highlight.map(|handler| std::rc::Rc::new(handler));
 
         let mut container = div()
             .id(self.id.clone())
@@ -397,6 +405,7 @@ impl Combobox {
         // Query box: embedded controlled Input plus chevron toggle.
         let query_input_id = query_id.clone();
         let mut trigger = div()
+            .id((self.id.clone(), "trigger"))
             .flex()
             .items_center()
             .gap_2()
@@ -425,7 +434,7 @@ impl Combobox {
         if let Some(placeholder) = self.placeholder.clone() {
             query_input = query_input.placeholder(placeholder);
         }
-        if let Some(handler) = self.on_query_change {
+        if let Some(handler) = on_query_change {
             let handler_rc = std::rc::Rc::new(handler);
             query_input = query_input.on_change(move |text, window, cx| {
                 handler_rc(SharedString::from(text.to_string()), window, cx);
@@ -434,15 +443,15 @@ impl Combobox {
         trigger = trigger.child(div().flex_1().child(query_input));
 
         if !self.disabled
-            && let Some(toggle) = self.on_toggle
+            && let Some(toggle) = on_toggle.clone()
         {
-            let toggle_rc = std::rc::Rc::new(toggle);
             let next_open = !self.is_open;
-            trigger = trigger
-                .cursor_pointer()
-                .on_mouse_down(MouseButton::Left, move |_event, window, cx| {
-                    toggle_rc(next_open, window, cx);
-                });
+            trigger = trigger.cursor_pointer().on_mouse_down(
+                MouseButton::Left,
+                move |_event, window, cx| {
+                    toggle(next_open, window, cx);
+                },
+            );
         }
         trigger = trigger.child(div().text_xs().text_color(theme.arrow_color).child("▼"));
 
@@ -472,18 +481,22 @@ impl Combobox {
                 .occlude();
 
             if filtered.is_empty() {
+                let empty_text: SharedString = self
+                    .empty_text
+                    .clone()
+                    .unwrap_or_else(|| "No matches".into());
                 dropdown = dropdown.child(
                     div()
                         .px_3()
                         .py(px(6.0))
                         .text_sm()
                         .text_color(theme.disabled_color)
-                        .child("No matches"),
+                        .child(empty_text),
                 );
             }
 
-            let select_rc = self.on_select.map(std::rc::Rc::new);
-            let toggle_rc = self.on_toggle.map(std::rc::Rc::new);
+            let select_rc = on_select.clone();
+            let toggle_rc = on_toggle.clone();
             for (position, option_index) in filtered.iter().enumerate() {
                 let option = &self.options[*option_index];
                 let is_selected = selected_value.as_ref() == Some(&option.value);
@@ -555,14 +568,14 @@ impl Combobox {
                 cx.stop_propagation();
             });
 
-            if let Some(toggle) = self.on_toggle {
-                let toggle_rc = std::rc::Rc::new(toggle);
-                let backdrop = div().absolute().inset_0().on_mouse_down(
-                    MouseButton::Left,
-                    move |_event, window, cx| {
-                        toggle_rc(false, window, cx);
-                    },
-                );
+            if let Some(toggle) = on_toggle.clone() {
+                let backdrop = div()
+                    .id((self.id.clone(), "backdrop"))
+                    .absolute()
+                    .inset_0()
+                    .on_mouse_down(MouseButton::Left, move |_event, window, cx| {
+                        toggle(false, window, cx);
+                    });
                 container = container.child(deferred(backdrop).with_priority(0));
             }
             container = container.child(deferred(dropdown).with_priority(1));
@@ -573,9 +586,9 @@ impl Combobox {
         if !self.disabled {
             let option_count = filtered.len();
             let highlighted = self.highlighted_index;
-            let highlight_rc = self.on_highlight.map(std::rc::Rc::new);
-            let select_rc = self.on_select.map(std::rc::Rc::new);
-            let toggle_rc = self.on_toggle.map(std::rc::Rc::new);
+            let highlight_rc = on_highlight.clone();
+            let select_rc = on_select.clone();
+            let toggle_rc = on_toggle.clone();
             let filtered_values: Vec<SharedString> = filtered
                 .iter()
                 .map(|index| self.options[*index].value.clone())

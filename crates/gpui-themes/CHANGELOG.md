@@ -1,3 +1,13 @@
+# Unreleased
+
+## Added
+
+- Added `token_export` (CSS-variable/Style-Dictionary round-trip with
+  `gpui-design`) and `contrast_fix` (nearest passing WCAG color + editor
+  badge).
+- Theme mode preference now live-resolves OS dark mode, and transitions
+  honor the reduced-motion gate.
+
 # 0.9.6 - 2026-08-23
 
 ## Fixed

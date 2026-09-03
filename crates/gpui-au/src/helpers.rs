@@ -40,8 +40,25 @@ pub(crate) unsafe fn ns_string_from_str(text: &str) -> *mut Object {
     ]
 }
 
+/// Verbose diagnostic log for AU lifecycle progress and hot-path tracing.
+///
+/// AU extensions run inside the host's sandbox: unconditional `NSLog` traffic
+/// (per-frame or per-instantiation chatter) shows up in the host console and
+/// violates realtime/sandbox hygiene. Verbose logs are emitted in debug builds
+/// or when the `verbose-logging` feature is enabled, and compiled out of
+/// release builds otherwise. Genuine failures must keep using [`nslog`].
+pub(crate) fn nslog_verbose(msg: &[u8]) {
+    #[cfg(any(debug_assertions, feature = "verbose-logging"))]
+    nslog(msg);
+    #[cfg(not(any(debug_assertions, feature = "verbose-logging")))]
+    let _ = msg;
+}
+
 /// Log via NSLog (always visible in Console.app, unlike Rust's log crate).
 /// Accepts a byte slice with explicit length; the bytes are interpreted as UTF-8.
+///
+/// Reserved for genuine failures (null FFI arguments, renderer creation
+/// errors). Progress/tracing logs must use [`nslog_verbose`] instead.
 pub(crate) fn nslog(msg: &[u8]) {
     use objc::{class, msg_send, sel, sel_impl};
     unsafe {
@@ -79,5 +96,13 @@ mod tests {
         // NSLog output, but we ensure the signature works.
         nslog(b"test message without null terminator");
         nslog(b"");
+    }
+
+    /// `nslog_verbose` accepts the same inputs in every build config;
+    /// in release without the feature it is a silent no-op.
+    #[test]
+    fn verbose_logging_helper_links() {
+        nslog_verbose(b"verbose probe");
+        nslog_verbose(b"");
     }
 }

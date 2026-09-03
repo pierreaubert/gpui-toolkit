@@ -1,6 +1,6 @@
 [package]
 name = "gpui-scaffolder"
-version = "0.9.3"
+version = "0.9.4"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -13,10 +13,14 @@ publish = false
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
+tempfile = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 toml = { workspace = true }
+
+[features]
+default = ["mobile"]
+mobile = []
 
 [lib]
 name = "gpui_scaffolder"

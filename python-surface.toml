@@ -419,6 +419,321 @@ disposition = "translated"
 rationale = "Radial polar points, generators, configuration values, and checked error variants map to typed Python values and native-backed paths."
 tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
 
+[[rustdoc_completion_scope]]
+id = "gpui-d3rs.shape-area"
+package = "gpui-d3rs"
+path_prefix = "d3rs::shape::area"
+kinds = ["module", "struct", "struct_field", "enum", "variant", "constructor", "method", "function", "parameter", "return"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area"
+python_path = "gpui_toolkit.d3rs"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::Area"
+python_path = "gpui_toolkit.d3rs.Area"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::Area::curve"
+python_path = "gpui_toolkit.d3rs.Area.curve"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+parameter_map = { curve = "value" }
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::Area::defined"
+python_path = "gpui_toolkit.d3rs.Area.defined"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+parameter_map = { f = "accessor" }
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::Area::generate"
+python_path = "gpui_toolkit.d3rs.Area.generate"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::Area::generate_into"
+python_path = "gpui_toolkit.d3rs.Area.generate_into"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::Area::new"
+python_path = "gpui_toolkit.d3rs.Area"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::Area::try_generate"
+python_path = "gpui_toolkit.d3rs.Area.try_generate"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::Area::try_generate_into"
+python_path = "gpui_toolkit.d3rs.Area.try_generate_into"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::Area::x"
+python_path = "gpui_toolkit.d3rs.Area.x"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+parameter_map = { f = "accessor" }
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::Area::x0"
+python_path = "gpui_toolkit.d3rs.Area.x0"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+parameter_map = { f = "accessor" }
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::Area::x1"
+python_path = "gpui_toolkit.d3rs.Area.x1"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+parameter_map = { f = "accessor" }
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::Area::y"
+python_path = "gpui_toolkit.d3rs.Area.y"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+parameter_map = { f = "accessor" }
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::Area::y0"
+python_path = "gpui_toolkit.d3rs.Area.y0"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+parameter_map = { f = "accessor" }
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::Area::y1"
+python_path = "gpui_toolkit.d3rs.Area.y1"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+parameter_map = { f = "accessor" }
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::AreaGenerationError"
+python_path = "gpui_toolkit.d3rs.AreaGenerationError"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::AreaGenerationError::CoordinateLengthMismatch"
+python_path = "gpui_toolkit.d3rs.AreaGenerationErrorKind"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::AreaGenerationError::CoordinateLengthMismatch::x_len"
+python_path = "gpui_toolkit.d3rs.AreaGenerationError"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::AreaGenerationError::CoordinateLengthMismatch::y0_len"
+python_path = "gpui_toolkit.d3rs.AreaGenerationError"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::AreaGenerationError::CoordinateLengthMismatch::y1_len"
+python_path = "gpui_toolkit.d3rs.AreaGenerationError"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::AreaGenerationError::NonFiniteCoordinate"
+python_path = "gpui_toolkit.d3rs.AreaGenerationErrorKind"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::AreaGenerationError::NonFiniteCoordinate::coordinate"
+python_path = "gpui_toolkit.d3rs.AreaGenerationError"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::AreaGenerationError::NonFiniteCoordinate::index"
+python_path = "gpui_toolkit.d3rs.AreaGenerationError"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::AreaGenerationError::NonFiniteCoordinate::value"
+python_path = "gpui_toolkit.d3rs.AreaGenerationError"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::SimpleArea"
+python_path = "gpui_toolkit.d3rs.SimpleArea"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::SimpleArea::new"
+python_path = "gpui_toolkit.d3rs.SimpleArea"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::SimpleArea::path"
+python_path = "gpui_toolkit.d3rs.SimpleArea.path"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::SimpleArea::points"
+python_path = "gpui_toolkit.d3rs.SimpleArea.points"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::SimpleArea::try_path"
+python_path = "gpui_toolkit.d3rs.SimpleArea.try_path"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::SimpleArea::try_points"
+python_path = "gpui_toolkit.d3rs.SimpleArea.try_points"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::SimpleArea::x"
+python_path = "gpui_toolkit.d3rs.SimpleArea"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::SimpleArea::y0"
+python_path = "gpui_toolkit.d3rs.SimpleArea"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::SimpleArea::y1"
+python_path = "gpui_toolkit.d3rs.SimpleArea"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::area_points"
+python_path = "gpui_toolkit.d3rs.area_points"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::area::try_area_points"
+python_path = "gpui_toolkit.d3rs.try_area_points"
+disposition = "translated"
+rationale = "Area generators and checked coordinate errors are exposed as typed immutable Python builders with native path generation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+
 [[rustdoc_classification]]
 package = "gpui-d3rs"
 rustdoc_id = "d3rs::shape::radial::RadialAreaConfig"
@@ -17369,6 +17684,9 @@ path = "crates/gpui-profiler"
 id = "gpui-python-runtime"
 path = "crates/gpui-python-runtime"
 [[inventory.crate]]
+id = "gpui-release-gates"
+path = "crates/gpui-release-gates"
+[[inventory.crate]]
 id = "gpui-scaffolder"
 path = "crates/gpui-scaffolder"
 [[inventory.crate]]
@@ -21504,3 +21822,1477 @@ rust_path = "gpui_python_runtime::dataset_frames::{dense_array_values,dense_arra
 python_path = "gpui_toolkit.scene3d"
 disposition = "declarative"
 tests = ["crates/gpui-python-runtime/python/tests/test_scene3d.py", "crates/gpui-python-runtime/src/dataset_frames.rs", "crates/gpui-python-runtime/bin/showcase/python_ir_showcase.rs"]
+
+[[rustdoc_completion_scope]]
+id = "gpui-d3rs.shape-path"
+package = "gpui-d3rs"
+path_prefix = "d3rs::shape::path"
+kinds = ["module", "struct", "struct_field", "enum", "variant", "constructor", "method", "function", "parameter", "return"]
+
+[[rustdoc_completion_scope]]
+id = "gpui-d3rs.shape-line"
+package = "gpui-d3rs"
+path_prefix = "d3rs::shape::line"
+kinds = ["module", "struct", "struct_field", "enum", "variant", "constructor", "method", "function", "parameter", "return"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line"
+python_path = "gpui_toolkit.d3rs"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_config::LineConfig"
+python_path = "gpui_toolkit.d3rs.LineConfig"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_config::LineConfig::curve"
+python_path = "gpui_toolkit.d3rs.LineConfig.curve"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_config::LineConfig::dash_array"
+python_path = "gpui_toolkit.d3rs.LineConfig.dash_array"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_config::LineConfig::from_design"
+python_path = "gpui_toolkit.d3rs.LineConfig.from_design"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_config::LineConfig::new"
+python_path = "gpui_toolkit.d3rs.LineConfig"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_config::LineConfig::opacity"
+python_path = "gpui_toolkit.d3rs.LineConfig.opacity"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_config::LineConfig::point_fill_color"
+python_path = "gpui_toolkit.d3rs.LineConfig.point_fill_color"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_config::LineConfig::point_radius"
+python_path = "gpui_toolkit.d3rs.LineConfig.point_radius"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_config::LineConfig::renderer_2d"
+python_path = "gpui_toolkit.d3rs.LineConfig.renderer_2d"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_config::LineConfig::show_points"
+python_path = "gpui_toolkit.d3rs.LineConfig.show_points"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_config::LineConfig::stroke_color"
+python_path = "gpui_toolkit.d3rs.LineConfig.stroke_color"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_config::LineConfig::stroke_width"
+python_path = "gpui_toolkit.d3rs.LineConfig.stroke_width"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_config::LineConfig::vello_backend"
+python_path = "gpui_toolkit.d3rs.LineConfig.vello_backend"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_config::LineConfig::with_design"
+python_path = "gpui_toolkit.d3rs.LineConfig.with_design"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_point::LinePoint"
+python_path = "gpui_toolkit.d3rs.LinePoint"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_point::LinePoint::new"
+python_path = "gpui_toolkit.d3rs.LinePoint"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_point::LinePoint::x"
+python_path = "gpui_toolkit.d3rs.LinePoint"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::line_point::LinePoint::y"
+python_path = "gpui_toolkit.d3rs.LinePoint"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::CurveType"
+python_path = "gpui_toolkit.d3rs.CurveKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::CurveType::Basis"
+python_path = "gpui_toolkit.d3rs.CurveKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::CurveType::Cardinal"
+python_path = "gpui_toolkit.d3rs.CurveKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::CurveType::CatmullRom"
+python_path = "gpui_toolkit.d3rs.CurveKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::CurveType::Linear"
+python_path = "gpui_toolkit.d3rs.CurveKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::CurveType::MonotoneX"
+python_path = "gpui_toolkit.d3rs.CurveKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::CurveType::Natural"
+python_path = "gpui_toolkit.d3rs.CurveKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::CurveType::Step"
+python_path = "gpui_toolkit.d3rs.CurveKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::CurveType::StepAfter"
+python_path = "gpui_toolkit.d3rs.CurveKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::CurveType::StepBefore"
+python_path = "gpui_toolkit.d3rs.CurveKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::StrokeDashArray"
+python_path = "gpui_toolkit.d3rs.StrokeDashArray"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::StrokeDashArray::Custom"
+python_path = "gpui_toolkit.d3rs.StrokeDashArray"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::StrokeDashArray::Custom::0"
+python_path = "gpui_toolkit.d3rs.CustomDashArray"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::StrokeDashArray::DashDot"
+python_path = "gpui_toolkit.d3rs.StrokeDashArray"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::StrokeDashArray::Dashed"
+python_path = "gpui_toolkit.d3rs.StrokeDashArray"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::StrokeDashArray::Dotted"
+python_path = "gpui_toolkit.d3rs.StrokeDashArray"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::style::StrokeDashArray::Solid"
+python_path = "gpui_toolkit.d3rs.StrokeDashArray"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::LineSceneGeometry"
+python_path = "gpui_toolkit.d3rs.LineSceneGeometry"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::line_chart_scene"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::line_chart_scene#parameter:0:geometry"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::line_chart_scene#parameter:1:config"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::line_chart_scene#parameter:2:width"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::line_chart_scene#parameter:3:height"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::line_chart_scene#return"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::line_scene_geometry"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::line_scene_geometry#parameter:0:x_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::line_scene_geometry#parameter:1:y_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::line_scene_geometry#parameter:2:data"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::line_scene_geometry#parameter:3:config"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::line_scene_geometry#return"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line#parameter:0:x_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line#parameter:1:y_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line#parameter:2:data"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line#parameter:3:config"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line#return"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_selected"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_selected#parameter:0:x_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_selected#parameter:1:y_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_selected#parameter:2:data"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_selected#parameter:3:config"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_selected#return"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello#parameter:0:x_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello#parameter:1:y_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello#parameter:2:data"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello#parameter:3:config"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello#parameter:4:backend"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello#return"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::try_render_line"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::try_render_line#parameter:0:x_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::try_render_line#parameter:1:y_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::try_render_line#parameter:2:data"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::try_render_line#parameter:3:config"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::try_render_line#return"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::EmptyDashPattern"
+python_path = "gpui_toolkit.d3rs.LineRenderErrorKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::InvalidDashLength"
+python_path = "gpui_toolkit.d3rs.LineRenderErrorKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::InvalidDashLength::index"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::InvalidDashLength::value"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NegativeConfigField"
+python_path = "gpui_toolkit.d3rs.LineRenderErrorKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NegativeConfigField::field"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NegativeConfigField::value"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteConfigField"
+python_path = "gpui_toolkit.d3rs.LineRenderErrorKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteConfigField::field"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteConfigField::value"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteDataCoordinate"
+python_path = "gpui_toolkit.d3rs.LineRenderErrorKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteDataCoordinate::coordinate"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteDataCoordinate::index"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteDataCoordinate::value"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteScaleOutput"
+python_path = "gpui_toolkit.d3rs.LineRenderErrorKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteScaleOutput::axis"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteScaleOutput::index"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteScaleOutput::value"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteScaleRange"
+python_path = "gpui_toolkit.d3rs.LineRenderErrorKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteScaleRange::axis"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteScaleRange::endpoint"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::NonFiniteScaleRange::value"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::OpacityOutOfRange"
+python_path = "gpui_toolkit.d3rs.LineRenderErrorKind"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::LineRenderError::OpacityOutOfRange::value"
+python_path = "gpui_toolkit.d3rs.LineRenderError"
+disposition = "translated"
+rationale = "Line configuration, point values, dash policies, and checked errors are represented by immutable Python values matching gpui-d3rs semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::validate_line_inputs"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::validate_line_inputs#parameter:0:x_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::validate_line_inputs#parameter:1:y_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::validate_line_inputs#parameter:2:data"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::validate_line_inputs#parameter:3:config"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::validation::validate_line_inputs#return"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path"
+python_path = "gpui_toolkit.d3rs"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::Path"
+python_path = "gpui_toolkit.d3rs.Path"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::Path::bounds"
+python_path = "gpui_toolkit.d3rs.Path.bounds"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::Path::commands"
+python_path = "gpui_toolkit.d3rs.Path.commands"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::Path::flatten"
+python_path = "gpui_toolkit.d3rs.Path.flatten"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::Path::is_empty"
+python_path = "gpui_toolkit.d3rs.Path.is_empty"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::Path::new"
+python_path = "gpui_toolkit.d3rs.Path"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::Path::to_svg_string"
+python_path = "gpui_toolkit.d3rs.Path.to_svg_string"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::Path::write_svg_string"
+python_path = "gpui_toolkit.d3rs.Path.write_svg_string"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::path_builder::PathBuilder"
+python_path = "gpui_toolkit.d3rs.PathBuilder"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::path_builder::PathBuilder::arc"
+python_path = "gpui_toolkit.d3rs.PathBuilder.arc"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::path_builder::PathBuilder::build"
+python_path = "gpui_toolkit.d3rs.PathBuilder.build"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::path_builder::PathBuilder::close_path"
+python_path = "gpui_toolkit.d3rs.PathBuilder.close_path"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::path_builder::PathBuilder::cubic_curve_to"
+python_path = "gpui_toolkit.d3rs.PathBuilder.cubic_curve_to"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::path_builder::PathBuilder::current_point"
+python_path = "gpui_toolkit.d3rs.PathBuilder.current_point"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::path_builder::PathBuilder::elliptical_arc"
+python_path = "gpui_toolkit.d3rs.PathBuilder.elliptical_arc"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::path_builder::PathBuilder::horizontal_line_to"
+python_path = "gpui_toolkit.d3rs.PathBuilder.horizontal_line_to"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::path_builder::PathBuilder::line_to"
+python_path = "gpui_toolkit.d3rs.PathBuilder.line_to"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::path_builder::PathBuilder::move_to"
+python_path = "gpui_toolkit.d3rs.PathBuilder.move_to"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::path_builder::PathBuilder::new"
+python_path = "gpui_toolkit.d3rs.PathBuilder"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::path_builder::PathBuilder::quadratic_curve_to"
+python_path = "gpui_toolkit.d3rs.PathBuilder.quadratic_curve_to"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::path_builder::PathBuilder::rect"
+python_path = "gpui_toolkit.d3rs.PathBuilder.rect"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::path_builder::PathBuilder::vertical_line_to"
+python_path = "gpui_toolkit.d3rs.PathBuilder.vertical_line_to"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::point::Point"
+python_path = "gpui_toolkit.d3rs.Point"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::point::Point::distance"
+python_path = "gpui_toolkit.d3rs.Point.distance"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::point::Point::lerp"
+python_path = "gpui_toolkit.d3rs.Point.lerp"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::point::Point::new"
+python_path = "gpui_toolkit.d3rs.Point"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+include_signature = true
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::point::Point::x"
+python_path = "gpui_toolkit.d3rs.Point.x"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::point::Point::y"
+python_path = "gpui_toolkit.d3rs.Point.y"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::Arc"
+python_path = "gpui_toolkit.d3rs.PathCommandKind"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::Arc::anticlockwise"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::Arc::end_angle"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::Arc::radius"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::Arc::start_angle"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::Arc::x"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::Arc::y"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::ClosePath"
+python_path = "gpui_toolkit.d3rs.PathCommandKind"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::CubicCurveTo"
+python_path = "gpui_toolkit.d3rs.PathCommandKind"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::CubicCurveTo::x"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::CubicCurveTo::x1"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::CubicCurveTo::x2"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::CubicCurveTo::y"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::CubicCurveTo::y1"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::CubicCurveTo::y2"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::EllipticalArc"
+python_path = "gpui_toolkit.d3rs.PathCommandKind"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::EllipticalArc::large_arc"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::EllipticalArc::rx"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::EllipticalArc::ry"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::EllipticalArc::sweep"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::EllipticalArc::x"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::EllipticalArc::x_axis_rotation"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::EllipticalArc::y"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::HorizontalLineTo"
+python_path = "gpui_toolkit.d3rs.PathCommandKind"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::HorizontalLineTo::x"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::LineTo"
+python_path = "gpui_toolkit.d3rs.PathCommandKind"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::LineTo::x"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::LineTo::y"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::MoveTo"
+python_path = "gpui_toolkit.d3rs.PathCommandKind"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::MoveTo::x"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::MoveTo::y"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::QuadraticCurveTo"
+python_path = "gpui_toolkit.d3rs.PathCommandKind"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::QuadraticCurveTo::x"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::QuadraticCurveTo::x1"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::QuadraticCurveTo::y"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::QuadraticCurveTo::y1"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::Rect"
+python_path = "gpui_toolkit.d3rs.PathCommandKind"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::Rect::height"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::Rect::width"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::Rect::x"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::Rect::y"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::VerticalLineTo"
+python_path = "gpui_toolkit.d3rs.PathCommandKind"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::path::types::PathCommand::VerticalLineTo::y"
+python_path = "gpui_toolkit.d3rs.PathCommand"
+disposition = "translated"
+rationale = "Path commands, points, builders, and immutable SVG/flattening operations are available through typed Python values backed by the native path implementation."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]

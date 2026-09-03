@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Boot `expect`s now render a `console_error` fallback instead of
+  white-screening on browsers without WebGPU.
+- Documented the page-lifetime-only `mem::forget` handle and asserted
+  `web_mark_ready` in the smoke test.
+
 ## 0.1.1 - 2026-08-23
 
 ### Performance

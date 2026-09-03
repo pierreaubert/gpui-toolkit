@@ -503,14 +503,24 @@ impl<T: Clone> QuadTree<T> {
     where
         F: Fn(&T, f64, f64) -> bool,
     {
-        let mut removed = 0;
-        let points_to_remove: Vec<(f64, f64)> = self
-            .data()
-            .iter()
-            .filter(|(x, y, d)| predicate(d, *x, *y))
-            .map(|(x, y, _)| (*x, *y))
-            .collect();
+        // Collect matching coordinates through a borrowed visit so point data
+        // is never cloned (the old implementation cloned every point via
+        // `data()`). Removal happens afterwards since it needs `&mut self`.
+        let mut points_to_remove: Vec<(f64, f64)> = Vec::new();
+        self.visit(|_x0, _y0, _x1, _y1, node| {
+            if let QuadNode::Leaf(point) = node {
+                let mut current = Some(point);
+                while let Some(p) = current {
+                    if predicate(&p.data, p.x, p.y) {
+                        points_to_remove.push((p.x, p.y));
+                    }
+                    current = p.next.as_deref();
+                }
+            }
+            true
+        });
 
+        let mut removed = 0;
         for (x, y) in points_to_remove {
             if self.remove(x, y) {
                 removed += 1;
@@ -596,7 +606,7 @@ impl<T: Clone> QuadTree<T> {
                     item.1 = Self::box_distance_sq(x, y, cx0, cy0, cx1, cy1);
                 }
 
-                order.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+                order.sort_by(|a, b| a.1.total_cmp(&b.1));
 
                 for (i, dist_sq) in order {
                     // Skip if this quadrant is farther than current best
@@ -797,19 +807,28 @@ impl<T: Clone> QuadTree<T> {
     /// Get all data points as (x, y, data) tuples
     pub fn data(&self) -> Vec<(f64, f64, T)> {
         let mut result = Vec::with_capacity(self.size);
+        self.extend_data_into(&mut result);
+        result
+    }
+
+    /// Append all data points as (x, y, data) tuples into `out`.
+    ///
+    /// Clone-free counterpart to [`data()`](Self::data) for hot paths: the
+    /// caller reuses one buffer across calls, so no per-call `Vec` is
+    /// allocated — only the growth of `out` itself.
+    pub fn extend_data_into(&self, out: &mut Vec<(f64, f64, T)>) {
+        out.reserve(self.size);
 
         self.visit(|_x0, _y0, _x1, _y1, node| {
             if let QuadNode::Leaf(point) = node {
                 let mut current = Some(point);
                 while let Some(p) = current {
-                    result.push((p.x, p.y, p.data.clone()));
+                    out.push((p.x, p.y, p.data.clone()));
                     current = p.next.as_deref();
                 }
             }
             true
         });
-
-        result
     }
 
     /// Get the number of points in the tree
@@ -830,18 +849,17 @@ impl<T: Clone> QuadTree<T> {
     /// Find all points within a radius of (x, y)
     pub fn find_all(&self, x: f64, y: f64, radius: f64) -> Vec<&T> {
         let mut result = Vec::new();
+        self.find_all_into(x, y, radius, &mut result);
+        result
+    }
+
+    /// Borrowed, allocation-free variant of [`find_all()`](Self::find_all):
+    /// appends references to all points within `radius` of `(x, y)` into
+    /// `out`, so callers can reuse one buffer across repeated queries.
+    pub fn find_all_into<'a>(&'a self, x: f64, y: f64, radius: f64, out: &mut Vec<&'a T>) {
         let radius_sq = radius * radius;
 
-        self.find_all_recursive(
-            self.root.as_ref(),
-            x,
-            y,
-            radius_sq,
-            self.extent,
-            &mut result,
-        );
-
-        result
+        self.find_all_recursive(self.root.as_ref(), x, y, radius_sq, self.extent, out);
     }
 
     pub(super) fn find_all_recursive<'a>(
@@ -1187,6 +1205,63 @@ mod tests {
         assert_eq!(agg.mass, 4.0);
         assert!((agg.x - 1.0).abs() < 1e-12);
         assert!((agg.y - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn extend_data_into_matches_data_and_reuses_buffer() {
+        let points = vec![(0.0, 0.0, 'a'), (1.0, 1.0, 'b'), (2.0, 2.0, 'c')];
+        let tree = QuadTree::from_data(&points, |p| p.0, |p| p.1);
+
+        // Pre-size for two passes so the reuse assertion is deterministic.
+        let mut buf = Vec::with_capacity(8);
+        tree.extend_data_into(&mut buf);
+        let first_ptr = buf.as_ptr();
+        let mut expected = tree.data();
+        let mut got = buf.clone();
+        expected.sort_by(|a, b| a.0.total_cmp(&b.0));
+        got.sort_by(|a, b| a.0.total_cmp(&b.0));
+        assert_eq!(got, expected);
+
+        // Reusing the buffer across calls must not reallocate.
+        let cap_before = buf.capacity();
+        tree.extend_data_into(&mut buf);
+        assert_eq!(buf.as_ptr(), first_ptr);
+        assert_eq!(buf.capacity(), cap_before);
+        assert_eq!(buf.len(), 2 * expected.len());
+    }
+
+    #[test]
+    fn find_all_into_matches_find_all() {
+        let mut tree = QuadTree::new();
+        tree.add(0.0, 0.0, 1);
+        tree.add(1.0, 0.0, 2);
+        tree.add(0.0, 1.0, 3);
+        tree.add(10.0, 10.0, 4);
+
+        let mut buf = Vec::new();
+        tree.find_all_into(0.5, 0.5, 2.0, &mut buf);
+        let mut got: Vec<i32> = buf.iter().copied().copied().collect();
+        let mut expected: Vec<i32> = tree.find_all(0.5, 0.5, 2.0).into_iter().copied().collect();
+        got.sort();
+        expected.sort();
+        assert_eq!(got, expected);
+        assert_eq!(got.len(), 3);
+    }
+
+    #[test]
+    fn remove_all_without_clones_removes_matching_points() {
+        let mut tree = QuadTree::new();
+        tree.add(0.0, 0.0, 1);
+        tree.add(1.0, 0.0, 2);
+        tree.add(0.0, 1.0, 3);
+        tree.add(1.0, 1.0, 4);
+
+        let removed = tree.remove_all(|d, _, _| *d % 2 == 0);
+        assert_eq!(removed, 2);
+        assert_eq!(tree.size(), 2);
+        let mut rest: Vec<i32> = tree.data().into_iter().map(|(_, _, d)| d).collect();
+        rest.sort();
+        assert_eq!(rest, vec![1, 3]);
     }
 
     #[test]

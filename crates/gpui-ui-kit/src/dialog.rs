@@ -113,6 +113,10 @@ pub struct Dialog {
     footer_factory: Option<DialogSlotFactory>,
     show_close_button: bool,
     close_on_backdrop: bool,
+    /// Trap Tab inside the dialog while it is focused (Radix-Dialog parity).
+    trap_focus: bool,
+    /// Close on Escape when a close handler is set.
+    dismiss_on_escape: bool,
     focus_handle: Option<FocusHandle>,
     restore_focus_to: Option<FocusHandle>,
     on_close: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
@@ -133,6 +137,8 @@ impl Dialog {
             footer_factory: None,
             show_close_button: true,
             close_on_backdrop: true,
+            trap_focus: true,
+            dismiss_on_escape: true,
             focus_handle: None,
             restore_focus_to: None,
             on_close: None,
@@ -225,6 +231,25 @@ impl Dialog {
         self
     }
 
+    /// Trap Tab key presses inside the dialog while it is focused.
+    ///
+    /// Enabled by default. The dialog stops Tab propagation at its boundary
+    /// so keyboard focus cannot escape to the page behind the modal; inner
+    /// fields still receive the key first. Requires [`Self::focus_handle`]
+    /// for key handling. Disabling restores plain bubbling.
+    pub fn trap_focus(mut self, trap: bool) -> Self {
+        self.trap_focus = trap;
+        self
+    }
+
+    /// Close the dialog on Escape when a close handler is set.
+    ///
+    /// Enabled by default. Requires [`Self::focus_handle`] for key handling.
+    pub fn dismiss_on_escape(mut self, dismiss: bool) -> Self {
+        self.dismiss_on_escape = dismiss;
+        self
+    }
+
     /// Set the focus handle used for dialog-level keyboard dismissal.
     pub fn focus_handle(mut self, handle: FocusHandle) -> Self {
         self.focus_handle = Some(handle);
@@ -309,17 +334,32 @@ impl Dialog {
 
         if let Some(handle) = focus_handle.clone() {
             dialog = dialog.track_focus(&handle).focusable();
-            if let Some(handler) = on_close.clone() {
+            let trap_focus = self.trap_focus;
+            let dismiss_on_escape = self.dismiss_on_escape;
+            if on_close.is_some() || trap_focus {
+                let handler = on_close.clone();
                 let restore_focus_to = restore_focus_to.clone();
                 dialog = dialog.on_key_down(
                     move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
-                        if crate::interaction::overlay_key_action(
-                            event.keystroke.key.as_str(),
-                            handle.is_focused(window),
-                        ) != Some(crate::interaction::OverlayKeyAction::Dismiss)
+                        let key = event.keystroke.key.as_str();
+                        // Focus trap: keep Tab inside the modal. Inner fields
+                        // run their own handlers first (bubbling); stopping it
+                        // here only prevents focus escaping the dialog.
+                        if trap_focus && key == "tab" && handle.is_focused(window) {
+                            cx.stop_propagation();
+                            return;
+                        }
+                        if !dismiss_on_escape {
+                            return;
+                        }
+                        if crate::interaction::overlay_key_action(key, handle.is_focused(window))
+                            != Some(crate::interaction::OverlayKeyAction::Dismiss)
                         {
                             return;
                         }
+                        let Some(handler) = handler.as_ref() else {
+                            return;
+                        };
 
                         cx.stop_propagation();
                         if let Some(ref handle) = restore_focus_to {
@@ -422,10 +462,12 @@ impl RenderOnce for Dialog {
             .clone()
             .or_else(|| self.title.clone())
             .unwrap_or_default();
+        let modal = self.trap_focus;
         cx.register_accessible(AccessibilityNode {
             element_id: self.id.clone(),
             label: effective_label,
-            props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Dialog)),
+            props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Dialog))
+                .maybe_state(modal, crate::accessibility::AriaState::Modal),
         });
 
         let global_theme = cx.theme();
@@ -460,5 +502,18 @@ mod tests {
         assert!(!dialog.close_on_backdrop);
         assert!(!dialog.show_close_button);
         assert!(dialog.on_close.is_some());
+    }
+
+    #[test]
+    fn dialog_traps_focus_and_dismisses_on_escape_by_default() {
+        let dialog = Dialog::new("modal").on_close(|_, _| {});
+        assert!(dialog.trap_focus);
+        assert!(dialog.dismiss_on_escape);
+
+        let relaxed = Dialog::new("plain")
+            .trap_focus(false)
+            .dismiss_on_escape(false);
+        assert!(!relaxed.trap_focus);
+        assert!(!relaxed.dismiss_on_escape);
     }
 }

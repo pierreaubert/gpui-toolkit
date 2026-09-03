@@ -190,8 +190,9 @@ fn calculate_log_ticks(min: f64, max: f64, track_height: f32) -> Vec<TickMark> {
         label: Some(format_value_abbrev(max)),
     });
 
-    // Sort by normalized position
-    ticks.sort_by(|a, b| a.normalized_pos.partial_cmp(&b.normalized_pos).unwrap());
+    // Sort by normalized position. `total_cmp` (not `partial_cmp().unwrap()`)
+    // keeps NaN-tainted inputs from panicking the render path.
+    ticks.sort_by(|a, b| a.normalized_pos.total_cmp(&b.normalized_pos));
 
     ticks
 }
@@ -207,12 +208,29 @@ struct TickCacheKey {
 impl TickCacheKey {
     fn new(min: f64, max: f64, scale: Scale, track_height: f32) -> Self {
         Self {
-            min: (min * 1_000_000.0).round() as i64,
-            max: (max * 1_000_000.0).round() as i64,
+            min: quantize_tick_key(min, 1_000_000.0),
+            max: quantize_tick_key(max, 1_000_000.0),
             scale,
-            track_height: (track_height * 1_000.0).round() as i32,
+            track_height: quantize_tick_key_32(track_height, 1_000.0),
         }
     }
+}
+
+/// Quantize a float cache key. NaN saturates to zero under `as` casts, which
+/// would alias a NaN-tainted range onto the legitimate `0.0` entry and let
+/// one poison the other's cached ticks; pin it to a dedicated sentinel.
+fn quantize_tick_key(value: f64, factor: f64) -> i64 {
+    if value.is_nan() {
+        return i64::MIN;
+    }
+    (value * factor).round() as i64
+}
+
+fn quantize_tick_key_32(value: f32, factor: f32) -> i32 {
+    if value.is_nan() {
+        return i32::MIN;
+    }
+    (value * factor).round() as i32
 }
 
 thread_local! {
@@ -288,6 +306,15 @@ mod tests {
             calculate_ticks(0.0, 100.0 + index as f64, Scale::Linear, 160.0);
         }
         TICK_CACHE.with(|cache| assert!(cache.borrow().len() <= TICK_CACHE_CAPACITY));
+    }
+
+    #[test]
+    fn nan_inputs_sort_without_panicking() {
+        // NaN-tainted ranges must not panic the render path (total_cmp sort).
+        let linear = calculate_ticks(f64::NAN, 100.0, Scale::Linear, 160.0);
+        assert!(!linear.is_empty());
+        let log = calculate_ticks(f64::NAN, f64::NAN, Scale::Logarithmic, 160.0);
+        assert!(!log.is_empty());
     }
 
     #[test]

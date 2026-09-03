@@ -65,7 +65,43 @@ let bindings = registry.get_bindings(KeymapPreset::Default);
 let conflicts = registry.detect_conflicts(KeymapPreset::Default);
 ```
 
+## When-Clause Contexts
+
+`DocumentedKeybinding::with_context()` attaches an opaque VSCode-style
+`when`-clause expression (e.g. `"editorTextFocus"`). The crate never executes
+it — it is a first step toward context parity:
+
+- Conflict detection groups by key *and* context, so the same key in different
+  contexts is not reported as a conflict.
+- Command-palette search indexes the context text.
+- Cross-context shadowing still needs an executable context evaluator, which
+  remains out of scope (evaluate GPUI `KeyBinding` contexts in the app).
+
+## User Overrides (`keybindings.json`)
+
+User remapping is JSON-based. Overrides match base bindings by description:
+
+```rust
+use gpui_keybinding::{apply_user_overrides, parse_user_overrides, serialize_user_overrides};
+
+// Load: accepts a bare array or `{"bindings": [...]}`; blank input yields `[]`.
+let overrides = parse_user_overrides(std::fs::read_to_string("keybindings.json")?.as_str())?;
+let merged = apply_user_overrides(base_bindings, overrides);
+
+// Save back to disk.
+std::fs::write("keybindings.json", serialize_user_overrides(&merged)?)?;
+```
+
+An override replaces the base entry with the same description and is appended
+otherwise; duplicates resolve last-wins.
+
 ## Discovery UI Data
+
+For per-keystroke filtering, prefer the `_cached` variants
+(`search_command_palette_cached`, `keybinding_hints_cached`): they return cheap
+`Rc` slices with allocation-free cache hits. The `Vec`-returning twins share
+the same matching logic but allocate on every call and exist for one-off
+queries.
 
 `gpui-keybinding` exposes backend data for command palettes and which-key style
 overlays. UI crates can render these however they like without walking providers

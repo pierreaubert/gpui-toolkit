@@ -1,6 +1,7 @@
 //! Spectrum analyzer primitives for audio UIs.
 
 mod meter_data;
+mod meter_fifo;
 mod misc;
 mod render;
 mod spectrum_axis_theme;
@@ -11,6 +12,7 @@ mod tests;
 mod types;
 
 pub use meter_data::*;
+pub use meter_fifo::*;
 pub use misc::*;
 pub use render::*;
 pub use spectrum_axis_theme::*;

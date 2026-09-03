@@ -239,3 +239,148 @@ pub(super) fn distribute_remaining(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::SlotNode;
+
+    fn fixed(id: &str, size: f32) -> LayoutNode<'_> {
+        LayoutNode::slot(id, Sizing::Fixed(size))
+    }
+
+    fn flex_slot(id: &str, min: f32, weight: f32) -> LayoutNode<'_> {
+        LayoutNode::slot(id, Sizing::Flex { min, weight })
+    }
+
+    fn fractional_slot(id: &str, initial: f32, min: f32, max: f32) -> LayoutNode<'_> {
+        LayoutNode::slot(id, Sizing::Fractional { initial, min, max })
+    }
+
+    fn collapsible_fixed(id: &str, size: f32, priority: f32) -> LayoutNode<'_> {
+        LayoutNode::Slot(SlotNode {
+            id,
+            sizing: Sizing::Fixed(size),
+            priority,
+            collapsible: true,
+            display_tiers: &[],
+            collapse_label: None,
+        })
+    }
+
+    fn infos(count: usize) -> Vec<ChildInfo> {
+        (0..count)
+            .map(|node_index| ChildInfo {
+                node_index,
+                user_collapsed: false,
+                solver_collapsed: false,
+                allocated_size: 0.0,
+                computed_text_size: None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn fixed_children_keep_exact_size_and_flex_takes_rest() {
+        let nodes = [fixed("a", 20.0), flex_slot("b", 0.0, 1.0)];
+        let prefs = LayoutPreferences::default();
+        let mut children = infos(2);
+        allocate_main_axis(&mut children, &nodes, 100.0, 0.0, Axis::Horizontal, &prefs);
+        assert!(!children[0].solver_collapsed);
+        assert!(!children[1].solver_collapsed);
+        assert_eq!(children[0].allocated_size, 20.0);
+        assert_eq!(children[1].allocated_size, 80.0);
+    }
+
+    #[test]
+    fn lowest_priority_collapses_first() {
+        let nodes = [
+            collapsible_fixed("low", 60.0, 0.1),
+            collapsible_fixed("high", 60.0, 0.9),
+        ];
+        let prefs = LayoutPreferences::default();
+        let mut children = infos(2);
+        allocate_main_axis(&mut children, &nodes, 100.0, 0.0, Axis::Horizontal, &prefs);
+        assert!(children[0].solver_collapsed);
+        assert!(!children[1].solver_collapsed);
+        assert_eq!(children[1].allocated_size, 60.0);
+    }
+
+    #[test]
+    fn equal_priority_collapses_later_siblings_first() {
+        let nodes = [
+            collapsible_fixed("a", 60.0, 0.5),
+            collapsible_fixed("b", 60.0, 0.5),
+        ];
+        let prefs = LayoutPreferences::default();
+        let mut children = infos(2);
+        allocate_main_axis(&mut children, &nodes, 100.0, 0.0, Axis::Horizontal, &prefs);
+        assert!(!children[0].solver_collapsed);
+        assert!(children[1].solver_collapsed);
+        assert_eq!(children[0].allocated_size, 60.0);
+    }
+
+    #[test]
+    fn divider_space_is_reclaimed_after_collapse() {
+        let nodes = [collapsible_fixed("a", 60.0, 0.1), fixed("b", 30.0)];
+        let prefs = LayoutPreferences::default();
+        let mut children = infos(2);
+        // 80 - 30 fixed - 10 divider leaves 40 < 60 minimum, so "a" collapses
+        // and the divider disappears with it.
+        allocate_main_axis(&mut children, &nodes, 80.0, 10.0, Axis::Horizontal, &prefs);
+        assert!(children[0].solver_collapsed);
+        assert_eq!(children[1].allocated_size, 30.0);
+    }
+
+    #[test]
+    fn user_collapsed_children_are_skipped() {
+        let nodes = [fixed("a", 20.0), flex_slot("b", 0.0, 1.0)];
+        let prefs = LayoutPreferences::default();
+        let mut children = infos(2);
+        children[0].user_collapsed = true;
+        allocate_main_axis(&mut children, &nodes, 100.0, 0.0, Axis::Horizontal, &prefs);
+        assert_eq!(children[1].allocated_size, 100.0);
+    }
+
+    #[test]
+    fn distribute_remaining_scales_fractional_demand_over_full() {
+        let nodes = [
+            fractional_slot("a", 0.8, 0.0, f32::MAX),
+            fractional_slot("b", 0.8, 0.0, f32::MAX),
+        ];
+        let prefs = LayoutPreferences::default();
+        let mut children = infos(2);
+        distribute_remaining(&mut children, &nodes, 100.0, Axis::Horizontal, &prefs);
+        assert_eq!(children[0].allocated_size, 50.0);
+        assert_eq!(children[1].allocated_size, 50.0);
+    }
+
+    #[test]
+    fn distribute_remaining_splits_flex_by_weight() {
+        let nodes = [flex_slot("a", 0.0, 1.0), flex_slot("b", 0.0, 3.0)];
+        let prefs = LayoutPreferences::default();
+        let mut children = infos(2);
+        distribute_remaining(&mut children, &nodes, 100.0, Axis::Horizontal, &prefs);
+        assert_eq!(children[0].allocated_size, 25.0);
+        assert_eq!(children[1].allocated_size, 75.0);
+    }
+
+    #[test]
+    fn distribute_remaining_applies_ratio_override_from_prefs() {
+        let nodes = [fractional_slot("a", 0.5, 0.0, f32::MAX)];
+        let mut prefs = LayoutPreferences::default();
+        prefs.set_ratio("a", Axis::Horizontal, 0.25);
+        let mut children = infos(1);
+        distribute_remaining(&mut children, &nodes, 100.0, Axis::Horizontal, &prefs);
+        assert_eq!(children[0].allocated_size, 25.0);
+    }
+
+    #[test]
+    fn distribute_remaining_respects_fractional_min_clamp() {
+        let nodes = [fractional_slot("a", 0.1, 40.0, f32::MAX)];
+        let prefs = LayoutPreferences::default();
+        let mut children = infos(1);
+        distribute_remaining(&mut children, &nodes, 100.0, Axis::Horizontal, &prefs);
+        assert_eq!(children[0].allocated_size, 40.0);
+    }
+}

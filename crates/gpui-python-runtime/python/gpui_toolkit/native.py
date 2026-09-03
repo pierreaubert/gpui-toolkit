@@ -4089,6 +4089,9 @@ class CurveKind(str, Enum):
     NATURAL = "natural"
 
 
+CurveType = CurveKind
+
+
 @dataclass(frozen=True)
 class Curve:
     kind: CurveKind = CurveKind.LINEAR
@@ -4553,7 +4556,268 @@ def try_polar_grid_rays(
     )
 
 
-AreaGenerationError = ValueError
+class StrokeDashArray(str, Enum):
+    SOLID = "solid"
+    DOTTED = "dotted"
+    DASHED = "dashed"
+    DASH_DOT = "dash_dot"
+
+    @classmethod
+    def custom(cls, values: Sequence[float]) -> "CustomDashArray":
+        return CustomDashArray(values)
+
+
+@dataclass(frozen=True)
+class CustomDashArray:
+    values: tuple[float, ...]
+
+    def __init__(self, values: Sequence[float]) -> None:
+        normalized = tuple(float(value) for value in values)
+        if not normalized:
+            raise ValueError("line custom dash pattern must not be empty")
+        for index, value in enumerate(normalized):
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(
+                    f"line custom dash length at index {index} must be finite and positive: {value}"
+                )
+        object.__setattr__(self, "values", normalized)
+
+
+@dataclass(frozen=True)
+class LinePoint:
+    x: float
+    y: float
+
+    @classmethod
+    def new(cls, x: float, y: float) -> "LinePoint":
+        return cls(float(x), float(y))
+
+
+class LineRenderErrorKind(str, Enum):
+    NON_FINITE_DATA_COORDINATE = "non_finite_data_coordinate"
+    NON_FINITE_SCALE_RANGE = "non_finite_scale_range"
+    NON_FINITE_SCALE_OUTPUT = "non_finite_scale_output"
+    NON_FINITE_CONFIG_FIELD = "non_finite_config_field"
+    NEGATIVE_CONFIG_FIELD = "negative_config_field"
+    OPACITY_OUT_OF_RANGE = "opacity_out_of_range"
+    EMPTY_DASH_PATTERN = "empty_dash_pattern"
+    INVALID_DASH_LENGTH = "invalid_dash_length"
+
+
+class LineRenderError(ValueError):
+    """Typed validation error for checked line rendering inputs."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: LineRenderErrorKind,
+        index: int | None = None,
+        coordinate: str | None = None,
+        axis: str | None = None,
+        endpoint: str | None = None,
+        field: str | None = None,
+        value: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.index = index
+        self.coordinate = coordinate
+        self.axis = axis
+        self.endpoint = endpoint
+        self.field = field
+        self.value = value
+
+
+@dataclass(frozen=True)
+class LineSceneGeometry:
+    points: tuple[tuple[float, float], ...] = ()
+    segments: tuple[tuple[float, float, float, float], ...] = ()
+
+
+@dataclass(frozen=True)
+class LineConfig:
+    _stroke_color: object = field(default_factory=lambda: 0x4682B4)
+    _stroke_width: float = 2.0
+    _opacity: float = 1.0
+    _curve_value: Curve = field(default_factory=Curve.linear)
+    _show_points: bool = False
+    _point_radius: float = 3.0
+    _point_fill_color: object | None = None
+    _dash_array: StrokeDashArray | CustomDashArray = StrokeDashArray.SOLID
+    _renderer_2d: object = "auto"
+    _vello_backend: object = "auto"
+
+    @classmethod
+    def new(cls) -> "LineConfig":
+        return cls()
+
+    @classmethod
+    def from_design(cls, design: object) -> "LineConfig":
+        stroke_width = float(getattr(getattr(design, "interaction"), "border_width"))
+        point_radius = float(getattr(getattr(design, "spacing"), "grid_unit")) * 0.75
+        return cls(
+            _stroke_width=max(2.0, stroke_width),
+            _point_radius=max(2.0, point_radius),
+        )
+
+    def with_design(self, design: object) -> "LineConfig":
+        defaults = LineConfig.from_design(design)
+        return replace(
+            self,
+            _stroke_width=defaults._stroke_width,
+            _point_radius=defaults._point_radius,
+        )
+
+    @property
+    def stroke_color_value(self) -> object:
+        return self._stroke_color
+
+    def stroke_color(self, color: object) -> "LineConfig":
+        return replace(self, _stroke_color=color)
+
+    @property
+    def stroke_width_value(self) -> float:
+        return self._stroke_width
+
+    def stroke_width(self, width: float) -> "LineConfig":
+        value = float(width)
+        if not math.isfinite(value):
+            raise LineRenderError(
+                f"line config field stroke_width is not finite: {value}",
+                kind=LineRenderErrorKind.NON_FINITE_CONFIG_FIELD,
+                field="stroke_width",
+                value=value,
+            )
+        if value < 0.0:
+            raise LineRenderError(
+                f"line config field stroke_width is negative: {value}",
+                kind=LineRenderErrorKind.NEGATIVE_CONFIG_FIELD,
+                field="stroke_width",
+                value=value,
+            )
+        return replace(self, _stroke_width=value)
+
+    @property
+    def opacity_value(self) -> float:
+        return self._opacity
+
+    def opacity(self, opacity: float) -> "LineConfig":
+        value = float(opacity)
+        if not math.isfinite(value):
+            raise LineRenderError(
+                f"line config field opacity is not finite: {value}",
+                kind=LineRenderErrorKind.NON_FINITE_CONFIG_FIELD,
+                field="opacity",
+                value=value,
+            )
+        if not 0.0 <= value <= 1.0:
+            raise LineRenderError(
+                f"line opacity is outside 0.0..=1.0: {value}",
+                kind=LineRenderErrorKind.OPACITY_OUT_OF_RANGE,
+                value=value,
+            )
+        return replace(self, _opacity=value)
+
+    @property
+    def curve_value(self) -> Curve:
+        return self._curve_value
+
+    def curve(self, curve: Curve | CurveKind | str) -> "LineConfig":
+        return replace(self, _curve_value=_curve(curve))
+
+    @property
+    def show_points_value(self) -> bool:
+        return self._show_points
+
+    def show_points(self, show: bool) -> "LineConfig":
+        return replace(self, _show_points=bool(show))
+
+    @property
+    def point_radius_value(self) -> float:
+        return self._point_radius
+
+    def point_radius(self, radius: float) -> "LineConfig":
+        value = float(radius)
+        if not math.isfinite(value):
+            raise LineRenderError(
+                f"line config field point_radius is not finite: {value}",
+                kind=LineRenderErrorKind.NON_FINITE_CONFIG_FIELD,
+                field="point_radius",
+                value=value,
+            )
+        if value < 0.0:
+            raise LineRenderError(
+                f"line config field point_radius is negative: {value}",
+                kind=LineRenderErrorKind.NEGATIVE_CONFIG_FIELD,
+                field="point_radius",
+                value=value,
+            )
+        return replace(self, _point_radius=value)
+
+    @property
+    def point_fill_color_value(self) -> object | None:
+        return self._point_fill_color
+
+    def point_fill_color(self, color: object) -> "LineConfig":
+        return replace(self, _point_fill_color=color)
+
+    @property
+    def dash_array_value(self) -> StrokeDashArray | CustomDashArray:
+        return self._dash_array
+
+    def dash_array(
+        self, pattern: StrokeDashArray | CustomDashArray | Sequence[float]
+    ) -> "LineConfig":
+        if isinstance(pattern, (tuple, list)):
+            pattern = CustomDashArray(pattern)
+        if not isinstance(pattern, (StrokeDashArray, CustomDashArray)):
+            raise TypeError("pattern must be StrokeDashArray, CustomDashArray, or a sequence")
+        return replace(self, _dash_array=pattern)
+
+    @property
+    def renderer_2d_value(self) -> object:
+        return self._renderer_2d
+
+    def renderer_2d(self, renderer: object) -> "LineConfig":
+        return replace(self, _renderer_2d=renderer)
+
+    @property
+    def vello_backend_value(self) -> object:
+        return self._vello_backend
+
+    def vello_backend(self, backend: object) -> "LineConfig":
+        return replace(self, _vello_backend=backend)
+
+
+class AreaGenerationErrorKind(str, Enum):
+    NON_FINITE_COORDINATE = "non_finite_coordinate"
+    COORDINATE_LENGTH_MISMATCH = "coordinate_length_mismatch"
+
+
+class AreaGenerationError(ValueError):
+    """Typed validation error raised by checked area generation."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: AreaGenerationErrorKind,
+        index: int | None = None,
+        coordinate: str | None = None,
+        value: float | None = None,
+        x_len: int | None = None,
+        y0_len: int | None = None,
+        y1_len: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.index = index
+        self.coordinate = coordinate
+        self.value = value
+        self.x_len = x_len
+        self.y0_len = y0_len
+        self.y1_len = y1_len
 
 
 def _area_zero(_: object) -> float:
@@ -4562,6 +4826,35 @@ def _area_zero(_: object) -> float:
 
 def _area_defined(_: object) -> bool:
     return True
+
+
+def _validate_area_coordinates(
+    top: Sequence[tuple[float, float]],
+    bottom: Sequence[tuple[float, float]],
+    defined: Sequence[bool],
+) -> None:
+    if len(top) != len(bottom) or len(top) != len(defined):
+        raise AreaGenerationError(
+            "area coordinate arrays have mismatched lengths: "
+            f"top={len(top)}, bottom={len(bottom)}, defined={len(defined)}",
+            kind=AreaGenerationErrorKind.COORDINATE_LENGTH_MISMATCH,
+            x_len=len(top),
+            y0_len=len(bottom),
+            y1_len=len(defined),
+        )
+    for index, (upper, lower, is_defined) in enumerate(zip(top, bottom, defined)):
+        if not is_defined:
+            continue
+        for coordinate, point in (("x", upper), ("y", upper), ("x", lower), ("y", lower)):
+            value = float(point[0] if coordinate == "x" else point[1])
+            if not math.isfinite(value):
+                raise AreaGenerationError(
+                    f"area coordinate {coordinate} at index {index} is not finite: {value}",
+                    kind=AreaGenerationErrorKind.NON_FINITE_COORDINATE,
+                    index=index,
+                    coordinate=coordinate,
+                    value=value,
+                )
 
 
 @dataclass(frozen=True)
@@ -4599,7 +4892,9 @@ class Area:
     def curve(self, value: Curve | CurveKind | str) -> "Area":
         return replace(self, _curve_value=_curve(value))
 
-    def generate(self, data: Sequence[object]) -> Path:
+    def _coordinates(
+        self, data: Sequence[object]
+    ) -> tuple[list[tuple[float, float]], list[tuple[float, float]], list[bool]]:
         top: list[tuple[float, float]] = []
         bottom: list[tuple[float, float]] = []
         defined: list[bool] = []
@@ -4618,7 +4913,9 @@ class Area:
             top.append(
                 (
                     float(self._x1(item)) if self._x1 is not None else shared_x,
-                    float(self._y1(item)) if self._y1 is not None else float(self._y(item)),
+                    float(self._y1(item))
+                    if self._y1 is not None
+                    else float(self._y(item)),
                 )
             )
             bottom.append(
@@ -4627,16 +4924,27 @@ class Area:
                     float(self._y0(item)),
                 )
             )
+        return top, bottom, defined
+
+    def _generate(self, data: Sequence[object], *, checked: bool) -> Path:
+        top, bottom, defined = self._coordinates(data)
+        if checked:
+            _validate_area_coordinates(top, bottom, defined)
         commands = _shape_area_generate(
             top,
             bottom,
             defined,
             self._curve_value.kind.value,
             self._curve_value.parameter,
+            checked=checked,
         )
         return _path_from_native(commands)
 
-    try_generate = generate
+    def generate(self, data: Sequence[object]) -> Path:
+        return self._generate(data, checked=False)
+
+    def try_generate(self, data: Sequence[object]) -> Path:
+        return self._generate(data, checked=True)
 
     def generate_into(self, data: Sequence[object], builder: PathBuilder) -> PathBuilder:
         result = builder
@@ -4660,19 +4968,38 @@ class SimpleArea:
         object.__setattr__(self, "y0", tuple(float(value) for value in y0))
         object.__setattr__(self, "y1", tuple(float(value) for value in y1))
 
-    def _native(self) -> tuple[tuple[Point, ...], Path]:
-        points, commands = _shape_simple_area(list(self.x), list(self.y0), list(self.y1))
+    def _native(self, *, checked: bool) -> tuple[tuple[Point, ...], Path]:
+        if checked:
+            if not (len(self.x) == len(self.y0) == len(self.y1)):
+                raise AreaGenerationError(
+                    "area coordinate arrays have mismatched lengths: "
+                    f"x={len(self.x)}, y0={len(self.y0)}, y1={len(self.y1)}",
+                    kind=AreaGenerationErrorKind.COORDINATE_LENGTH_MISMATCH,
+                    x_len=len(self.x),
+                    y0_len=len(self.y0),
+                    y1_len=len(self.y1),
+                )
+            _validate_area_coordinates(
+                list(zip(self.x, self.y1)),
+                list(zip(self.x, self.y0)),
+                [True] * len(self.x),
+            )
+        points, commands = _shape_simple_area(
+            list(self.x), list(self.y0), list(self.y1), checked=checked
+        )
         return tuple(Point(*point) for point in points), _path_from_native(commands)
 
     def points(self) -> tuple[Point, ...]:
-        return self._native()[0]
+        return self._native(checked=False)[0]
 
-    try_points = points
+    def try_points(self) -> tuple[Point, ...]:
+        return self._native(checked=True)[0]
 
     def path(self) -> Path:
-        return self._native()[1]
+        return self._native(checked=False)[1]
 
-    try_path = path
+    def try_path(self) -> Path:
+        return self._native(checked=True)[1]
 
 
 def area_points(
@@ -9476,6 +9803,14 @@ __all__ = [
     "try_streamgraph",
     "CurveKind",
     "Curve",
+    "CurveType",
+    "StrokeDashArray",
+    "CustomDashArray",
+    "LinePoint",
+    "LineConfig",
+    "LineSceneGeometry",
+    "LineRenderErrorKind",
+    "LineRenderError",
     "RadialGenerationError",
     "RadialPoint",
     "RadialLineConfig",
@@ -9488,6 +9823,7 @@ __all__ = [
     "try_polar_grid_circles",
     "polar_grid_rays",
     "try_polar_grid_rays",
+    "AreaGenerationErrorKind",
     "AreaGenerationError",
     "Area",
     "SimpleArea",

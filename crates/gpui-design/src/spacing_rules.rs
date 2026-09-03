@@ -1,3 +1,4 @@
+use super::types::DensityTier;
 use serde::{Deserialize, Serialize};
 
 /// Spacing and density rules.
@@ -15,6 +16,10 @@ pub struct SpacingRules {
     pub section_gap: f32,
     /// Padding inside a card/panel: px.
     pub card_padding: f32,
+    /// Density tier (M3 compact/medium/expanded parity).
+    pub density: DensityTier,
+    /// Whether horizontal spacing flips in RTL layouts.
+    pub flip_in_rtl: bool,
 }
 
 impl SpacingRules {
@@ -42,6 +47,13 @@ impl SpacingRules {
             control_gap,
             section_gap,
             card_padding,
+            density: DensityTier::Medium,
+            flip_in_rtl: true,
         }
+    }
+
+    /// Multiplier applied to control padding/gaps at the current density tier.
+    pub fn density_scale(&self) -> f32 {
+        self.density.scale()
     }
 }

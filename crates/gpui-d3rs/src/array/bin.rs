@@ -201,17 +201,25 @@ impl<T: Clone> BinGenerator<T> {
                 ((n as f64).log2() + 1.0).ceil() as usize
             }
             ThresholdStrategy::FreedmanDiaconis => {
-                // Need IQR for Freedman-Diaconis
-                let mut sorted = values.to_vec();
-                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                let q1 = sorted[n / 4];
-                let q3 = sorted[3 * n / 4];
-                let iqr = q3 - q1;
-                if iqr > 0.0 {
-                    let bin_width = 2.0 * iqr / (n as f64).powf(1.0 / 3.0);
-                    (range / bin_width).ceil() as usize
-                } else {
+                // Need IQR for Freedman-Diaconis. Ignore non-finite values so
+                // NaN/infinities cannot poison the quartiles, and use
+                // `total_cmp` for a total, panic-free order.
+                let mut sorted: Vec<f64> =
+                    values.iter().copied().filter(|v| v.is_finite()).collect();
+                if sorted.is_empty() {
                     ((n as f64).log2() + 1.0).ceil() as usize
+                } else {
+                    sorted.sort_by(|a, b| a.total_cmp(b));
+                    let m = sorted.len();
+                    let q1 = sorted[m / 4];
+                    let q3 = sorted[3 * m / 4];
+                    let iqr = q3 - q1;
+                    if iqr > 0.0 {
+                        let bin_width = 2.0 * iqr / (m as f64).powf(1.0 / 3.0);
+                        (range / bin_width).ceil() as usize
+                    } else {
+                        ((n as f64).log2() + 1.0).ceil() as usize
+                    }
                 }
             }
             ThresholdStrategy::Scott => {

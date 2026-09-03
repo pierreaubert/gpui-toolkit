@@ -22,6 +22,7 @@ mod display;
 pub mod ffi;
 mod helpers;
 mod keychain;
+mod params;
 mod platform;
 mod safety_report;
 mod text_system;
@@ -29,6 +30,10 @@ mod window;
 
 pub(crate) use dispatcher::AuDispatcher;
 pub(crate) use display::AuDisplay;
+pub use params::{
+    AU_STATE_MAGIC, AU_STATE_MAX_ENTRIES, AU_STATE_VERSION, AuFullState, AuParamError,
+    AuParameter, AuParameterTree, AuStateError,
+};
 pub use platform::AuPlatform;
 pub use safety_report::{
     AU_SAFETY_BOUNDARIES, AU_SAFETY_REPORT_SCHEMA_VERSION, AU_SAFETY_REPORT_TYPE, AuSafetyBoundary,

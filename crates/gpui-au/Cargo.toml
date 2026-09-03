@@ -1,6 +1,6 @@
 [package]
 name = "gpui-au"
-version = "0.9.8"
+version = "0.9.9"
 edition = "2024"
 repository.workspace = true
 keywords.workspace = true
@@ -14,6 +14,7 @@ crate-type = ["rlib"]
 
 [features]
 default = []
+verbose-logging = []
 autoeq = []
 gpu-2d = []
 gpu-3d = []

@@ -114,6 +114,38 @@ cargo run -p gpui-d3rs --example d3rs-showcase --features profiler
 Any non-zero allocation count during those events is a signal that the hot
 path is still allocating.
 
+## Named series, peaks, thread probes, and exporters
+
+`sample` records its `&'static str` label with zero allocation, so labels
+never pollute the counters being measured. Read it back with
+`probe.last_label()`, or collect `probe.sample_labeled("render")` into a
+`Vec<LabeledAllocSample>` and export the series:
+
+```rust
+use gpui_profiler::{AllocProbe, samples_to_chrome_trace, samples_to_csv};
+
+let mut probe = AllocProbe::new();
+let mut series = Vec::new();
+probe.reset();
+// ... warmed-up work ...
+series.push(probe.sample_labeled("render"));
+std::fs::write("alloc.csv", samples_to_csv(&series)).unwrap();
+std::fs::write("alloc-trace.json", samples_to_chrome_trace(&series)).unwrap();
+```
+
+The Chrome-Trace file loads directly in Perfetto (`ui.perfetto.dev`); `ts` is
+the sample index (ordering only — the probe records counters, not wall time).
+
+`AllocSnapshot` splits `count` (allocations + reallocations) into
+`allocs()` (fresh only) and `reallocs`, so `Vec` regrowth is visible.
+`probe.peak_bytes()` reports the high-water mark of per-sample byte deltas
+(survives `reset()`; clear with `reset_peak()`).
+
+To share one probe across threads, use `ThreadAllocProbe`: it keeps an
+independent baseline, label, and peak per calling thread. Counters stay
+process-wide, so treat deltas as regression signals. Sample once per thread
+before measuring to warm the per-thread bookkeeping.
+
 ## Implementation notes
 
 - `gpui-profiler` installs a counting `GlobalAlloc` wrapper when the

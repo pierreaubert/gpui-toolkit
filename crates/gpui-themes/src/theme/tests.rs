@@ -452,3 +452,218 @@ fn test_editor_theme_with_accent_seed() {
         EditorTheme::light().with_accent_seed(Color::from_hex(0xf0e442), AccentSource::User);
     assert_eq!(theme.accent, Color::from_hex(0xf0e442));
 }
+
+#[test]
+fn test_color_field_registry_is_cached_and_unique() {
+    use super::color_group::ColorGroup;
+    use crate::editor::color_field::{ColorField, all_color_fields};
+
+    let first = all_color_fields();
+    let second = all_color_fields();
+    assert!(std::ptr::eq(first, second));
+    assert!(!first.is_empty());
+
+    let probe = ColorField::new(ColorGroup::Base, "Probe", |t| t.background, |t, c| {
+        t.background = c;
+    });
+    assert_eq!(probe.name, "Probe");
+    assert_eq!((probe.getter)(&EditorTheme::dark()), EditorTheme::dark().background);
+
+    let mut names = std::collections::HashSet::new();
+    for field in first {
+        assert!(
+            names.insert((field.group, field.name)),
+            "duplicate field {:?}",
+            field.name
+        );
+    }
+}
+
+#[test]
+fn test_schedule_resolve_wraps_out_of_range_minutes() {
+    use super::theme_schedule::ThemeSchedule;
+    let schedule = ThemeSchedule::new(TimeOfDay::new(7, 0), TimeOfDay::new(18, 0));
+    assert_eq!(schedule.resolve_at_minutes(24 * 60), ThemeAppearance::Dark);
+    assert_eq!(
+        schedule.resolve_at_minutes(u16::MAX),
+        schedule.resolve_at_minutes(u16::MAX % (24 * 60))
+    );
+}
+
+#[test]
+fn test_rust_export_formats_alpha_and_non_finite_separator() {
+    let mut theme = EditorTheme::dark();
+    theme.text_on_accent_muted = Color::new(1, 2, 3, 128);
+    let code = theme.to_rust_code();
+    assert!(code.contains("Color::new(1, 2, 3, 128)"));
+    assert!(code.contains("Color::from_hex("));
+
+    theme.separator_size = f32::INFINITY;
+    assert!(theme.to_rust_code().contains("separator_size: f32::INFINITY,"));
+    theme.separator_size = f32::NEG_INFINITY;
+    assert!(theme
+        .to_rust_code()
+        .contains("separator_size: f32::NEG_INFINITY,"));
+}
+
+#[test]
+fn test_token_aliases_resolve_and_reject_unknown() {
+    use super::token_export::token_aliases;
+    let theme = EditorTheme::dark();
+    assert!(!token_aliases().is_empty());
+    for (alias, key) in token_aliases() {
+        assert_eq!(
+            theme.resolve_token_alias(alias),
+            theme.named_color(key),
+            "alias {alias} must match field {key}"
+        );
+    }
+    assert_eq!(
+        theme.resolve_token_alias("palette.primary.main"),
+        Some(theme.accent)
+    );
+    assert_eq!(theme.resolve_token_alias("palette.nope.nope"), None);
+    assert_eq!(theme.named_color("bogus"), None);
+}
+
+#[test]
+fn test_css_variables_export_covers_core_and_aliases() {
+    let theme = EditorTheme::dark();
+    let css = theme.to_css_variables();
+    assert!(css.starts_with(":root {"));
+    assert!(css.ends_with("}\n"));
+    assert!(css.contains(&format!("--color-accent: {};", theme.accent.to_hex_string())));
+    assert!(css.contains(&format!(
+        "--palette-primary-main: {};",
+        theme.accent.to_hex_string()
+    )));
+    assert!(css.contains("--palette-text-primary:"));
+}
+
+#[test]
+fn test_style_dictionary_tokens_round_trip() {
+    let theme = EditorTheme::nord();
+    let tokens = theme.style_dictionary_tokens();
+    assert!(!tokens.is_empty());
+    let names: Vec<&str> = tokens.iter().map(|t| t.name.as_str()).collect();
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(names, sorted);
+
+    let accent = tokens
+        .iter()
+        .find(|t| t.name == "color.accent")
+        .expect("accent token");
+    assert_eq!(accent.path, vec!["color".to_string(), "accent".to_string()]);
+    assert_eq!(accent.value, theme.accent.to_hex_string());
+    assert_eq!(accent.token_type, "color");
+
+    let json = theme.to_style_dictionary_json().unwrap();
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let colors = value.get("color").and_then(|c| c.as_array()).unwrap();
+    assert_eq!(colors.len(), tokens.len());
+    for entry in colors {
+        let name = entry.get("name").and_then(|n| n.as_str()).unwrap();
+        let token = tokens.iter().find(|t| t.name == name).unwrap();
+        assert_eq!(entry.get("value").and_then(|v| v.as_str()).unwrap(), token.value);
+        assert_eq!(
+            entry.get("type").and_then(|v| v.as_str()).unwrap(),
+            token.token_type
+        );
+    }
+    let back: Vec<super::token_export::ThemeDesignToken> =
+        serde_json::from_value(serde_json::json!(tokens)).unwrap();
+    assert_eq!(back, tokens);
+}
+
+#[test]
+fn test_contrast_auto_fix_repairs_broken_theme() {
+    use super::contrast_fix::{WCAG_AA_MIN_RATIO, nearest_passing_color};
+    use super::misc::contrast_ratio;
+
+    let mut broken = EditorTheme::dark();
+    broken.text_primary = broken.background;
+    broken.text_on_accent = broken.accent;
+    assert!(broken.validate_accessibility().is_err());
+
+    let issues = broken.accessibility_issues();
+    assert!(!issues.is_empty());
+    for issue in &issues {
+        assert!(issue.ratio < WCAG_AA_MIN_RATIO);
+        let (fg, bg) = match issue.pair {
+            "text_on_accent/accent" => (broken.text_on_accent, broken.accent),
+            _ => (broken.text_primary, broken.background),
+        };
+        assert!(contrast_ratio(issue.suggested, bg) >= WCAG_AA_MIN_RATIO);
+        assert_eq!(broken.suggested_contrast_fix(issue.pair), Some(issue.suggested));
+        let _ = fg;
+    }
+    assert_eq!(broken.suggested_contrast_fix("bogus/pair"), None);
+    assert!(broken.accessibility_badge().contains("issue"));
+
+    let fixed = broken.clone().auto_fix_contrast();
+    assert!(fixed.validate_accessibility().is_ok());
+    assert_eq!(fixed.accessibility_badge(), "WCAG AA: pass");
+    assert!(fixed.accessibility_issues().is_empty());
+
+    let ok = EditorTheme::dark();
+    assert!(ok.accessibility_issues().is_empty());
+    assert_eq!(
+        nearest_passing_color(ok.text_primary, ok.background),
+        Some(ok.text_primary)
+    );
+}
+
+#[test]
+fn test_os_appearance_wiring_point() {
+    use super::theme_mode_preference::ThemeModePreference;
+    assert_eq!(
+        ThemeAppearance::from_system_dark_flag(true),
+        ThemeAppearance::Dark
+    );
+    assert_eq!(
+        ThemeAppearance::from_system_dark_flag(false),
+        ThemeAppearance::Light
+    );
+    assert!(ThemeModePreference::FollowSystem.follows_system());
+    assert!(!ThemeModePreference::Dark.follows_system());
+    assert_eq!(
+        ThemeModePreference::FollowSystem.resolve_live(true, 12 * 60),
+        ThemeAppearance::Dark
+    );
+    assert_eq!(
+        ThemeModePreference::FollowSystem.resolve_live(false, 0),
+        ThemeAppearance::Light
+    );
+    assert_eq!(
+        ThemeModePreference::Light.resolve_live(true, 0),
+        ThemeAppearance::Light
+    );
+    let scheduled = ThemeModePreference::Scheduled {
+        schedule: ThemeSchedule::new(TimeOfDay::new(7, 0), TimeOfDay::new(18, 0)),
+    };
+    assert_eq!(
+        scheduled.resolve_live(true, 12 * 60),
+        ThemeAppearance::Light
+    );
+}
+
+#[test]
+fn test_transition_animation_gate_and_preview_progress() {
+    use super::types::ThemeTransitionEasing;
+    let transition = ThemeTransition::default();
+    assert!(transition.is_animated(false));
+    assert!(!transition.is_animated(true));
+    assert!(!ThemeTransition::disabled().is_animated(false));
+
+    assert_eq!(transition.preview_progress(0, false), 0.0);
+    assert_eq!(transition.preview_progress(u16::MAX, false), 1.0);
+    assert_eq!(transition.preview_progress(110, true), 1.0);
+
+    let linear = ThemeTransition {
+        duration_ms: 100,
+        easing: ThemeTransitionEasing::Linear,
+        cross_fade: true,
+    };
+    assert!((linear.preview_progress(50, false) - 0.5).abs() < 1e-6);
+}

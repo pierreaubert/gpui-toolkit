@@ -1,6 +1,6 @@
 [package]
 name = "gpui-component-lab"
-version = "0.9.4"
+version = "0.9.5"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true

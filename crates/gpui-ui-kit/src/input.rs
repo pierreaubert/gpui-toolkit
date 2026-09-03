@@ -124,6 +124,12 @@ pub struct InputSelection {
     pub reversed: bool,
 }
 
+/// Schema-style validator for [`Input`]: maps a value to an error message.
+///
+/// `None` means the value is valid. Validators are synchronous; report async
+/// validation progress with an explicit [`Input::error`] message instead.
+pub type InputValidator = Rc<dyn Fn(&str) -> Option<SharedString> + 'static>;
+
 /// A text input component with full keyboard editing support
 ///
 /// The Input handles all focus and keyboard events internally.
@@ -139,6 +145,8 @@ pub struct Input {
     readonly: bool,
     password: bool,
     error: Option<SharedString>,
+    /// Schema-style validator: maps a value to an error message (`None` = valid).
+    validator: Option<InputValidator>,
     icon_left: Option<SharedString>,
     icon_right: Option<SharedString>,
     bg_color: Option<Rgba>,
@@ -199,6 +207,7 @@ impl Input {
             readonly: false,
             password: false,
             error: None,
+            validator: None,
             icon_left: None,
             icon_right: None,
             bg_color: None,
@@ -275,6 +284,48 @@ impl Input {
     pub fn error(mut self, error: impl Into<SharedString>) -> Self {
         self.error = Some(error.into());
         self
+    }
+
+    /// Set a schema-style validator run against the value on every render.
+    ///
+    /// The validator maps the current value to an error message (`None` means
+    /// valid). An explicit [`Self::error`] message takes precedence over the
+    /// validator output. Async validation is out of scope: return a pending
+    /// message synchronously while the async check runs elsewhere.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// Input::new("email")
+    ///     .validator(|value| {
+    ///         if value.contains('@') {
+    ///             None
+    ///         } else {
+    ///             Some("Enter a valid email address".into())
+    ///         }
+    ///     })
+    /// ```
+    pub fn validator(mut self, validator: impl Fn(&str) -> Option<SharedString> + 'static) -> Self {
+        self.validator = Some(Rc::new(validator));
+        self
+    }
+
+    /// Run the validator against `value`, returning the error message if invalid.
+    ///
+    /// Returns `None` when no validator is set or the value passes. Use
+    /// [`Self::effective_error`] to include an explicit [`Self::error`] message.
+    pub fn validate(&self, value: &str) -> Option<SharedString> {
+        self.validator
+            .as_ref()
+            .and_then(|validator| validator(value))
+    }
+
+    /// Explicit [`Self::error`] message if set, otherwise the validator output
+    /// for the current value.
+    pub fn effective_error(&self) -> Option<SharedString> {
+        self.error
+            .clone()
+            .or_else(|| self.validate(self.value.as_ref()))
     }
 
     /// Set left icon
@@ -1199,7 +1250,8 @@ impl Render for InputEntity {
             InputSize::Lg => (px(12.0), "text_base"),
         };
 
-        let has_error = props.error.is_some();
+        let effective_error = props.effective_error();
+        let has_error = effective_error.is_some();
         let disabled = props.disabled;
         let readonly = props.readonly;
 
@@ -1434,10 +1486,9 @@ impl Render for InputEntity {
             &native_props,
         ));
 
-        // Error message
-        if let Some(error) = &props.error {
-            container =
-                container.child(div().text_xs().text_color(theme.error).child(error.clone()));
+        // Error message: explicit error first, then validator output.
+        if let Some(error) = effective_error {
+            container = container.child(div().text_xs().text_color(theme.error).child(error));
         }
 
         container

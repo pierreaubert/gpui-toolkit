@@ -483,6 +483,21 @@ mod tests {
     }
 
     #[test]
+    fn generate_ticks_tolerates_degenerate_configs() {
+        // Inverted and NaN ranges admit no in-range value: no ticks, no panic.
+        let inverted = TickConfig::new(ScaleType::Linear, 100.0, 0.0)
+            .with_major_values(vec![0.0, 50.0, 100.0]);
+        assert!(inverted.generate_ticks().is_empty());
+
+        let empty = TickConfig::new(ScaleType::Linear, 0.0, 100.0).with_major_values(vec![]);
+        assert!(empty.generate_ticks().is_empty());
+
+        let nan =
+            TickConfig::new(ScaleType::Linear, f64::NAN, 100.0).with_major_values(vec![f64::NAN]);
+        assert!(nan.generate_ticks().is_empty());
+    }
+
+    #[test]
     fn render_tick_row_is_constructible() {
         let config = TickConfig::lufs();
         let _row = render_tick_row(&config, 32.0, 50.0);

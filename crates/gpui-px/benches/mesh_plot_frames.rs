@@ -1,7 +1,9 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use d3rs::mesh::TriangleMesh;
+#[cfg(feature = "gpu-3d")]
+use gpui_px::MeshPlotView;
 use gpui_px::mesh_plot::MeshPlotState;
-use gpui_px::{MeshPlotView, MeshRenderMode, mesh_plot};
+use gpui_px::{MeshRenderMode, mesh_plot};
 use std::hint::black_box;
 use std::sync::Arc;
 
@@ -14,6 +16,7 @@ use d3rs::mesh::{ScalarAssociation, ScalarField};
 #[cfg(feature = "gpu-3d")]
 use gpui_px::FieldInterpolation;
 
+#[cfg(feature = "gpu-3d")]
 fn connected_grid_mesh(triangle_count: usize, id: &str) -> TriangleMesh {
     let side = ((triangle_count as f64 / 2.0).sqrt().ceil() as usize).saturating_add(1);
     let positions = (0..side)

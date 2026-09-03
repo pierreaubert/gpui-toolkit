@@ -1,6 +1,6 @@
 //! C-compatible FFI functions for embedding GPUI in macOS Audio Unit ViewControllers.
 
-use crate::helpers::nslog;
+use crate::helpers::{nslog, nslog_verbose};
 use crate::window::{PENDING_VIEW, PendingViewInfo, with_au_window};
 use gpui::{
     App, AppCell, AppContext, Context, ElementId, InteractiveElement as _, IntoElement,
@@ -124,7 +124,7 @@ pub extern "C" fn gpui_au_create(
     plugin_type: *const c_char,
 ) -> *mut AuContext {
     init_logger();
-    nslog(b"SOTF gpui_au_create: entry");
+    nslog_verbose(b"SOTF gpui_au_create: entry");
 
     if ns_view.is_null() || plugin_type.is_null() {
         nslog(b"SOTF gpui_au_create: null pointer argument!");
@@ -145,7 +145,7 @@ pub extern "C" fn gpui_au_create(
         "SOTF gpui_au_create: plugin={}, size={}x{} @{:.1}x, view={:p}",
         plugin_type_str, width, height, scale, ns_view
     );
-    nslog(msg.as_bytes());
+    nslog_verbose(msg.as_bytes());
 
     // Store the NSView info in a thread-local so AuWindow::new() can read it
     // during the open_window() call inside app.run().
@@ -158,18 +158,18 @@ pub extern "C" fn gpui_au_create(
         });
     });
 
-    nslog(b"SOTF gpui_au_create: creating GPUI Application");
+    nslog_verbose(b"SOTF gpui_au_create: creating GPUI Application");
     let platform = Rc::new(crate::AuPlatform::new());
     let app = gpui::Application::with_platform(platform);
 
     let app_cell = clone_application_cell(&app);
-    nslog(b"SOTF gpui_au_create: Rc<AppCell> cloned for lifetime management");
+    nslog_verbose(b"SOTF gpui_au_create: Rc<AppCell> cloned for lifetime management");
 
     let window_opened = std::rc::Rc::new(std::cell::Cell::new(false));
     let window_opened_clone = window_opened.clone();
     let pt = plugin_type_str.clone();
     app.run(move |cx: &mut App| {
-        nslog(b"SOTF gpui_au_create: inside app.run callback");
+        nslog_verbose(b"SOTF gpui_au_create: inside app.run callback");
         match cx.open_window(
             WindowOptions {
                 window_bounds: None,
@@ -178,7 +178,7 @@ pub extern "C" fn gpui_au_create(
             |_window, cx| cx.new(|_| AuRootView::new(pt)),
         ) {
             Ok(_handle) => {
-                nslog(b"SOTF gpui_au_create: window opened OK");
+                nslog_verbose(b"SOTF gpui_au_create: window opened OK");
                 window_opened_clone.set(true);
             }
             Err(e) => {
@@ -193,7 +193,7 @@ pub extern "C" fn gpui_au_create(
         return std::ptr::null_mut();
     }
 
-    nslog(b"SOTF gpui_au_create: app.run() returned, context ready");
+    nslog_verbose(b"SOTF gpui_au_create: app.run() returned, context ready");
 
     let context = Box::new(AuContext {
         _plugin_type: plugin_type_str,
@@ -206,12 +206,12 @@ pub extern "C" fn gpui_au_create(
 #[unsafe(no_mangle)]
 pub extern "C" fn gpui_au_destroy(context: *mut AuContext) {
     if !context.is_null() {
-        nslog(b"SOTF gpui_au_destroy: cleaning up");
+        nslog_verbose(b"SOTF gpui_au_destroy: cleaning up");
         crate::window::unregister_au_window();
         unsafe {
             drop(Box::from_raw(context));
         }
-        nslog(b"SOTF gpui_au_destroy: done");
+        nslog_verbose(b"SOTF gpui_au_destroy: done");
     }
 }
 
@@ -537,6 +537,151 @@ pub extern "C" fn gpui_au_delete_backward(context: *mut AuContext) {
     }
 }
 
+// ── Parameters & State ─────────────────────────────────────────────────────
+// Minimal `AUParameterTree` / `fullState` bridge: the plugin window owns an
+// `AuParameterTree` (gain + bypass placeholders; hosts extend it), and these
+// entry points expose count/get/set/register plus versioned state save/load
+// to Swift.
+
+/// Number of parameters in the plugin's parameter tree.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_parameter_count(context: *mut AuContext) -> usize {
+    if context.is_null() {
+        return 0;
+    }
+    with_au_window(|window| window.parameter_count()).unwrap_or(0)
+}
+
+/// Current value of a parameter; `ok` (when non-null) reports id lookup.
+/// Unknown ids (or a null context) yield `0.0` with `ok` set to false.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_parameter_value(
+    context: *mut AuContext,
+    id: u32,
+    ok: *mut bool,
+) -> f32 {
+    let value = if context.is_null() {
+        None
+    } else {
+        with_au_window(|window| window.parameter_value(id)).flatten()
+    };
+    if !ok.is_null() {
+        unsafe {
+            *ok = value.is_some();
+        }
+    }
+    value.unwrap_or(0.0)
+}
+
+/// Store a (clamped) parameter value. Returns false for a null context or
+/// an unknown id.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_parameter_set(context: *mut AuContext, id: u32, value: f32) -> bool {
+    if context.is_null() {
+        return false;
+    }
+    with_au_window(|window| window.set_parameter_value(id, value)).unwrap_or(false)
+}
+
+/// Register a host parameter. A null `name` falls back to `"param-{id}"`.
+/// Returns false for a null context, duplicate ids, or invalid ranges.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_parameter_register(
+    context: *mut AuContext,
+    id: u32,
+    min_value: f32,
+    max_value: f32,
+    default_value: f32,
+    name: *const c_char,
+) -> bool {
+    if context.is_null() {
+        return false;
+    }
+    let name = optional_c_string(name).unwrap_or_else(|| format!("param-{id}"));
+    with_au_window(|window| {
+        window.register_parameter(id, &name, min_value, max_value, default_value)
+    })
+    .unwrap_or(false)
+}
+
+/// Serialize the plugin state (`fullState` analogue).
+///
+/// When `out` is null or `capacity` is 0, no bytes are written and the
+/// required size is returned. Otherwise up to `capacity` bytes are written,
+/// `*written` receives the count, and the return value is the total required
+/// size (greater than `capacity` means the caller's buffer was too small).
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_save_state(
+    context: *mut AuContext,
+    out: *mut u8,
+    capacity: usize,
+    written: *mut usize,
+) -> usize {
+    let bytes = if context.is_null() {
+        Vec::new()
+    } else {
+        with_au_window(|window| window.capture_plugin_state()).unwrap_or_default()
+    };
+    let required = bytes.len();
+    if !written.is_null() {
+        unsafe {
+            *written = 0;
+        }
+    }
+    if out.is_null() || capacity == 0 {
+        return required;
+    }
+    let count = required.min(capacity);
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out, count);
+        if !written.is_null() {
+            *written = count;
+        }
+    }
+    required
+}
+
+/// Realtime health counters: frames dropped on a busy renderer and
+/// display-link ticks coalesced by the frame throttle. Each out-pointer is
+/// optional; a null context leaves all outputs untouched.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_frame_stats(
+    context: *mut AuContext,
+    dropped: *mut usize,
+    coalesced: *mut usize,
+) {
+    if context.is_null() {
+        return;
+    }
+    let (dropped_frames, coalesced_frames) =
+        with_au_window(|window| (window.dropped_frames(), window.coalesced_frames()))
+            .unwrap_or((0, 0));
+    if !dropped.is_null() {
+        unsafe {
+            *dropped = dropped_frames;
+        }
+    }
+    if !coalesced.is_null() {
+        unsafe {
+            *coalesced = coalesced_frames;
+        }
+    }
+}
+
+/// Restore plugin state previously produced by `gpui_au_save_state`.
+/// Returns false for a null context, null data, or a corrupt payload.
+///
+/// # Safety
+/// `data` must point to `len` readable bytes when non-null.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_au_load_state(context: *mut AuContext, data: *const u8, len: usize) -> bool {
+    if context.is_null() || data.is_null() {
+        return false;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(data, len) };
+    with_au_window(|window| window.restore_plugin_state(bytes)).unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -601,5 +746,33 @@ mod tests {
         gpui_au_set_marked_text(context, std::ptr::null(), 0, 0);
         gpui_au_unmark_text(context);
         gpui_au_delete_backward(context);
+        assert_eq!(gpui_au_parameter_count(context), 0);
+        let mut ok = true;
+        assert_eq!(gpui_au_parameter_value(context, 0, &mut ok), 0.0);
+        assert!(!ok);
+        assert_eq!(
+            gpui_au_parameter_value(context, 0, std::ptr::null_mut()),
+            0.0
+        );
+        assert!(!gpui_au_parameter_set(context, 0, 0.5));
+        assert!(!gpui_au_parameter_register(
+            context,
+            0,
+            0.0,
+            1.0,
+            0.5,
+            std::ptr::null()
+        ));
+        let mut written = 0usize;
+        assert_eq!(
+            gpui_au_save_state(context, std::ptr::null_mut(), 0, &mut written),
+            0
+        );
+        assert_eq!(written, 0);
+        assert!(!gpui_au_load_state(context, std::ptr::null(), 0));
+        let (mut dropped, mut coalesced) = (usize::MAX, usize::MAX);
+        gpui_au_frame_stats(context, &mut dropped, &mut coalesced);
+        assert_eq!((dropped, coalesced), (usize::MAX, usize::MAX));
+        gpui_au_frame_stats(context, std::ptr::null_mut(), std::ptr::null_mut());
     }
 }

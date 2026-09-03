@@ -19,6 +19,7 @@ use super::elevation_rules::ElevationRules;
 use super::layout_thresholds::LayoutThresholds;
 use super::spacing_rules::SpacingRules;
 use super::types::CornerRadiusStyle;
+use super::types::DensityTier;
 use super::types::GroupSeparatorStyle;
 use super::typography_rules::TypographyRules;
 
@@ -455,7 +456,7 @@ fn style_dictionary_export_is_serializable_and_complete() {
         export
             .presets
             .iter()
-            .all(|preset| preset.tokens.len() == 51)
+            .all(|preset| preset.tokens.len() == 60)
     );
 }
 
@@ -559,4 +560,174 @@ fn test_audio_control_rules_new_rejects_zero_segments() {
 #[should_panic(expected = "knob_arc_sweep_deg must be finite and in (0, 360]")]
 fn test_audio_control_rules_new_rejects_invalid_sweep() {
     AudioControlRules::new(135.0, 0.0, 2.5, 48, 2.0, [14.0, 18.0, 24.0]);
+}
+
+#[test]
+fn density_tiers_round_trip_and_scale() {
+    assert_eq!(DensityTier::Compact.as_str(), "compact");
+    assert_eq!(DensityTier::Medium.as_str(), "medium");
+    assert_eq!(DensityTier::Expanded.as_str(), "expanded");
+    assert_eq!(DensityTier::from_id("compact"), Some(DensityTier::Compact));
+    assert_eq!(DensityTier::from_id("regular"), Some(DensityTier::Medium));
+    assert_eq!(
+        DensityTier::from_id("comfortable"),
+        Some(DensityTier::Expanded)
+    );
+    assert_eq!(DensityTier::from_id("bogus"), None);
+    assert_eq!(DensityTier::Compact.scale(), 0.9);
+    assert_eq!(DensityTier::Medium.scale(), 1.0);
+    assert_eq!(DensityTier::Expanded.scale(), 1.1);
+
+    assert_eq!(
+        DesignSystem::fluent().spacing.density,
+        DensityTier::Compact
+    );
+    assert_eq!(
+        DesignSystem::breeze().spacing.density,
+        DensityTier::Compact
+    );
+    assert_eq!(
+        DesignSystem::carbon().spacing.density,
+        DensityTier::Compact
+    );
+    assert_eq!(
+        DesignSystem::material3().spacing.density,
+        DensityTier::Medium
+    );
+    assert_eq!(DesignSystem::fluent().spacing.density_scale(), 0.9);
+    assert_eq!(DesignSystem::neutral().spacing.density_scale(), 1.0);
+}
+
+#[test]
+fn fluid_type_tokens_and_clamp() {
+    let ds = DesignSystem::neutral();
+    assert_eq!(ds.typography.fluid_min_size, ds.typography.small_size);
+    assert_eq!(ds.typography.fluid_max_size, ds.typography.large_size);
+    assert_eq!(
+        ds.typography.fluid_clamp_css(),
+        "clamp(11px, 14px + 1vw, 18px)"
+    );
+    for (_, system) in all_design_presets() {
+        assert!(system.typography.fluid_min_size <= system.typography.base_size);
+        assert!(system.typography.base_size <= system.typography.fluid_max_size);
+        assert!(system.conformance_report(false).passed());
+    }
+    let names: Vec<String> = ds
+        .style_dictionary_tokens()
+        .iter()
+        .map(|token| token.name().to_owned())
+        .collect();
+    assert!(names.contains(&"typography.fluid_min_size".to_owned()));
+    assert!(names.contains(&"typography.fluid_max_size".to_owned()));
+    assert!(names.contains(&"spacing.density".to_owned()));
+}
+
+#[test]
+fn state_layer_opacities_match_m3_and_export() {
+    let material = DesignSystem::material3();
+    assert_eq!(material.interaction.state_hover_opacity, 0.08);
+    assert_eq!(material.interaction.state_focus_opacity, 0.12);
+    assert_eq!(material.interaction.state_pressed_opacity, 0.12);
+    assert_eq!(material.interaction.state_dragged_opacity, 0.16);
+    let names: Vec<String> = material
+        .style_dictionary_tokens()
+        .iter()
+        .map(|token| token.name().to_owned())
+        .collect();
+    for name in [
+        "interaction.state_hover_opacity",
+        "interaction.state_focus_opacity",
+        "interaction.state_pressed_opacity",
+        "interaction.state_dragged_opacity",
+    ] {
+        assert!(names.contains(&name.to_owned()), "{name}");
+    }
+}
+
+#[test]
+fn rtl_flip_flags_exported_and_mirror_stable() {
+    for (preset_id, system) in all_design_presets() {
+        assert!(system.spacing.flip_in_rtl, "{preset_id}");
+        assert!(system.corners.flip_in_rtl, "{preset_id}");
+        assert_eq!(system.mirrored_for_rtl(), system, "{preset_id}");
+    }
+    let names: Vec<String> = DesignSystem::neutral()
+        .style_dictionary_tokens()
+        .iter()
+        .map(|token| token.name().to_owned())
+        .collect();
+    assert!(names.contains(&"spacing.flip_in_rtl".to_owned()));
+    assert!(names.contains(&"radius.flip_in_rtl".to_owned()));
+}
+
+#[test]
+fn css_variables_emitter_round_trips() {
+    let ds = DesignSystem::neutral();
+    let css = ds.to_css_variables();
+    assert!(css.starts_with(":root {\n"));
+    assert!(css.ends_with("}\n"));
+    assert!(css.contains("--spacing-grid-unit: 4px;"));
+    assert!(css.contains("--motion-duration-ms: 200ms;"));
+    assert!(css.contains("--design-language: neutral;"));
+    let mut count = 0;
+    for line in css.lines() {
+        if line.contains("--") {
+            assert!(line.trim_end().ends_with(';'), "{line}");
+            count += 1;
+        }
+    }
+    assert_eq!(count, ds.style_dictionary_tokens().len());
+}
+
+#[test]
+fn tailwind_theme_json_round_trips() {
+    let ds = DesignSystem::material3();
+    let json = ds.to_tailwind_theme_json();
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let object = value.as_object().unwrap();
+    assert_eq!(object.len(), ds.style_dictionary_tokens().len());
+    assert_eq!(
+        object["design.language"],
+        serde_json::Value::String("material3".to_owned())
+    );
+    assert_eq!(
+        object["interaction.state_hover_opacity"],
+        serde_json::json!(0.08)
+    );
+}
+
+#[test]
+fn token_export_json_round_trips_all_presets() {
+    let export = DesignTokenExport::for_all_presets();
+    let json = serde_json::to_string(&export).unwrap();
+    assert!(json.contains("\"spacing.density\""));
+    assert!(json.contains("\"interaction.state_hover_opacity\""));
+    assert!(json.contains("\"typography.fluid_min_size\""));
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let presets = value["presets"].as_array().unwrap();
+    assert_eq!(presets.len(), all_design_presets().len());
+    for preset in presets {
+        assert_eq!(preset["tokens"].as_array().unwrap().len(), 60);
+    }
+}
+
+#[test]
+fn conformance_matrix_is_breaking_gate() {
+    DesignConformanceMatrix::all_presets().assert_all_pass();
+    for (_, system) in all_design_presets() {
+        system.conformance_report(false).assert_passed("standard");
+        system.conformance_report(true).assert_passed("reduced");
+    }
+}
+
+#[test]
+fn conformance_catches_fluid_and_state_layer_drift() {
+    let mut ds = DesignSystem::neutral();
+    ds.typography.fluid_max_size = ds.typography.base_size - 1.0;
+    ds.interaction.state_hover_opacity = 1.5;
+    let report = ds.conformance_report(false);
+    assert!(!report.passed());
+    let ids: Vec<_> = report.findings.iter().map(|finding| finding.id).collect();
+    assert!(ids.contains(&"typography.fluid_scale"));
+    assert!(ids.contains(&"interaction.state_hover_opacity"));
 }

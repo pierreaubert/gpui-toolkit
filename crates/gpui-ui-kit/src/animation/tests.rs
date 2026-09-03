@@ -186,3 +186,19 @@ fn test_keyframe_animation() {
     assert!(result.is_some());
     assert!((result.unwrap() - 75.0).abs() < 0.1);
 }
+
+#[test]
+fn test_reduced_motion_snaps_to_final_frame() {
+    let anim = Animation::new().duration_ms(1000);
+    let mid = std::time::Duration::from_millis(500);
+    // Without reduced motion the animation is still in flight.
+    assert!(anim.progress(mid) < 1.0);
+    // With reduced motion the final frame returns immediately.
+    assert_eq!(anim.progress_with_reduced_motion(mid, true), 1.0);
+    assert_eq!(
+        anim.progress_with_reduced_motion(mid, false),
+        anim.progress(mid)
+    );
+    assert!(anim.is_complete_with_reduced_motion(std::time::Duration::ZERO, true));
+    assert!(!anim.is_complete_with_reduced_motion(std::time::Duration::ZERO, false));
+}

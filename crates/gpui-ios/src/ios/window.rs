@@ -18,6 +18,8 @@ mod ios_raw_handles;
 mod ios_window;
 mod misc;
 mod register;
+mod renderer;
+mod touch;
 mod types;
 
 pub(crate) use ios_window::*;

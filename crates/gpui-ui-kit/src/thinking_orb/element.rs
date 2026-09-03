@@ -172,7 +172,7 @@ mod tests {
 
         let pixels = CpuRasterizer::new(96, 96).rasterize(&scene, 96, 96);
         assert!(
-            pixels.chunks_exact(4).any(|pixel| pixel[3] != 0),
+            pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0),
             "local orb geometry must cover the CPU fallback raster"
         );
     }

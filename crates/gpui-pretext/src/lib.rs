@@ -62,7 +62,10 @@ pub use layout::{
     walk_line_ranges_optimal,
 };
 pub use line_break::{KnuthPlassParams, LineBreakStrategy};
-pub use measurement::{EngineProfile, TextMeasure};
+pub use measurement::{
+    DEFAULT_MEASURE_CACHE_MAX_BYTES, DEFAULT_MEASURE_CACHE_CAPACITY, EngineProfile, MeasureCache,
+    ShapedGlyph, ShapedRun, TextMeasure, shape_run,
+};
 pub use rich_text::{
     AccessibleTextRole, AccessibleTextRun, FontVariationSettings, RichTextSpan, RichTextStyle,
     TextBenchmarkCase, VariableFontAxis, accessibility_runs_for_spans, parse_inline_markdown,

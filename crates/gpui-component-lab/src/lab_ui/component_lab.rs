@@ -16,7 +16,15 @@ use super::misc::progress_variant;
 use super::misc::prop_value_label;
 use super::misc::scalar_field_data;
 use super::misc::scatter_story_data;
+use super::deep_link::coerce_prop_value;
+use super::deep_link::encode_lab_deep_link;
+use super::deep_link::parse_lab_deep_link;
+use super::deep_link::prop_value_to_query_string;
+use super::misc::SIDEBAR_RENDER_WINDOW;
+use super::misc::StoryPreviewKind;
 use super::misc::showcase_section_for_story_id;
+use super::misc::sidebar_window;
+use super::misc::story_preview_kind;
 use super::misc::spectrum_axis_magnitudes;
 use super::misc::spectrum_magnitudes;
 use super::misc::surface_colormap;
@@ -399,6 +407,59 @@ pub struct ComponentLab {
     visual_capture_mode: bool,
 }
 
+/// Shared prop snapshot for one `render_exported_ui_kit_component_story` call,
+/// computed once so each story-family renderer stays small.
+struct ExportedStoryProps {
+    label: SharedString,
+    value: f64,
+    disabled: bool,
+    selected: bool,
+    open: bool,
+    variant_name: String,
+}
+
+/// Story families inside `render_exported_ui_kit_component_story`, split out
+/// of the original 500-line matcher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ExportedStoryFamily {
+    Feedback,
+    Input,
+    Display,
+    Navigation,
+    Unknown,
+}
+
+/// Pure family decision behind `render_exported_ui_kit_component_story`.
+pub(super) fn exported_story_family(story_id: &str) -> ExportedStoryFamily {
+    match story_id {
+        "ui-kit.button-set" | "ui-kit.icon-button" | "ui-kit.alert" | "ui-kit.inline-alert"
+        | "ui-kit.toast" | "ui-kit.toast-container" => ExportedStoryFamily::Feedback,
+        "ui-kit.checkbox" | "ui-kit.color-picker" | "ui-kit.input" | "ui-kit.number-input"
+        | "ui-kit.select" | "ui-kit.slider" | "ui-kit.toggle" => ExportedStoryFamily::Input,
+        "ui-kit.avatar" | "ui-kit.avatar-group" | "ui-kit.badge" | "ui-kit.badge-dot"
+        | "ui-kit.empty-state-component" | "ui-kit.image-view-component"
+        | "ui-kit.keyboard-shortcut-label" | "ui-kit.progress-bar" | "ui-kit.circular-progress"
+        | "ui-kit.qr-code-component" | "ui-kit.animated-qr-code" | "ui-kit.spinner"
+        | "ui-kit.loading-dots" | "ui-kit.step-indicator-component" | "ui-kit.text-component"
+        | "ui-kit.heading" | "ui-kit.code" | "ui-kit.link" | "ui-kit.search-bar-component"
+        | "ui-kit.tooltip-component" | "ui-kit.with-tooltip"
+        | "ui-kit.loading-overlay-component" | "ui-kit.pane-divider" | "ui-kit.settings-row"
+        | "ui-kit.settings-form-component" | "ui-kit.sidebar-component"
+        | "ui-kit.split-pane-component" | "ui-kit.vstack" | "ui-kit.hstack" | "ui-kit.spacer"
+        | "ui-kit.divider" | "ui-kit.status-bar-component" => ExportedStoryFamily::Display,
+        "ui-kit.accordion-component" | "ui-kit.breadcrumbs-component" | "ui-kit.menu-component"
+        | "ui-kit.menu-bar" | "ui-kit.dialog-component" | "ui-kit.confirm-dialog-component"
+        | "ui-kit.popover-component" | "ui-kit.context-menu-component" | "ui-kit.tabs-component"
+        | "ui-kit.wizard-component" | "ui-kit.wizard-header" | "ui-kit.wizard-navigation"
+        | "ui-kit.command-palette-component" | "ui-kit.drag-list-component"
+        | "ui-kit.notification-component" | "ui-kit.tag-component" | "ui-kit.toolbar-component"
+        | "ui-kit.tree-view-component" | "ui-kit.table-component" | "ui-kit.workflow-node"
+        | "ui-kit.focus-group" | "ui-kit.workflow-port" | "ui-kit.workflow-canvas"
+        | "ui-kit.showcase-component" => ExportedStoryFamily::Navigation,
+        _ => ExportedStoryFamily::Unknown,
+    }
+}
+
 impl ComponentLab {
     pub(super) fn new(config: LabAppConfig, cx: &mut Context<Self>) -> Self {
         let registry = builtin_story_registry().expect("builtin story registry");
@@ -696,6 +757,51 @@ impl ComponentLab {
             self.refresh_stateful_preview(cx);
             cx.notify();
         }
+    }
+
+    /// Shareable deep link (`?story=...&prop.<name>=...`) for the selection.
+    pub fn deep_link_for_selection(&self) -> String {
+        let story = self.selected_story();
+        let rendered: Vec<(String, String)> = story
+            .props
+            .iter()
+            .map(|prop| (prop.name.clone(), prop_value_to_query_string(&prop.value)))
+            .collect();
+        let refs: Vec<(&str, &str)> = rendered
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
+            .collect();
+        encode_lab_deep_link(story.id.as_str(), &refs)
+    }
+
+    /// Applies a [`parse_lab_deep_link`] query: selects the story when known
+    /// and coerces listed props to the story's declared prop types.
+    /// Returns `false` when the query carries no known story.
+    pub fn apply_deep_link(&mut self, query: &str, cx: &mut Context<Self>) -> bool {
+        let Some(link) = parse_lab_deep_link(query) else {
+            return false;
+        };
+        if !self.documents.contains_key(&link.story_id) {
+            return false;
+        }
+        self.select_story(link.story_id.clone(), cx);
+        let coerced: Vec<(String, StoryPropValue)> = link
+            .props
+            .iter()
+            .filter_map(|(name, raw)| {
+                self.documents
+                    .get(&link.story_id)?
+                    .story
+                    .props
+                    .iter()
+                    .find(|prop| prop.name == *name)
+                    .map(|prop| (name.clone(), coerce_prop_value(&prop.value, raw)))
+            })
+            .collect();
+        for (name, value) in coerced {
+            self.set_prop(link.story_id.as_str(), &name, value, cx);
+        }
+        true
     }
 
     fn ensure_ui_showcase(&mut self, story_id: &str, cx: &mut Context<Self>) {
@@ -1021,7 +1127,20 @@ impl ComponentLab {
         let theme = cx.theme();
         let mut list = div().flex().flex_col().gap_1();
 
-        for story_id in &self.story_ids {
+        // Window the list around the selection so a large registry does not
+        // rebuild every row (and its click closures) on each frame.
+        let selected_index = self
+            .story_ids
+            .iter()
+            .position(|story_id| *story_id == self.selected_story_id)
+            .unwrap_or(0);
+        let (window_start, window_end) = sidebar_window(
+            selected_index,
+            self.story_ids.len(),
+            SIDEBAR_RENDER_WINDOW,
+        );
+
+        for story_id in &self.story_ids[window_start..window_end] {
             let selected = *story_id == self.selected_story_id;
             let story_id_for_click = story_id.clone();
             let label = self
@@ -1044,6 +1163,18 @@ impl ComponentLab {
                             this.select_story(story_id_for_click.clone(), cx)
                         });
                     }),
+            );
+        }
+
+        if window_end - window_start < self.story_ids.len() {
+            list = list.child(
+                Text::new(format!(
+                    "Showing {}-{} of {} stories",
+                    window_start + 1,
+                    window_end,
+                    self.story_ids.len()
+                ))
+                .muted(true),
             );
         }
 
@@ -1977,57 +2108,82 @@ impl ComponentLab {
         design: Arc<DesignSystem>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        match story.id.as_str() {
-            "ui-kit.button" => self.render_button_story(story, scope, interactive, design, cx),
-            "ui-kit.form" => self.render_form_story(story, scope, interactive, design, cx),
-            "ui-kit.status" => self.render_status_story(story, scope, design, cx),
-            "ui-kit.navigation" => self.render_navigation_story(story, scope, design, cx),
-            "ui-kit.feedback" => self.render_feedback_story(story, scope, design, cx),
-            "ui-kit.card" => self.render_card_story(story, scope, design, cx),
-            story_id if ui_kit_exported_component_story_id(story_id) => {
+        let kind = story_preview_kind(
+            story.id.as_str(),
+            ui_kit_exported_component_story_id(story.id.as_str()),
+            self.ui_showcases.contains_key(story.id.as_str()),
+            self.renderers.contains(story.id.as_str()),
+        );
+        match kind {
+            StoryPreviewKind::Button => {
+                self.render_button_story(story, scope, interactive, design, cx)
+            }
+            StoryPreviewKind::Form => {
+                self.render_form_story(story, scope, interactive, design, cx)
+            }
+            StoryPreviewKind::Status => self.render_status_story(story, scope, design, cx),
+            StoryPreviewKind::Navigation => {
+                self.render_navigation_story(story, scope, design, cx)
+            }
+            StoryPreviewKind::Feedback => self.render_feedback_story(story, scope, design, cx),
+            StoryPreviewKind::Card => self.render_card_story(story, scope, design, cx),
+            StoryPreviewKind::ExportedUiKit => {
                 self.render_exported_ui_kit_component_story(story, scope, interactive, design, cx)
             }
-            story_id if self.ui_showcases.contains_key(story_id) => {
-                self.render_ui_kit_showcase_story(story, scope, cx)
-            }
-            "audio-kit.potentiometer" => {
+            StoryPreviewKind::Showcase => self.render_ui_kit_showcase_story(story, scope, cx),
+            StoryPreviewKind::Potentiometer => {
                 self.render_potentiometer_story(story, scope, interactive, design, cx)
             }
-            "audio-kit.vertical-slider" => {
+            StoryPreviewKind::VerticalSlider => {
                 self.render_vertical_slider_story(story, scope, interactive, design, cx)
             }
-            "audio-kit.volume-knob" => {
+            StoryPreviewKind::VolumeKnob => {
                 self.render_volume_knob_story(story, scope, interactive, design, cx)
             }
-            "audio-kit.meter" => self.render_meter_story(story, scope, design, cx),
-            "audio-kit.horizontal-meter" => {
+            StoryPreviewKind::Meter => self.render_meter_story(story, scope, design, cx),
+            StoryPreviewKind::HorizontalMeter => {
                 self.render_horizontal_meter_story(story, scope, design, cx)
             }
-            "audio-kit.spectrum" => self.render_spectrum_story(story, scope, design, cx),
-            "audio-kit.spectrum-axis" => self.render_spectrum_axis_story(story, scope, design, cx),
-            "px.line" => self.render_line_chart_story(story, scope, design, cx),
-            "px.bar" => self.render_bar_chart_story(story, scope, design, cx),
-            "px.scatter" => self.render_scatter_chart_story(story, scope, design, cx),
-            "px.area" => self.render_area_chart_story(story, scope, design, cx),
-            "px.heatmap" => self.render_heatmap_chart_story(story, scope, design, cx),
-            "px.contour" => self.render_contour_chart_story(story, scope, design, cx),
-            "px.isoline" => self.render_isoline_chart_story(story, scope, design, cx),
-            "px.pie" => self.render_pie_chart_story(story, scope, design, cx),
-            "px.donut" => self.render_donut_chart_story(story, scope, design, cx),
-            "px.boxplot" => self.render_boxplot_chart_story(story, scope, design, cx),
-            "px.treemap" => self.render_treemap_chart_story(story, scope, design, cx),
-            "px.surface3d" => self.render_surface3d_chart_story(story, scope, design, cx),
-            "px.mesh_plot" => self.render_mesh_plot_story(story, scope, design, cx),
-            story_id if story_id.starts_with("px.mesh_plot.") => {
+            StoryPreviewKind::Spectrum => self.render_spectrum_story(story, scope, design, cx),
+            StoryPreviewKind::SpectrumAxis => {
+                self.render_spectrum_axis_story(story, scope, design, cx)
+            }
+            StoryPreviewKind::Line => self.render_line_chart_story(story, scope, design, cx),
+            StoryPreviewKind::Bar => self.render_bar_chart_story(story, scope, design, cx),
+            StoryPreviewKind::Scatter => {
+                self.render_scatter_chart_story(story, scope, design, cx)
+            }
+            StoryPreviewKind::Area => self.render_area_chart_story(story, scope, design, cx),
+            StoryPreviewKind::Heatmap => {
+                self.render_heatmap_chart_story(story, scope, design, cx)
+            }
+            StoryPreviewKind::Contour => {
+                self.render_contour_chart_story(story, scope, design, cx)
+            }
+            StoryPreviewKind::Isoline => {
+                self.render_isoline_chart_story(story, scope, design, cx)
+            }
+            StoryPreviewKind::Pie => self.render_pie_chart_story(story, scope, design, cx),
+            StoryPreviewKind::Donut => self.render_donut_chart_story(story, scope, design, cx),
+            StoryPreviewKind::Boxplot => {
+                self.render_boxplot_chart_story(story, scope, design, cx)
+            }
+            StoryPreviewKind::Treemap => {
+                self.render_treemap_chart_story(story, scope, design, cx)
+            }
+            StoryPreviewKind::Surface3d => {
+                self.render_surface3d_chart_story(story, scope, design, cx)
+            }
+            StoryPreviewKind::MeshPlot => {
                 self.render_mesh_plot_story(story, scope, design, cx)
             }
-            _ if self.renderers.contains(&story.id) => div()
+            StoryPreviewKind::RendererFallback => div()
                 .child(
                     Text::new("Renderer metadata exists, but no preview handler is wired")
                         .muted(true),
                 )
                 .into_any_element(),
-            _ => div()
+            StoryPreviewKind::Missing => div()
                 .child(Text::new("No renderer registered").muted(true))
                 .into_any_element(),
         }
@@ -2037,21 +2193,68 @@ impl ComponentLab {
         &self,
         story: &ComponentStory,
         scope: &str,
-        _interactive: bool,
+        interactive: bool,
         design: Arc<DesignSystem>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let theme = cx.theme();
-        let label = text_prop(story, "label", story.title.as_str());
-        let value = number_prop(story, "value", 0.64).clamp(0.0, 1.0);
-        let disabled = bool_prop(story, "disabled", false);
-        let selected = bool_prop(story, "selected", true);
-        let open = bool_prop(story, "open", true);
-        let variant_name = choice_prop(story, "variant", "default");
+        let props = ExportedStoryProps {
+            label: text_prop(story, "label", story.title.as_str()),
+            value: number_prop(story, "value", 0.64).clamp(0.0, 1.0),
+            disabled: bool_prop(story, "disabled", false),
+            selected: bool_prop(story, "selected", true),
+            open: bool_prop(story, "open", true),
+            variant_name: choice_prop(story, "variant", "default").to_string(),
+        };
         let story_id = story.id.as_str();
-        let scoped = |name: &str| lab_id(&[name, scope]);
+        let element = match exported_story_family(story_id) {
+            ExportedStoryFamily::Feedback => {
+                Self::render_exported_feedback_story(story_id, &props, scope)
+            }
+            ExportedStoryFamily::Input => self.render_exported_input_story(
+                story_id,
+                &props,
+                scope,
+                design.clone(),
+                interactive,
+                cx,
+            ),
+            ExportedStoryFamily::Display => self.render_exported_display_story(
+                story_id,
+                &props,
+                scope,
+                design.clone(),
+                interactive,
+                cx,
+            ),
+            ExportedStoryFamily::Navigation => self.render_exported_navigation_story(
+                story_id, &props, scope, design, interactive, cx,
+            ),
+            ExportedStoryFamily::Unknown => div()
+                .child(Text::new("No exported component renderer registered").muted(true))
+                .into_any_element(),
+        };
 
-        let element = match story_id {
+        div()
+            .max_w_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(element)
+            .into_any_element()
+    }
+
+    fn render_exported_feedback_story(
+        story_id: &str,
+        props: &ExportedStoryProps,
+        scope: &str,
+    ) -> AnyElement {
+        let label = props.label.clone();
+        let disabled = props.disabled;
+        let selected = props.selected;
+        let open = props.open;
+        let variant_name = props.variant_name.clone();
+        let scoped = |name: &str| lab_id(&[name, scope]);
+        match story_id {
             "ui-kit.button-set" => ButtonSet::new(scoped("button-set"))
                 .options(vec![
                     ButtonSetOption::new("mix", "Mix"),
@@ -2090,6 +2293,28 @@ impl ComponentLab {
                         .toast(Toast::new(scoped("toast-container-item"), label).title("Toast")),
                 )
                 .into_any_element(),
+            _ => div()
+                .child(Text::new("No exported component renderer registered").muted(true))
+                .into_any_element(),
+        }
+    }
+
+    fn render_exported_input_story(
+        &self,
+        story_id: &str,
+        props: &ExportedStoryProps,
+        scope: &str,
+        design: Arc<DesignSystem>,
+        interactive: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let label = props.label.clone();
+        let value = props.value;
+        let disabled = props.disabled;
+        let selected = props.selected;
+        let open = props.open;
+        let scoped = |name: &str| lab_id(&[name, scope]);
+        match story_id {
             "ui-kit.checkbox" => Checkbox::new(scoped("checkbox"))
                 .label(label)
                 .checked(selected)
@@ -2098,7 +2323,7 @@ impl ComponentLab {
                 .design(design)
                 .into_any_element(),
             "ui-kit.color-picker" => self
-                .retained_stateful_preview(story_id, _interactive)
+                .retained_stateful_preview(story_id, interactive)
                 .unwrap_or_else(|| {
                     cx.new(|_| ColorPickerView::new(label, Color::from_hex(0x3b82f6)))
                         .into_any_element()
@@ -2146,6 +2371,28 @@ impl ComponentLab {
                 .size(ToggleSize::Md)
                 .style(ToggleStyle::Sliding)
                 .into_any_element(),
+            _ => div()
+                .child(Text::new("No exported component renderer registered").muted(true))
+                .into_any_element(),
+        }
+    }
+
+    fn render_exported_display_story(
+        &self,
+        story_id: &str,
+        props: &ExportedStoryProps,
+        scope: &str,
+        design: Arc<DesignSystem>,
+        interactive: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = cx.theme();
+        let label = props.label.clone();
+        let value = props.value;
+        let selected = props.selected;
+        let variant_name = props.variant_name.clone();
+        let scoped = |name: &str| lab_id(&[name, scope]);
+        match story_id {
             "ui-kit.avatar" => Avatar::new()
                 .name(label)
                 .size(AvatarSize::Lg)
@@ -2195,7 +2442,7 @@ impl ComponentLab {
                 .size(px(128.0))
                 .into_any_element(),
             "ui-kit.animated-qr-code" => self
-                .retained_stateful_preview(story_id, _interactive)
+                .retained_stateful_preview(story_id, interactive)
                 .unwrap_or_else(|| {
                     cx.new(|cx| AnimatedQrCode::new("https://sotf.dev/lab", px(48.0), cx))
                         .into_any_element()
@@ -2316,6 +2563,30 @@ impl ComponentLab {
                 .center(Badge::new("Ready").variant(BadgeVariant::Success))
                 .right(Text::new("42ms"))
                 .into_any_element(),
+            _ => div()
+                .child(Text::new("No exported component renderer registered").muted(true))
+                .into_any_element(),
+        }
+    }
+
+    fn render_exported_navigation_story(
+        &self,
+        story_id: &str,
+        props: &ExportedStoryProps,
+        scope: &str,
+        design: Arc<DesignSystem>,
+        interactive: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = cx.theme();
+        let label = props.label.clone();
+        let value = props.value;
+        let disabled = props.disabled;
+        let selected = props.selected;
+        let open = props.open;
+        let variant_name = props.variant_name.clone();
+        let scoped = |name: &str| lab_id(&[name, scope]);
+        match story_id {
             "ui-kit.accordion-component" => Accordion::new()
                 .items(vec![
                     AccordionItem::new("one", label).content(Text::new("Expanded content")),
@@ -2495,7 +2766,7 @@ impl ComponentLab {
                 .rounded_md()
                 .overflow_hidden()
                 .child(
-                    self.retained_stateful_preview(story_id, _interactive)
+                    self.retained_stateful_preview(story_id, interactive)
                         .unwrap_or_else(|| {
                             cx.new(|cx| {
                                 WorkflowCanvas::with_graph(sample_workflow_graph(label), cx)
@@ -2510,7 +2781,7 @@ impl ComponentLab {
                 .max_h(px(300.0))
                 .overflow_y_scroll()
                 .child(
-                    self.retained_stateful_preview(story_id, _interactive)
+                    self.retained_stateful_preview(story_id, interactive)
                         .unwrap_or_else(|| {
                             cx.new(|cx| Showcase::embedded_section(ShowcaseSection::Buttons, cx))
                                 .into_any_element()
@@ -2520,15 +2791,7 @@ impl ComponentLab {
             _ => div()
                 .child(Text::new("No exported component renderer registered").muted(true))
                 .into_any_element(),
-        };
-
-        div()
-            .max_w_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(element)
-            .into_any_element()
+        }
     }
 
     pub(super) fn render_button_story(

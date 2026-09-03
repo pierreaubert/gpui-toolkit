@@ -2729,7 +2729,7 @@ pub fn dense_array_values(
     dtype: &str,
 ) -> Result<Vec<f64>, DatasetFrameError> {
     const MAX_DENSE_VALUES: usize = 16_000_000;
-    if shape.is_empty() || shape.iter().any(|dimension| *dimension == 0) {
+    if shape.is_empty() || shape.contains(&0) {
         return Err(DatasetFrameError::InvalidMetadata);
     }
     let count = shape
@@ -2757,7 +2757,7 @@ pub fn dense_array_unsigned(
     dtype: &str,
 ) -> Result<Vec<u64>, DatasetFrameError> {
     const MAX_DENSE_VALUES: usize = 16_000_000;
-    if shape.is_empty() || shape.iter().any(|dimension| *dimension == 0) {
+    if shape.is_empty() || shape.contains(&0) {
         return Err(DatasetFrameError::InvalidMetadata);
     }
     let count = shape

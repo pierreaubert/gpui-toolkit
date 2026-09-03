@@ -43,7 +43,8 @@ pub use config::{Colormap, Surface3DConfig, SurfacePlotType};
 pub use data::{SurfaceData, SurfaceVertex};
 pub use element::{
     CartesianGridLineDebug, CartesianGridLineDebugKind, Surface3DElement, Surface3DState,
-    cartesian_grid_lines_for_testing, projected_surface_depth_visibility_for_testing,
+    cartesian_grid_lines_for_testing, clamp_render_dimensions, overlay_color_for_background,
+    projected_surface_depth_visibility_for_testing, upright_rotation_angle,
 };
 pub use lines::{Line3D, Lines3DElement, Lines3DScene, Lines3DState, Polygon3D};
 pub use mesh::SurfaceMesh;

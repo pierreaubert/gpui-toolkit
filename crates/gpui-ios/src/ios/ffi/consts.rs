@@ -55,7 +55,7 @@ pub(crate) fn registered_window(
     if let Some(wrapper) = IOS_WINDOW_LIST.get() {
         unsafe {
             let windows = &*wrapper.0.get();
-            if windows.iter().any(|&registered| registered == window) {
+            if windows.contains(&window) {
                 return Some(&*window);
             }
         }

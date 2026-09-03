@@ -1,5 +1,10 @@
 # Unreleased
 
+## Added
+
+- Reworked the scaffolder library surface and CLI with updated manifests
+  and template coverage.
+
 # 0.9.3
 
 ## Features

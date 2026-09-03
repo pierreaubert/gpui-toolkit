@@ -13,6 +13,10 @@ pub struct TypographyRules {
     pub small_size: f32,
     /// Large text size in px (headers, titles).
     pub large_size: f32,
+    /// Fluid-type lower bound in px (`clamp()` min).
+    pub fluid_min_size: f32,
+    /// Fluid-type upper bound in px (`clamp()` max).
+    pub fluid_max_size: f32,
 }
 
 impl TypographyRules {
@@ -32,6 +36,16 @@ impl TypographyRules {
             base_size,
             small_size,
             large_size,
+            fluid_min_size: small_size.min(base_size),
+            fluid_max_size: large_size.max(base_size),
         }
+    }
+
+    /// CSS `clamp()` expression for fluid type between the fluid bounds.
+    pub fn fluid_clamp_css(&self) -> String {
+        format!(
+            "clamp({}px, {}px + 1vw, {}px)",
+            self.fluid_min_size, self.base_size, self.fluid_max_size
+        )
     }
 }

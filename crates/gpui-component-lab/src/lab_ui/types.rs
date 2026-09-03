@@ -203,7 +203,7 @@ fn bar_story_data_inner(count: usize) -> BarStoryData {
 pub(super) fn bar_story_data(count: usize) -> BarStoryData {
     static CACHE: OnceLock<Mutex<HashMap<usize, BarStoryData>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = cache.lock().unwrap();
+    let mut guard = super::misc::lock_recover(cache);
     guard
         .entry(count)
         .or_insert_with(|| bar_story_data_inner(count))

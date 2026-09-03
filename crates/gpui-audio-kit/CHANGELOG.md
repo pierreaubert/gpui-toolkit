@@ -1,5 +1,14 @@
 # Unreleased
 
+## Added
+
+- Added a lock-free `meter_fifo` feeding spectrum `meter_data`, and reworked
+  `vertical_slider` calculation and `volume_knob` internals.
+
+## Fixed
+
+- Corrected tick rendering and slider value mapping edge cases.
+
 ## 0.9.6 - 2026-08-23
 
 ### Performance

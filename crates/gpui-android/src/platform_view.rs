@@ -74,7 +74,7 @@ impl std::fmt::Display for PlatformViewId {
 }
 
 /// Bounds for positioning a platform view, in logical pixels.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct PlatformViewBounds {
     pub x: f32,
     pub y: f32,

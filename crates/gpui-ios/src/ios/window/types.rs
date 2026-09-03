@@ -112,14 +112,12 @@ impl TouchStateMap {
     }
 
     pub fn insert(&mut self, touch_id: usize, state: TouchState, x: f32, y: f32) {
-        for entry in &mut self.entries {
-            if let Some(existing) = entry {
-                if existing.id == touch_id {
-                    existing.state = state;
-                    existing.x = x;
-                    existing.y = y;
-                    return;
-                }
+        for existing in self.entries.iter_mut().flatten() {
+            if existing.id == touch_id {
+                existing.state = state;
+                existing.x = x;
+                existing.y = y;
+                return;
             }
         }
         for entry in &mut self.entries {
@@ -145,10 +143,11 @@ impl TouchStateMap {
 
     pub fn remove(&mut self, touch_id: usize) -> Option<TouchState> {
         for entry in &mut self.entries {
-            if let Some(existing) = entry {
-                if existing.id == touch_id {
-                    return entry.take().map(|entry| entry.state);
-                }
+            if entry
+                .as_ref()
+                .is_some_and(|existing| existing.id == touch_id)
+            {
+                return entry.take().map(|entry| entry.state);
             }
         }
         None

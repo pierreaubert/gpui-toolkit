@@ -2062,7 +2062,14 @@ impl PlatformWindow for AndroidPlatformWindow {
         let y: f32 = bounds.origin.y.into();
         let h: f32 = bounds.size.height.into();
         let ime_bounds = (x, y, h);
-        if self.window.state.lock().last_ime_bounds == Some(ime_bounds) {
+        // Coalesce: identical carets skip the JNI round-trip entirely (the
+        // predicate is unit-tested in `crate::event_stages`).
+        if !crate::event_stages::ime_anchor_changed(
+            self.window.state.lock().last_ime_bounds,
+            x,
+            y,
+            h,
+        ) {
             return;
         }
 

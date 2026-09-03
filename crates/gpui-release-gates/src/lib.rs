@@ -61,6 +61,7 @@
 //! ```
 
 mod dependency_hygiene;
+mod gate_execution;
 mod publish_plan;
 mod release_notes;
 mod release_packaging;
@@ -73,6 +74,10 @@ pub use dependency_hygiene::{
     DependencyAdvisoryTriageStatus, DependencyHygieneCheck, DependencyHygieneReport,
     DependencyHygieneStatus, dependency_advisory_triage, dependency_hygiene_checks,
     dependency_hygiene_report,
+};
+pub use gate_execution::{
+    ExecutableGateCommand, GateExecutionOutput, execute_gate_argv, execute_packaging_entry,
+    parse_executable_gate_command,
 };
 pub use publish_plan::{
     PUBLISH_PLAN_REPORT_TYPE, PUBLISH_PLAN_SCHEMA_VERSION, PublishPlan, PublishPlanEntry,

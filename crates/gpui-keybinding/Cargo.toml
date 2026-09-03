@@ -1,6 +1,6 @@
 [package]
 name = "gpui-keybinding"
-version = "0.9.6"
+version = "0.9.7"
 authors.workspace = true
 edition.workspace = true
 description = "Reusable keybinding framework with Vim/Emacs/VSCode presets for GPUI applications"
@@ -27,6 +27,7 @@ urlencoding = []
 [dependencies]
 gpui = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

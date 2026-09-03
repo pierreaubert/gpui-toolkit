@@ -5,7 +5,7 @@
 //! - Color editing with live preview via modal
 //! - Export to JSON and Rust
 
-mod color_field;
+pub(crate) mod color_field;
 mod misc;
 mod theme_editor;
 mod types;

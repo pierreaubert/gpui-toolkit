@@ -1,5 +1,11 @@
 # Unreleased
 
+## Added
+
+- Added a `decimation` module for large-series downsampling and reworked
+  mesh-plot state transitions.
+- Fixed heatmap, line, and scatter chart edge cases with new chart tests.
+
 ## 0.9.11 - 2026-08-23
 
 ### Performance

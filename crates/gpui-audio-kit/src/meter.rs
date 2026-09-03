@@ -59,7 +59,13 @@ pub fn format_meter_value(value: f64) -> SharedString {
 }
 
 /// dB scale positions: maps dB value to visual position (0.0 = bottom, 1.0 = top).
+///
+/// Non-finite input has no position on the scale: NaN maps to silence (0.0)
+/// while infinities clamp to the scale ends through the normal path below.
 pub fn db_to_position(db: f64) -> f32 {
+    if db.is_nan() {
+        return 0.0;
+    }
     let normalized = if db <= -60.0 {
         0.0
     } else if db <= -30.0 {
@@ -935,6 +941,13 @@ mod tests {
         assert!((db_to_position(-5.0) - 0.83).abs() < 0.01);
         assert_eq!(db_to_position(0.0), 1.0);
         assert_eq!(db_to_position(6.0), 1.0);
+    }
+
+    #[::core::prelude::v1::test]
+    fn db_to_position_handles_non_finite_input() {
+        assert_eq!(db_to_position(f64::NAN), 0.0);
+        assert_eq!(db_to_position(f64::NEG_INFINITY), 0.0);
+        assert_eq!(db_to_position(f64::INFINITY), 1.0);
     }
 
     #[::core::prelude::v1::test]

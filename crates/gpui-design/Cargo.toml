@@ -1,6 +1,6 @@
 [package]
 name = "gpui-design"
-version = "0.9.5"
+version = "0.9.6"
 authors.workspace = true
 edition.workspace = true
 rust-version = "1.89"

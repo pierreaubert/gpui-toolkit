@@ -8,14 +8,19 @@ Quick reference for AI agents working with the iOS platform backend.
 gpui-ios/
   src/
     lib.rs              # Public API: safe_area_insets(), show/hide_keyboard(), text input
+    haptics.rs          # UIFeedbackGenerator haptics bridge
+    local_auth.rs       # LocalAuthentication (Face ID / Touch ID / passcode) bridge
+    notifications.rs    # UNUserNotificationCenter local-notification bridge
     momentum.rs         # Momentum scrolling physics engine
     platform_view.rs    # Platform view factory
     ios/
       mod.rs            # IosPlatform + current_platform() (cfg target_os = "ios")
       ffi.rs            # C FFI exports: set_app_callback, run_app, request_frame, etc.
       platform.rs       # IosPlatform: Platform trait implementation
-      window.rs         # IosWindow: Metal layer, touch, safe areas (~65KB, largest file)
-      text_system.rs    # CoreText text shaping/rendering (~27KB)
+      window/           # IosWindow split: ios_window.rs (shell), touch.rs
+                      # (gestures/momentum), renderer.rs (wgpu lifecycle),
+                      # accessibility.rs (VoiceOver mirroring)
+      text_system/      # CoreText text shaping/rendering
       text_input.rs     # Software keyboard input handling
       display.rs        # Screen/display information
       dispatcher.rs     # Task dispatching
@@ -50,9 +55,9 @@ All Swift-callable functions are `#[unsafe(no_mangle)] pub extern "C"`:
 | `gpui_ios_did_enter_background(ptr)` | UIKit lifecycle | App entering background |
 | `gpui_ios_will_terminate(ptr)` | UIKit lifecycle | App terminating |
 
-### Window management (window.rs)
+### Window management (window/)
 
-`IosWindow` creates a `CAMetalLayer` and uses `gpui_wgpu` for Metal rendering. Touch events from UIKit are converted to GPUI `MouseDownEvent`/`MouseMoveEvent`/`MouseUpEvent` with synthesized scroll wheel events for panning.
+`IosWindow` (`ios_window.rs`) creates a `CAMetalLayer` and uses `gpui_wgpu` for Metal rendering. Renderer construction/draw/atlas live in `renderer.rs`, touch/gesture/momentum handling in `touch.rs`, and VoiceOver mirroring in `accessibility.rs`. Touch events from UIKit are converted to GPUI `MouseDownEvent`/`MouseMoveEvent`/`MouseUpEvent` with synthesized scroll wheel events for panning.
 
 ### Text system (text_system.rs)
 

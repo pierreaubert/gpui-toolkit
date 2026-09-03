@@ -229,7 +229,7 @@ pub fn log_ticks(min: f64, max: f64, base: f64, subdivisions: bool) -> Vec<f64> 
         exp += 1.0;
     }
 
-    ticks.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    ticks.sort_by(|a, b| a.total_cmp(b));
     ticks
 }
 

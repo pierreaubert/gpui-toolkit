@@ -38,7 +38,7 @@ impl Render for RadioGroupTestView {
         div().size_full().child(
             RadioGroup::new("test-radio-group")
                 .options(test_options())
-                .selected(self.selected.borrow().clone())
+                .selected(self.selected.borrow().clone().map(gpui::SharedString::from))
                 .disabled(self.disabled)
                 .on_change(move |value, _window, _cx| {
                     *selected_rc.borrow_mut() = Some(value.to_string());

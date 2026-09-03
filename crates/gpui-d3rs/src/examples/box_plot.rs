@@ -68,7 +68,7 @@ pub fn compute(data: &[(String, Vec<f64>)]) -> BoxPlotResult {
         .iter()
         .map(|(group, raw_values)| {
             let mut values = raw_values.clone();
-            values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            values.sort_by(|a, b| a.total_cmp(b));
 
             let q1 = quantile_sorted(&values, 0.25).unwrap_or(f64::NAN);
             let q2 = quantile_sorted(&values, 0.50).unwrap_or(f64::NAN);

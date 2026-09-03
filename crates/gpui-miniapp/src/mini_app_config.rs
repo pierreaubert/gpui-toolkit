@@ -1,6 +1,7 @@
 use gpui::*;
 use gpui_ui_kit::i18n::Language;
 use gpui_ui_kit::theme::ThemeVariant;
+use std::path::PathBuf;
 
 /// Configuration for a MiniApp instance
 #[derive(Clone, PartialEq)]
@@ -25,6 +26,12 @@ pub struct MiniAppConfig {
     pub initial_theme: ThemeVariant,
     /// Initial language
     pub initial_language: Language,
+    /// Optional file used to persist window size, theme, and language.
+    ///
+    /// When set, `MiniApp::run` loads stored values at startup (a missing or
+    /// corrupt file falls back to the builder values) and saves the current
+    /// values when a window closes. Off by default.
+    pub state_file: Option<PathBuf>,
 }
 
 impl MiniAppConfig {
@@ -44,6 +51,7 @@ impl MiniAppConfig {
             with_i18n: false,
             initial_theme: ThemeVariant::default(),
             initial_language: Language::default(),
+            state_file: None,
         }
     }
 
@@ -99,6 +107,15 @@ impl MiniAppConfig {
     /// Set initial language
     pub fn initial_language(mut self, language: Language) -> Self {
         self.initial_language = language;
+        self
+    }
+
+    /// Persist window size, theme, and language to `path` across runs.
+    ///
+    /// Values are loaded at startup and saved when a window closes. See the
+    /// field documentation for fallback behavior.
+    pub fn state_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.state_file = Some(path.into());
         self
     }
 }

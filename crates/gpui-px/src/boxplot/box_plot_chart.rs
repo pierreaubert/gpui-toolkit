@@ -852,7 +852,7 @@ fn box_plot_chart_scene(
         medians.push(PathEl::MoveTo(((x - half) as f64, median as f64).into()));
         medians.push(PathEl::LineTo(((x + half) as f64, median as f64).into()));
         for y in data.outliers_low.iter().chain(data.outliers_high.iter()) {
-            outliers.push((x, *y as f32 * sy));
+            outliers.push((x, *y * sy));
         }
     }
     if !whiskers.is_empty() {

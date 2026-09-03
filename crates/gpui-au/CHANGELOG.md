@@ -1,5 +1,11 @@
 # Unreleased
 
+## Added
+
+- Added a `params` bridge module with lazy wgpu initialization and new FFI
+  entries (plus `gpui_au.h` declarations) for host parameter exchange.
+- Cleaned up `NSLog` hygiene and added renderer safety counters.
+
 ## 0.9.8 - 2026-08-23
 
 ### Performance

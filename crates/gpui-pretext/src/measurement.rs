@@ -52,6 +52,18 @@ pub trait TextMeasure {
     fn cache_key_is_stable(&self) -> bool {
         false
     }
+
+    /// Shape a run, returning per-grapheme advances plus cluster mapping.
+    ///
+    /// Backends with a real shaper (HarfBuzz, rustybuzz, CoreText) override
+    /// this to return glyph advances with ligature/kerning applied; the
+    /// default returns `None`, and [`shape_run`] falls back to measuring each
+    /// grapheme with [`TextMeasure::measure_width`]. Overriding this never
+    /// changes [`PrepareOptions`](crate::PrepareOptions): callers keep passing
+    /// the same options and `shape_run` picks the richer path automatically.
+    fn shape_run(&self, _text: &str) -> Option<ShapedRun> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +100,69 @@ impl Default for EngineProfile {
 }
 
 // ---------------------------------------------------------------------------
+// Shaping seam
+// ---------------------------------------------------------------------------
+
+/// One shaped cluster: the advance width of a user-perceived character plus
+/// the byte range it covers in the source run.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShapedGlyph {
+    /// Advance width in pixels/points.
+    pub advance: f64,
+    /// Byte offset of the cluster start within the shaped run.
+    pub cluster_start: u32,
+    /// Byte offset of the cluster end within the shaped run.
+    pub cluster_end: u32,
+}
+
+/// Shaped form of a text run: per-grapheme advances with cluster mapping.
+///
+/// This is the seam where a real shaper (HarfBuzz/rustybuzz) plugs in without
+/// changing `PrepareOptions` or the prepare/layout split: [`shape_run`]
+/// prefers [`TextMeasure::shape_run`] when a backend provides it and otherwise
+/// derives advances from [`TextMeasure::measure_width`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapedRun {
+    /// One entry per grapheme in the run, in order.
+    pub glyphs: Arc<[ShapedGlyph]>,
+    /// Total advance (sum of `glyphs` advances).
+    pub width: f64,
+}
+
+impl ShapedRun {
+    /// Advances only, in grapheme order.
+    pub fn advances(&self) -> Vec<f64> {
+        self.glyphs.iter().map(|g| g.advance).collect()
+    }
+}
+
+/// Shape `text` into per-grapheme advances.
+///
+/// Uses [`TextMeasure::shape_run`] when the backend provides shaping;
+/// otherwise measures each grapheme with [`TextMeasure::measure_width`]
+/// (no ligatures/kerning). Always returns one [`ShapedGlyph`] per grapheme.
+pub fn shape_run(text: &str, measure: &dyn TextMeasure) -> ShapedRun {
+    if let Some(shaped) = measure.shape_run(text) {
+        return shaped;
+    }
+    let mut glyphs = Vec::new();
+    let mut width = 0.0;
+    for (start, g) in text.grapheme_indices(true) {
+        let advance = measure.measure_width(g);
+        width += advance;
+        glyphs.push(ShapedGlyph {
+            advance,
+            cluster_start: start as u32,
+            cluster_end: (start + g.len()) as u32,
+        });
+    }
+    ShapedRun {
+        glyphs: Arc::from(glyphs.into_boxed_slice()),
+        width,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Segment metrics
 // ---------------------------------------------------------------------------
 
@@ -104,25 +179,119 @@ pub struct SegmentMetrics {
 // ---------------------------------------------------------------------------
 
 /// Caches segment widths and grapheme-level metrics during the prepare phase.
+///
+/// The cache is a bounded LRU (see [`MeasureCache::with_budgets`]): once
+/// `capacity` entries or `max_bytes` of retained segment text are exceeded,
+/// least-recently-used entries are evicted. This bounds worst-case memory for
+/// adversarial inputs (e.g. per-grapheme CJK segments) where an unbounded map
+/// would grow without limit.
 pub struct MeasureCache {
     cache: HashMap<Arc<str>, SegmentMetrics>,
+    /// LRU order, front = least recently used.
+    order: std::collections::VecDeque<Arc<str>>,
+    /// Maximum entries retained.
+    capacity: usize,
+    /// Maximum retained segment-text bytes. `usize::MAX` means unbounded.
+    max_bytes: usize,
+    retained_bytes: usize,
 }
+
+/// Defaults for [`MeasureCache::new`]: generous enough that ordinary
+/// paragraphs never evict, tight enough to bound adversarial growth.
+pub const DEFAULT_MEASURE_CACHE_CAPACITY: usize = 4096;
+/// Default byte budget for retained segment text (~4 MiB).
+pub const DEFAULT_MEASURE_CACHE_MAX_BYTES: usize = 4 * 1024 * 1024;
 
 impl MeasureCache {
     pub fn new() -> Self {
+        Self::with_budgets(
+            DEFAULT_MEASURE_CACHE_CAPACITY,
+            DEFAULT_MEASURE_CACHE_MAX_BYTES,
+        )
+    }
+
+    /// Unbounded cache (legacy behavior). Prefer [`MeasureCache::new`].
+    pub fn unbounded() -> Self {
+        Self::with_budgets(usize::MAX, usize::MAX)
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self::with_budgets(capacity, usize::MAX)
+    }
+
+    pub fn with_budgets(capacity: usize, max_bytes: usize) -> Self {
         Self {
             cache: HashMap::new(),
+            order: std::collections::VecDeque::new(),
+            capacity: capacity.max(1),
+            max_bytes,
+            retained_bytes: 0,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.cache.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cache.is_empty()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    pub fn clear(&mut self) {
+        self.cache.clear();
+        self.order.clear();
+        self.retained_bytes = 0;
+    }
+
+    fn touch(&mut self, key: &Arc<str>) {
+        if let Some(pos) = self.order.iter().position(|k| k == key) {
+            let k = self.order.remove(pos).expect("lru position valid");
+            self.order.push_back(k);
+        }
+    }
+
+    fn evict_if_needed(&mut self) {
+        while (self.cache.len() > self.capacity
+            || (self.max_bytes != usize::MAX && self.retained_bytes > self.max_bytes))
+            // Never evict the most-recently-inserted entry: callers hold a
+            // reference to it across this call.
+            && self.order.len() > 1
+        {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            if self.cache.remove(&oldest).is_some() {
+                self.retained_bytes = self
+                    .retained_bytes
+                    .saturating_sub(oldest.len() + std::mem::size_of::<SegmentMetrics>());
+            }
         }
     }
 
     pub fn get_segment_metrics(&mut self, seg: &str, measure: &dyn TextMeasure) -> &SegmentMetrics {
-        match self.cache.raw_entry_mut().from_key(seg) {
-            RawEntryMut::Occupied(entry) => entry.into_mut(),
+        if self.cache.contains_key(seg) {
+            let stored_key = self.cache.get_key_value(seg).map(|(k, _)| Arc::clone(k));
+            if let Some(k) = stored_key {
+                self.touch(&k);
+            }
+            // Hit: the entry is not evicted on this path, so a second lookup
+            // is safe.
+            return self.cache.get(seg).expect("cache hit present");
+        }
+        let width = measure.measure_width(seg);
+        let contains_cjk = is_cjk(seg);
+        let key: Arc<str> = Arc::from(seg);
+        self.retained_bytes += key.len() + std::mem::size_of::<SegmentMetrics>();
+        self.order.push_back(Arc::clone(&key));
+        let metrics_ptr = match self.cache.raw_entry_mut().from_key(seg) {
+            RawEntryMut::Occupied(entry) => entry.into_mut() as *mut SegmentMetrics,
             RawEntryMut::Vacant(entry) => {
-                let width = measure.measure_width(seg);
-                let contains_cjk = is_cjk(seg);
                 let (_, metrics) = entry.insert(
-                    Arc::from(seg),
+                    key,
                     SegmentMetrics {
                         width,
                         contains_cjk,
@@ -130,9 +299,18 @@ impl MeasureCache {
                         grapheme_prefix_widths: None,
                     },
                 );
-                metrics
+                metrics as *mut SegmentMetrics
             }
-        }
+        };
+        // Evict after inserting so the new entry counts toward the budgets.
+        // The just-inserted key sits at the back of the LRU order, so it
+        // survives unless every budget is zero.
+        self.evict_if_needed();
+        // SAFETY: `evict_if_needed` only pops from the front of the LRU order
+        // while more than `capacity` entries exist; the back (this entry) is
+        // removed only when capacity is zero, which `with_budgets` forbids via
+        // `capacity.max(1)`.
+        unsafe { &*metrics_ptr }
     }
 
     pub fn get_width(&mut self, seg: &str, measure: &dyn TextMeasure) -> f64 {
@@ -379,5 +557,95 @@ mod tests {
     fn test_measure_cache_default() {
         let cache = MeasureCache::default();
         assert!(cache.cache.is_empty());
+    }
+
+    #[test]
+    fn test_bounded_cache_evicts_lru() {
+        let measure = FixedWidthMeasure { char_width: 10.0 };
+        let mut cache = MeasureCache::with_capacity(2);
+
+        let _ = cache.get_width("aaa", &measure);
+        let _ = cache.get_width("bbb", &measure);
+        assert_eq!(cache.len(), 2);
+        // Touch "aaa" so "bbb" becomes least-recently-used.
+        let _ = cache.get_width("aaa", &measure);
+        let _ = cache.get_width("ccc", &measure);
+        assert_eq!(cache.len(), 2);
+        assert!(cache.cache.contains_key("aaa"));
+        assert!(cache.cache.contains_key("ccc"));
+        assert!(!cache.cache.contains_key("bbb"));
+    }
+
+    #[test]
+    fn test_bounded_cache_stays_correct_after_eviction() {
+        struct CountingMeasure(std::cell::Cell<usize>);
+        impl TextMeasure for CountingMeasure {
+            fn measure_width(&self, text: &str) -> f64 {
+                self.0.set(self.0.get() + 1);
+                text.chars().count() as f64 * 10.0
+            }
+        }
+        let measure = CountingMeasure(std::cell::Cell::new(0));
+        let mut cache = MeasureCache::with_capacity(1);
+        assert!((cache.get_width("ab", &measure) - 20.0).abs() < 0.001);
+        // Evicted by the next insert; re-measure must still be correct.
+        assert!((cache.get_width("cd", &measure) - 20.0).abs() < 0.001);
+        assert!((cache.get_width("ab", &measure) - 20.0).abs() < 0.001);
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn test_shape_run_fallback_measures_graphemes() {
+        let measure = FixedWidthMeasure { char_width: 10.0 };
+        let shaped = shape_run("abc", &measure);
+        assert_eq!(shaped.glyphs.len(), 3);
+        assert!((shaped.width - 30.0).abs() < 0.001);
+        assert_eq!(
+            shaped
+                .glyphs
+                .iter()
+                .map(|g| (g.cluster_start, g.cluster_end))
+                .collect::<Vec<_>>(),
+            vec![(0, 1), (1, 2), (2, 3)]
+        );
+    }
+
+    #[test]
+    fn test_shape_run_prefers_backend_shaping() {
+        struct KernedMeasure;
+        impl TextMeasure for KernedMeasure {
+            fn measure_width(&self, text: &str) -> f64 {
+                text.chars().count() as f64 * 10.0
+            }
+            fn shape_run(&self, text: &str) -> Option<ShapedRun> {
+                // Fake kerned backend: "AV" pairs cost 15 instead of 20.
+                let mut glyphs = Vec::new();
+                let mut width = 0.0;
+                let mut chars = text.chars().peekable();
+                let mut byte = 0;
+                while let Some(ch) = chars.next() {
+                    let len = ch.len_utf8();
+                    let mut adv = 10.0;
+                    if ch == 'A' && chars.peek() == Some(&'V') {
+                        adv = 5.0;
+                    }
+                    width += adv;
+                    glyphs.push(ShapedGlyph {
+                        advance: adv,
+                        cluster_start: byte as u32,
+                        cluster_end: (byte + len) as u32,
+                    });
+                    byte += len;
+                }
+                Some(ShapedRun {
+                    glyphs: Arc::from(glyphs.into_boxed_slice()),
+                    width,
+                })
+            }
+        }
+        let measure = KernedMeasure;
+        let shaped = shape_run("AV", &measure);
+        assert!((shaped.width - 15.0).abs() < 0.001);
+        assert_eq!(shaped.glyphs.len(), 2);
     }
 }

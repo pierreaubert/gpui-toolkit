@@ -14,6 +14,7 @@ use super::layout_thresholds::LayoutThresholds;
 use super::spacing_rules::SpacingRules;
 use super::types::ConformanceFinding;
 use super::types::CornerRadiusStyle;
+use super::types::DensityTier;
 use super::types::GroupSeparatorStyle;
 use super::types::LabelPosition;
 use super::types::MotionSpec;
@@ -25,7 +26,7 @@ use std::sync::Arc;
 
 /// Every public design rule currently represented in the Style Dictionary export.
 /// Keep this exact count so an accidental omission becomes a CI-visible finding.
-const STYLE_DICTIONARY_TOKEN_COUNT: usize = 51;
+const STYLE_DICTIONARY_TOKEN_COUNT: usize = 60;
 
 /// Complete design system — all shape, spacing, and interaction rules
 /// needed to render platform-appropriate UIs.
@@ -72,6 +73,7 @@ impl DesignSystem {
                 lg: 12.0,
                 xl: 16.0,
                 style: CornerRadiusStyle::Circular,
+                flip_in_rtl: true,
             },
             spacing: SpacingRules {
                 grid_unit: 4.0,
@@ -80,12 +82,18 @@ impl DesignSystem {
                 control_gap: 8.0,
                 section_gap: 16.0,
                 card_padding: 12.0,
+                density: DensityTier::Medium,
+                flip_in_rtl: true,
             },
             interaction: InteractionRules {
                 min_touch_target: 32.0,
                 border_width: 1.0,
                 focus_ring_width: 2.0,
                 focus_ring_offset: 2.0,
+                state_hover_opacity: 0.08,
+                state_focus_opacity: 0.12,
+                state_pressed_opacity: 0.12,
+                state_dragged_opacity: 0.16,
             },
             elevation: ElevationRules {
                 level_0_blur: 0.0,
@@ -108,6 +116,8 @@ impl DesignSystem {
                 base_size: 14.0,
                 small_size: 11.0,
                 large_size: 18.0,
+                fluid_min_size: 11.0,
+                fluid_max_size: 18.0,
             },
             layout: LayoutThresholds {
                 vertical_threshold: 400.0,
@@ -143,6 +153,7 @@ impl DesignSystem {
                 lg: 22.0,
                 xl: 30.0,
                 style: CornerRadiusStyle::Continuous,
+                flip_in_rtl: true,
             },
             spacing: SpacingRules {
                 grid_unit: 8.0,
@@ -151,12 +162,18 @@ impl DesignSystem {
                 control_gap: 10.0,
                 section_gap: 24.0,
                 card_padding: 20.0,
+                density: DensityTier::Medium,
+                flip_in_rtl: true,
             },
             interaction: InteractionRules {
                 min_touch_target: 44.0,
                 border_width: 0.5,
                 focus_ring_width: 3.0,
                 focus_ring_offset: 3.0,
+                state_hover_opacity: 0.08,
+                state_focus_opacity: 0.12,
+                state_pressed_opacity: 0.12,
+                state_dragged_opacity: 0.16,
             },
             elevation: ElevationRules {
                 level_0_blur: 0.0,
@@ -179,6 +196,8 @@ impl DesignSystem {
                 base_size: 15.0,
                 small_size: 12.0,
                 large_size: 22.0,
+                fluid_min_size: 12.0,
+                fluid_max_size: 22.0,
             },
             layout: LayoutThresholds {
                 vertical_threshold: 400.0,
@@ -214,6 +233,7 @@ impl DesignSystem {
                 lg: 16.0,
                 xl: 28.0,
                 style: CornerRadiusStyle::Circular,
+                flip_in_rtl: true,
             },
             spacing: SpacingRules {
                 grid_unit: 4.0,
@@ -222,12 +242,18 @@ impl DesignSystem {
                 control_gap: 8.0,
                 section_gap: 16.0,
                 card_padding: 16.0,
+                density: DensityTier::Medium,
+                flip_in_rtl: true,
             },
             interaction: InteractionRules {
                 min_touch_target: 48.0,
                 border_width: 1.0,
                 focus_ring_width: 2.0,
                 focus_ring_offset: 2.0,
+                state_hover_opacity: 0.08,
+                state_focus_opacity: 0.12,
+                state_pressed_opacity: 0.12,
+                state_dragged_opacity: 0.16,
             },
             elevation: ElevationRules {
                 level_0_blur: 0.0,
@@ -250,6 +276,8 @@ impl DesignSystem {
                 base_size: 14.0,
                 small_size: 12.0,
                 large_size: 22.0,
+                fluid_min_size: 12.0,
+                fluid_max_size: 22.0,
             },
             layout: LayoutThresholds {
                 vertical_threshold: 360.0,
@@ -285,6 +313,7 @@ impl DesignSystem {
                 lg: 8.0,
                 xl: 8.0,
                 style: CornerRadiusStyle::Circular,
+                flip_in_rtl: true,
             },
             spacing: SpacingRules {
                 grid_unit: 4.0,
@@ -293,12 +322,18 @@ impl DesignSystem {
                 control_gap: 8.0,
                 section_gap: 16.0,
                 card_padding: 12.0,
+                density: DensityTier::Compact,
+                flip_in_rtl: true,
             },
             interaction: InteractionRules {
                 min_touch_target: 32.0,
                 border_width: 1.0,
                 focus_ring_width: 2.0,
                 focus_ring_offset: 1.0,
+                state_hover_opacity: 0.08,
+                state_focus_opacity: 0.12,
+                state_pressed_opacity: 0.12,
+                state_dragged_opacity: 0.16,
             },
             elevation: ElevationRules {
                 level_0_blur: 0.0,
@@ -321,6 +356,8 @@ impl DesignSystem {
                 base_size: 14.0,
                 small_size: 12.0,
                 large_size: 18.0,
+                fluid_min_size: 12.0,
+                fluid_max_size: 18.0,
             },
             layout: LayoutThresholds {
                 vertical_threshold: 400.0,
@@ -356,6 +393,7 @@ impl DesignSystem {
                 lg: 16.0,
                 xl: 18.0,
                 style: CornerRadiusStyle::Circular,
+                flip_in_rtl: true,
             },
             spacing: SpacingRules {
                 grid_unit: 6.0,
@@ -364,12 +402,18 @@ impl DesignSystem {
                 control_gap: 6.0,
                 section_gap: 18.0,
                 card_padding: 18.0,
+                density: DensityTier::Medium,
+                flip_in_rtl: true,
             },
             interaction: InteractionRules {
                 min_touch_target: 40.0,
                 border_width: 1.0,
                 focus_ring_width: 2.0,
                 focus_ring_offset: 2.0,
+                state_hover_opacity: 0.08,
+                state_focus_opacity: 0.12,
+                state_pressed_opacity: 0.12,
+                state_dragged_opacity: 0.16,
             },
             elevation: ElevationRules {
                 level_0_blur: 0.0,
@@ -392,6 +436,8 @@ impl DesignSystem {
                 base_size: 14.0,
                 small_size: 12.0,
                 large_size: 20.0,
+                fluid_min_size: 12.0,
+                fluid_max_size: 20.0,
             },
             layout: LayoutThresholds {
                 vertical_threshold: 400.0,
@@ -427,6 +473,7 @@ impl DesignSystem {
                 lg: 8.0,
                 xl: 10.0,
                 style: CornerRadiusStyle::Circular,
+                flip_in_rtl: true,
             },
             spacing: SpacingRules {
                 grid_unit: 4.0,
@@ -435,12 +482,18 @@ impl DesignSystem {
                 control_gap: 6.0,
                 section_gap: 12.0,
                 card_padding: 12.0,
+                density: DensityTier::Compact,
+                flip_in_rtl: true,
             },
             interaction: InteractionRules {
                 min_touch_target: 32.0,
                 border_width: 1.0,
                 focus_ring_width: 2.0,
                 focus_ring_offset: 1.0,
+                state_hover_opacity: 0.08,
+                state_focus_opacity: 0.12,
+                state_pressed_opacity: 0.12,
+                state_dragged_opacity: 0.16,
             },
             elevation: ElevationRules {
                 level_0_blur: 0.0,
@@ -463,6 +516,8 @@ impl DesignSystem {
                 base_size: 14.0,
                 small_size: 12.0,
                 large_size: 20.0,
+                fluid_min_size: 12.0,
+                fluid_max_size: 20.0,
             },
             layout: LayoutThresholds {
                 vertical_threshold: 400.0,
@@ -498,6 +553,7 @@ impl DesignSystem {
                 lg: 0.0,
                 xl: 0.0,
                 style: CornerRadiusStyle::Circular,
+                flip_in_rtl: true,
             },
             spacing: SpacingRules {
                 grid_unit: 2.0,
@@ -506,12 +562,18 @@ impl DesignSystem {
                 control_gap: 8.0,
                 section_gap: 16.0,
                 card_padding: 16.0,
+                density: DensityTier::Compact,
+                flip_in_rtl: true,
             },
             interaction: InteractionRules {
                 min_touch_target: 32.0,
                 border_width: 1.0,
                 focus_ring_width: 2.0,
                 focus_ring_offset: 0.0,
+                state_hover_opacity: 0.08,
+                state_focus_opacity: 0.12,
+                state_pressed_opacity: 0.12,
+                state_dragged_opacity: 0.16,
             },
             elevation: ElevationRules {
                 level_0_blur: 0.0,
@@ -534,6 +596,8 @@ impl DesignSystem {
                 base_size: 14.0,
                 small_size: 12.0,
                 large_size: 20.0,
+                fluid_min_size: 12.0,
+                fluid_max_size: 20.0,
             },
             layout: LayoutThresholds {
                 vertical_threshold: 400.0,
@@ -626,6 +690,11 @@ impl DesignSystem {
                 },
                 "string",
             ),
+            token(
+                "radius.flip_in_rtl",
+                self.corners.flip_in_rtl,
+                "boolean",
+            ),
             token("spacing.grid_unit", self.spacing.grid_unit, "dimension"),
             token(
                 "spacing.control_padding_x",
@@ -643,6 +712,16 @@ impl DesignSystem {
                 "spacing.card_padding",
                 self.spacing.card_padding,
                 "dimension",
+            ),
+            token(
+                "spacing.density",
+                self.spacing.density.as_str(),
+                "string",
+            ),
+            token(
+                "spacing.flip_in_rtl",
+                self.spacing.flip_in_rtl,
+                "boolean",
             ),
             token(
                 "interaction.min_touch_target",
@@ -663,6 +742,26 @@ impl DesignSystem {
                 "interaction.focus_ring_offset",
                 self.interaction.focus_ring_offset,
                 "dimension",
+            ),
+            token(
+                "interaction.state_hover_opacity",
+                self.interaction.state_hover_opacity,
+                "number",
+            ),
+            token(
+                "interaction.state_focus_opacity",
+                self.interaction.state_focus_opacity,
+                "number",
+            ),
+            token(
+                "interaction.state_pressed_opacity",
+                self.interaction.state_pressed_opacity,
+                "number",
+            ),
+            token(
+                "interaction.state_dragged_opacity",
+                self.interaction.state_dragged_opacity,
+                "number",
             ),
             token(
                 "elevation.level_0_blur",
@@ -713,6 +812,16 @@ impl DesignSystem {
                 "typography.dynamic_sizing",
                 self.typography.dynamic_sizing,
                 "boolean",
+            ),
+            token(
+                "typography.fluid_min_size",
+                self.typography.fluid_min_size,
+                "dimension",
+            ),
+            token(
+                "typography.fluid_max_size",
+                self.typography.fluid_max_size,
+                "dimension",
             ),
             token("motion.duration_ms", self.animation.duration_ms, "duration"),
             token("motion.fast_ms", self.animation.fast_ms, "duration"),
@@ -843,6 +952,63 @@ impl DesignSystem {
         ]
     }
 
+    /// Emit `:root` CSS custom properties for web/Style-Dictionary consumers.
+    ///
+    /// Dimensions render as `px`, durations as `ms`; every other token keeps
+    /// its raw export value.
+    pub fn to_css_variables(&self) -> String {
+        let mut out = String::from(":root {\n");
+        for token in self.style_dictionary_tokens().iter() {
+            out.push_str(&format!(
+                "  --{}: {};\n",
+                token.name().replace(['.', '_'], "-"),
+                css_value(token)
+            ));
+        }
+        out.push_str("}\n");
+        out
+    }
+
+    /// Emit a Tailwind-compatible theme object as JSON: token names to values.
+    ///
+    /// Numeric tokens (`number`/`dimension`/`duration`/`boolean`) stay raw so
+    /// downstream configs can do arithmetic; strings stay quoted.
+    pub fn to_tailwind_theme_json(&self) -> String {
+        let tokens = self.style_dictionary_tokens();
+        let mut out = String::from("{");
+        for (index, token) in tokens.iter().enumerate() {
+            if index > 0 {
+                out.push_str(", ");
+            }
+            out.push('"');
+            out.push_str(token.name());
+            out.push_str("\": ");
+            match token.token_type {
+                "number" | "dimension" | "duration" | "boolean" => {
+                    out.push_str(&token.value);
+                }
+                _ => {
+                    out.push('"');
+                    out.push_str(
+                        &token.value.replace('\\', "\\\\").replace('"', "\\\""),
+                    );
+                    out.push('"');
+                }
+            }
+        }
+        out.push('}');
+        out
+    }
+
+    /// RTL-mirrored copy of this system.
+    ///
+    /// Current presets use symmetric spacing/corners (and set `flip_in_rtl`),
+    /// so the mirror is value-stable. This is the single audit point for RTL
+    /// consumers when asymmetric tokens land.
+    pub fn mirrored_for_rtl(&self) -> Self {
+        self.clone()
+    }
+
     /// Produce a lightweight conformance report for CI and docs.
     pub fn conformance_report(&self, _reduced_motion_required: bool) -> DesignConformanceReport {
         let mut findings = Vec::new();
@@ -948,6 +1114,45 @@ impl DesignSystem {
                 message: Cow::Borrowed("dynamic typography large_size must be >= base_size"),
             });
         }
+        if !(self.typography.fluid_min_size.is_finite()
+            && self.typography.fluid_max_size.is_finite()
+            && self.typography.fluid_min_size > 0.0
+            && self.typography.fluid_max_size > 0.0
+            && self.typography.fluid_min_size <= self.typography.base_size
+            && self.typography.base_size <= self.typography.fluid_max_size)
+        {
+            findings.push(ConformanceFinding {
+                id: "typography.fluid_scale",
+                message: Cow::Borrowed(
+                    "fluid type sizes must be finite, positive, and ordered min <= base <= max",
+                ),
+            });
+        }
+        for (id, value) in [
+            (
+                "interaction.state_hover_opacity",
+                self.interaction.state_hover_opacity,
+            ),
+            (
+                "interaction.state_focus_opacity",
+                self.interaction.state_focus_opacity,
+            ),
+            (
+                "interaction.state_pressed_opacity",
+                self.interaction.state_pressed_opacity,
+            ),
+            (
+                "interaction.state_dragged_opacity",
+                self.interaction.state_dragged_opacity,
+            ),
+        ] {
+            if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+                findings.push(ConformanceFinding {
+                    id,
+                    message: Cow::Borrowed("state-layer opacity must be finite and in [0, 1]"),
+                });
+            }
+        }
 
         if !(self.animation.fast_ms <= self.animation.duration_ms
             && self.animation.duration_ms <= self.animation.slow_ms)
@@ -1036,6 +1241,14 @@ impl DesignSystem {
                 reduced_motion: false,
             }
         }
+    }
+}
+
+fn css_value(token: &DesignToken) -> String {
+    match token.token_type {
+        "dimension" => format!("{}px", token.value),
+        "duration" => format!("{}ms", token.value),
+        _ => token.value.clone(),
     }
 }
 

@@ -6,7 +6,9 @@
 
 pub use gpui;
 
+pub mod event_stages;
 pub mod momentum;
+pub mod packages;
 pub mod platform_view;
 
 #[cfg(any(target_os = "android", test))]
@@ -191,27 +193,5 @@ mod credential_alias_tests {
             credential_alias("https://example.com", "alice"),
             credential_alias("https://other.example", "alice")
         );
-    }
-}
-
-#[cfg(target_os = "android")]
-#[allow(dead_code)]
-mod packages {
-    pub mod deeplink {
-        pub fn notify_deep_link(_url: &str) {}
-    }
-
-    pub mod media_session {
-        #[derive(Clone, Copy, Debug)]
-        pub enum MediaAction {
-            Play,
-            Pause,
-            Stop,
-            Next,
-            Previous,
-        }
-
-        pub fn notify_action(_action: MediaAction) {}
-        pub fn notify_seek(_position_ms: u64) {}
     }
 }

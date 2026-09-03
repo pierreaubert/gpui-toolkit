@@ -1,5 +1,6 @@
 use super::mini_app_config::MiniAppConfig;
 use super::mini_app_shell::MiniAppShell;
+use super::mini_app_state::{MiniAppState, load_miniapp_state, save_miniapp_state};
 use super::misc::current_platform;
 use crate::{
     Quit, SetLanguageEnglish, SetLanguageFrench, SetLanguageGerman, SetLanguageJapanese,
@@ -122,6 +123,20 @@ impl MiniApp {
         V: Render + 'static,
         F: FnOnce(&mut App) -> Entity<V> + 'static,
     {
+        Self::run_with_close_handler(config, |_, _| {}, build_view);
+    }
+
+    /// Run a MiniApp, invoking `on_close` every time a window closes.
+    ///
+    /// When [`MiniAppConfig::state_file`] is set, the current session state is
+    /// saved first and `on_close` runs afterwards, so the handler observes the
+    /// same theme/language values that were just snapshotted to disk.
+    pub fn run_with_close_handler<V, F, H>(config: MiniAppConfig, on_close: H, build_view: F)
+    where
+        V: Render + 'static,
+        F: FnOnce(&mut App) -> Entity<V> + 'static,
+        H: FnMut(&mut App, WindowId) + 'static,
+    {
         let config = match Self::config_with_cli_window_min_size(config) {
             Ok(config) => config,
             Err(error) => {
@@ -132,6 +147,7 @@ impl MiniApp {
                 return;
             }
         };
+        let config = Self::config_with_persisted_state(config);
         let config_rc = Rc::new(config);
 
         let platform = match current_platform() {
@@ -143,6 +159,8 @@ impl MiniApp {
         };
 
         let launch = move |cx: &mut App| {
+            Self::register_close_handler(cx, &config_rc, on_close);
+
             // Initialize theme state if enabled
             if config_rc.with_theme {
                 cx.set_global(ThemeState::with_variant(config_rc.initial_theme));
@@ -166,56 +184,63 @@ impl MiniApp {
                 cx.quit();
             });
 
+            // The closures below are all `'static`, so each one holds its own
+            // cheap `Rc` clone pointing at this single shared config
+            // allocation; the config itself is allocated exactly once above.
+            let shared_config = Rc::clone(&config_rc);
+
             // Register theme actions if enabled
             if config_rc.with_theme {
-                let config_for_theme = config_rc.clone();
+                let theme_config = Rc::clone(&shared_config);
+                let config = Rc::clone(&theme_config);
                 cx.on_action::<ToggleTheme>(move |_action, cx| {
                     cx.update_global::<ThemeState, _>(|state, _cx| {
                         state.toggle();
                     });
-                    Self::refresh_menus(cx, &config_for_theme);
+                    Self::refresh_menus(cx, &config);
                     cx.refresh_windows();
                 });
 
-                let config_for_theme = config_rc.clone();
+                let config = Rc::clone(&theme_config);
                 cx.on_action::<SetThemeVariant>(move |action, cx| {
                     Self::set_theme_variant(cx, action.variant);
-                    Self::refresh_menus(cx, &config_for_theme);
+                    Self::refresh_menus(cx, &config);
                 });
             }
 
             // Register design system actions
-            let config_for_design = config_rc.clone();
+            let config = Rc::clone(&shared_config);
             cx.on_action::<SetDesignLanguage>(move |action, cx| {
                 Self::set_design_language(cx, action.language);
-                Self::refresh_menus(cx, &config_for_design);
+                Self::refresh_menus(cx, &config);
             });
 
             // Register language actions if enabled
             if config_rc.with_i18n {
-                let config_for_lang = config_rc.clone();
+                let language_config = Rc::clone(&shared_config);
+                let config = Rc::clone(&language_config);
                 cx.on_action::<SetLanguageEnglish>(move |_action, cx| {
-                    Self::set_language(cx, &config_for_lang, Language::English);
+                    Self::set_language(cx, &config, Language::English);
                 });
 
-                let config_for_lang = config_rc.clone();
+                let config = Rc::clone(&language_config);
                 cx.on_action::<SetLanguageFrench>(move |_action, cx| {
-                    Self::set_language(cx, &config_for_lang, Language::French);
+                    Self::set_language(cx, &config, Language::French);
                 });
 
-                let config_for_lang = config_rc.clone();
+                let config = Rc::clone(&language_config);
                 cx.on_action::<SetLanguageGerman>(move |_action, cx| {
-                    Self::set_language(cx, &config_for_lang, Language::German);
+                    Self::set_language(cx, &config, Language::German);
                 });
 
-                let config_for_lang = config_rc.clone();
+                let config = Rc::clone(&language_config);
                 cx.on_action::<SetLanguageSpanish>(move |_action, cx| {
-                    Self::set_language(cx, &config_for_lang, Language::Spanish);
+                    Self::set_language(cx, &config, Language::Spanish);
                 });
 
-                let config_for_lang = config_rc.clone();
+                let config = Rc::clone(&language_config);
                 cx.on_action::<SetLanguageJapanese>(move |_action, cx| {
-                    Self::set_language(cx, &config_for_lang, Language::Japanese);
+                    Self::set_language(cx, &config, Language::Japanese);
                 });
             }
 
@@ -307,6 +332,67 @@ impl MiniApp {
         config: MiniAppConfig,
     ) -> Result<MiniAppConfig, String> {
         Ok(config)
+    }
+
+    /// Overlay persisted session values (window size, theme, language) onto a
+    /// configuration. A missing or unreadable state file leaves the config
+    /// untouched; a partially valid file applies only its valid lines.
+    pub(super) fn config_with_persisted_state(mut config: MiniAppConfig) -> MiniAppConfig {
+        let Some(path) = config.state_file.clone() else {
+            return config;
+        };
+        let Some(state) = load_miniapp_state(&path) else {
+            return config;
+        };
+        if let Some(width) = state.width {
+            config.width = width;
+        }
+        if let Some(height) = state.height {
+            config.height = height;
+        }
+        if let Some(theme) = state.theme {
+            config.initial_theme = theme;
+        }
+        if let Some(language) = state.language {
+            config.initial_language = language;
+        }
+        config
+    }
+
+    /// Register the window-close observer: snapshot session state to
+    /// [`MiniAppConfig::state_file`] (when set), then invoke `on_close`.
+    ///
+    /// `on_window_closed` unregisters when its [`Subscription`] drops. The
+    /// shell lives for the lifetime of the app, so the subscription is
+    /// intentionally leaked — the same pattern as the wasm `run_embedded`
+    /// handle kept alive below.
+    fn register_close_handler<H>(cx: &mut App, config: &MiniAppConfig, on_close: H)
+    where
+        H: FnMut(&mut App, WindowId) + 'static,
+    {
+        let state_file = config.state_file.clone();
+        let fallback_theme = config.initial_theme;
+        let fallback_language = config.initial_language;
+        let fallback_size = (config.width, config.height);
+        let mut on_close = on_close;
+        std::mem::forget(cx.on_window_closed(move |cx: &mut App, window_id| {
+            if let Some(path) = state_file.as_deref() {
+                let theme = cx
+                    .try_global::<ThemeState>()
+                    .map(|state| state.theme.variant)
+                    .unwrap_or(fallback_theme);
+                let language = cx
+                    .try_global::<I18nState>()
+                    .map(|state| state.language)
+                    .unwrap_or(fallback_language);
+                let snapshot =
+                    MiniAppState::snapshot(fallback_size.0, fallback_size.1, theme, language);
+                if let Err(error) = save_miniapp_state(path, &snapshot) {
+                    eprintln!("MiniApp state save error: {error}");
+                }
+            }
+            on_close(cx, window_id);
+        }));
     }
 
     /// Build the menu bar based on configuration and current language
@@ -447,6 +533,12 @@ impl MiniApp {
     }
 
     fn set_language(cx: &mut App, config: &MiniAppConfig, language: Language) {
+        if cx
+            .try_global::<I18nState>()
+            .is_some_and(|state| state.language == language)
+        {
+            return;
+        }
         cx.update_global::<I18nState, _>(|state, _cx| {
             state.set_language(language);
         });
@@ -455,6 +547,12 @@ impl MiniApp {
     }
 
     fn set_theme_variant(cx: &mut App, variant: ThemeVariant) {
+        if cx
+            .try_global::<ThemeState>()
+            .is_some_and(|state| state.theme.variant == variant)
+        {
+            return;
+        }
         cx.update_global::<ThemeState, _>(|state, _cx| {
             state.set_variant(variant);
         });
@@ -462,6 +560,12 @@ impl MiniApp {
     }
 
     fn set_design_language(cx: &mut App, language: DesignLanguage) {
+        if cx
+            .try_global::<DesignSystemState>()
+            .is_some_and(|state| state.system.language == language)
+        {
+            return;
+        }
         cx.set_global(DesignSystemState::with_system(DesignSystem::for_language(
             language,
         )));

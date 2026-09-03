@@ -13,6 +13,7 @@
 //! ```
 
 use crate::ComponentTheme;
+use crate::i18n::LayoutDirection;
 use crate::theme::ThemeExt;
 use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
@@ -62,6 +63,8 @@ struct SplitPaneDragState {
     start_pos: f32,
     start_ratio: f32,
     is_vertical: bool,
+    /// Mirror horizontal drag deltas (RTL layouts).
+    mirror: bool,
 }
 
 thread_local! {
@@ -80,6 +83,7 @@ pub struct SplitPane {
     divider_width: Pixels,
     on_resize: Option<Rc<dyn Fn(f32, &mut Window, &mut App) + 'static>>,
     design: Option<Arc<DesignSystem>>,
+    layout_direction: LayoutDirection,
 }
 
 impl SplitPane {
@@ -96,12 +100,24 @@ impl SplitPane {
             divider_width: px(10.0),
             on_resize: None,
             design: None,
+            layout_direction: LayoutDirection::default(),
         }
     }
 
     /// Set split direction
     pub fn direction(mut self, direction: SplitDirection) -> Self {
         self.direction = direction;
+        self
+    }
+
+    /// Set the logical layout direction for bidi (RTL) mirroring.
+    ///
+    /// Under [`LayoutDirection::Rtl`], a horizontal split mirrors: the first
+    /// pane renders on the right and drag deltas invert so dragging toward
+    /// the pane grows it. Vertical splits are unaffected. Resolve from
+    /// [`LayoutDirection::of`] or [`crate::Language::layout_direction`].
+    pub fn layout_direction(mut self, direction: LayoutDirection) -> Self {
+        self.layout_direction = direction;
         self
     }
 
@@ -203,6 +219,9 @@ impl SplitPane {
         };
 
         let is_vertical = self.direction == SplitDirection::Horizontal;
+        // RTL mirrors horizontal pane order; drag deltas invert with it.
+        let mirrored =
+            self.layout_direction.is_rtl() && self.direction == SplitDirection::Horizontal;
         let on_resize = self.on_resize;
         let id = self.id.clone();
 
@@ -268,6 +287,7 @@ impl SplitPane {
                             start_pos: pos,
                             start_ratio,
                             is_vertical,
+                            mirror: mirrored,
                         },
                     );
                 });
@@ -282,10 +302,18 @@ impl SplitPane {
             SplitDirection::Vertical => second_pane.w_full().min_h(self.min_second),
         };
 
-        container = container
-            .child(first_pane)
-            .child(divider)
-            .child(second_pane);
+        container = if mirrored {
+            // RTL: first pane leads from the right.
+            container
+                .child(second_pane)
+                .child(divider)
+                .child(first_pane)
+        } else {
+            container
+                .child(first_pane)
+                .child(divider)
+                .child(second_pane)
+        };
 
         // Drag move / end on the container so tracking continues when the
         // cursor leaves the thin divider.
@@ -304,7 +332,11 @@ impl SplitPane {
                         } else {
                             window.viewport_size().height.into()
                         };
-                        let delta = pos - state.start_pos;
+                        let delta = if state.mirror {
+                            state.start_pos - pos
+                        } else {
+                            pos - state.start_pos
+                        };
                         let new_ratio = (state.start_ratio + delta / viewport).clamp(0.0, 1.0);
                         resize_cb(new_ratio, window, cx);
                     }
@@ -343,11 +375,28 @@ impl IntoElement for SplitPane {
 #[cfg(test)]
 mod tests {
     use super::SplitPane;
+    use crate::i18n::LayoutDirection;
 
     #[test]
     fn test_split_pane_drag_handlers_do_not_panic() {
         let _el = SplitPane::new("test-split")
             .on_resize(|_ratio, _window, _cx| {})
             .build_with_theme(&super::SplitPaneTheme::default());
+    }
+
+    #[test]
+    fn test_split_pane_rtl_mirror_builds() {
+        let pane = SplitPane::new("test-rtl")
+            .layout_direction(LayoutDirection::Rtl)
+            .on_resize(|_ratio, _window, _cx| {});
+        assert!(pane.layout_direction.is_rtl());
+        let _el = pane.build_with_theme(&super::SplitPaneTheme::default());
+
+        let ltr = SplitPane::new("test-ltr");
+        assert!(!ltr.layout_direction.is_rtl());
+        assert_eq!(
+            crate::i18n::Language::English.layout_direction(),
+            LayoutDirection::Ltr
+        );
     }
 }

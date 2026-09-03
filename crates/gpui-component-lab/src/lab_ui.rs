@@ -4,6 +4,7 @@
 #[doc(hidden)]
 pub mod allocation_contracts;
 mod component_lab;
+pub mod deep_link;
 mod first;
 mod initial_lab_state;
 mod lab_app_config;
@@ -24,6 +25,7 @@ mod types;
 mod visual_capture;
 
 pub use component_lab::*;
+pub use deep_link::*;
 pub use lab_app_config::*;
 #[cfg(feature = "visual-capture")]
 pub use visual_capture::*;

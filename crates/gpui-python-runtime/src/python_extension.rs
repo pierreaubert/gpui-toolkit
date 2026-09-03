@@ -100,8 +100,8 @@ use d3rs::shape::{
     link_vertical as shape_link_vertical, polar_grid_circles as shape_polar_grid_circles,
     polar_grid_rays as shape_polar_grid_rays, radial_area as shape_radial_area,
     radial_line as shape_radial_line, try_arc_points, try_link_horizontal, try_link_radial,
-    try_link_step, try_link_vertical, try_polar_grid_circles, try_polar_grid_rays,
-    try_radial_area, try_radial_line,
+    try_link_step, try_link_vertical, try_polar_grid_circles, try_polar_grid_rays, try_radial_area,
+    try_radial_line,
 };
 use d3rs::tile::{TileError as D3TileError, TileLayout as D3TileLayout};
 use d3rs::time::{Interval, TimeFormat, TimeFormatParts, TimeInterval, TimeScale};
@@ -4683,7 +4683,7 @@ fn polar_grid_circle_paths(
             Ok(shape_polar_grid_circles(cx, cy, &radii))
         }
     })
-        .map_err(|error| PyValueError::new_err(error.to_string()))
+    .map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
 #[pyfunction]
@@ -4710,7 +4710,7 @@ fn polar_grid_ray_paths(
             ))
         }
     })
-        .map_err(|error| PyValueError::new_err(error.to_string()))
+    .map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
 type NativePathCommand = (String, Vec<f64>);
@@ -4910,6 +4910,7 @@ fn shape_point_lerp(a: NativePoint, b: NativePoint, t: f64) -> PyResult<NativePo
 }
 
 #[pyfunction]
+#[pyo3(signature = (top, bottom, defined, kind, parameter, *, checked=true))]
 fn shape_area_generate(
     py: Python<'_>,
     top: Vec<NativePoint>,
@@ -4917,6 +4918,7 @@ fn shape_area_generate(
     defined: Vec<bool>,
     kind: &str,
     parameter: Option<f64>,
+    checked: bool,
 ) -> PyResult<Vec<NativePathCommand>> {
     if top.len() != bottom.len() || top.len() != defined.len() {
         return Err(PyValueError::new_err(format!(
@@ -4933,14 +4935,20 @@ fn shape_area_generate(
         let top_y = top.iter().map(|point| point.1).collect::<Vec<_>>();
         let bottom_x = bottom.iter().map(|point| point.0).collect::<Vec<_>>();
         let bottom_y = bottom.iter().map(|point| point.1).collect::<Vec<_>>();
-        ShapeArea::new()
-            .x1(move |index: &usize| top_x[*index])
-            .y1(move |index: &usize| top_y[*index])
-            .x0(move |index: &usize| bottom_x[*index])
-            .y0(move |index: &usize| bottom_y[*index])
-            .defined(move |index: &usize| defined[*index])
-            .curve(curve)
-            .try_generate(&indices)
+        let area = || {
+            ShapeArea::new()
+                .x1(move |index: &usize| top_x[*index])
+                .y1(move |index: &usize| top_y[*index])
+                .x0(move |index: &usize| bottom_x[*index])
+                .y0(move |index: &usize| bottom_y[*index])
+                .defined(move |index: &usize| defined[*index])
+                .curve(curve)
+        };
+        if checked {
+            area().try_generate(&indices)
+        } else {
+            Ok(area().generate(&indices))
+        }
     });
     path.map(|path| native_path_commands(&path))
         .map_err(|error| PyValueError::new_err(error.to_string()))
@@ -4949,16 +4957,26 @@ fn shape_area_generate(
 type NativeSimpleArea = (Vec<NativePoint>, Vec<NativePathCommand>);
 
 #[pyfunction]
+#[pyo3(signature = (x, y0, y1, *, checked=true))]
 fn shape_simple_area(
     py: Python<'_>,
     x: Vec<f64>,
     y0: Vec<f64>,
     y1: Vec<f64>,
+    checked: bool,
 ) -> PyResult<NativeSimpleArea> {
     let result = py.allow_threads(move || {
         let area = SimpleArea::new(x, y0, y1);
-        let points = area.try_points()?;
-        let path = area.try_path()?;
+        let points = if checked {
+            area.try_points()?
+        } else {
+            area.points()
+        };
+        let path = if checked {
+            area.try_path()?
+        } else {
+            area.path()
+        };
         Ok::<_, d3rs::shape::AreaGenerationError>((points, path))
     });
     let (points, path) = result.map_err(|error| PyValueError::new_err(error.to_string()))?;

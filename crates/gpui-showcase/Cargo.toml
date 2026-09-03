@@ -1,6 +1,6 @@
 [package]
 name = "gpui-showcase"
-version = "0.9.3"
+version = "0.9.4"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -21,6 +21,11 @@ gpui-d3rs = { workspace = true }
 gpui-miniapp = { workspace = true }
 gpui-design = { workspace = true, features = ["gpui"] }
 gpui-profiler = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 gpui-ios = { workspace = true }

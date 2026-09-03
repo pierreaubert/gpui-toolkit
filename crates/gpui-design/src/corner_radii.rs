@@ -14,6 +14,8 @@ pub struct CornerRadii {
     pub xl: f32,
     /// Corner rendering style.
     pub style: CornerRadiusStyle,
+    /// Whether asymmetric corners flip in RTL layouts.
+    pub flip_in_rtl: bool,
 }
 
 impl CornerRadii {
@@ -28,6 +30,7 @@ impl CornerRadii {
             lg,
             xl,
             style,
+            flip_in_rtl: true,
         }
     }
 }

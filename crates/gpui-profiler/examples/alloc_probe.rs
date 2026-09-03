@@ -1,18 +1,25 @@
-use gpui_profiler::{AllocProbe, AllocSnapshot};
+use gpui_profiler::{AllocProbe, AllocSnapshot, samples_to_chrome_trace, samples_to_csv};
 
 fn main() {
     let mut probe = AllocProbe::new();
+    let mut series = Vec::new();
 
     // Leave probes in hot-path code, then opt into real allocation counting only
     // for profiling builds with `--features global-allocator`.
     probe.reset();
     do_steady_work();
+    series.push(probe.sample_labeled("steady-work"));
     report("steady-work", probe.sample("steady-work"));
 
     probe.reset();
     let values = do_allocating_work();
+    series.push(probe.sample_labeled("allocating-work"));
     report("allocating-work", probe.sample("allocating-work"));
     std::hint::black_box(values);
+
+    println!("peak sample bytes: {}", probe.peak_bytes());
+    println!("--- csv ---\n{}", samples_to_csv(&series));
+    println!("--- chrome trace ---\n{}", samples_to_chrome_trace(&series));
 
     #[cfg(feature = "global-allocator")]
     eprintln!("allocation counting is enabled");
@@ -37,7 +44,10 @@ fn do_allocating_work() -> Vec<usize> {
 
 fn report(label: &str, snapshot: AllocSnapshot) {
     println!(
-        "{label}: {} allocations, {} bytes",
-        snapshot.count, snapshot.bytes
+        "{label}: {} allocations ({} fresh, {} reallocs), {} bytes",
+        snapshot.count,
+        snapshot.allocs(),
+        snapshot.reallocs,
+        snapshot.bytes
     );
 }

@@ -1,5 +1,16 @@
 # Unreleased
 
+## Added
+
+- Split the `surface3d` paint path into camera/cull/tessellate/submit stages
+  with pure helpers and cache tests.
+- Added clone-free quadtree accessors and NaN-safe `total_cmp` sorts.
+
+## Fixed
+
+- Replaced panic-prone `partial_cmp().unwrap()` sorts across array/scale
+  modules.
+
 ## 0.9.15 - 2026-08-23
 
 ### Performance

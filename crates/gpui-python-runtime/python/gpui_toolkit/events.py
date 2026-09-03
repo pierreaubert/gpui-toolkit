@@ -38,6 +38,58 @@ class Selection(Event):
         return (self.payload or {}).get("row_id") or (self.payload or {}).get("object_id")
 
     @property
+    def keys(self) -> tuple[str, ...]:
+        """Stable selected row/object keys (alias for ``selected_keys``)."""
+        return self.selected_keys
+
+    @property
+    def key(self) -> str | None:
+        """The first selected key, useful for single-selection charts."""
+        keys = self.selected_keys
+        if keys:
+            return keys[0]
+        value = (self.payload or {}).get("key")
+        return None if value is None else str(value)
+
+    @property
+    def x(self) -> float | None:
+        return _finite_float((self.payload or {}).get("x"))
+
+    @property
+    def y(self) -> float | None:
+        return _finite_float((self.payload or {}).get("y"))
+
+    @property
+    def series(self) -> str | None:
+        value = (self.payload or {}).get("series")
+        return None if value is None else str(value)
+
+    @property
+    def series_index(self) -> int | None:
+        value = (self.payload or {}).get("series_index")
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def point_index(self) -> int | None:
+        value = (self.payload or {}).get("point_index")
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def value(self) -> float | None:
+        """Numeric value carried by categorical or treemap selections."""
+        return _finite_float((self.payload or {}).get("value"))
+
+    @property
     def plot_id(self) -> str | None:
         return (self.payload or {}).get("plot_id")
 
@@ -85,6 +137,21 @@ class Viewport(Event):
         return None if value is None else (float(value[0]), float(value[1]))
 
     @property
+    def zoom_level(self) -> int | None:
+        value = (self.payload or {}).get("zoom_level")
+        if isinstance(value, bool) or value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def is_zoomed(self) -> bool | None:
+        value = (self.payload or {}).get("is_zoomed")
+        return value if isinstance(value, bool) else None
+
+    @property
     def camera(self) -> dict[str, Any] | None:
         value = (self.payload or {}).get("camera")
         return None if value is None else dict(value)
@@ -126,3 +193,19 @@ def specialize(message: dict[str, Any]) -> Event:
         "commit": ValueChange,
     }.get(base.event, Event)
     return event_type(**base.__dict__)
+
+
+def _finite_float(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if result == result and abs(result) != float("inf") else None
+
+
+# Descriptive aliases make callback annotations read naturally while retaining
+# the compact wire event names and backwards-compatible classes.
+ChartSelection = Selection
+ChartViewport = Viewport

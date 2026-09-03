@@ -47,8 +47,17 @@ impl Language {
             Language::Japanese => "ja",
         }
     }
+}
 
-    /// Get flag emoji
+impl Language {
+    /// Logical layout direction for this language (bidi/RTL mirroring).
+    ///
+    /// All currently supported languages are LTR; this returns
+    /// [`LayoutDirection::Rtl`] once RTL locales are added.
+    pub const fn layout_direction(self) -> LayoutDirection {
+        LayoutDirection::of(self)
+    }
+
     pub fn flag(&self) -> &'static str {
         match self {
             Language::English => "GB",
@@ -57,5 +66,37 @@ impl Language {
             Language::Spanish => "ES",
             Language::Japanese => "JP",
         }
+    }
+}
+
+/// Logical layout direction for bidi (RTL) mirroring.
+///
+/// SOTA kits mirror spacing, pane order, and corner radii under RTL locales
+/// via logical properties. Components take this explicitly so headless/test
+/// contexts stay deterministic; resolve it from [`Language`] with
+/// [`Language::layout_direction`] or [`LayoutDirection::of`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum LayoutDirection {
+    /// Left-to-right (default).
+    #[default]
+    Ltr,
+    /// Right-to-left: horizontal layouts mirror.
+    Rtl,
+}
+
+impl LayoutDirection {
+    /// Resolve the layout direction for a language.
+    ///
+    /// All currently supported languages are LTR; this returns [`Self::Rtl`]
+    /// once RTL locales (e.g. Arabic, Hebrew) are added, keeping the
+    /// mirroring plumbing in place ahead of the translations.
+    pub const fn of(language: Language) -> Self {
+        let _ = language;
+        Self::Ltr
+    }
+
+    /// Whether horizontal layouts using this direction mirror.
+    pub const fn is_rtl(self) -> bool {
+        matches!(self, Self::Rtl)
     }
 }

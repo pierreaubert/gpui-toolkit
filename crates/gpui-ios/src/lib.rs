@@ -9,10 +9,13 @@
 pub use gpui;
 
 pub mod accessibility;
+pub mod haptics;
 pub mod hot_reload;
 pub mod instrumentation;
+pub mod local_auth;
 pub mod momentum;
 pub mod native;
+pub mod notifications;
 pub mod pencil;
 pub mod platform_view;
 pub mod widget;

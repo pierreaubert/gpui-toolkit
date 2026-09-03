@@ -845,6 +845,67 @@ class CurveKind(str, Enum):
     MONOTONE_X: CurveKind
     MONOTONE_Y: CurveKind
     NATURAL: CurveKind
+
+CurveType = CurveKind
+
+class StrokeDashArray(str, Enum):
+    SOLID: StrokeDashArray
+    DOTTED: StrokeDashArray
+    DASHED: StrokeDashArray
+    DASH_DOT: StrokeDashArray
+    @classmethod
+    def custom(cls, values: Sequence[float]) -> CustomDashArray: ...
+
+class CustomDashArray:
+    values: tuple[float, ...]
+    def __init__(self, values: Sequence[float]) -> None: ...
+
+class LinePoint:
+    x: float
+    y: float
+    def __init__(self, x: float, y: float) -> None: ...
+    @classmethod
+    def new(cls, x: float, y: float) -> LinePoint: ...
+
+class LineRenderErrorKind(str, Enum):
+    NON_FINITE_DATA_COORDINATE: LineRenderErrorKind
+    NON_FINITE_SCALE_RANGE: LineRenderErrorKind
+    NON_FINITE_SCALE_OUTPUT: LineRenderErrorKind
+    NON_FINITE_CONFIG_FIELD: LineRenderErrorKind
+    NEGATIVE_CONFIG_FIELD: LineRenderErrorKind
+    OPACITY_OUT_OF_RANGE: LineRenderErrorKind
+    EMPTY_DASH_PATTERN: LineRenderErrorKind
+    INVALID_DASH_LENGTH: LineRenderErrorKind
+
+class LineRenderError(ValueError):
+    kind: LineRenderErrorKind
+    index: int | None
+    coordinate: str | None
+    axis: str | None
+    endpoint: str | None
+    field: str | None
+    value: float | None
+
+class LineSceneGeometry:
+    points: tuple[tuple[float, float], ...]
+    segments: tuple[tuple[float, float, float, float], ...]
+
+class LineConfig:
+    @classmethod
+    def new(cls) -> LineConfig: ...
+    @classmethod
+    def from_design(cls, design: object) -> LineConfig: ...
+    def with_design(self, design: object) -> LineConfig: ...
+    def stroke_color(self, color: object) -> LineConfig: ...
+    def stroke_width(self, width: float) -> LineConfig: ...
+    def opacity(self, opacity: float) -> LineConfig: ...
+    def curve(self, curve: Curve | CurveKind | str) -> LineConfig: ...
+    def show_points(self, show: bool) -> LineConfig: ...
+    def point_radius(self, radius: float) -> LineConfig: ...
+    def point_fill_color(self, color: object) -> LineConfig: ...
+    def dash_array(self, pattern: StrokeDashArray | CustomDashArray | Sequence[float]) -> LineConfig: ...
+    def renderer_2d(self, renderer: object) -> LineConfig: ...
+    def vello_backend(self, backend: object) -> LineConfig: ...
 class Curve:
     kind: CurveKind
     parameter: float | None
@@ -937,7 +998,18 @@ class RadialAreaConfig:
     def curve(self, value: Curve | CurveKind | str) -> RadialAreaConfig: ...
     def generate(self, points: Sequence[RadialPoint | tuple[float, float]]) -> str: ...
     def try_generate(self, points: Sequence[RadialPoint | tuple[float, float]]) -> str: ...
-AreaGenerationError: type[ValueError]
+class AreaGenerationErrorKind(str, Enum):
+    NON_FINITE_COORDINATE: AreaGenerationErrorKind
+    COORDINATE_LENGTH_MISMATCH: AreaGenerationErrorKind
+
+class AreaGenerationError(ValueError):
+    kind: AreaGenerationErrorKind
+    index: int | None
+    coordinate: str | None
+    value: float | None
+    x_len: int | None
+    y0_len: int | None
+    y1_len: int | None
 class Area:
     def x(self, accessor: Callable[[object], float]) -> Area: ...
     def x0(self, accessor: Callable[[object], float]) -> Area: ...

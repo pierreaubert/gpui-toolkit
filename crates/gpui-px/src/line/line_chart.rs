@@ -1377,6 +1377,9 @@ impl LineChart {
         let primary_hidden = self.hidden_series.contains(&0);
 
         let primary_data = cached_line_points(&self.x, &self.y, &mut self.primary_data_cache);
+        // Big-data path: decimate to a fixed render budget past 10k points.
+        // The cache above keeps full resolution for export and hit-testing.
+        let primary_render_data = crate::decimation::decimate_line_points(&primary_data);
 
         // Create configs for primary series
         let mut primary_config = LineConfig::from_design(&design)
@@ -1402,6 +1405,7 @@ impl LineChart {
             // Use custom X values if provided, otherwise use primary X values
             let x_values = series.x.as_ref().unwrap_or(&self.x);
             let series_points = cached_line_points(x_values, &series.y, &mut series.data_cache);
+            let series_points = crate::decimation::decimate_line_points(&series_points);
 
             let mut series_config = LineConfig::from_design(&design)
                 .stroke_color(D3Color::from_hex(series.color))
@@ -1470,7 +1474,7 @@ impl LineChart {
                     &grid_config,
                     &axis_theme,
                     primary_hidden,
-                    &primary_data,
+                    &primary_render_data,
                     &primary_config,
                     &series_data_configs,
                     &secondary_series_data_configs,
@@ -1515,7 +1519,7 @@ impl LineChart {
                     &grid_config,
                     &axis_theme,
                     primary_hidden,
-                    &primary_data,
+                    &primary_render_data,
                     &primary_config,
                     &series_data_configs,
                     &secondary_series_data_configs,
@@ -1559,7 +1563,7 @@ impl LineChart {
                     &grid_config,
                     &axis_theme,
                     primary_hidden,
-                    &primary_data,
+                    &primary_render_data,
                     &primary_config,
                     &series_data_configs,
                     &secondary_series_data_configs,
@@ -1606,7 +1610,7 @@ impl LineChart {
                     &grid_config,
                     &axis_theme,
                     primary_hidden,
-                    &primary_data,
+                    &primary_render_data,
                     &primary_config,
                     &series_data_configs,
                     &secondary_series_data_configs,

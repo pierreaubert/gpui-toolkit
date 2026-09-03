@@ -505,3 +505,161 @@ fn menus_mark_the_active_theme_design_and_language() {
     assert_eq!(menus[2].name.as_ref(), "Langue");
     assert_eq!(checked_action_names(&menus[2].items), ["Français"]);
 }
+
+// ========================================================================
+// Session State Persistence Tests
+// ========================================================================
+
+use super::mini_app_state::{
+    MiniAppState, language_from_code, load_miniapp_state, save_miniapp_state, theme_from_name,
+};
+use std::path::PathBuf;
+
+fn unique_state_path(tag: &str) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "miniapp-state-test-{}-{}-{tag}.txt",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+    ))
+}
+
+#[test]
+fn theme_names_round_trip_all_variants_case_insensitively() {
+    for variant in ThemeVariant::all() {
+        assert_eq!(theme_from_name(variant.name()), Some(*variant));
+        assert_eq!(
+            theme_from_name(&variant.name().to_ascii_lowercase()),
+            Some(*variant)
+        );
+        assert_eq!(
+            theme_from_name(&format!("  {}  ", variant.name())),
+            Some(*variant)
+        );
+    }
+    assert_eq!(
+        theme_from_name("Black & White"),
+        Some(ThemeVariant::BlackAndWhite)
+    );
+    assert_eq!(
+        theme_from_name("black & white"),
+        Some(ThemeVariant::BlackAndWhite)
+    );
+    assert_eq!(theme_from_name("Not A Theme"), None);
+    assert_eq!(theme_from_name(""), None);
+}
+
+#[test]
+fn language_codes_round_trip_all_languages_case_insensitively() {
+    for language in Language::all() {
+        assert_eq!(language_from_code(language.code()), Some(*language));
+        assert_eq!(
+            language_from_code(&language.code().to_ascii_uppercase()),
+            Some(*language)
+        );
+        assert_eq!(
+            language_from_code(&format!(" {} ", language.code())),
+            Some(*language)
+        );
+    }
+    assert_eq!(language_from_code("xx"), None);
+    assert_eq!(language_from_code(""), None);
+}
+
+#[test]
+fn state_snapshot_and_is_empty() {
+    let full = MiniAppState::snapshot(800.0, 600.0, ThemeVariant::Light, Language::French);
+    assert!(!full.is_empty());
+    assert_eq!(full.width, Some(800.0));
+    assert_eq!(full.theme, Some(ThemeVariant::Light));
+    assert!(MiniAppState::default().is_empty());
+}
+
+#[test]
+fn state_save_and_load_round_trip() {
+    let path = unique_state_path("roundtrip");
+    let state = MiniAppState::snapshot(1024.0, 768.0, ThemeVariant::Forest, Language::Japanese);
+    save_miniapp_state(&path, &state).expect("save should succeed");
+    let loaded = load_miniapp_state(&path).expect("load should succeed");
+    assert_eq!(loaded, state);
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn state_load_missing_file_is_none() {
+    let path = unique_state_path("missing");
+    assert_eq!(load_miniapp_state(&path), None);
+}
+
+#[test]
+fn state_load_ignores_garbage_but_applies_valid_lines() {
+    let path = unique_state_path("garbage");
+    std::fs::write(
+        &path,
+        "# comment\n\nno-equals-here\nwidth=-5\nwidth=NaN\nheight=0\ntheme=Bogus\nlanguage=xx\nunknown_key=1\n  language  =  fr  \nwidth=640\n",
+    )
+    .expect("fixture write should succeed");
+    let loaded = load_miniapp_state(&path).expect("load should succeed");
+    assert_eq!(loaded.width, Some(640.0));
+    assert_eq!(loaded.height, None);
+    assert_eq!(loaded.theme, None);
+    assert_eq!(loaded.language, Some(Language::French));
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn state_load_empty_file_yields_empty_state() {
+    let path = unique_state_path("empty");
+    std::fs::write(&path, "# only a comment\n\n").expect("fixture write should succeed");
+    let loaded = load_miniapp_state(&path).expect("load should succeed");
+    assert!(loaded.is_empty());
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn state_save_creates_parent_directories() {
+    let dir = unique_state_path("parentdir");
+    let path = dir.join("nested").join("state.txt");
+    let state = MiniAppState::snapshot(900.0, 700.0, ThemeVariant::Dark, Language::English);
+    save_miniapp_state(&path, &state).expect("save should create parents");
+    assert_eq!(load_miniapp_state(&path), Some(state));
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn config_state_file_defaults_to_none_and_builder_sets_path() {
+    let config = MiniAppConfig::new("Test");
+    assert_eq!(config.state_file, None);
+    let path = unique_state_path("builder");
+    let config = MiniAppConfig::new("Test").state_file(&path);
+    assert_eq!(config.state_file, Some(path));
+}
+
+#[test]
+fn config_with_persisted_state_applies_file_and_ignores_missing() {
+    // Missing file: config untouched.
+    let missing = MiniAppConfig::new("Test")
+        .size(111.0, 222.0)
+        .state_file(unique_state_path("absent"));
+    let kept = MiniApp::config_with_persisted_state(missing.clone());
+    assert_eq!(kept.width, 111.0);
+    assert_eq!(kept.height, 222.0);
+
+    // Present file: valid fields override, builder values kept otherwise.
+    let path = unique_state_path("apply");
+    std::fs::write(&path, "width=1280\ntheme=Light\nlanguage=ja\n")
+        .expect("fixture write should succeed");
+    let config = MiniAppConfig::new("Test")
+        .size(111.0, 222.0)
+        .initial_theme(ThemeVariant::Dark)
+        .state_file(&path);
+    let applied = MiniApp::config_with_persisted_state(config);
+    assert_eq!(applied.width, 1280.0);
+    assert_eq!(applied.height, 222.0);
+    assert_eq!(applied.initial_theme, ThemeVariant::Light);
+    assert_eq!(applied.initial_language, Language::Japanese);
+    let _ = std::fs::remove_file(&path);
+}

@@ -11,8 +11,9 @@ macOS-only (`#[cfg(target_os = "macos")]`). Follows the same pattern as `gpui-io
 - `display.rs` — `AuDisplay`: display identification for the AU host
 - `dispatcher.rs` — `AuDispatcher`: thread dispatch for GPUI event loop
 - `text_system.rs` — `AuTextSystem`: CoreText-based text rendering
-- `ffi.rs` — FFI functions called from Swift: `gpui_au_request_frame()`, mouse/keyboard event forwarding
-- `helpers.rs` — Objective-C runtime helpers
+- `ffi.rs` — FFI functions called from Swift: `gpui_au_request_frame()`, mouse/keyboard event forwarding, `gpui_au_parameter_*` / state save-load
+- `params.rs` — minimal `AUParameterTree` + `fullState` bridge (atomic values, observer tokens, versioned byte encoding)
+- `helpers.rs` — Objective-C runtime helpers (`nslog` for failures, `nslog_verbose` for progress; `verbose-logging` feature forces verbose in release)
 
 ## Key Public API
 

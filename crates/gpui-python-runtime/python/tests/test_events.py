@@ -53,3 +53,50 @@ class EventTests(unittest.TestCase):
         changed = specialize({"id":"e3","node_id":"gain","event":"change","payload":{"value":0.5}})
         self.assertIsInstance(changed, ValueChange)
         self.assertEqual(changed.value, 0.5)
+
+    def test_chart_selection_and_viewport_properties(self):
+        selection = specialize(
+            {
+                "id": "e4",
+                "sequence": 4,
+                "node_id": "response",
+                "event": "selection_change",
+                "action": "selected",
+                "payload": {
+                    "keys": ["row-7"],
+                    "row_id": "row-7",
+                    "x": 20.0,
+                    "y": 73.5,
+                    "series": "Left",
+                    "series_index": 1,
+                    "point_index": 7,
+                },
+            }
+        )
+        self.assertIsInstance(selection, Selection)
+        self.assertEqual(selection.key, "row-7")
+        self.assertEqual(selection.x, 20.0)
+        self.assertEqual(selection.y, 73.5)
+        self.assertEqual(selection.series, "Left")
+        self.assertEqual(selection.series_index, 1)
+        self.assertEqual(selection.point_index, 7)
+
+        viewport = specialize(
+            {
+                "id": "e5",
+                "sequence": 5,
+                "node_id": "response",
+                "event": "viewport_change",
+                "payload": {
+                    "x": [20.0, 200.0],
+                    "y": [60.0, 80.0],
+                    "zoom_level": 2,
+                    "is_zoomed": True,
+                },
+            }
+        )
+        self.assertIsInstance(viewport, Viewport)
+        self.assertEqual(viewport.x_range, (20.0, 200.0))
+        self.assertEqual(viewport.y_range, (60.0, 80.0))
+        self.assertEqual(viewport.zoom_level, 2)
+        self.assertTrue(viewport.is_zoomed)

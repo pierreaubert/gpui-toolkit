@@ -6,20 +6,20 @@ use gpui_design_tools::{
 };
 use std::path::PathBuf;
 
-use gpui_design_tools::write_text_atomically;
+use gpui_design_tools::write_text_atomically_with_durability;
 
 #[derive(Parser)]
 #[command(
     name = "gpui-validate-design-tokens",
     about = "Validate GPUI design tokens and emit stable CI reports.",
-    long_about = "Validate GPUI design tokens in Style Dictionary JSON format. The JSON report uses the stable gpui-design-token-validation schema and is intended for CI, release gates, and downstream tooling."
+    long_about = "Validate GPUI design tokens in Style Dictionary or W3C DTCG JSON format. The JSON report uses the stable gpui-design-token-validation schema and is intended for CI, release gates, and downstream tooling."
 )]
 struct Args {
     #[arg(
         short,
         long,
         default_value = "style-dictionary-json",
-        help = "Token wire format: style-dictionary-json, style_dictionary_json, or json"
+        help = "Token wire format: style-dictionary-json or w3c-dtcg-json"
     )]
     format: String,
     #[arg(
@@ -37,6 +37,11 @@ struct Args {
     report_json: Option<PathBuf>,
     #[arg(long, help = "Write a human-readable markdown report to this path")]
     report_markdown: Option<PathBuf>,
+    #[arg(
+        long,
+        help = "fsync report files before replacing their destinations (slower, crash-durable)"
+    )]
+    durable: bool,
 }
 
 fn main() -> Result<()> {
@@ -78,6 +83,7 @@ fn main() -> Result<()> {
         write_report(
             path,
             json_report.as_deref().expect("JSON report is available"),
+            args.durable,
         )?;
     }
     if let Some(path) = args.report_markdown.as_deref() {
@@ -90,12 +96,12 @@ fn main() -> Result<()> {
                 markdown.push_str(&format!("- {finding}\n"));
             }
         }
-        write_report(path, markdown)?;
+        write_report(path, markdown, args.durable)?;
     }
 
     validation_result
 }
 
-fn write_report(path: &std::path::Path, body: impl AsRef<[u8]>) -> Result<()> {
-    write_text_atomically(path, body)
+fn write_report(path: &std::path::Path, body: impl AsRef<[u8]>, durable: bool) -> Result<()> {
+    write_text_atomically_with_durability(path, body, durable)
 }

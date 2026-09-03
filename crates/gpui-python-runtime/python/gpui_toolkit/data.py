@@ -7,6 +7,8 @@ Arrow adapters are discovered only when callers use them.
 """
 from __future__ import annotations
 
+import struct
+
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field as dataclass_field
@@ -732,6 +734,29 @@ class ArrayData:
         return cls(data, shape=shape, dtype=dtype, id=id)
 
     @classmethod
+    def from_sequence(
+        cls,
+        values: Sequence[Any] | Iterable[Any],
+        *,
+        shape: Sequence[int],
+        dtype: str,
+        id: str | None = None,
+    ) -> "ArrayData":
+        """Create a dense resource from a small typed Python sequence.
+
+        Buffer-protocol producers should use :meth:`from_buffer` to preserve
+        zero-copy ingestion. This convenience path validates the declared
+        shape and packs values into the little-endian wire format used by the
+        native host.
+        """
+        normalized_shape = tuple(int(size) for size in shape)
+        if not normalized_shape or any(size <= 0 for size in normalized_shape):
+            raise DataError("array shape must contain positive dimensions")
+        flat = _flatten_array_sequence(values, normalized_shape)
+        payload = _pack_array_values(flat, dtype)
+        return cls(payload, shape=normalized_shape, dtype=dtype, id=id)
+
+    @classmethod
     def from_numpy(cls, array: Any, *, id: str | None = None) -> "ArrayData":
         if not hasattr(array, "shape") or not hasattr(array, "dtype"):
             raise DataError("from_numpy requires a NumPy-compatible shape and dtype")
@@ -841,3 +866,68 @@ class ArrayData:
     def _ensure_open(self) -> None:
         if self._closed:
             raise ClosedResourceError(f"array {self.id!r} is closed")
+
+
+def _flatten_array_sequence(values: Any, shape: tuple[int, ...]) -> list[Any]:
+    """Flatten nested sequences while enforcing every declared dimension."""
+    def walk(value: Any, depth: int, path: tuple[int, ...]) -> list[Any]:
+        if depth == len(shape):
+            if isinstance(value, (str, bytes, bytearray, memoryview)):
+                raise DataError(f"array sequence value at {path!r} must be numeric")
+            return [value]
+        if isinstance(value, (str, bytes, bytearray, memoryview)):
+            raise DataError(f"array sequence dimension at {path!r} is not a sequence")
+        try:
+            items = list(value)
+        except TypeError as error:
+            raise DataError(f"array sequence dimension at {path!r} is not a sequence") from error
+        expected = shape[depth]
+        if len(items) != expected:
+            raise DataError(
+                f"array sequence shape mismatch at dimension {depth}: "
+                f"expected {expected}, got {len(items)}"
+            )
+        flattened: list[Any] = []
+        for index, item in enumerate(items):
+            flattened.extend(walk(item, depth + 1, (*path, index)))
+        return flattened
+
+    return walk(values, 0, ())
+
+
+def _pack_array_values(values: Sequence[Any], dtype: str) -> bytes:
+    formats = {
+        "u8": "B", "uint8": "B", "bool": "B",
+        "i8": "b", "int8": "b",
+        "u16": "H", "uint16": "H", "i16": "h", "int16": "h",
+        "u32": "I", "uint32": "I", "i32": "i", "int32": "i",
+        "u64": "Q", "uint64": "Q", "i64": "q", "int64": "q",
+        "f16": "e", "float16": "e", "f32": "f", "float32": "f",
+        "f64": "d", "float64": "d",
+    }
+    format_code = formats.get(str(dtype).lower())
+    if format_code is None:
+        raise DataError(f"unsupported array dtype {dtype!r}")
+    normalized: list[Any] = []
+    for index, value in enumerate(values):
+        try:
+            if format_code == "B" and str(dtype).lower() == "bool":
+                if not isinstance(value, (bool, int)) or isinstance(value, bool) and value not in (True, False):
+                    raise TypeError
+                normalized.append(1 if value else 0)
+            elif format_code in {"B", "b", "H", "h", "I", "i", "Q", "q"}:
+                if not isinstance(value, int) or isinstance(value, bool):
+                    raise TypeError
+                normalized.append(value)
+            else:
+                if isinstance(value, bool):
+                    raise TypeError
+                normalized.append(float(value))
+        except (TypeError, ValueError, OverflowError) as error:
+            raise DataError(
+                f"array sequence value at flat index {index} is incompatible with dtype {dtype!r}"
+            ) from error
+    try:
+        return struct.pack("<" + format_code * len(normalized), *normalized)
+    except (struct.error, TypeError, ValueError, OverflowError) as error:
+        raise DataError(f"array sequence values cannot be packed as dtype {dtype!r}") from error

@@ -6,6 +6,11 @@ use gpui_builder::{Axis, SolvedNode};
 /// Default MiniApp shell that applies designer defaults and solves the content
 /// slot with gpui-builder when the default `builder` feature is enabled.
 pub(super) struct MiniAppShell {
+    /// Content view handle. `AnyView` is already a cheap cloneable handle
+    /// (entity id plus a render fn pointer and an optional style `Rc`), so
+    /// the single clone per frame in [`render`](Render::render) is the minimum
+    /// needed to re-emit the element; wrapping it in another `Rc` would only
+    /// add indirection without removing an allocation.
     pub(super) inner: AnyView,
     pub(super) scrollable: bool,
 }

@@ -64,7 +64,7 @@ impl<R: Clone> QuantileScale<R> {
     pub fn domain(mut self, mut samples: Vec<f64>) -> Self {
         // Remove NaN values and sort
         samples.retain(|x| !x.is_nan());
-        samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        samples.sort_by(|a, b| a.total_cmp(b));
         self.domain_samples = samples;
         self.recompute_thresholds();
         self

@@ -25,7 +25,12 @@ impl ColorField {
     }
 }
 
-/// All editable color fields
+/// All editable color fields.
+///
+/// Cached in a `OnceLock`: the field list is built once per process, so
+/// per-render callers only pay for a pointer load. Per-keystroke value
+/// caching is incremental — see `ThemeEditor::update_color`, which refreshes
+/// only the edited field's hex/detail entries instead of rebuilding the maps.
 pub fn all_color_fields() -> &'static [ColorField] {
     use std::sync::OnceLock;
     static FIELDS: OnceLock<Vec<ColorField>> = OnceLock::new();

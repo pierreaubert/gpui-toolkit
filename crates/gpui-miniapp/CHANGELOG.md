@@ -1,5 +1,10 @@
 # Unreleased
 
+## Added
+
+- Added a dedicated `mini_app_state` module with expanded config/shell
+  options and host lifecycle tests.
+
 ## New
 
 - Added Android platform support so mini-app based showcase binaries can run

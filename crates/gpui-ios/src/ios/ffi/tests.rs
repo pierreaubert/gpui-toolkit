@@ -44,13 +44,7 @@ fn exported_host_entry_points_are_null_safe_before_view_attach() {
     gpui_ios_will_resign_active(std::ptr::null_mut());
     gpui_ios_did_enter_background(std::ptr::null_mut());
     gpui_ios_will_terminate(std::ptr::null_mut());
-    assert!(!gpui_ios_register_platform_view_factory(
-        std::ptr::null(),
-        0,
-        None,
-        None,
-        None,
-        None,
-        None,
-    ));
+    assert!(!unsafe {
+        gpui_ios_register_platform_view_factory(std::ptr::null(), 0, None, None, None, None, None)
+    });
 }

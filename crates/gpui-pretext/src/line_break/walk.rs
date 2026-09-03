@@ -3,6 +3,7 @@ use super::get::get_tab_advance;
 use super::knuth_plass_params::KnuthPlassParams;
 use super::misc::can_break_after;
 use super::misc::fit_soft_hyphen_break;
+use super::misc::skipped_at_fresh_line_start;
 use super::types::InternalLayoutLine;
 use super::types::PreparedLineBreakData;
 use super::types::breakpoints_to_lines;
@@ -158,6 +159,16 @@ fn walk_prepared_lines_simple(
 
     let mut i = 0;
     while i < widths.len() {
+        // Mirror normalize_line_start (incremental path): a fresh line never
+        // starts with a collapsible/break-opportunity segment.
+        if !has_content {
+            while i < widths.len() && skipped_at_fresh_line_start(kinds[i]) {
+                i += 1;
+            }
+            if i >= widths.len() {
+                break;
+            }
+        }
         let w = widths[i];
         let kind = kinds[i];
 
@@ -334,6 +345,18 @@ pub fn walk_prepared_lines(
 
         let mut i = chunk.start_segment_index;
         while i < chunk.end_segment_index {
+            // Mirror normalize_line_start (incremental path): a fresh line
+            // never starts with a collapsible/break-opportunity segment.
+            // Reaching the chunk end this way contributes no line, exactly as
+            // the incremental path continues past the chunk.
+            if !has_content {
+                while i < chunk.end_segment_index && skipped_at_fresh_line_start(kinds[i]) {
+                    i += 1;
+                }
+                if i >= chunk.end_segment_index {
+                    break;
+                }
+            }
             let kind = kinds[i];
             let w = if kind == SegmentBreakKind::Tab {
                 get_tab_advance(line_w, tab_stop_advance)
@@ -612,10 +635,111 @@ pub fn walk_prepared_lines(
     line_count
 }
 
+/// Optimal breaking for multi-chunk (hard-break) paragraphs.
+///
+/// Solves each chunk independently, buffering by-value [`InternalLayoutLine`]s
+/// (no per-line clone) and replaying them only after every chunk has an
+/// optimal solution; a single infeasible chunk falls back to greedy for the
+/// whole paragraph. The buffer is capacity-reserved upfront so steady-state
+/// walks perform at most one allocation.
+fn walk_optimal_multi_chunk(
+    prepared: &PreparedLineBreakData,
+    max_width: f64,
+    profile: &EngineProfile,
+    params: &KnuthPlassParams,
+    mut on_line: Option<&mut dyn FnMut(&InternalLayoutLine)>,
+) -> usize {
+    let mut total_lines = 0;
+    // Do not invoke the caller until every chunk has an optimal solution.
+    // A later fallback must restart greedily from the beginning.
+    // Reserve ~2 lines per chunk (paragraph + overflow) to avoid regrowth.
+    let mut pending_lines: Vec<InternalLayoutLine> =
+        Vec::with_capacity(prepared.chunks.len().saturating_mul(2).max(2));
+
+    for chunk in prepared.chunks.as_ref() {
+        if chunk.start_segment_index == chunk.end_segment_index {
+            // Empty chunk (hard break only).
+            total_lines += 1;
+            pending_lines.push(InternalLayoutLine {
+                start_segment_index: chunk.start_segment_index,
+                start_grapheme_index: 0,
+                end_segment_index: chunk.consumed_end_segment_index,
+                end_grapheme_index: 0,
+                width: 0.0,
+            });
+            continue;
+        }
+
+        // Build a zero-copy view over this chunk's segment range.
+        let chunk_start = chunk.start_segment_index;
+        let chunk_end = chunk.end_segment_index;
+        let sub_prepared =
+            prepared.slice(chunk_start, chunk_end, chunk.consumed_end_segment_index);
+
+        let items = build_kp_items(&sub_prepared, profile, params);
+
+        let result =
+            knuth_plass_chunk(&items, max_width, params, params.tolerance).or_else(|| {
+                if params.looseness_recovery {
+                    // Retry with progressively larger tolerance.
+                    for extra in [2.0, 4.0, 8.0, 16.0] {
+                        let result = knuth_plass_chunk(
+                            &items,
+                            max_width,
+                            params,
+                            params.tolerance + extra,
+                        );
+                        if result.is_some() {
+                            return result;
+                        }
+                    }
+                }
+                None
+            });
+
+        match result {
+            Some(mut breaks) => {
+                let mut collect =
+                    |line: &InternalLayoutLine| pending_lines.push(*line);
+                let mut on_pending_line: Option<&mut dyn FnMut(&InternalLayoutLine)> =
+                    Some(&mut collect);
+                // Remap chunk-local breakpoints to global coordinates in
+                // place (no per-chunk allocation), then point the last break
+                // at the chunk's consumed end.
+                breaks.remap_segments(chunk_start);
+                breaks.set_last_break((chunk.consumed_end_segment_index, 0));
+
+                total_lines += breakpoints_to_lines(
+                    prepared,
+                    profile,
+                    &breaks,
+                    &mut on_pending_line,
+                );
+            }
+            None => {
+                // Fall back to greedy for the entire paragraph.
+                return walk_prepared_lines(prepared, max_width, profile, on_line);
+            }
+        }
+    }
+
+    if let Some(cb) = on_line.as_mut() {
+        for line in &pending_lines {
+            cb(line);
+        }
+    }
+    total_lines
+}
+
 /// Run Knuth-Plass optimal line breaking on prepared data.
 ///
 /// Returns the number of lines. If `on_line` is provided, calls it for each line.
 /// Falls back to greedy if Knuth-Plass finds no feasible solution.
+///
+/// Strategy split: greedy counting lives in [`walk_prepared_lines`] (which
+/// itself delegates to the `_simple` fast path when possible); this function
+/// only runs the optimal solver, with per-chunk work in
+/// `walk_optimal_multi_chunk` above.
 pub fn walk_prepared_lines_optimal(
     prepared: &PreparedLineBreakData,
     max_width: f64,
@@ -630,94 +754,8 @@ pub fn walk_prepared_lines_optimal(
 
     // For multi-chunk data (hard breaks), process each chunk separately.
     if prepared.chunks.len() > 1 {
-        let mut total_lines = 0;
-        // Do not invoke the caller until every chunk has an optimal solution.
-        // A later fallback must restart greedily from the beginning.
-        let mut pending_lines = Vec::new();
-
-        for chunk in prepared.chunks.as_ref() {
-            if chunk.start_segment_index == chunk.end_segment_index {
-                // Empty chunk (hard break only).
-                total_lines += 1;
-                {
-                    let mut collect = |line: &InternalLayoutLine| pending_lines.push(line.clone());
-                    collect(&InternalLayoutLine {
-                        start_segment_index: chunk.start_segment_index,
-                        start_grapheme_index: 0,
-                        end_segment_index: chunk.consumed_end_segment_index,
-                        end_grapheme_index: 0,
-                        width: 0.0,
-                    });
-                }
-                continue;
-            }
-
-            // Build a zero-copy view over this chunk's segment range.
-            let chunk_start = chunk.start_segment_index;
-            let chunk_end = chunk.end_segment_index;
-            let sub_prepared =
-                prepared.slice(chunk_start, chunk_end, chunk.consumed_end_segment_index);
-
-            let items = build_kp_items(&sub_prepared, profile, params);
-
-            let result =
-                knuth_plass_chunk(&items, max_width, params, params.tolerance).or_else(|| {
-                    if params.looseness_recovery {
-                        // Retry with progressively larger tolerance.
-                        for extra in [2.0, 4.0, 8.0, 16.0] {
-                            let result = knuth_plass_chunk(
-                                &items,
-                                max_width,
-                                params,
-                                params.tolerance + extra,
-                            );
-                            if result.is_some() {
-                                return result;
-                            }
-                        }
-                    }
-                    None
-                });
-
-            match result {
-                Some(breaks) => {
-                    let mut collect = |line: &InternalLayoutLine| pending_lines.push(line.clone());
-                    let mut on_pending_line: Option<&mut dyn FnMut(&InternalLayoutLine)> =
-                        Some(&mut collect);
-                    // Remap segment indices back to global coordinates.
-                    let global_breaks: Vec<(usize, usize)> = breaks
-                        .iter()
-                        .map(|&(seg, graph)| (seg + chunk_start, graph))
-                        .collect();
-
-                    // Override the last break to point to the chunk's consumed end.
-                    let mut final_breaks = global_breaks;
-                    if let Some(last) = final_breaks.last_mut() {
-                        *last = (chunk.consumed_end_segment_index, 0);
-                    }
-
-                    total_lines += breakpoints_to_lines(
-                        prepared,
-                        profile,
-                        &final_breaks,
-                        &mut on_pending_line,
-                    );
-                }
-                None => {
-                    // Fall back to greedy for the entire paragraph.
-                    return walk_prepared_lines(prepared, max_width, profile, on_line);
-                }
-            }
-        }
-
-        if let Some(cb) = on_line.as_mut() {
-            for line in &pending_lines {
-                cb(line);
-            }
-        }
-        return total_lines;
+        return walk_optimal_multi_chunk(prepared, max_width, profile, params, on_line);
     }
-
     // Single chunk: run KP directly.
     let items = build_kp_items(prepared, profile, params);
 

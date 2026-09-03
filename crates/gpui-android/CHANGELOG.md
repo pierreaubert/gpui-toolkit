@@ -1,5 +1,11 @@
 # Unreleased
 
+## Added
+
+- Split Android event handling into a tested `event_stages` module and added
+  a `packages` module with deep-link and media stubs.
+- Cached JNI class lookups and coalesced input events to cut per-event work.
+
 ## 0.9.5 - 2026-08-23
 
 ### Performance

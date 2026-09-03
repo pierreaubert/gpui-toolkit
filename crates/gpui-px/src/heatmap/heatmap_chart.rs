@@ -402,15 +402,14 @@ impl HeatmapChart {
                                         &theme,
                                     ))
                                     .child(div().absolute().inset_0().size_full().child({
-                                        let el = render_heatmap_selected(
+                                        render_heatmap_selected(
                                             heatmap_data,
                                             &x_scale,
                                             &y_scale,
                                             &config,
                                             self.renderer_2d,
                                             self.vello_backend,
-                                        );
-                                        el
+                                        )
                                     })),
                             )
                             .child(render_axis(
@@ -458,15 +457,14 @@ impl HeatmapChart {
                                         &theme,
                                     ))
                                     .child(div().absolute().inset_0().size_full().child({
-                                        let el = render_heatmap_selected(
+                                        render_heatmap_selected(
                                             heatmap_data,
                                             &x_scale,
                                             &y_scale,
                                             &config,
                                             self.renderer_2d,
                                             self.vello_backend,
-                                        );
-                                        el
+                                        )
                                     })),
                             )
                             .child(render_axis(
@@ -514,15 +512,14 @@ impl HeatmapChart {
                                         &theme,
                                     ))
                                     .child(div().absolute().inset_0().size_full().child({
-                                        let el = render_heatmap_selected(
+                                        render_heatmap_selected(
                                             heatmap_data,
                                             &x_scale,
                                             &y_scale,
                                             &config,
                                             self.renderer_2d,
                                             self.vello_backend,
-                                        );
-                                        el
+                                        )
                                     })),
                             )
                             .child(render_axis(
@@ -570,15 +567,14 @@ impl HeatmapChart {
                                         &theme,
                                     ))
                                     .child(div().absolute().inset_0().size_full().child({
-                                        let el = render_heatmap_selected(
+                                        render_heatmap_selected(
                                             heatmap_data,
                                             &x_scale,
                                             &y_scale,
                                             &config,
                                             self.renderer_2d,
                                             self.vello_backend,
-                                        );
-                                        el
+                                        )
                                     })),
                             )
                             .child(render_axis(

@@ -45,10 +45,14 @@ actions!(
 mod mini_app;
 mod mini_app_config;
 mod mini_app_shell;
+mod mini_app_state;
 mod misc;
 #[cfg(test)]
 mod tests;
 
 pub use mini_app::*;
 pub use mini_app_config::*;
+pub use mini_app_state::{
+    MiniAppState, language_from_code, load_miniapp_state, save_miniapp_state, theme_from_name,
+};
 pub use misc::*;

@@ -1,3 +1,10 @@
+# Unreleased
+
+## Added
+
+- Added a `deep_link` module for shareable lab URLs, window recovery for
+  crashed sidebars, preview caches, and a preview-kind classifier.
+
 # 0.7.2
 
 ## Features

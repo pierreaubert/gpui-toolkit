@@ -64,6 +64,28 @@ void gpui_au_key_up(
     uint32_t modifier_flags
 );
 
+/* Minimal parameter tree (AUParameterTree analogue). */
+size_t gpui_au_parameter_count(AuContext *context);
+float gpui_au_parameter_value(AuContext *context, uint32_t id, bool *ok);
+bool gpui_au_parameter_set(AuContext *context, uint32_t id, float value);
+bool gpui_au_parameter_register(
+    AuContext *context,
+    uint32_t id,
+    float min_value,
+    float max_value,
+    float default_value,
+    const char *name
+);
+
+/* Realtime health counters. Each out-pointer is optional; a null context
+   leaves all outputs untouched. */
+void gpui_au_frame_stats(AuContext *context, size_t *dropped, size_t *coalesced);
+
+/* Plugin state persistence (fullState analogue). See ffi.rs for the
+   null-buffer size-query contract of gpui_au_save_state. */
+size_t gpui_au_save_state(AuContext *context, uint8_t *out, size_t capacity, size_t *written);
+bool gpui_au_load_state(AuContext *context, const uint8_t *data, size_t len);
+
 void gpui_au_insert_text(AuContext *context, const char *text);
 void gpui_au_set_marked_text(
     AuContext *context,

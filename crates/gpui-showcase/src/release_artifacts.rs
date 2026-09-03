@@ -1,3 +1,5 @@
+use serde::Serialize;
+
 use crate::showcase::{ShowcaseGroup, ShowcaseSection};
 
 pub const SHOWCASE_RELEASE_ARTIFACT_SCHEMA_VERSION: u32 = 1;
@@ -48,7 +50,7 @@ pub struct ShowcaseStoryInventory {
     pub section_count: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ShowcaseVisualCaptureViewport {
     pub id: &'static str,
     pub label: &'static str,
@@ -57,7 +59,7 @@ pub struct ShowcaseVisualCaptureViewport {
     pub scale_factor: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ShowcaseVisualCapture {
     pub id: String,
     pub group: &'static str,
@@ -73,7 +75,7 @@ pub struct ShowcaseVisualCapture {
     pub diff_path: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ShowcaseVisualCaptureManifest {
     pub schema_version: u32,
     pub report_type: &'static str,
@@ -125,58 +127,7 @@ impl ShowcaseVisualCaptureManifest {
     }
 
     pub fn to_json(&self) -> String {
-        let mut json = String::new();
-        json.push_str("{\n");
-        json.push_str(&format!(
-            "  \"schema_version\": {},\n  \"report_type\": \"{}\",\n  \"crate_name\": \"{}\",\n  \"crate_version\": \"{}\",\n",
-            self.schema_version,
-            escape_json(self.report_type),
-            escape_json(self.crate_name),
-            escape_json(self.crate_version),
-        ));
-        json.push_str("  \"viewports\": [\n");
-        for (index, viewport) in self.viewports.iter().enumerate() {
-            let comma = if index + 1 == self.viewports.len() {
-                ""
-            } else {
-                ","
-            };
-            json.push_str(&format!(
-                "    {{ \"id\": \"{}\", \"label\": \"{}\", \"width\": {}, \"height\": {}, \"scale_factor\": {} }}{}\n",
-                escape_json(viewport.id),
-                escape_json(viewport.label),
-                viewport.width,
-                viewport.height,
-                viewport.scale_factor,
-                comma,
-            ));
-        }
-        json.push_str("  ],\n  \"captures\": [\n");
-        for (index, capture) in self.captures.iter().enumerate() {
-            let comma = if index + 1 == self.captures.len() {
-                ""
-            } else {
-                ","
-            };
-            json.push_str(&format!(
-                "    {{ \"id\": \"{}\", \"group\": \"{}\", \"section\": \"{}\", \"section_label\": \"{}\", \"viewport_id\": \"{}\", \"viewport_label\": \"{}\", \"width\": {}, \"height\": {}, \"scale_factor\": {}, \"baseline_path\": \"{}\", \"actual_path\": \"{}\", \"diff_path\": \"{}\" }}{}\n",
-                escape_json(&capture.id),
-                escape_json(capture.group),
-                escape_json(&capture.section),
-                escape_json(capture.section_label),
-                escape_json(capture.viewport_id),
-                escape_json(capture.viewport_label),
-                capture.width,
-                capture.height,
-                capture.scale_factor,
-                escape_json(&capture.baseline_path),
-                escape_json(&capture.actual_path),
-                escape_json(&capture.diff_path),
-                comma,
-            ));
-        }
-        json.push_str("  ]\n}\n");
-        json
+        serde_json::to_string_pretty(self).unwrap_or_else(|_| String::from("{}"))
     }
 }
 
@@ -376,21 +327,6 @@ fn slug(label: &str) -> String {
     output
 }
 
-fn escape_json(input: &str) -> String {
-    let mut output = String::new();
-    for ch in input.chars() {
-        match ch {
-            '"' => output.push_str("\\\""),
-            '\\' => output.push_str("\\\\"),
-            '\n' => output.push_str("\\n"),
-            '\r' => output.push_str("\\r"),
-            '\t' => output.push_str("\\t"),
-            _ => output.push(ch),
-        }
-    }
-    output
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -557,4 +493,46 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn visual_capture_manifest_json_is_valid_and_complete() {
+        let manifest = showcase_visual_capture_manifest();
+        let value: serde_json::Value =
+            serde_json::from_str(&manifest.to_json()).expect("manifest JSON should parse");
+
+        assert_eq!(
+            value
+                .get("schema_version")
+                .and_then(serde_json::Value::as_u64),
+            Some(u64::from(manifest.schema_version))
+        );
+        assert_eq!(
+            value.get("report_type").and_then(serde_json::Value::as_str),
+            Some(manifest.report_type)
+        );
+        let captures = value
+            .get("captures")
+            .and_then(serde_json::Value::as_array)
+            .expect("captures should be an array");
+        assert_eq!(captures.len(), manifest.expected_capture_count());
+        for capture in captures {
+            for key in [
+                "id",
+                "group",
+                "section",
+                "section_label",
+                "viewport_id",
+                "viewport_label",
+                "baseline_path",
+                "actual_path",
+                "diff_path",
+            ] {
+                assert!(
+                    capture.get(key).is_some(),
+                    "capture should carry key {key}"
+                );
+            }
+        }
+    }
+
 }

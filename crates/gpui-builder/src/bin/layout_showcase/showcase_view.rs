@@ -349,48 +349,19 @@ impl Render for ShowcaseView {
                 }),
             )
             // ---- Header ----
-            .child(
-                div()
-                    .h(px(header_h))
-                    .w_full()
-                    .bg(header_bg)
-                    .when(selected_id == "header", |d| {
-                        d.border_1().border_color(muted(accent, 0.8))
-                    })
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .px(px(ds.spacing.card_padding))
-                    .justify_between()
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .gap(px(ds.spacing.control_gap + ds.spacing.grid_unit))
-                            .items_center()
-                            .child(
-                                div()
-                                    .text_size(px(base_sz))
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(accent)
-                                    .child("gpui-builder"),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(small_sz))
-                                    .text_color(theme.text_muted)
-                                    .child(SharedString::from(format!(
-                                        "{w:.0}x{h:.0}  {axis_label}"
-                                    ))),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(small_sz))
-                            .text_color(theme.text_muted)
-                            .child("click tree rows | drag dividers | resize window"),
-                    ),
-            )
+            .child(Self::render_header(
+                header_h,
+                header_bg,
+                selected_id,
+                accent,
+                &theme,
+                &ds,
+                base_sz,
+                small_sz,
+                w,
+                h,
+                axis_label,
+            ))
             // ---- Content ----
             .child(Self::render_content(
                 &solved,
@@ -425,42 +396,128 @@ impl Render for ShowcaseView {
                 cx,
             ))
             // ---- Footer ----
-            .child(
-                div()
-                    .h(px(footer_h))
-                    .w_full()
-                    .bg(footer_bg)
-                    .when(selected_id == "footer", |d| {
-                        d.border_1().border_color(muted(accent, 0.8))
-                    })
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .px(px(ds.spacing.card_padding))
-                    .justify_between()
-                    .child(
-                        div()
-                            .text_size(px(small_sz))
-                            .text_color(theme.text_muted)
-                            .child(SharedString::from(format!(
-                                "sidebar: {sidebar_pct:.0}%  inspector: {inspector_pct:.0}%"
-                            ))),
-                    )
-                    .child(if !tabs.is_empty() {
-                        let labels: Vec<&str> = tabs.iter().map(|(_, l)| *l).collect();
-                        div()
-                            .text_size(px(small_sz))
-                            .text_color(accent)
-                            .child(SharedString::from(format!("Tabs: {}", labels.join(", "))))
-                            .into_any_element()
-                    } else {
-                        div().into_any_element()
-                    }),
-            )
+            .child(Self::render_footer(
+                footer_h,
+                footer_bg,
+                selected_id,
+                accent,
+                &theme,
+                small_sz,
+                ds.spacing.card_padding,
+                sidebar_pct,
+                inspector_pct,
+                tabs,
+            ))
     }
 }
 
 impl ShowcaseView {
+    /// Showcase chrome: title bar with window size and axis label.
+    ///
+    /// Extracted from [`Render::render`] so the root view stays a thin
+    /// composition of header / content / footer sections.
+    #[allow(clippy::too_many_arguments)]
+    fn render_header(
+        header_h: f32,
+        header_bg: Rgba,
+        selected_id: &str,
+        accent: Rgba,
+        theme: &ShowcaseTheme,
+        ds: &gpui_design::DesignSystem,
+        base_sz: f32,
+        small_sz: f32,
+        w: f32,
+        h: f32,
+        axis_label: &str,
+    ) -> impl IntoElement {
+        div()
+            .h(px(header_h))
+            .w_full()
+            .bg(header_bg)
+            .when(selected_id == "header", |d| {
+                d.border_1().border_color(muted(accent, 0.8))
+            })
+            .flex()
+            .flex_row()
+            .items_center()
+            .px(px(ds.spacing.card_padding))
+            .justify_between()
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap(px(ds.spacing.control_gap + ds.spacing.grid_unit))
+                    .items_center()
+                    .child(
+                        div()
+                            .text_size(px(base_sz))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(accent)
+                            .child("gpui-builder"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(small_sz))
+                            .text_color(theme.text_muted)
+                            .child(SharedString::from(format!("{w:.0}x{h:.0}  {axis_label}"))),
+                    ),
+            )
+            .child(
+                div()
+                    .text_size(px(small_sz))
+                    .text_color(theme.text_muted)
+                    .child("click tree rows | drag dividers | resize window"),
+            )
+    }
+
+    /// Showcase chrome: status bar with panel ratios and collapse tabs.
+    ///
+    /// Extracted from [`Render::render`] alongside [`Self::render_header`].
+    #[allow(clippy::too_many_arguments)]
+    fn render_footer(
+        footer_h: f32,
+        footer_bg: Rgba,
+        selected_id: &str,
+        accent: Rgba,
+        theme: &ShowcaseTheme,
+        small_sz: f32,
+        card_padding: f32,
+        sidebar_pct: f32,
+        inspector_pct: f32,
+        tabs: &[(&str, &str)],
+    ) -> impl IntoElement {
+        div()
+            .h(px(footer_h))
+            .w_full()
+            .bg(footer_bg)
+            .when(selected_id == "footer", |d| {
+                d.border_1().border_color(muted(accent, 0.8))
+            })
+            .flex()
+            .flex_row()
+            .items_center()
+            .px(px(card_padding))
+            .justify_between()
+            .child(
+                div()
+                    .text_size(px(small_sz))
+                    .text_color(theme.text_muted)
+                    .child(SharedString::from(format!(
+                        "sidebar: {sidebar_pct:.0}%  inspector: {inspector_pct:.0}%"
+                    ))),
+            )
+            .child(if !tabs.is_empty() {
+                let labels: Vec<&str> = tabs.iter().map(|(_, l)| *l).collect();
+                div()
+                    .text_size(px(small_sz))
+                    .text_color(accent)
+                    .child(SharedString::from(format!("Tabs: {}", labels.join(", "))))
+                    .into_any_element()
+            } else {
+                div().into_any_element()
+            })
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render_content(
         solved: &SolvedTree,

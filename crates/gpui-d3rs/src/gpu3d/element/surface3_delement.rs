@@ -686,6 +686,655 @@ fn surface_render_config_changed(old: &Surface3DConfig, new: &Surface3DConfig) -
         || old.plot_type != new.plot_type
 }
 
+/// Overlay text/axis color for a surface background: dark text on light
+/// backgrounds, white text on dark ones. Pure helper extracted from `paint`
+/// so the overlay stage is unit-testable.
+pub fn overlay_color_for_background(bg: [f32; 3]) -> Rgba {
+    let luminance = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2];
+    if luminance > 0.5 {
+        gpui::rgba(0x000000ff) // dark text on light background
+    } else {
+        gpui::rgba(0xffffffff) // white text on dark background
+    }
+}
+
+/// Clamp the scaled surface render size to the per-axis and total-pixel
+/// budgets. Pure helper extracted from `paint`; never returns a zero dimension.
+pub fn clamp_render_dimensions(width: f32, height: f32, scale_factor: f32) -> (u32, u32) {
+    let mut render_width = width * scale_factor;
+    let mut render_height = height * scale_factor;
+    let max_render_dimension = render_width.max(render_height);
+    if max_render_dimension > MAX_SURFACE_RENDER_DIMENSION {
+        let downscale = MAX_SURFACE_RENDER_DIMENSION / max_render_dimension;
+        render_width *= downscale;
+        render_height *= downscale;
+    }
+    let render_pixels = render_width * render_height;
+    if render_pixels > MAX_SURFACE_RENDER_PIXELS {
+        let downscale = (MAX_SURFACE_RENDER_PIXELS / render_pixels).sqrt();
+        render_width *= downscale;
+        render_height *= downscale;
+    }
+    (
+        render_width.ceil().max(1.0) as u32,
+        render_height.ceil().max(1.0) as u32,
+    )
+}
+
+/// Normalize a billboard label angle to the readable `[-90 degrees, 90 degrees]` range.
+/// Pure helper extracted from `paint`.
+pub fn upright_rotation_angle(mut angle: f32) -> f32 {
+    while angle > std::f32::consts::FRAC_PI_2 {
+        angle -= std::f32::consts::PI;
+    }
+    while angle < -std::f32::consts::FRAC_PI_2 {
+        angle += std::f32::consts::PI;
+    }
+    angle
+}
+
+impl Surface3DElement {
+    /// Stage 1 of `paint`: chart background plus the projected grid the
+    /// surface is composited over.
+    pub(super) fn paint_background_and_grid(
+        &self,
+        bounds: Bounds<Pixels>,
+        width: f32,
+        height: f32,
+        overlay_color: Rgba,
+        window: &mut Window,
+    ) {
+        self.paint_chart_background(bounds, window);
+
+        // Paint the Cartesian grid below the surface image. The offscreen
+        // surface renderer clears to transparent, so the surface naturally
+        // occludes grid strokes when composited over them.
+        let camera = &self.state.borrow().camera;
+        self.paint_projected_grid(bounds, width, height, camera, overlay_color, window);
+    }
+
+    /// Stage 2 of `paint`: scaled offscreen surface submitted to the frame.
+    /// Returns the scale factor used, for the overlay stages.
+    pub(super) fn paint_surface_image(
+        &self,
+        bounds: Bounds<Pixels>,
+        width: f32,
+        height: f32,
+        window: &mut Window,
+    ) -> f32 {
+        let scale_factor = window.scale_factor().clamp(1.0, 3.0);
+        let (width_u32, height_u32) = clamp_render_dimensions(width, height, scale_factor);
+
+        if width_u32 > 0 && height_u32 > 0 {
+            let camera = self.state.borrow().camera.clone();
+            self.paint_gpu_surface(bounds, &camera, [width_u32, height_u32], window);
+        }
+
+        scale_factor
+    }
+
+    /// Screen-space rotation keeping a label at `pos` upright.
+    pub(super) fn billboard_rotation_angle(
+        camera: &Camera3D,
+        pos: Vec3,
+        width: f32,
+        height: f32,
+    ) -> f32 {
+        let (right, _) = camera.billboard_axes();
+        if let (Some(a), Some(b)) = (
+            camera.project_to_screen(pos, width, height),
+            camera.project_to_screen(pos + right * 0.08, width, height),
+        ) {
+            upright_rotation_angle((b.y - a.y).atan2(b.x - a.x))
+        } else {
+            0.0
+        }
+    }
+
+    /// Stage 4a of `paint`: Cartesian axis ticks, labels, and titles.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "paint stage threads one explicit context; callers pass it through unchanged"
+    )]
+    pub(super) fn paint_cartesian_axes(
+        &self,
+        bounds: Bounds<Pixels>,
+        width: f32,
+        height: f32,
+        camera: &Camera3D,
+        cache: &SurfaceGeometryCache,
+        overlay_color: Rgba,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        // Helper to draw text at 3D position
+        let draw_label = |window: &mut Window,
+                          text: String,
+                          pos: glam::Vec3,
+                          horizontal_anchor: HorizontalTextAnchor,
+                          vertical_anchor: VerticalTextAnchor| {
+            if let Some(screen_pos) = camera.project_to_screen(pos, width, height) {
+                // Check if point is within reasonable bounds (not clipped)
+                if screen_pos.z >= 0.0 && screen_pos.z <= 1.0 {
+                    let font_size = 10.0;
+                    let text_config = GlyphTextConfig::rotated(
+                        font_size,
+                        overlay_color,
+                        Self::billboard_rotation_angle(camera, pos, width, height),
+                    );
+                    paint_chart_text_at(
+                        window,
+                        cx,
+                        &text,
+                        screen_pos.x + f32::from(bounds.origin.x),
+                        screen_pos.y + f32::from(bounds.origin.y),
+                        &text_config,
+                        horizontal_anchor,
+                        vertical_anchor,
+                    );
+                }
+            }
+        };
+
+        // Helper to get screen position of a 3D point
+        let to_screen = |pos: glam::Vec3| -> Option<glam::Vec3> {
+            let p = camera.project_to_screen(pos, width, height)?;
+            if p.z >= 0.0 && p.z <= 1.0 {
+                Some(p)
+            } else {
+                None
+            }
+        };
+
+        // Shared helper to draw a single tick and its label
+        let draw_tick_and_label =
+            |window: &mut Window, pos: glam::Vec3, tick_vec: glam::Vec3, label: &str| {
+                // Draw tick
+                let tick_end = pos + tick_vec;
+                if let (Some(s_start), Some(s_end)) = (to_screen(pos), to_screen(tick_end)) {
+                    let p1 = gpui::Point {
+                        x: px(s_start.x) + bounds.origin.x,
+                        y: px(s_start.y) + bounds.origin.y,
+                    };
+                    let p2 = gpui::Point {
+                        x: px(s_end.x) + bounds.origin.x,
+                        y: px(s_end.y) + bounds.origin.y,
+                    };
+                    let mut builder = gpui::PathBuilder::stroke(px(1.0));
+                    builder.move_to(p1);
+                    builder.line_to(p2);
+                    if let Ok(path) = builder.build() {
+                        window.paint_path(path, overlay_color);
+                    }
+                }
+
+                // Draw label with offset to avoid overlapping tick line
+                // Position label past the tick end, then offset perpendicular in screen space
+                let label_pos_3d = pos + tick_vec * 1.5;
+                if let (Some(tick_start_screen), Some(tick_end_screen), Some(label_screen)) =
+                    (to_screen(pos), to_screen(tick_end), to_screen(label_pos_3d))
+                {
+                    let font_size = 8.0;
+
+                    // Compute tick direction in screen space
+                    let tick_dx = tick_end_screen.x - tick_start_screen.x;
+                    let tick_dy = tick_end_screen.y - tick_start_screen.y;
+                    let tick_len = (tick_dx * tick_dx + tick_dy * tick_dy).sqrt();
+
+                    // Compute perpendicular offset in screen space
+                    // This ensures label doesn't overlap tick even when viewed along tick axis
+                    let (offset_x, offset_y) = if tick_len > 0.1 {
+                        // Perpendicular to tick direction, biased downward (positive y in screen)
+                        let perp_x = -tick_dy / tick_len;
+                        let perp_y = tick_dx / tick_len;
+                        // Choose direction that moves label down/right (more readable)
+                        let offset_amount = font_size * 0.8;
+                        if perp_y >= 0.0 {
+                            (perp_x * offset_amount, perp_y * offset_amount)
+                        } else {
+                            (-perp_x * offset_amount, -perp_y * offset_amount)
+                        }
+                    } else {
+                        // Tick is very short in screen space, just offset down
+                        (0.0, font_size * 0.8)
+                    };
+
+                    let text_config = GlyphTextConfig::rotated(
+                        font_size,
+                        overlay_color,
+                        Self::billboard_rotation_angle(camera, label_pos_3d, width, height),
+                    );
+                    paint_chart_text_at(
+                        window,
+                        cx,
+                        label,
+                        label_screen.x + f32::from(bounds.origin.x) + offset_x,
+                        label_screen.y + f32::from(bounds.origin.y) + offset_y,
+                        &text_config,
+                        HorizontalTextAnchor::Middle,
+                        VerticalTextAnchor::Middle,
+                    );
+                }
+            };
+
+        // Dynamic X Axis (Freq)
+        // candidates: (y=-0.5, z=1) "Front", (y=-0.5, z=-1) "Back"
+        let x_candidates = [
+            (glam::Vec3::new(0.0, -0.5, 1.0), 1.0),   // Front edge center
+            (glam::Vec3::new(0.0, -0.5, -1.0), -1.0), // Back edge center
+        ];
+
+        let mut best_x_z_val = x_candidates[0].1;
+        let mut max_screen_y = -f32::INFINITY;
+
+        for (pos, z_val) in x_candidates {
+            if let Some(screen_pos) = to_screen(pos)
+                && screen_pos.y > max_screen_y
+            {
+                max_screen_y = screen_pos.y;
+                best_x_z_val = z_val;
+            }
+        }
+
+        // Freq Labels (X axis)
+        let freq_ticks = self
+            .data
+            .x_ticks
+            .clone()
+            .unwrap_or_else(default_frequency_ticks);
+        for (i, &freq) in freq_ticks.iter().enumerate() {
+            let x = self.data.normalize_x(freq);
+            let pos = glam::Vec3::new(x, -0.5, best_x_z_val);
+            let tick_dir_z = if best_x_z_val > 0.0 { 1.0 } else { -1.0 };
+            let tick_vec = glam::Vec3::new(0.0, 0.0, 0.1 * tick_dir_z);
+
+            let label = cache.freq_labels.get(i).map(|s| s.as_str()).unwrap_or("");
+            draw_tick_and_label(window, pos, tick_vec, label);
+        }
+
+        // X Axis Title
+        draw_label(
+            window,
+            self.data
+                .x_label
+                .clone()
+                .unwrap_or("Freq. (Hz)".to_string()),
+            glam::Vec3::new(
+                0.0,
+                -0.5,
+                best_x_z_val + 0.4 * (if best_x_z_val > 0.0 { 1.0 } else { -1.0 }),
+            ),
+            HorizontalTextAnchor::Middle,
+            VerticalTextAnchor::Middle,
+        );
+
+        // Dynamic Z Axis (Angle)
+        let z_candidates = [
+            (glam::Vec3::new(1.0, -0.5, 0.0), 1.0),   // Right edge center
+            (glam::Vec3::new(-1.0, -0.5, 0.0), -1.0), // Left edge center
+        ];
+
+        let mut best_z_x_val = z_candidates[0].1;
+        max_screen_y = -f32::INFINITY;
+
+        for (pos, x_val) in z_candidates {
+            if let Some(screen_pos) = to_screen(pos)
+                && screen_pos.y > max_screen_y
+            {
+                max_screen_y = screen_pos.y;
+                best_z_x_val = x_val;
+            }
+        }
+
+        // Angle Labels (Z axis) - 30° major ticks
+        let angle_ticks = angle_major_ticks(&self.data);
+
+        for (i, &angle) in angle_ticks.iter().enumerate() {
+            let z = self.data.normalize_y(angle);
+            let pos = glam::Vec3::new(best_z_x_val, -0.5, z);
+            let tick_dir_x = if best_z_x_val > 0.0 { 1.0 } else { -1.0 };
+            let tick_vec = glam::Vec3::new(0.1 * tick_dir_x, 0.0, 0.0);
+
+            let label = cache.angle_labels.get(i).map(|s| s.as_str()).unwrap_or("");
+            draw_tick_and_label(window, pos, tick_vec, label);
+        }
+        // Angle Axis Title
+        draw_label(
+            window,
+            self.data.y_label.clone().unwrap_or("Angle".to_string()),
+            glam::Vec3::new(
+                best_z_x_val + 0.3 * (if best_z_x_val > 0.0 { 1.0 } else { -1.0 }),
+                -0.5,
+                0.0,
+            ),
+            HorizontalTextAnchor::Middle,
+            VerticalTextAnchor::Middle,
+        );
+
+        // Dynamic Y Axis (SPL)
+        let y_candidates = [
+            (glam::Vec3::new(1.0, 0.0, 1.0), 1.0, 1.0),
+            (glam::Vec3::new(1.0, 0.0, -1.0), 1.0, -1.0),
+            (glam::Vec3::new(-1.0, 0.0, 1.0), -1.0, 1.0),
+            (glam::Vec3::new(-1.0, 0.0, -1.0), -1.0, -1.0),
+        ];
+
+        let mut best_y_x = y_candidates[0].1;
+        let mut best_y_z = y_candidates[0].2;
+        let mut min_screen_x = f32::INFINITY;
+
+        for (pos, x_val, z_val) in y_candidates {
+            if let Some(screen_pos) = to_screen(pos)
+                && screen_pos.x < min_screen_x
+            {
+                min_screen_x = screen_pos.x;
+                best_y_x = x_val;
+                best_y_z = z_val;
+            }
+        }
+
+        // SPL Labels (Y axis)
+        // Generate dynamic ticks based on actual data range
+        let (spl_ticks, _) = spl_major_ticks(&self.data);
+        for (i, &spl) in spl_ticks.iter().enumerate() {
+            let y = self.data.normalize_z(spl) - 0.5;
+            let pos = glam::Vec3::new(best_y_x, y, best_y_z);
+            let tick_vec = glam::Vec3::new(best_y_x * 0.1, 0.0, best_y_z * 0.1);
+
+            let label = cache.spl_labels.get(i).map(|s| s.as_str()).unwrap_or("");
+            draw_tick_and_label(window, pos, tick_vec, label);
+        }
+        // SPL Axis Title
+        draw_label(
+            window,
+            self.data.z_label.clone().unwrap_or("SPL".to_string()),
+            glam::Vec3::new(best_y_x * 1.4, 0.0, best_y_z * 1.4),
+            HorizontalTextAnchor::Middle,
+            VerticalTextAnchor::Middle,
+        );
+    }
+
+    /// Stage 4b of `paint`: spherical (azimuth/elevation) labels.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "paint stage threads one explicit context; callers pass it through unchanged"
+    )]
+    pub(super) fn paint_spherical_axes(
+        &self,
+        bounds: Bounds<Pixels>,
+        width: f32,
+        height: f32,
+        camera: &Camera3D,
+        cache: &SurfaceGeometryCache,
+        overlay_color: Rgba,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        // Helper to get screen position of a 3D point
+        let to_screen = |pos: glam::Vec3| -> Option<glam::Vec3> {
+            let p = camera.project_to_screen(pos, width, height)?;
+            // In Sphere mode, we might see back of sphere?
+            // Just use z-buffer check [0,1]
+            if p.z >= 0.0 && p.z <= 1.0 {
+                Some(p)
+            } else {
+                None
+            }
+        };
+
+        // Shared helper to draw a single tick and its label
+        // Re-defining for simplicity as scope is separate
+        let draw_tick_and_label =
+            |window: &mut Window, pos: glam::Vec3, tick_vec: glam::Vec3, label: &str| {
+                let tick_end = pos + tick_vec;
+                if let (Some(s_start), Some(s_end)) = (to_screen(pos), to_screen(tick_end)) {
+                    let p1 = gpui::Point {
+                        x: px(s_start.x) + bounds.origin.x,
+                        y: px(s_start.y) + bounds.origin.y,
+                    };
+                    let p2 = gpui::Point {
+                        x: px(s_end.x) + bounds.origin.x,
+                        y: px(s_end.y) + bounds.origin.y,
+                    };
+                    let mut builder = gpui::PathBuilder::stroke(px(1.0));
+                    builder.move_to(p1);
+                    builder.line_to(p2);
+                    if let Ok(path) = builder.build() {
+                        window.paint_path(path, overlay_color);
+                    }
+                }
+
+                // Draw label with offset to avoid overlapping tick line
+                let label_pos_3d = pos + tick_vec * 1.5;
+                if let (Some(tick_start_screen), Some(tick_end_screen), Some(label_screen)) =
+                    (to_screen(pos), to_screen(tick_end), to_screen(label_pos_3d))
+                {
+                    let font_size = 8.0;
+
+                    // Compute tick direction in screen space
+                    let tick_dx = tick_end_screen.x - tick_start_screen.x;
+                    let tick_dy = tick_end_screen.y - tick_start_screen.y;
+                    let tick_len = (tick_dx * tick_dx + tick_dy * tick_dy).sqrt();
+
+                    // Compute perpendicular offset in screen space
+                    let (offset_x, offset_y) = if tick_len > 0.1 {
+                        let perp_x = -tick_dy / tick_len;
+                        let perp_y = tick_dx / tick_len;
+                        let offset_amount = font_size * 0.8;
+                        if perp_y >= 0.0 {
+                            (perp_x * offset_amount, perp_y * offset_amount)
+                        } else {
+                            (-perp_x * offset_amount, -perp_y * offset_amount)
+                        }
+                    } else {
+                        (0.0, font_size * 0.8)
+                    };
+
+                    let text_config = GlyphTextConfig::rotated(
+                        font_size,
+                        overlay_color,
+                        Self::billboard_rotation_angle(camera, label_pos_3d, width, height),
+                    );
+                    paint_chart_text_at(
+                        window,
+                        cx,
+                        label,
+                        label_screen.x + f32::from(bounds.origin.x) + offset_x,
+                        label_screen.y + f32::from(bounds.origin.y) + offset_y,
+                        &text_config,
+                        HorizontalTextAnchor::Middle,
+                        VerticalTextAnchor::Middle,
+                    );
+                }
+            };
+
+        // Draw Azimuth Labels (Equator)
+        // Y data is Azimuth (-180..180).
+        let az_ticks = self
+            .data
+            .y_ticks
+            .clone()
+            .unwrap_or_else(|| vec![-180.0, -90.0, 0.0, 90.0, 180.0]);
+
+        for (i, &az) in az_ticks.iter().enumerate() {
+            // Convert Azimuth to 3D pos on sphere equator (Phi=0)
+            // normalize_y maps Azimuth to [-1, 1]
+            // mesh.rs: theta = ny * PI => [-PI, PI]
+            let ny = self.data.normalize_y(az);
+            let theta = ny * std::f32::consts::PI;
+            let radius = 1.0;
+
+            // Phi = 0 => y_pos = 0, r_xz=radius
+            let x = radius * theta.sin();
+            let z = radius * theta.cos();
+            let pos = glam::Vec3::new(x, 0.0, z);
+
+            let tick_vec = pos.normalize() * 0.15; // Point out
+            let label = cache
+                .azimuth_labels
+                .get(i)
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            draw_tick_and_label(window, pos, tick_vec, label);
+        }
+
+        // Draw Elevation Labels (Meridian)
+        // X data is Elevation (-90..90).
+        let el_ticks = self
+            .data
+            .x_ticks
+            .clone()
+            .unwrap_or_else(|| vec![-90.0, -45.0, 0.0, 45.0, 90.0]);
+
+        // Draw on Prime Meridian (Theta=0 -> Y=0 in data, Z positive)
+
+        for (i, &el) in el_ticks.iter().enumerate() {
+            if el.abs() > 89.0 {
+                continue;
+            } // Skip poles to avoid clutter
+
+            let nx = self.data.normalize_x(el);
+            let phi = nx * std::f32::consts::FRAC_PI_2;
+            let radius = 1.0;
+
+            // Theta = 0
+            let y = radius * phi.sin();
+            let r_xz = radius * phi.cos();
+            let x = 0.0;
+            let z = r_xz * 1.0; // theta=0 -> sin=0, cos=1
+
+            let pos = glam::Vec3::new(x, y, z);
+            let tick_vec = pos.normalize() * 0.1;
+            let label = cache
+                .elevation_labels
+                .get(i)
+                .map(|s| s.as_str())
+                .unwrap_or("");
+
+            draw_tick_and_label(window, pos, tick_vec, label);
+        }
+    }
+
+    /// Stage 4c of `paint`: colorbar legend with tick labels and title.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "paint stage threads one explicit context; callers pass it through unchanged"
+    )]
+    pub(super) fn paint_colorbar(
+        &self,
+        bounds: Bounds<Pixels>,
+        width: f32,
+        height: f32,
+        cache: &SurfaceGeometryCache,
+        overlay_color: Rgba,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let colorbar_width: f32 = 20.0;
+        let colorbar_height: f32 = height * 0.6;
+        let colorbar_x = f32::from(bounds.origin.x) + width - colorbar_width - 50.0;
+        let colorbar_y = f32::from(bounds.origin.y) + (height - colorbar_height) / 2.0;
+        let num_segments = 50;
+
+        // Draw colorbar segments
+        for i in 0..num_segments {
+            let t = i as f32 / num_segments as f32;
+            let segment_height = colorbar_height / num_segments as f32;
+            let y =
+                colorbar_y + colorbar_height - (t + 1.0 / num_segments as f32) * colorbar_height;
+
+            // Get color from colormap
+            let color = self.config.colormap.color_at(1.0 - t);
+            let rgba = gpui::rgba(
+                ((color.0 * 255.0) as u32) << 24
+                    | ((color.1 * 255.0) as u32) << 16
+                    | ((color.2 * 255.0) as u32) << 8
+                    | 0xFF,
+            );
+
+            window.paint_quad(gpui::PaintQuad {
+                bounds: gpui::Bounds::new(
+                    gpui::point(px(colorbar_x), px(y)),
+                    gpui::size(px(colorbar_width), px(segment_height + 1.0)),
+                ),
+                corner_radii: gpui::Corners::default(),
+                background: rgba.into(),
+                border_widths: gpui::Edges::default(),
+                border_color: gpui::transparent_black(),
+                border_style: Default::default(),
+            });
+        }
+
+        // Draw border around colorbar
+        let mut builder = gpui::PathBuilder::stroke(px(1.0));
+        builder.move_to(gpui::point(px(colorbar_x), px(colorbar_y)));
+        builder.line_to(gpui::point(px(colorbar_x + colorbar_width), px(colorbar_y)));
+        builder.line_to(gpui::point(
+            px(colorbar_x + colorbar_width),
+            px(colorbar_y + colorbar_height),
+        ));
+        builder.line_to(gpui::point(
+            px(colorbar_x),
+            px(colorbar_y + colorbar_height),
+        ));
+        builder.line_to(gpui::point(px(colorbar_x), px(colorbar_y)));
+        if let Ok(path) = builder.build() {
+            window.paint_path(path, overlay_color);
+        }
+
+        // Draw tick labels for colorbar
+        let num_ticks = 5;
+        let font_size = 9.0;
+        for i in 0..=num_ticks {
+            let t = i as f64 / num_ticks as f64;
+            let y = colorbar_y + colorbar_height * (1.0 - t as f32);
+
+            // Draw tick line
+            let mut builder = gpui::PathBuilder::stroke(px(1.0));
+            builder.move_to(gpui::point(px(colorbar_x + colorbar_width), px(y)));
+            builder.line_to(gpui::point(px(colorbar_x + colorbar_width + 4.0), px(y)));
+            if let Ok(path) = builder.build() {
+                window.paint_path(path, overlay_color);
+            }
+
+            // Draw label from cache
+            let label = cache
+                .colorbar_labels
+                .get(i)
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            let text_config = GlyphTextConfig::horizontal(font_size, overlay_color);
+            paint_chart_text_at(
+                window,
+                cx,
+                label,
+                colorbar_x + colorbar_width + 6.0,
+                y,
+                &text_config,
+                HorizontalTextAnchor::Start,
+                VerticalTextAnchor::Middle,
+            );
+        }
+
+        // Draw colorbar title (Z label)
+        if let Some(ref z_label) = self.data.z_label {
+            let label_x = colorbar_x + colorbar_width / 2.0;
+            let label_y = colorbar_y - 15.0;
+            let text_config = GlyphTextConfig::horizontal(10.0, overlay_color);
+            paint_chart_text_at(
+                window,
+                cx,
+                z_label,
+                label_x,
+                label_y,
+                &text_config,
+                HorizontalTextAnchor::Middle,
+                VerticalTextAnchor::Middle,
+            );
+        }
+    }
+}
+
 impl IntoElement for Surface3DElement {
     type Element = Self;
 
@@ -758,585 +1407,59 @@ impl Element for Surface3DElement {
 
         let width: f32 = bounds.size.width.into();
         let height: f32 = bounds.size.height.into();
-        let bg = self.config.background_color;
-        let luminance = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2];
-        let overlay_color = if luminance > 0.5 {
-            gpui::rgba(0x000000ff) // dark text on light background
-        } else {
-            gpui::rgba(0xffffffff) // white text on dark background
-        };
+        let overlay_color = overlay_color_for_background(self.config.background_color);
+        // Snapshot the camera once so every stage below shares one view
+        // without holding the state `RefCell` borrow across calls.
+        let camera = self.state.borrow().camera.clone();
 
-        self.paint_chart_background(bounds, window);
+        // Stage 1 (background): chart background plus the projected grid the
+        // surface is composited over.
+        self.paint_background_and_grid(bounds, width, height, overlay_color, window);
 
-        // Paint the Cartesian grid below the surface image. The offscreen
-        // surface renderer clears to transparent, so the surface naturally
-        // occludes grid strokes when composited over them.
-        {
-            let camera = &self.state.borrow().camera;
-            self.paint_projected_grid(bounds, width, height, camera, overlay_color, window);
-        }
+        // Stage 2 (surface submit): scaled offscreen surface drawn into the frame.
+        let scale_factor = self.paint_surface_image(bounds, width, height, window);
 
-        // Now render the surface
-        let scale_factor = window.scale_factor().clamp(1.0, 3.0);
-        let mut render_width = width * scale_factor;
-        let mut render_height = height * scale_factor;
-        let max_render_dimension = render_width.max(render_height);
-        if max_render_dimension > MAX_SURFACE_RENDER_DIMENSION {
-            let downscale = MAX_SURFACE_RENDER_DIMENSION / max_render_dimension;
-            render_width *= downscale;
-            render_height *= downscale;
-        }
-        let render_pixels = render_width * render_height;
-        if render_pixels > MAX_SURFACE_RENDER_PIXELS {
-            let downscale = (MAX_SURFACE_RENDER_PIXELS / render_pixels).sqrt();
-            render_width *= downscale;
-            render_height *= downscale;
-        }
-        let width_u32 = render_width.ceil().max(1.0) as u32;
-        let height_u32 = render_height.ceil().max(1.0) as u32;
+        // Projected isolines are depth-tested strokes drawn over the surface.
+        self.paint_projected_isolines(bounds, width, height, scale_factor, &camera, window);
 
-        if width_u32 > 0 && height_u32 > 0 {
-            let camera = self.state.borrow().camera.clone();
-            self.paint_gpu_surface(bounds, &camera, [width_u32, height_u32], window);
-        }
-
-        {
-            let camera = &self.state.borrow().camera;
-            self.paint_projected_isolines(bounds, width, height, scale_factor, camera, window);
-        }
-
-        // Ensure paint-time geometry (isoline segments, depth buffer, tick labels)
-        // is cached before drawing axes and colorbar.
+        // Stage 3 (tessellate/cache): ensure paint-time geometry (isoline
+        // segments, depth buffer, tick labels) before drawing axes and colorbar.
         if self.config.show_axes || self.config.show_colorbar {
-            let camera = &self.state.borrow().camera;
-            self.ensure_geometry_cache(bounds, width, height, scale_factor, camera);
+            self.ensure_geometry_cache(bounds, width, height, scale_factor, &camera);
         }
 
-        // Draw axis labels (AFTER rendering surface to be ON TOP)
-        let camera = &self.state.borrow().camera;
+        // Stage 4 (overlays): axis labels and colorbar legend on top.
         let geometry_cache = self.geometry_cache.borrow();
         let cache = geometry_cache.as_ref().expect("geometry cache ensured");
-        // Re-use width/height f32 from above
-
-        let upright_rotation = |mut angle: f32| -> f32 {
-            while angle > std::f32::consts::FRAC_PI_2 {
-                angle -= std::f32::consts::PI;
-            }
-            while angle < -std::f32::consts::FRAC_PI_2 {
-                angle += std::f32::consts::PI;
-            }
-            angle
-        };
-
-        let billboard_rotation = |pos: glam::Vec3| -> f32 {
-            let (right, _) = camera.billboard_axes();
-            if let (Some(a), Some(b)) = (
-                camera.project_to_screen(pos, width, height),
-                camera.project_to_screen(pos + right * 0.08, width, height),
-            ) {
-                upright_rotation((b.y - a.y).atan2(b.x - a.x))
-            } else {
-                0.0
-            }
-        };
-
-        // Helper to draw text at 3D position
-        let draw_label = |window: &mut Window,
-                          text: String,
-                          pos: glam::Vec3,
-                          horizontal_anchor: HorizontalTextAnchor,
-                          vertical_anchor: VerticalTextAnchor| {
-            if let Some(screen_pos) = camera.project_to_screen(pos, width, height) {
-                // Check if point is within reasonable bounds (not clipped)
-                if screen_pos.z >= 0.0 && screen_pos.z <= 1.0 {
-                    let font_size = 10.0;
-                    let text_config =
-                        GlyphTextConfig::rotated(font_size, overlay_color, billboard_rotation(pos));
-                    paint_chart_text_at(
-                        window,
-                        cx,
-                        &text,
-                        screen_pos.x + f32::from(bounds.origin.x),
-                        screen_pos.y + f32::from(bounds.origin.y),
-                        &text_config,
-                        horizontal_anchor,
-                        vertical_anchor,
-                    );
-                }
-            }
-        };
-
-        // Helper to draw tick lines
-        // (Functionality moved inline for dynamic axes)
 
         // Only render grid and labels if in Cartesian mode
         if self.config.plot_type == SurfacePlotType::Cartesian {
-            // Helper to get screen position of a 3D point
-            let to_screen = |pos: glam::Vec3| -> Option<glam::Vec3> {
-                let p = camera.project_to_screen(pos, width, height)?;
-                if p.z >= 0.0 && p.z <= 1.0 {
-                    Some(p)
-                } else {
-                    None
-                }
-            };
-
-            // Shared helper to draw a single tick and its label
-            let draw_tick_and_label =
-                |window: &mut Window, pos: glam::Vec3, tick_vec: glam::Vec3, label: &str| {
-                    // Draw tick
-                    let tick_end = pos + tick_vec;
-                    if let (Some(s_start), Some(s_end)) = (to_screen(pos), to_screen(tick_end)) {
-                        let p1 = gpui::Point {
-                            x: px(s_start.x) + bounds.origin.x,
-                            y: px(s_start.y) + bounds.origin.y,
-                        };
-                        let p2 = gpui::Point {
-                            x: px(s_end.x) + bounds.origin.x,
-                            y: px(s_end.y) + bounds.origin.y,
-                        };
-                        let mut builder = gpui::PathBuilder::stroke(px(1.0));
-                        builder.move_to(p1);
-                        builder.line_to(p2);
-                        if let Ok(path) = builder.build() {
-                            window.paint_path(path, overlay_color);
-                        }
-                    }
-
-                    // Draw label with offset to avoid overlapping tick line
-                    // Position label past the tick end, then offset perpendicular in screen space
-                    let label_pos_3d = pos + tick_vec * 1.5;
-                    if let (Some(tick_start_screen), Some(tick_end_screen), Some(label_screen)) =
-                        (to_screen(pos), to_screen(tick_end), to_screen(label_pos_3d))
-                    {
-                        let font_size = 8.0;
-
-                        // Compute tick direction in screen space
-                        let tick_dx = tick_end_screen.x - tick_start_screen.x;
-                        let tick_dy = tick_end_screen.y - tick_start_screen.y;
-                        let tick_len = (tick_dx * tick_dx + tick_dy * tick_dy).sqrt();
-
-                        // Compute perpendicular offset in screen space
-                        // This ensures label doesn't overlap tick even when viewed along tick axis
-                        let (offset_x, offset_y) = if tick_len > 0.1 {
-                            // Perpendicular to tick direction, biased downward (positive y in screen)
-                            let perp_x = -tick_dy / tick_len;
-                            let perp_y = tick_dx / tick_len;
-                            // Choose direction that moves label down/right (more readable)
-                            let offset_amount = font_size * 0.8;
-                            if perp_y >= 0.0 {
-                                (perp_x * offset_amount, perp_y * offset_amount)
-                            } else {
-                                (-perp_x * offset_amount, -perp_y * offset_amount)
-                            }
-                        } else {
-                            // Tick is very short in screen space, just offset down
-                            (0.0, font_size * 0.8)
-                        };
-
-                        let text_config = GlyphTextConfig::rotated(
-                            font_size,
-                            overlay_color,
-                            billboard_rotation(label_pos_3d),
-                        );
-                        paint_chart_text_at(
-                            window,
-                            cx,
-                            label,
-                            label_screen.x + f32::from(bounds.origin.x) + offset_x,
-                            label_screen.y + f32::from(bounds.origin.y) + offset_y,
-                            &text_config,
-                            HorizontalTextAnchor::Middle,
-                            VerticalTextAnchor::Middle,
-                        );
-                    }
-                };
-
-            // Dynamic X Axis (Freq)
-            // candidates: (y=-0.5, z=1) "Front", (y=-0.5, z=-1) "Back"
-            let x_candidates = [
-                (glam::Vec3::new(0.0, -0.5, 1.0), 1.0),   // Front edge center
-                (glam::Vec3::new(0.0, -0.5, -1.0), -1.0), // Back edge center
-            ];
-
-            let mut best_x_z_val = x_candidates[0].1;
-            let mut max_screen_y = -f32::INFINITY;
-
-            for (pos, z_val) in x_candidates {
-                if let Some(screen_pos) = to_screen(pos)
-                    && screen_pos.y > max_screen_y
-                {
-                    max_screen_y = screen_pos.y;
-                    best_x_z_val = z_val;
-                }
-            }
-
-            // Freq Labels (X axis)
-            let freq_ticks = self
-                .data
-                .x_ticks
-                .clone()
-                .unwrap_or_else(default_frequency_ticks);
-            for (i, &freq) in freq_ticks.iter().enumerate() {
-                let x = self.data.normalize_x(freq);
-                let pos = glam::Vec3::new(x, -0.5, best_x_z_val);
-                let tick_dir_z = if best_x_z_val > 0.0 { 1.0 } else { -1.0 };
-                let tick_vec = glam::Vec3::new(0.0, 0.0, 0.1 * tick_dir_z);
-
-                let label = cache.freq_labels.get(i).map(|s| s.as_str()).unwrap_or("");
-                draw_tick_and_label(window, pos, tick_vec, label);
-            }
-
-            // X Axis Title
-            draw_label(
+            self.paint_cartesian_axes(
+                bounds,
+                width,
+                height,
+                &camera,
+                cache,
+                overlay_color,
                 window,
-                self.data
-                    .x_label
-                    .clone()
-                    .unwrap_or("Freq. (Hz)".to_string()),
-                glam::Vec3::new(
-                    0.0,
-                    -0.5,
-                    best_x_z_val + 0.4 * (if best_x_z_val > 0.0 { 1.0 } else { -1.0 }),
-                ),
-                HorizontalTextAnchor::Middle,
-                VerticalTextAnchor::Middle,
-            );
-
-            // Dynamic Z Axis (Angle)
-            let z_candidates = [
-                (glam::Vec3::new(1.0, -0.5, 0.0), 1.0),   // Right edge center
-                (glam::Vec3::new(-1.0, -0.5, 0.0), -1.0), // Left edge center
-            ];
-
-            let mut best_z_x_val = z_candidates[0].1;
-            max_screen_y = -f32::INFINITY;
-
-            for (pos, x_val) in z_candidates {
-                if let Some(screen_pos) = to_screen(pos)
-                    && screen_pos.y > max_screen_y
-                {
-                    max_screen_y = screen_pos.y;
-                    best_z_x_val = x_val;
-                }
-            }
-
-            // Angle Labels (Z axis) - 30° major ticks
-            let angle_ticks = angle_major_ticks(&self.data);
-
-            for (i, &angle) in angle_ticks.iter().enumerate() {
-                let z = self.data.normalize_y(angle);
-                let pos = glam::Vec3::new(best_z_x_val, -0.5, z);
-                let tick_dir_x = if best_z_x_val > 0.0 { 1.0 } else { -1.0 };
-                let tick_vec = glam::Vec3::new(0.1 * tick_dir_x, 0.0, 0.0);
-
-                let label = cache.angle_labels.get(i).map(|s| s.as_str()).unwrap_or("");
-                draw_tick_and_label(window, pos, tick_vec, label);
-            }
-            // Angle Axis Title
-            draw_label(
-                window,
-                self.data.y_label.clone().unwrap_or("Angle".to_string()),
-                glam::Vec3::new(
-                    best_z_x_val + 0.3 * (if best_z_x_val > 0.0 { 1.0 } else { -1.0 }),
-                    -0.5,
-                    0.0,
-                ),
-                HorizontalTextAnchor::Middle,
-                VerticalTextAnchor::Middle,
-            );
-
-            // Dynamic Y Axis (SPL)
-            let y_candidates = [
-                (glam::Vec3::new(1.0, 0.0, 1.0), 1.0, 1.0),
-                (glam::Vec3::new(1.0, 0.0, -1.0), 1.0, -1.0),
-                (glam::Vec3::new(-1.0, 0.0, 1.0), -1.0, 1.0),
-                (glam::Vec3::new(-1.0, 0.0, -1.0), -1.0, -1.0),
-            ];
-
-            let mut best_y_x = y_candidates[0].1;
-            let mut best_y_z = y_candidates[0].2;
-            let mut min_screen_x = f32::INFINITY;
-
-            for (pos, x_val, z_val) in y_candidates {
-                if let Some(screen_pos) = to_screen(pos)
-                    && screen_pos.x < min_screen_x
-                {
-                    min_screen_x = screen_pos.x;
-                    best_y_x = x_val;
-                    best_y_z = z_val;
-                }
-            }
-
-            // SPL Labels (Y axis)
-            // Generate dynamic ticks based on actual data range
-            let (spl_ticks, _) = spl_major_ticks(&self.data);
-            for (i, &spl) in spl_ticks.iter().enumerate() {
-                let y = self.data.normalize_z(spl) - 0.5;
-                let pos = glam::Vec3::new(best_y_x, y, best_y_z);
-                let tick_vec = glam::Vec3::new(best_y_x * 0.1, 0.0, best_y_z * 0.1);
-
-                let label = cache.spl_labels.get(i).map(|s| s.as_str()).unwrap_or("");
-                draw_tick_and_label(window, pos, tick_vec, label);
-            }
-            // SPL Axis Title
-            draw_label(
-                window,
-                self.data.z_label.clone().unwrap_or("SPL".to_string()),
-                glam::Vec3::new(best_y_x * 1.4, 0.0, best_y_z * 1.4),
-                HorizontalTextAnchor::Middle,
-                VerticalTextAnchor::Middle,
+                cx,
             );
         } else if self.config.plot_type == SurfacePlotType::Spherical {
-            // Helper to get screen position of a 3D point
-            let to_screen = |pos: glam::Vec3| -> Option<glam::Vec3> {
-                let p = camera.project_to_screen(pos, width, height)?;
-                // In Sphere mode, we might see back of sphere?
-                // Just use z-buffer check [0,1]
-                if p.z >= 0.0 && p.z <= 1.0 {
-                    Some(p)
-                } else {
-                    None
-                }
-            };
-
-            // Shared helper to draw a single tick and its label
-            // Re-defining for simplicity as scope is separate
-            let draw_tick_and_label =
-                |window: &mut Window, pos: glam::Vec3, tick_vec: glam::Vec3, label: &str| {
-                    let tick_end = pos + tick_vec;
-                    if let (Some(s_start), Some(s_end)) = (to_screen(pos), to_screen(tick_end)) {
-                        let p1 = gpui::Point {
-                            x: px(s_start.x) + bounds.origin.x,
-                            y: px(s_start.y) + bounds.origin.y,
-                        };
-                        let p2 = gpui::Point {
-                            x: px(s_end.x) + bounds.origin.x,
-                            y: px(s_end.y) + bounds.origin.y,
-                        };
-                        let mut builder = gpui::PathBuilder::stroke(px(1.0));
-                        builder.move_to(p1);
-                        builder.line_to(p2);
-                        if let Ok(path) = builder.build() {
-                            window.paint_path(path, overlay_color);
-                        }
-                    }
-
-                    // Draw label with offset to avoid overlapping tick line
-                    let label_pos_3d = pos + tick_vec * 1.5;
-                    if let (Some(tick_start_screen), Some(tick_end_screen), Some(label_screen)) =
-                        (to_screen(pos), to_screen(tick_end), to_screen(label_pos_3d))
-                    {
-                        let font_size = 8.0;
-
-                        // Compute tick direction in screen space
-                        let tick_dx = tick_end_screen.x - tick_start_screen.x;
-                        let tick_dy = tick_end_screen.y - tick_start_screen.y;
-                        let tick_len = (tick_dx * tick_dx + tick_dy * tick_dy).sqrt();
-
-                        // Compute perpendicular offset in screen space
-                        let (offset_x, offset_y) = if tick_len > 0.1 {
-                            let perp_x = -tick_dy / tick_len;
-                            let perp_y = tick_dx / tick_len;
-                            let offset_amount = font_size * 0.8;
-                            if perp_y >= 0.0 {
-                                (perp_x * offset_amount, perp_y * offset_amount)
-                            } else {
-                                (-perp_x * offset_amount, -perp_y * offset_amount)
-                            }
-                        } else {
-                            (0.0, font_size * 0.8)
-                        };
-
-                        let text_config = GlyphTextConfig::rotated(
-                            font_size,
-                            overlay_color,
-                            billboard_rotation(label_pos_3d),
-                        );
-                        paint_chart_text_at(
-                            window,
-                            cx,
-                            label,
-                            label_screen.x + f32::from(bounds.origin.x) + offset_x,
-                            label_screen.y + f32::from(bounds.origin.y) + offset_y,
-                            &text_config,
-                            HorizontalTextAnchor::Middle,
-                            VerticalTextAnchor::Middle,
-                        );
-                    }
-                };
-
-            // Draw Azimuth Labels (Equator)
-            // Y data is Azimuth (-180..180).
-            let az_ticks = self
-                .data
-                .y_ticks
-                .clone()
-                .unwrap_or_else(|| vec![-180.0, -90.0, 0.0, 90.0, 180.0]);
-
-            for (i, &az) in az_ticks.iter().enumerate() {
-                // Convert Azimuth to 3D pos on sphere equator (Phi=0)
-                // normalize_y maps Azimuth to [-1, 1]
-                // mesh.rs: theta = ny * PI => [-PI, PI]
-                let ny = self.data.normalize_y(az);
-                let theta = ny * std::f32::consts::PI;
-                let radius = 1.0;
-
-                // Phi = 0 => y_pos = 0, r_xz=radius
-                let x = radius * theta.sin();
-                let z = radius * theta.cos();
-                let pos = glam::Vec3::new(x, 0.0, z);
-
-                let tick_vec = pos.normalize() * 0.15; // Point out
-                let label = cache
-                    .azimuth_labels
-                    .get(i)
-                    .map(|s| s.as_str())
-                    .unwrap_or("");
-                draw_tick_and_label(window, pos, tick_vec, label);
-            }
-
-            // Draw Elevation Labels (Meridian)
-            // X data is Elevation (-90..90).
-            let el_ticks = self
-                .data
-                .x_ticks
-                .clone()
-                .unwrap_or_else(|| vec![-90.0, -45.0, 0.0, 45.0, 90.0]);
-
-            // Draw on Prime Meridian (Theta=0 -> Y=0 in data, Z positive)
-
-            for (i, &el) in el_ticks.iter().enumerate() {
-                if el.abs() > 89.0 {
-                    continue;
-                } // Skip poles to avoid clutter
-
-                let nx = self.data.normalize_x(el);
-                let phi = nx * std::f32::consts::FRAC_PI_2;
-                let radius = 1.0;
-
-                // Theta = 0
-                let y = radius * phi.sin();
-                let r_xz = radius * phi.cos();
-                let x = 0.0;
-                let z = r_xz * 1.0; // theta=0 -> sin=0, cos=1
-
-                let pos = glam::Vec3::new(x, y, z);
-                let tick_vec = pos.normalize() * 0.1;
-                let label = cache
-                    .elevation_labels
-                    .get(i)
-                    .map(|s| s.as_str())
-                    .unwrap_or("");
-
-                draw_tick_and_label(window, pos, tick_vec, label);
-            }
+            self.paint_spherical_axes(
+                bounds,
+                width,
+                height,
+                &camera,
+                cache,
+                overlay_color,
+                window,
+                cx,
+            );
         }
 
         // Draw colorbar legend if enabled
         if self.config.show_colorbar {
-            let colorbar_width: f32 = 20.0;
-            let colorbar_height: f32 = height * 0.6;
-            let colorbar_x = f32::from(bounds.origin.x) + width - colorbar_width - 50.0;
-            let colorbar_y = f32::from(bounds.origin.y) + (height - colorbar_height) / 2.0;
-            let num_segments = 50;
-
-            // Draw colorbar segments
-            for i in 0..num_segments {
-                let t = i as f32 / num_segments as f32;
-                let segment_height = colorbar_height / num_segments as f32;
-                let y = colorbar_y + colorbar_height
-                    - (t + 1.0 / num_segments as f32) * colorbar_height;
-
-                // Get color from colormap
-                let color = self.config.colormap.color_at(1.0 - t);
-                let rgba = gpui::rgba(
-                    ((color.0 * 255.0) as u32) << 24
-                        | ((color.1 * 255.0) as u32) << 16
-                        | ((color.2 * 255.0) as u32) << 8
-                        | 0xFF,
-                );
-
-                window.paint_quad(gpui::PaintQuad {
-                    bounds: gpui::Bounds::new(
-                        gpui::point(px(colorbar_x), px(y)),
-                        gpui::size(px(colorbar_width), px(segment_height + 1.0)),
-                    ),
-                    corner_radii: gpui::Corners::default(),
-                    background: rgba.into(),
-                    border_widths: gpui::Edges::default(),
-                    border_color: gpui::transparent_black(),
-                    border_style: Default::default(),
-                });
-            }
-
-            // Draw border around colorbar
-            let mut builder = gpui::PathBuilder::stroke(px(1.0));
-            builder.move_to(gpui::point(px(colorbar_x), px(colorbar_y)));
-            builder.line_to(gpui::point(px(colorbar_x + colorbar_width), px(colorbar_y)));
-            builder.line_to(gpui::point(
-                px(colorbar_x + colorbar_width),
-                px(colorbar_y + colorbar_height),
-            ));
-            builder.line_to(gpui::point(
-                px(colorbar_x),
-                px(colorbar_y + colorbar_height),
-            ));
-            builder.line_to(gpui::point(px(colorbar_x), px(colorbar_y)));
-            if let Ok(path) = builder.build() {
-                window.paint_path(path, overlay_color);
-            }
-
-            // Draw tick labels for colorbar
-            let num_ticks = 5;
-            let font_size = 9.0;
-            for i in 0..=num_ticks {
-                let t = i as f64 / num_ticks as f64;
-                let y = colorbar_y + colorbar_height * (1.0 - t as f32);
-
-                // Draw tick line
-                let mut builder = gpui::PathBuilder::stroke(px(1.0));
-                builder.move_to(gpui::point(px(colorbar_x + colorbar_width), px(y)));
-                builder.line_to(gpui::point(px(colorbar_x + colorbar_width + 4.0), px(y)));
-                if let Ok(path) = builder.build() {
-                    window.paint_path(path, overlay_color);
-                }
-
-                // Draw label from cache
-                let label = cache
-                    .colorbar_labels
-                    .get(i)
-                    .map(|s| s.as_str())
-                    .unwrap_or("");
-                let text_config = GlyphTextConfig::horizontal(font_size, overlay_color);
-                paint_chart_text_at(
-                    window,
-                    cx,
-                    label,
-                    colorbar_x + colorbar_width + 6.0,
-                    y,
-                    &text_config,
-                    HorizontalTextAnchor::Start,
-                    VerticalTextAnchor::Middle,
-                );
-            }
-
-            // Draw colorbar title (Z label)
-            if let Some(ref z_label) = self.data.z_label {
-                let label_x = colorbar_x + colorbar_width / 2.0;
-                let label_y = colorbar_y - 15.0;
-                let text_config = GlyphTextConfig::horizontal(10.0, overlay_color);
-                paint_chart_text_at(
-                    window,
-                    cx,
-                    z_label,
-                    label_x,
-                    label_y,
-                    &text_config,
-                    HorizontalTextAnchor::Middle,
-                    VerticalTextAnchor::Middle,
-                );
-            }
+            self.paint_colorbar(bounds, width, height, cache, overlay_color, window, cx);
         }
     }
 }

@@ -94,15 +94,31 @@ impl GeometryCacheKey {
         sweep_deg: f32,
     ) -> Self {
         Self {
-            min: (min * 1_000_000.0).round() as i64,
-            max: (max * 1_000_000.0).round() as i64,
+            min: quantize_geometry_key(min, 1_000_000.0),
+            max: quantize_geometry_key(max, 1_000_000.0),
             scale,
             size,
             unit_hash: fxhash::hash64(unit.as_bytes()),
-            start_deg: (start_deg * 1_000.0).round() as i32,
-            sweep_deg: (sweep_deg * 1_000.0).round() as i32,
+            start_deg: quantize_geometry_key_32(start_deg, 1_000.0),
+            sweep_deg: quantize_geometry_key_32(sweep_deg, 1_000.0),
         }
     }
+}
+
+/// Quantize a float cache key. NaN saturates to zero under `as` casts, which
+/// would alias a NaN-tainted range onto the legitimate `0.0` entry.
+fn quantize_geometry_key(value: f64, factor: f64) -> i64 {
+    if value.is_nan() {
+        return i64::MIN;
+    }
+    (value * factor).round() as i64
+}
+
+fn quantize_geometry_key_32(value: f32, factor: f32) -> i32 {
+    if value.is_nan() {
+        return i32::MIN;
+    }
+    (value * factor).round() as i32
 }
 
 thread_local! {

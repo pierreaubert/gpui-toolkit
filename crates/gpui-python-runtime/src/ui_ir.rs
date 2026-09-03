@@ -3505,7 +3505,7 @@ impl MeshPlotNode {
                 message: "mesh_plot export action is empty".into(),
             });
         }
-        crate::meshplot::MeshPlotSpec::from_value(self.spec.clone())
+        crate::meshplot::MeshPlotSpec::validate_value(&self.spec)
             .map_err(|message| UiIrError::InvalidPatch { message })?;
         Ok(())
     }

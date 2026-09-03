@@ -10,6 +10,7 @@ use super::get::get_breakable_advance;
 use super::get::get_tab_advance;
 use super::knuth_plass_params::KnuthPlassParams;
 use super::misc::badness;
+use super::misc::skipped_at_fresh_line_start;
 /// Line breaking algorithms, ported from chenglou/pretext.
 ///
 /// Implements both:
@@ -121,7 +122,10 @@ pub struct PreparedLineChunk {
     pub consumed_end_segment_index: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// A laid-out line as segment/grapheme ranges plus its paint width.
+///
+/// `Copy` so line-walk collectors move lines by value instead of cloning.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InternalLayoutLine {
     pub start_segment_index: usize,
     pub start_grapheme_index: usize,
@@ -175,11 +179,7 @@ pub fn normalize_line_start(
     }
 
     while seg_idx < chunk.end_segment_index {
-        let kind = prepared.kinds[seg_idx];
-        if kind != SegmentBreakKind::Space
-            && kind != SegmentBreakKind::ZeroWidthBreak
-            && kind != SegmentBreakKind::SoftHyphen
-        {
+        if !skipped_at_fresh_line_start(prepared.kinds[seg_idx]) {
             return Some(LineBreakCursor {
                 segment_index: seg_idx,
                 grapheme_index: 0,
@@ -256,6 +256,28 @@ impl std::ops::Deref for KpBreaks {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl KpBreaks {
+    /// Shift every breakpoint's segment index by `offset` in place.
+    ///
+    /// Lets multi-chunk optimal walks remap chunk-local breakpoints to global
+    /// coordinates without allocating a remapped copy per chunk.
+    pub(super) fn remap_segments(&mut self, offset: usize) {
+        if offset == 0 {
+            return;
+        }
+        for (seg, _) in self.0.iter_mut() {
+            *seg += offset;
+        }
+    }
+
+    /// Override the final breakpoint (chunk's consumed end) in place.
+    pub(super) fn set_last_break(&mut self, value: (usize, usize)) {
+        if let Some(last) = self.0.last_mut() {
+            *last = value;
+        }
     }
 }
 
@@ -773,16 +795,10 @@ pub(super) fn breakpoints_to_lines(
         let mut actual_start_seg = start_seg;
         let actual_start_graph = start_graph;
         if actual_start_graph == 0 {
-            while actual_start_seg < end_seg.min(widths.len()) {
-                let k = kinds[actual_start_seg];
-                if k == SegmentBreakKind::Space
-                    || k == SegmentBreakKind::ZeroWidthBreak
-                    || k == SegmentBreakKind::SoftHyphen
-                {
-                    actual_start_seg += 1;
-                } else {
-                    break;
-                }
+            while actual_start_seg < end_seg.min(widths.len())
+                && skipped_at_fresh_line_start(kinds[actual_start_seg])
+            {
+                actual_start_seg += 1;
             }
         }
 

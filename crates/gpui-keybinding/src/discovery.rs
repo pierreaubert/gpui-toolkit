@@ -21,39 +21,65 @@ pub struct CommandPaletteEntry {
     pub description: String,
     /// Category used for grouping and search.
     pub category: KeybindingCategory,
-    search_index: String,
-    description_lower: String,
-    key_lower: String,
-    raw_lower: String,
-    category_lower: String,
+    search_index: Rc<str>,
+    description_lower: Rc<str>,
+    key_lower: Rc<str>,
+    raw_lower: Rc<str>,
+    category_lower: Rc<str>,
 }
 
 impl CommandPaletteEntry {
     /// Build a palette entry from a documented keybinding.
     pub fn from_binding(binding: &DocumentedKeybinding) -> Self {
-        let mut search_index = String::new();
-        push_search_text(&mut search_index, &binding.key);
-        if let Some(raw) = &binding.raw_key_spec {
-            push_search_text(&mut search_index, raw);
-            push_search_text(&mut search_index, &format_key_label(raw));
+        // Lowercase each field once and reuse the results for both the ranking
+        // shortcuts and the combined search index (previously every field was
+        // lowercased twice: once for the index, once for ranking).
+        let key_lower: Rc<str> = binding.key.to_ascii_lowercase().into();
+        let description_lower: Rc<str> = binding.description.to_ascii_lowercase().into();
+        let raw_lower: Rc<str> = binding
+            .raw_key_spec
+            .as_deref()
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .into();
+        let category_lower: Rc<str> = binding.category.name().to_ascii_lowercase().into();
+        let context_lower: Rc<str> = binding
+            .normalized_context()
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .into();
+
+        let mut search_index = String::with_capacity(
+            key_lower.len()
+                + description_lower.len()
+                + raw_lower.len()
+                + category_lower.len()
+                + context_lower.len()
+                + 8,
+        );
+        push_lowered_text(&mut search_index, &key_lower);
+        if !raw_lower.is_empty() {
+            push_lowered_text(&mut search_index, &raw_lower);
+            push_lowered_text(
+                &mut search_index,
+                &format_key_label(binding.raw_key_spec.as_deref().unwrap_or_default())
+                    .to_ascii_lowercase(),
+            );
         }
-        push_search_text(&mut search_index, &binding.description);
-        push_search_text(&mut search_index, binding.category.name());
+        push_lowered_text(&mut search_index, &description_lower);
+        push_lowered_text(&mut search_index, &category_lower);
+        push_lowered_text(&mut search_index, &context_lower);
 
         Self {
             key: binding.key.clone(),
             raw_key_spec: binding.raw_key_spec.clone(),
             description: binding.description.clone(),
             category: binding.category.clone(),
-            search_index,
-            description_lower: binding.description.to_ascii_lowercase(),
-            key_lower: binding.key.to_ascii_lowercase(),
-            raw_lower: binding
-                .raw_key_spec
-                .as_deref()
-                .unwrap_or_default()
-                .to_ascii_lowercase(),
-            category_lower: binding.category.name().to_ascii_lowercase(),
+            search_index: search_index.into(),
+            description_lower,
+            key_lower,
+            raw_lower,
+            category_lower,
         }
     }
 
@@ -101,6 +127,7 @@ struct BindingBoundary {
     raw_key_spec: Option<StrIdentity>,
     description: StrIdentity,
     category: StrIdentity,
+    context: Option<StrIdentity>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -125,6 +152,7 @@ impl From<&DocumentedKeybinding> for BindingBoundary {
             raw_key_spec: binding.raw_key_spec.as_deref().map(Into::into),
             description: binding.description.as_str().into(),
             category: binding.category.name().into(),
+            context: binding.normalized_context().map(Into::into),
         }
     }
 }
@@ -169,6 +197,21 @@ const MAX_REGISTRY_CACHE_ENTRIES_PER_PRESET: usize = 64;
 
 type RegistryQueryCache<T> = HashMap<KeymapPreset, HashMap<String, Rc<[T]>>>;
 
+/// Evict a single entry from a bounded per-preset query map.
+///
+/// The previous clear-all eviction dropped every hot entry on one cold query
+/// once the cap was reached. Removing one entry instead keeps hot queries
+/// cached while still bounding memory. Cache hits never call this, so they
+/// stay allocation-free.
+fn evict_one<K, V>(map: &mut HashMap<K, V>)
+where
+    K: Clone + Eq + Hash,
+{
+    if let Some(key) = map.keys().next().cloned() {
+        map.remove(&key);
+    }
+}
+
 fn insert_registry_cache<T>(
     cache: &RefCell<RegistryQueryCache<T>>,
     preset: KeymapPreset,
@@ -178,7 +221,7 @@ fn insert_registry_cache<T>(
     let mut cache = cache.borrow_mut();
     let entries = cache.entry(preset).or_default();
     if entries.len() >= MAX_REGISTRY_CACHE_ENTRIES_PER_PRESET && !entries.contains_key(&key) {
-        entries.clear();
+        evict_one(entries);
     }
     entries.insert(key, result);
 }
@@ -187,13 +230,7 @@ fn documented_bindings_match(
     snapshot: &[DocumentedKeybinding],
     bindings: &[DocumentedKeybinding],
 ) -> bool {
-    snapshot.len() == bindings.len()
-        && snapshot.iter().zip(bindings).all(|(snapshot, binding)| {
-            snapshot.key == binding.key
-                && snapshot.raw_key_spec == binding.raw_key_spec
-                && snapshot.description == binding.description
-                && snapshot.category == binding.category
-        })
+    snapshot == bindings
 }
 
 thread_local! {
@@ -226,8 +263,9 @@ pub fn command_palette_entries(bindings: &[DocumentedKeybinding]) -> Vec<Command
 /// split on whitespace and require every token to match the precomputed search
 /// index.
 ///
-/// This is the convenience wrapper that returns a [`Vec`]; prefer
-/// [`search_command_palette_cached`] to reuse the same allocation across calls.
+/// This is the convenience wrapper that returns a [`Vec`] for one-off queries;
+/// prefer [`search_command_palette_cached`] for repeated (e.g. per-keystroke)
+/// filtering to reuse the same allocation across calls.
 pub fn search_command_palette(
     entries: &[CommandPaletteEntry],
     query: &str,
@@ -236,14 +274,10 @@ pub fn search_command_palette(
     build_command_palette_search(entries, normalized.as_ref())
 }
 
-fn build_command_palette_search(
+fn sorted_palette_matches(
     entries: &[CommandPaletteEntry],
     normalized: &str,
 ) -> Vec<CommandPaletteEntry> {
-    if normalized.is_empty() {
-        return entries.to_vec();
-    }
-
     let mut matches: Vec<_> = entries
         .iter()
         .filter_map(|entry| {
@@ -262,6 +296,16 @@ fn build_command_palette_search(
         .into_iter()
         .map(|(_, entry)| entry.clone())
         .collect()
+}
+
+fn build_command_palette_search(
+    entries: &[CommandPaletteEntry],
+    normalized: &str,
+) -> Vec<CommandPaletteEntry> {
+    if normalized.is_empty() {
+        return entries.to_vec();
+    }
+    sorted_palette_matches(entries, normalized)
 }
 
 /// Cached version of [`search_command_palette`].
@@ -292,32 +336,12 @@ pub fn search_command_palette_cached(
         let result: Rc<[CommandPaletteEntry]> = if normalized.is_empty() {
             Rc::clone(&entries)
         } else {
-            let mut matches: Vec<_> = entries
-                .iter()
-                .filter_map(|entry| {
-                    score_entry(entry, normalized.as_ref(), normalized.split_whitespace())
-                        .map(|score| (score, entry))
-                })
-                .collect();
-
-            matches.sort_by(|(score_a, a), (score_b, b)| {
-                score_a
-                    .cmp(score_b)
-                    .then_with(|| a.category.name().cmp(b.category.name()))
-                    .then_with(|| a.description.cmp(&b.description))
-                    .then_with(|| a.key.cmp(&b.key))
-            });
-
-            matches
-                .into_iter()
-                .map(|(_, entry)| entry.clone())
-                .collect::<Vec<_>>()
-                .into()
+            sorted_palette_matches(&entries, normalized.as_ref()).into()
         };
 
         let mut cache = cache.borrow_mut();
         if cache.len() >= MAX_PALETTE_ENTRY_SETS && !cache.contains_key(&entries_key) {
-            cache.clear();
+            evict_one(&mut cache);
         }
         let entry = cache
             .entry(entries_key)
@@ -328,7 +352,7 @@ pub fn search_command_palette_cached(
         if entry.queries.len() >= MAX_QUERIES_PER_SET
             && !entry.queries.contains_key(normalized.as_ref())
         {
-            entry.queries.clear();
+            evict_one(&mut entry.queries);
         }
         entry
             .queries
@@ -343,8 +367,9 @@ pub fn search_command_palette_cached(
 /// `"ctrl-k ctrl-s"`. Bindings without `raw_key_spec` are still considered,
 /// but matching is necessarily based on their display string.
 ///
-/// This is the convenience wrapper that returns a [`Vec`]; prefer
-/// `keybinding_hints_cached()` to reuse the same allocation across calls.
+/// This is the convenience wrapper that returns a [`Vec`] for one-off queries;
+/// prefer `keybinding_hints_cached()` for repeated lookups (e.g. per-keystroke
+/// chord overlays) to reuse the same allocation across calls.
 pub fn keybinding_hints(bindings: &[DocumentedKeybinding], prefix: &str) -> Vec<KeybindingHint> {
     let prefix_normalized = normalized_ascii_lowercase(prefix);
     build_keybinding_hints(bindings, prefix_normalized.as_ref())
@@ -380,7 +405,7 @@ pub fn keybinding_hints_cached(
         let result: Rc<[KeybindingHint]> = result.into();
         let mut cache = cache.borrow_mut();
         if cache.len() >= MAX_HINT_BINDING_SETS && !cache.contains_key(&bindings_hash) {
-            cache.clear();
+            evict_one(&mut cache);
         }
         let entry = cache
             .entry(bindings_hash)
@@ -398,7 +423,7 @@ pub fn keybinding_hints_cached(
         if prefixes.len() >= MAX_HINT_PREFIXES_PER_SET
             && !prefixes.contains_key(prefix_normalized.as_ref())
         {
-            prefixes.clear();
+            evict_one(prefixes);
         }
         prefixes.insert(prefix_normalized.into_owned(), Rc::clone(&result));
         result
@@ -409,13 +434,15 @@ pub fn keybinding_hints_cached(
 /// appears more than once, the later documented binding supplies its metadata.
 fn build_keybinding_hints(bindings: &[DocumentedKeybinding], prefix: &str) -> Vec<KeybindingHint> {
     let mut hints: BTreeMap<&str, KeybindingHint> = BTreeMap::new();
+    // Split the prefix once instead of re-splitting it for every binding.
+    let expected_parts: Vec<&str> = prefix.split_whitespace().collect();
 
     for binding in bindings {
         let spec = binding.raw_key_spec.as_deref().unwrap_or(&binding.key);
         let mut parts = spec.split_whitespace();
         let mut prefix_matches = true;
-        for expected in prefix.split_whitespace() {
-            if parts.next() != Some(expected) {
+        for expected in &expected_parts {
+            if parts.next() != Some(*expected) {
                 prefix_matches = false;
                 break;
             }
@@ -425,9 +452,9 @@ fn build_keybinding_hints(bindings: &[DocumentedKeybinding], prefix: &str) -> Ve
         }
 
         let Some(next) = parts.next() else {
-            if let Some(last) = prefix.split_whitespace().last() {
+            if let Some(last) = expected_parts.last() {
                 let entry = hints
-                    .entry(last)
+                    .entry(*last)
                     .or_insert_with(|| hint_from_binding(last, binding, true, false));
                 entry.is_terminal = true;
                 entry.description = Some(binding.description.clone());
@@ -558,11 +585,14 @@ fn hint_from_binding(
     }
 }
 
-fn push_search_text(out: &mut String, value: &str) {
+fn push_lowered_text(out: &mut String, lowered: &str) {
+    if lowered.is_empty() {
+        return;
+    }
     if !out.is_empty() {
         out.push(' ');
     }
-    out.push_str(&value.to_ascii_lowercase());
+    out.push_str(lowered);
 }
 
 fn score_entry<'a>(
@@ -705,6 +735,39 @@ mod tests {
         let binding = DocumentedKeybinding::new("Ctrl+P", "Open", KeybindingCategory::View);
         let entry = CommandPaletteEntry::from_binding(&binding);
         assert!(entry.search_index().contains("ctrl+p"));
+    }
+
+    #[test]
+    fn command_palette_entry_indexes_when_context() {
+        let binding = DocumentedKeybinding::new("Ctrl+S", "Save", KeybindingCategory::FileOps)
+            .with_context("editorTextFocus");
+        let entry = CommandPaletteEntry::from_binding(&binding);
+        assert!(entry.search_index().contains("editortextfocus"));
+
+        let without_context = CommandPaletteEntry::from_binding(&DocumentedKeybinding::new(
+            "Ctrl+S",
+            "Save",
+            KeybindingCategory::FileOps,
+        ));
+        assert!(!without_context.search_index().contains("editortextfocus"));
+
+        let entries = vec![entry];
+        assert_eq!(search_command_palette(&entries, "editortextfocus").len(), 1);
+    }
+
+    #[test]
+    fn keybinding_hints_cache_rebuilds_after_context_change() {
+        let mut docs = docs();
+        let before = keybinding_hints_cached(&docs, "ctrl-k");
+        assert_eq!(before.len(), 3);
+
+        docs[1] =
+            DocumentedKeybinding::new("Ctrl+K Ctrl+S", "Save all", KeybindingCategory::FileOps)
+                .with_raw_key_spec("ctrl-k ctrl-s")
+                .with_context("editorTextFocus");
+
+        let after = keybinding_hints_cached(&docs, "ctrl-k");
+        assert!(!Rc::ptr_eq(&before, &after));
     }
 
     #[test]
@@ -866,7 +929,7 @@ mod tests {
     }
 
     #[test]
-    fn registry_discovery_caches_clear_when_the_per_preset_cap_is_exceeded() {
+    fn registry_discovery_caches_evict_single_entries_when_the_per_preset_cap_is_exceeded() {
         let mut registry = KeybindingRegistry::new();
         registry.register(CountingProvider {
             documented_calls: Rc::new(Cell::new(0)),
@@ -876,9 +939,11 @@ mod tests {
             let query = format!("query-{index}");
             registry.search_command_palette_cached(KeymapPreset::Default, &query);
         }
+        // Single-entry eviction keeps the map at the cap instead of dropping
+        // every hot entry on one cold query.
         assert_eq!(
             registry.search_cache.borrow()[&KeymapPreset::Default].len(),
-            1
+            MAX_REGISTRY_CACHE_ENTRIES_PER_PRESET
         );
 
         for index in 0..=MAX_REGISTRY_CACHE_ENTRIES_PER_PRESET {
@@ -887,7 +952,7 @@ mod tests {
         }
         assert_eq!(
             registry.hints_cache.borrow()[&KeymapPreset::Default].len(),
-            1
+            MAX_REGISTRY_CACHE_ENTRIES_PER_PRESET
         );
     }
 }

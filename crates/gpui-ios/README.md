@@ -227,6 +227,12 @@ View and Stage Manager.
   service URL.
 - `gpui_ios::hot_reload::HotReloadManifest` defines the simulator debug dylib
   reload manifest consumed by Swift shells.
+- `gpui_ios::haptics::trigger_haptic(...)` plays `UIFeedbackGenerator` impact,
+  selection, and notification haptics.
+- `gpui_ios::local_auth::authenticate(...)` evaluates Face ID / Touch ID /
+  device-passcode policies through `LAContext`.
+- `gpui_ios::notifications::schedule_local_notification(...)` schedules
+  time-interval local notifications through `UNUserNotificationCenter`.
 
 Swift-facing C FFI is provided for host-view attachment, native platform-view
 factory registration, Pencil hover forwarding, and Metal capture control.
@@ -252,7 +258,7 @@ gpui_ios::set_text_input_callback(Some(Box::new(|text: &str| {
 | Module | Purpose |
 |--------|---------|
 | `ios/platform.rs` | `IosPlatform` — implements `gpui::Platform` trait |
-| `ios/window.rs` | `IosWindow` — Metal layer, touch dispatch, safe areas |
+| `ios/window/` | `IosWindow` split into `ios_window` (shell), `touch` (gestures/momentum), `renderer` (wgpu lifecycle), `accessibility` (VoiceOver mirroring) |
 | `ios/ffi.rs` | C FFI exports called from Swift (frame rendering, lifecycle, touch) |
 | `ios/text_system.rs` | CoreText-based text shaping and rendering |
 | `ios/text_input.rs` | Software keyboard text input handling |

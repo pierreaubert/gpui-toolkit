@@ -99,3 +99,10 @@ required-features = ["showcase"]
 name = "gpui-python-host"
 path = "bin/host.rs"
 required-features = ["showcase"]
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "spec_validate"
+harness = false

@@ -28,12 +28,17 @@ use std::{
 
 use super::AuWindow;
 
-pub struct AuPlatform(Mutex<AuPlatformState>);
-
-struct AuPlatformState {
+pub struct AuPlatform {
+    // Executors and the text system are cloneable handles kept outside the
+    // mutex so hot query paths (`background_executor`, `foreground_executor`,
+    // `text_system`) never lock.
     background_executor: BackgroundExecutor,
     foreground_executor: ForegroundExecutor,
     text_system: Arc<dyn PlatformTextSystem>,
+    state: Mutex<AuPlatformState>,
+}
+
+struct AuPlatformState {
     cursor_style: CursorStyle,
     cursor_visible: bool,
     _finish_launching: Option<Box<dyn FnOnce()>>,
@@ -50,14 +55,16 @@ impl AuPlatform {
         let dispatcher = Arc::new(AuDispatcher);
         let text_system: Arc<dyn PlatformTextSystem> = Arc::new(AuTextSystem::new());
 
-        Self(Mutex::new(AuPlatformState {
+        Self {
             background_executor: BackgroundExecutor::new(dispatcher.clone()),
             foreground_executor: ForegroundExecutor::new(dispatcher),
             text_system,
-            cursor_style: CursorStyle::Arrow,
-            cursor_visible: true,
-            _finish_launching: None,
-        }))
+            state: Mutex::new(AuPlatformState {
+                cursor_style: CursorStyle::Arrow,
+                cursor_visible: true,
+                _finish_launching: None,
+            }),
+        }
     }
 }
 
@@ -75,24 +82,24 @@ impl PlatformKeyboardLayout for AuKeyboardLayout {
 
 impl Platform for AuPlatform {
     fn background_executor(&self) -> BackgroundExecutor {
-        self.0.lock().background_executor.clone()
+        self.background_executor.clone()
     }
 
     fn foreground_executor(&self) -> ForegroundExecutor {
-        self.0.lock().foreground_executor.clone()
+        self.foreground_executor.clone()
     }
 
     fn text_system(&self) -> Arc<dyn PlatformTextSystem> {
-        self.0.lock().text_system.clone()
+        Arc::clone(&self.text_system)
     }
 
     fn run(&self, on_finish_launching: Box<dyn 'static + FnOnce()>) {
-        use crate::helpers::nslog;
-        nslog(b"SOTF AuPlatform::run: calling on_finish_launching immediately");
+        use crate::helpers::nslog_verbose;
+        nslog_verbose(b"SOTF AuPlatform::run: calling on_finish_launching immediately");
         // AU extensions don't own the application event loop.
         // Call on_finish_launching immediately — the host DAW's run loop is already active.
         on_finish_launching();
-        nslog(b"SOTF AuPlatform::run: on_finish_launching completed");
+        nslog_verbose(b"SOTF AuPlatform::run: on_finish_launching completed");
     }
 
     fn quit(&self) {
@@ -125,11 +132,11 @@ impl Platform for AuPlatform {
         handle: AnyWindowHandle,
         options: WindowParams,
     ) -> anyhow::Result<Box<dyn PlatformWindow>> {
-        use crate::helpers::nslog;
-        nslog(b"SOTF AuPlatform::open_window: entry");
+        use crate::helpers::nslog_verbose;
+        nslog_verbose(b"SOTF AuPlatform::open_window: entry");
         let window = Box::new(AuWindow::new(handle, options)?);
         AuWindow::register_global(&window);
-        nslog(b"SOTF AuPlatform::open_window: done");
+        nslog_verbose(b"SOTF AuPlatform::open_window: done");
         Ok(window)
     }
 
@@ -219,7 +226,7 @@ impl Platform for AuPlatform {
     fn set_cursor_style(&self, style: CursorStyle) {
         let action = au_cursor_action(style);
         {
-            let mut state = self.0.lock();
+            let mut state = self.state.lock();
             state.cursor_style = style;
             state.cursor_visible = action != AuCursorAction::HideUntilMouseMoves;
         }
@@ -228,12 +235,12 @@ impl Platform for AuPlatform {
     }
 
     fn hide_cursor_until_mouse_moves(&self) {
-        self.0.lock().cursor_visible = false;
+        self.state.lock().cursor_visible = false;
         apply_au_cursor_action(AuCursorAction::HideUntilMouseMoves);
     }
 
     fn is_cursor_visible(&self) -> bool {
-        self.0.lock().cursor_visible
+        self.state.lock().cursor_visible
     }
 
     fn should_auto_hide_scrollbars(&self) -> bool {

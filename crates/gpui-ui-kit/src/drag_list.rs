@@ -14,6 +14,7 @@
 //! ```
 
 use crate::ComponentTheme;
+use crate::data_navigation::DataVirtualWindow;
 use crate::theme::ThemeExt;
 use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
 use gpui::{
@@ -87,6 +88,8 @@ pub struct DragList {
     show_handles: bool,
     gap: Pixels,
     on_reorder: Option<Rc<dyn Fn(usize, usize, &mut Window, &mut App) + 'static>>,
+    virtual_window: Option<DataVirtualWindow>,
+    virtual_row_height: Option<f32>,
 }
 
 impl DragList {
@@ -99,6 +102,8 @@ impl DragList {
             show_handles: true,
             gap: px(2.0),
             on_reorder: None,
+            virtual_window: None,
+            virtual_row_height: None,
         }
     }
 
@@ -117,6 +122,47 @@ impl DragList {
     /// Set gap between items
     pub fn gap(mut self, gap: Pixels) -> Self {
         self.gap = gap;
+        self
+    }
+
+    /// Set a virtual visible-item window for large lists.
+    ///
+    /// Only items in `[window.start, window.end)` are rendered, turning
+    /// 10k-item racks from O(n) elements per frame into O(visible).
+    /// Reorder callbacks still report global indices.
+    pub fn virtual_window(mut self, window: DataVirtualWindow) -> Self {
+        self.virtual_window = Some(window);
+        self
+    }
+
+    /// Set a virtual visible-item window and fixed row height so scroll
+    /// extent spacers keep the scrollbar stable while windowing.
+    pub fn virtual_window_with_row_height(
+        mut self,
+        window: DataVirtualWindow,
+        row_height: f32,
+    ) -> Self {
+        self.virtual_window = Some(window);
+        self.virtual_row_height = Some(row_height);
+        self
+    }
+
+    /// Compute and set a virtual window from scroll geometry.
+    pub fn virtual_viewport(
+        mut self,
+        scroll_offset: f32,
+        row_height: f32,
+        viewport_height: f32,
+        overscan: usize,
+    ) -> Self {
+        self.virtual_window = Some(DataVirtualWindow::from_viewport(
+            self.items.len(),
+            scroll_offset,
+            row_height,
+            viewport_height,
+            overscan,
+        ));
+        self.virtual_row_height = Some(row_height);
         self
     }
 
@@ -143,7 +189,40 @@ impl DragList {
         let hover_bg = theme.item_hover;
         let apply_hover = move |s: StyleRefinement| s.bg(hover_bg);
 
-        for (idx, item) in self.items.into_iter().enumerate() {
+        let total = self.items.len();
+        let (start, end) = match &self.virtual_window {
+            Some(window) => (
+                window.start.min(total),
+                window.end.min(total).max(window.start.min(total)),
+            ),
+            None => (0, total),
+        };
+        // Scroll-extent spacers keep the scrollbar stable while windowing.
+        // The bottom spacer is appended after the rows below.
+        let bottom_spacer: Option<Div> = match self.virtual_row_height {
+            Some(row_height) => {
+                let top = start as f32 * row_height;
+                if top > 0.0 {
+                    container = container.child(div().h(px(top)));
+                }
+                let bottom = (total.saturating_sub(end)) as f32 * row_height;
+                if bottom > 0.0 {
+                    Some(div().h(px(bottom)))
+                } else {
+                    None
+                }
+            }
+            None => None,
+        };
+
+        for (offset, item) in self
+            .items
+            .into_iter()
+            .enumerate()
+            .skip(start)
+            .take(end.saturating_sub(start))
+        {
+            let idx = offset;
             let mut row = div()
                 .id(ElementId::from((self.id.clone(), item.id)))
                 .flex()
@@ -198,6 +277,10 @@ impl DragList {
             container = container.child(row);
         }
 
+        if let Some(spacer) = bottom_spacer {
+            container = container.child(spacer);
+        }
+
         // If a drag is released outside any row, clear the state.
         if on_reorder.is_some() {
             let list_id_clear = list_id.clone();
@@ -232,6 +315,28 @@ impl IntoElement for DragList {
 mod tests {
     use super::{DragItem, DragList};
     use gpui::{ParentElement, div};
+
+    #[test]
+    fn test_drag_list_virtual_window_builders() {
+        use crate::data_navigation::DataVirtualWindow;
+
+        let list = DragList::new(
+            "test-virtual",
+            vec![
+                DragItem::new("a", div().child("A")),
+                DragItem::new("b", div().child("B")),
+            ],
+        )
+        .virtual_window(DataVirtualWindow::new(2, 0, 1))
+        .virtual_window_with_row_height(DataVirtualWindow::new(2, 0, 1), 24.0);
+        assert!(list.virtual_window.is_some());
+        assert_eq!(list.virtual_row_height, Some(24.0));
+
+        let viewport =
+            DragList::new("test-viewport", Vec::new()).virtual_viewport(0.0, 24.0, 240.0, 2);
+        assert!(viewport.virtual_window.is_some());
+        assert_eq!(viewport.virtual_row_height, Some(24.0));
+    }
 
     #[test]
     fn test_drag_list_builds_with_reorder_handler() {

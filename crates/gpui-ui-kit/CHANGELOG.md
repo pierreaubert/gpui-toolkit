@@ -1,5 +1,14 @@
 # Unreleased
 
+## Added
+
+- Added `date_picker` and `scroll_area` components; extended `dialog`,
+  `drag_list`, `input`, `i18n`, and `split_pane`.
+
+## Fixed
+
+- Fixed the radio-group integration test `SharedString` selection type.
+
 ## 0.9.40 - 2026-08-24
 
 ### Fixes

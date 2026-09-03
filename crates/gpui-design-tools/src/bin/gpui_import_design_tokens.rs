@@ -5,7 +5,12 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 struct Args {
-    #[arg(short, long, default_value = "style-dictionary-json")]
+    #[arg(
+        short,
+        long,
+        default_value = "style-dictionary-json",
+        help = "Token wire format: style-dictionary-json or w3c-dtcg-json"
+    )]
     format: String,
     #[arg(short, long)]
     input: PathBuf,

@@ -312,15 +312,12 @@ fn solve_tree_slot<'a>(
     )
 }
 
-fn solve_tree_container<'a>(
-    container: &ContainerNode<'a>,
-    width: f32,
-    height: f32,
-    prefs: &LayoutPreferences<'a>,
-    storage: &mut TreeSolveStorage<'_, 'a>,
-) -> NodeIndex {
+/// Solver pass 1 (resolve): container axis plus main/cross sizes.
+///
+/// Shared by the recursive ([`solve_container`]) and flat-arena
+/// ([`solve_tree_container`]) solve paths so both resolve identically.
+fn container_geometry(container: &ContainerNode<'_>, width: f32, height: f32) -> (Axis, f32, f32) {
     let axis = resolve_axis(container, width, height);
-
     let main_size = match axis {
         Axis::Horizontal => width,
         Axis::Vertical => height,
@@ -329,11 +326,24 @@ fn solve_tree_container<'a>(
         Axis::Horizontal => height,
         Axis::Vertical => width,
     };
+    (axis, main_size, cross_size)
+}
 
+/// Solver pass 2 (measure/collect): build one [`ChildInfo`] per child,
+/// pre-computing `Sizing::Text` sizes through the shared text cache.
+///
+/// Shared by both solve paths; pass 3 is [`allocate_main_axis`]
+/// (priority collapse + main-axis distribution).
+fn collect_child_infos<'a>(
+    container: &ContainerNode<'a>,
+    axis: Axis,
+    cross_size: f32,
+    prefs: &LayoutPreferences<'a>,
+    cache: &Rc<RefCell<TextMeasureCache>>,
+    child_infos: &mut Vec<ChildInfo>,
+) {
     let profile = EngineProfile::default();
     let options = PrepareOptions::default();
-
-    let mut child_infos: Vec<ChildInfo> = take_child_info_scratch();
     child_infos.extend(
         container
             .children
@@ -360,7 +370,7 @@ fn solve_tree_container<'a>(
                                 profile: &profile,
                                 options: &options,
                             },
-                            storage.cache,
+                            cache,
                         ))
                     } else {
                         None
@@ -376,6 +386,35 @@ fn solve_tree_container<'a>(
                     computed_text_size,
                 }
             }),
+    );
+}
+
+/// Solver pass 4 (place): child box for an allocated main-axis size.
+fn child_box(axis: Axis, allocated_size: f32, cross_size: f32) -> (f32, f32) {
+    match axis {
+        Axis::Horizontal => (allocated_size, cross_size),
+        Axis::Vertical => (cross_size, allocated_size),
+    }
+}
+
+fn solve_tree_container<'a>(
+    container: &ContainerNode<'a>,
+    width: f32,
+    height: f32,
+    prefs: &LayoutPreferences<'a>,
+    storage: &mut TreeSolveStorage<'_, 'a>,
+) -> NodeIndex {
+    // Passes 1-2 (resolve + measure/collect); pass 3 allocates below.
+    let (axis, main_size, cross_size) = container_geometry(container, width, height);
+
+    let mut child_infos: Vec<ChildInfo> = take_child_info_scratch();
+    collect_child_infos(
+        container,
+        axis,
+        cross_size,
+        prefs,
+        storage.cache,
+        &mut child_infos,
     );
 
     allocate_main_axis(
@@ -434,10 +473,7 @@ fn solve_tree_container<'a>(
             continue;
         }
 
-        let (child_w, child_h) = match axis {
-            Axis::Horizontal => (info.allocated_size, cross_size),
-            Axis::Vertical => (cross_size, info.allocated_size),
-        };
+        let (child_w, child_h) = child_box(axis, info.allocated_size, cross_size);
 
         match node {
             LayoutNode::Slot(slot) => {
@@ -546,68 +582,13 @@ fn solve_container<'a>(
     prefs: &LayoutPreferences<'a>,
     cache: &Rc<RefCell<TextMeasureCache>>,
 ) -> SolvedNode<'a> {
-    // Step 1: Resolve axis
-    let axis = resolve_axis(container, width, height);
-
-    let main_size = match axis {
-        Axis::Horizontal => width,
-        Axis::Vertical => height,
-    };
-    let cross_size = match axis {
-        Axis::Horizontal => height,
-        Axis::Vertical => width,
-    };
-
-    // Step 2: Classify children, apply user collapse, pre-compute Text sizes
-    let profile = EngineProfile::default();
-    let options = PrepareOptions::default();
+    // Passes 1-2 (resolve + measure/collect via shared helpers).
+    let (axis, main_size, cross_size) = container_geometry(container, width, height);
 
     let mut child_infos: Vec<ChildInfo> = take_child_info_scratch();
-    child_infos.extend(
-        container
-            .children
-            .iter()
-            .enumerate()
-            .map(|(node_index, child)| {
-                let user_collapsed = child.collapsible() && prefs.is_collapsed(child.id());
-                let computed_text_size = if !user_collapsed {
-                    if let Sizing::Text {
-                        text,
-                        measure,
-                        line_height,
-                        min,
-                    } = child.sizing()
-                    {
-                        Some(compute_text_size(
-                            TextSizeInput {
-                                text,
-                                measure,
-                                line_height,
-                                min,
-                                axis,
-                                cross_size,
-                                profile: &profile,
-                                options: &options,
-                            },
-                            cache,
-                        ))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                ChildInfo {
-                    node_index,
-                    user_collapsed,
-                    solver_collapsed: false,
-                    allocated_size: 0.0,
-                    computed_text_size,
-                }
-            }),
-    );
+    collect_child_infos(container, axis, cross_size, prefs, cache, &mut child_infos);
 
-    // Step 3: Allocate main-axis space
+    // Pass 3: priority collapse + main-axis distribution.
     allocate_main_axis(
         &mut child_infos,
         container.children,
@@ -642,10 +623,7 @@ fn solve_container<'a>(
                 };
             }
 
-            let (child_w, child_h) = match axis {
-                Axis::Horizontal => (info.allocated_size, cross_size),
-                Axis::Vertical => (cross_size, info.allocated_size),
-            };
+            let (child_w, child_h) = child_box(axis, info.allocated_size, cross_size);
 
             match node {
                 LayoutNode::Slot(slot) => {

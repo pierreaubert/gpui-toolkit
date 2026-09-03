@@ -45,8 +45,8 @@ pub mod size;
 pub mod checkbox;
 pub mod color;
 pub mod color_picker;
-// pub mod combobox; // lands with the Combobox component
-// pub mod date_picker; // lands with the DatePicker component
+pub mod combobox;
+pub mod date_picker;
 pub mod input;
 pub mod number_input;
 pub mod radio_group;
@@ -72,6 +72,7 @@ pub mod thinking_orb;
 
 // Feedback
 pub mod alert;
+pub mod scroll_area;
 pub mod search_bar;
 pub mod tooltip;
 
@@ -150,12 +151,16 @@ pub use toast::{Toast, ToastContainer, ToastPosition, ToastVariant};
 pub use checkbox::{Checkbox, CheckboxSize, CheckboxTheme};
 pub use color::Color;
 pub use color_picker::{ColorPickerMode, ColorPickerView};
+pub use combobox::{
+    Combobox, ComboboxOption, ComboboxSize, ComboboxTheme, default_combobox_filter,
+};
+pub use date_picker::{CalendarDate, DatePicker};
 pub use radio_group::{
     RadioGroup, RadioGroupOrientation, RadioGroupSize, RadioGroupTheme, RadioOption,
 };
 pub use input::{
-    Input, InputSize, InputTheme, InputVariant, cleanup_input_state, cleanup_stale_input_states,
-    clear_all_input_states, input_state_count, is_input_editing,
+    Input, InputSize, InputTheme, InputValidator, InputVariant, cleanup_input_state,
+    cleanup_stale_input_states, clear_all_input_states, input_state_count, is_input_editing,
 };
 pub use number_input::{
     NumberInput, NumberInputSize, NumberInputTheme, cleanup_number_input_state,
@@ -185,6 +190,7 @@ pub use thinking_orb::presets::{OrbSize, OrbState, Preset, Resolved, resolve_pre
 #[cfg(feature = "vello")]
 pub use thinking_orb::{FrameStats, ThinkingOrb};
 // Feedback
+pub use scroll_area::{ScrollArea, ScrollAxis};
 pub use search_bar::{SearchBar, SearchBarSize, SearchBarTheme};
 pub use tooltip::{Tooltip, TooltipPlacement, WithTooltip};
 // Layout
@@ -233,7 +239,7 @@ pub use color_tokens::{
     desaturate, lighten, saturate, with_alpha,
 };
 pub use gpui_design::{DesignExt, DesignSystem, DesignSystemState};
-pub use i18n::{I18nExt, I18nState, Language, TranslationKey, Translations};
+pub use i18n::{I18nExt, I18nState, Language, LayoutDirection, TranslationKey, Translations};
 pub use theme::{Theme, ThemeExt, ThemeState, ThemeVariant, glow_shadow};
 // Builder/layout solver integration
 pub mod layout_builder {

@@ -48,10 +48,10 @@ pub use meter::{
 };
 pub use scale::Scale as AudioScale;
 pub use spectrum::{
-    MeterData, SpectrumAxisLabel, SpectrumAxisTheme, SpectrumColors, SpectrumDbAxisLabel,
-    SpectrumElement, format_spectrum_frequency_label, logarithmic_frequency_position,
-    render_spectrum_db_axis, render_spectrum_frequency_axis, spectrum_db_axis_labels,
-    spectrum_frequency_axis_labels,
+    MeterData, MeterFifo, SpectrumAxisLabel, SpectrumAxisTheme, SpectrumColors,
+    SpectrumDbAxisLabel, SpectrumElement, format_spectrum_frequency_label,
+    logarithmic_frequency_position, render_spectrum_db_axis, render_spectrum_frequency_axis,
+    spectrum_db_axis_labels, spectrum_frequency_axis_labels,
 };
 pub use ticks::{ScaleType, TickConfig, TickMark, render_tick_row};
 

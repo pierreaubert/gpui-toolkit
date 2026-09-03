@@ -1,3 +1,10 @@
+# Unreleased
+
+## Added
+
+- Added `DensityTier` with density/RTL-aware spacing fields, fluid type
+  ramps, Material 3 opacities, and CSS/Tailwind token emitters.
+
 # 0.7.3
 
 ## New

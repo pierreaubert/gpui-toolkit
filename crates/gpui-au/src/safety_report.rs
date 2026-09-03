@@ -127,6 +127,38 @@ pub const AU_SAFETY_BOUNDARIES: &[AuSafetyBoundary] = &[
         status: AuSafetyStatus::Audited,
     },
     AuSafetyBoundary {
+        id: "parameter-tree-realtime-safety",
+        area: "AUParameterTree lock-free value path",
+        source: "params.rs",
+        invariant: "Parameter values are atomics, so audio-thread get/set never locks. Observer fan-out runs on the setter thread and must not re-enter the tree.",
+        current_gate: "Covered by `params::tests` (clamp, NaN, duplicate/unknown ids, observer tokens); Swift must still validate observer threading.",
+        status: AuSafetyStatus::Audited,
+    },
+    AuSafetyBoundary {
+        id: "fullstate-roundtrip-persistence",
+        area: "fullState save/load byte contract",
+        source: "params.rs",
+        invariant: "`gpui_au_save_state`/`gpui_au_load_state` round-trip every registered id; decode rejects bad magic/version/truncation and ignores unknown ids.",
+        current_gate: "Covered by `params::tests` state round-trip and rejection cases plus the FFI null-safety test.",
+        status: AuSafetyStatus::Audited,
+    },
+    AuSafetyBoundary {
+        id: "renderer-lazy-init-realtime",
+        area: "Deferred wgpu construction and lock-free draw/drop",
+        source: "window/au_window.rs",
+        invariant: "`AuWindow::new` never blocks on wgpu; `draw` clones the renderer handle under a short lock and drops contended frames via `try_lock` plus drop/coalesce counters.",
+        current_gate: "Unit-tested counters, debounce, and throttle; AU host smoke validation must still cover first-frame init and resize-drag.",
+        status: AuSafetyStatus::HostValidationRequired,
+    },
+    AuSafetyBoundary {
+        id: "nslog-sandbox-hygiene",
+        area: "NSLog gating in release builds",
+        source: "helpers.rs",
+        invariant: "Progress/tracing logs go through `nslog_verbose` (debug builds or the `verbose-logging` feature only); release builds emit genuine failures only.",
+        current_gate: "Covered by `verbose_logging_helper_links`; host Console.app must stay quiet during normal playback.",
+        status: AuSafetyStatus::Audited,
+    },
+    AuSafetyBoundary {
         id: "coretext-rasterization",
         area: "CoreText/CoreGraphics glyph rasterization",
         source: "text_system/",
@@ -158,7 +190,7 @@ mod tests {
         assert_eq!(report.schema_version, AU_SAFETY_REPORT_SCHEMA_VERSION);
         assert_eq!(report.report_type, AU_SAFETY_REPORT_TYPE);
         assert_eq!(report.crate_name, "gpui-au");
-        assert!(report.boundaries.len() >= 6);
+        assert!(report.boundaries.len() >= 10);
     }
 
     #[test]
@@ -188,6 +220,10 @@ mod tests {
         assert!(ids.contains("ffi-context-lifecycle"));
         assert!(ids.contains("dispatcher-trampoline"));
         assert!(ids.contains("coretext-rasterization"));
+        assert!(ids.contains("parameter-tree-realtime-safety"));
+        assert!(ids.contains("fullstate-roundtrip-persistence"));
+        assert!(ids.contains("renderer-lazy-init-realtime"));
+        assert!(ids.contains("nslog-sandbox-hygiene"));
     }
 
     #[test]

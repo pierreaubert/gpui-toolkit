@@ -65,9 +65,10 @@ pub use gpui_release_gates::{
     release_notes_artifacts, release_notes_entries, release_notes_report,
 };
 pub use gpui_release_gates::{
-    RELEASE_PACKAGING_REPORT_TYPE, RELEASE_PACKAGING_SCHEMA_VERSION, ReleasePackagingEntry,
-    ReleasePackagingReport, ReleasePackagingStatus, release_packaging_entries,
-    release_packaging_report,
+    ExecutableGateCommand, GateExecutionOutput, RELEASE_PACKAGING_REPORT_TYPE,
+    RELEASE_PACKAGING_SCHEMA_VERSION, ReleasePackagingEntry, ReleasePackagingReport,
+    ReleasePackagingStatus, execute_gate_argv, execute_packaging_entry,
+    parse_executable_gate_command, release_packaging_entries, release_packaging_report,
 };
 pub use gpui_release_gates::{
     PLATFORM_CAPABILITY_MATRIX_REPORT_TYPE, PLATFORM_CAPABILITY_MATRIX_SCHEMA_VERSION,

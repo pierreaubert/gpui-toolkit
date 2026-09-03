@@ -17,9 +17,10 @@
 //! - Tick marks with major (labeled) and minor (unlabeled) ticks
 
 use super::interactions::{
-    InteractionConfig, clear_drag_state, drag_has_moved, get_drag_state, handle_drag,
+    InteractionConfig, ValueTracker, clear_drag_state, drag_has_moved, get_drag_state, handle_drag,
     handle_keyboard, handle_scroll, mark_drag_moved, store_drag_state, value_tracker,
 };
+use super::vertical_slider::take_if_enabled;
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
 use crate::audio_accessibility::{
     AudioAccessibilitySummary, normalized, range_description, value_text,
@@ -28,6 +29,7 @@ use crate::theme::ThemeExt;
 use d3rs::render2d::{Renderer2D, VelloBackend};
 use gpui::prelude::*;
 use gpui::*;
+use std::sync::Arc;
 
 mod knob_arc_element;
 mod potentiometer_size;
@@ -38,7 +40,7 @@ pub use potentiometer_size::*;
 pub use types::*;
 
 use knob_arc_element::KnobArcElement;
-use tick_element::{PotentiometerTickLinesElement, get_tick_geometry};
+use tick_element::{PotentiometerTickGeometry, PotentiometerTickLinesElement, get_tick_geometry};
 
 /// A potentiometer (rotary knob) component for audio plugin parameters
 #[derive(IntoElement)]
@@ -329,8 +331,9 @@ impl Potentiometer {
                         break;
                     }
                 }
-                if let Some(pos) = match_pos {
-                    let matched_char = label[pos..].chars().next().unwrap();
+                if let Some(pos) = match_pos
+                    && let Some(matched_char) = label[pos..].chars().next()
+                {
                     let after_pos = pos + matched_char.len_utf8();
                     SharedString::new(format!(
                         "{}[{}]{}",
@@ -394,9 +397,233 @@ impl Potentiometer {
     }
 }
 
-impl RenderOnce for Potentiometer {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        // Register in accessibility tree
+/// Selection-aware colors resolved once per potentiometer render.
+struct KnobPalette {
+    bg: Rgba,
+    border: Rgba,
+    knob_bg: Rgba,
+    label: Rgba,
+    value: Rgba,
+    indicator: Rgba,
+    major_tick: Rgba,
+    minor_tick: Rgba,
+    hover_border: Rgba,
+    hover_bg: Rgba,
+}
+
+impl KnobPalette {
+    fn resolve(theme: &PotentiometerTheme, selected: bool, size: PotentiometerSize) -> Self {
+        let accent = theme.accent;
+        Self {
+            bg: if selected {
+                theme.accent_muted
+            } else {
+                theme.surface
+            },
+            border: if selected { theme.accent } else { theme.border },
+            knob_bg: if selected {
+                theme.surface_hover
+            } else {
+                theme.knob_bg
+            },
+            label: if selected {
+                theme.accent
+            } else {
+                theme.text_secondary
+            },
+            value: if selected {
+                theme.text_on_accent
+            } else {
+                theme.text_primary
+            },
+            // For Lg size or when selected, use accent color for visibility.
+            indicator: if matches!(size, PotentiometerSize::Lg) || selected {
+                theme.accent
+            } else {
+                theme.text_muted
+            },
+            major_tick: Rgba {
+                r: accent.r,
+                g: accent.g,
+                b: accent.b,
+                a: if selected { 0.8 } else { 0.5 },
+            },
+            minor_tick: Rgba {
+                r: accent.r,
+                g: accent.g,
+                b: accent.b,
+                a: if selected { 0.4 } else { 0.25 },
+            },
+            hover_border: theme.accent,
+            hover_bg: theme.surface_hover,
+        }
+    }
+}
+
+/// Indicator dot size by knob size and selection state.
+fn indicator_size_for(size: PotentiometerSize, selected: bool) -> f32 {
+    match size {
+        PotentiometerSize::Xs => {
+            if selected {
+                5.0
+            } else {
+                3.0
+            }
+        }
+        PotentiometerSize::Sm => {
+            if selected {
+                6.0
+            } else {
+                4.0
+            }
+        }
+        PotentiometerSize::Md => {
+            if selected {
+                6.0
+            } else {
+                4.0
+            }
+        }
+        PotentiometerSize::Lg => {
+            if selected {
+                10.0
+            } else {
+                8.0
+            }
+        }
+    }
+}
+
+type SharedPotChange = std::rc::Rc<Box<dyn Fn(f64, &mut Window, &mut App) + 'static>>;
+type SharedPotNotify = std::rc::Rc<Box<dyn Fn(&mut Window, &mut App) + 'static>>;
+type SharedPotDragStart = std::rc::Rc<Box<dyn Fn(f32, f64, &mut Window, &mut App) + 'static>>;
+
+/// Owned interaction wiring shared by the gesture and discrete builders.
+struct PotHandlers {
+    on_change: Option<SharedPotChange>,
+    on_commit: Option<SharedPotChange>,
+    on_reset: Option<SharedPotNotify>,
+    on_select: Option<SharedPotNotify>,
+    on_drag_start: Option<SharedPotDragStart>,
+    current_value: ValueTracker,
+    config: InteractionConfig,
+    focus_handle: Option<FocusHandle>,
+    drag_key: ElementId,
+    value: f64,
+    min: f64,
+    max: f64,
+    scale: PotentiometerScale,
+    disabled: bool,
+}
+
+/// Copyable 2D renderer selection for custom-painted dial elements.
+#[derive(Clone, Copy)]
+struct DialRenderers {
+    renderer_2d: Renderer2D,
+    vello_backend: VelloBackend,
+}
+
+/// Dial geometry derived from size tokens and the normalized value.
+struct DialMetrics {
+    knob_size: f32,
+    center: f32,
+    radius: f32,
+    start_rad: f32,
+    end_rad: f32,
+    angle_rad: f32,
+    indicator_size: f32,
+    label_radius: f32,
+    container_width: f32,
+    container_height: f32,
+    horizontal_gutter: f32,
+    vertical_gutter: f32,
+}
+
+/// Value-arc paint parameters.
+struct ArcSpec {
+    color: Rgba,
+    width: f32,
+    track_width: f32,
+    glow: f32,
+    start_rad: f32,
+    end_rad: f32,
+    segments: u32,
+    normalized: f32,
+}
+
+impl Potentiometer {
+    fn dial_metrics(&self, normalized: f32, selected: bool) -> DialMetrics {
+        let knob_size = self.size.knob_size();
+        let center = knob_size / 2.0;
+        let start_rad: f32 = self.design_tokens.knob_arc_start_deg.to_radians();
+        let end_rad: f32 = (self.design_tokens.knob_arc_start_deg
+            + self.design_tokens.knob_arc_sweep_deg)
+            .to_radians();
+        // Tick ring radii and label gutters around the knob graphic.
+        let tick_inner_radius = knob_size / 2.0;
+        let major_tick_outer_radius = tick_inner_radius + 8.0;
+        let label_radius = major_tick_outer_radius + 8.0;
+        let horizontal_label_gutter = 44.0;
+        let vertical_label_gutter = (label_radius - center + 10.0 + 1.5).ceil();
+        DialMetrics {
+            knob_size,
+            center,
+            radius: self.size.indicator_radius(),
+            start_rad,
+            end_rad,
+            angle_rad: start_rad + (end_rad - start_rad) * normalized,
+            indicator_size: indicator_size_for(self.size, selected),
+            label_radius,
+            container_width: knob_size + horizontal_label_gutter * 2.0,
+            container_height: knob_size + vertical_label_gutter * 2.0,
+            horizontal_gutter: horizontal_label_gutter,
+            vertical_gutter: vertical_label_gutter,
+        }
+    }
+
+    fn tick_geometry(&self, metrics: &DialMetrics) -> Arc<PotentiometerTickGeometry> {
+        let tick_inner_radius = metrics.knob_size / 2.0;
+        get_tick_geometry(
+            self.min,
+            self.max,
+            self.scale,
+            self.size,
+            &self.unit,
+            self.design_tokens.knob_arc_start_deg,
+            self.design_tokens.knob_arc_sweep_deg,
+            metrics.knob_size,
+            metrics.center,
+            metrics.horizontal_gutter,
+            metrics.vertical_gutter,
+            metrics.container_width,
+            metrics.container_height,
+            tick_inner_radius + 8.0,
+            tick_inner_radius + 5.0,
+            tick_inner_radius,
+            metrics.label_radius,
+        )
+    }
+
+    fn arc_spec(&self, metrics: &DialMetrics, arc_color: Rgba, normalized: f32) -> ArcSpec {
+        let size_idx = match self.size {
+            PotentiometerSize::Xs => 0,
+            PotentiometerSize::Sm => 1,
+            PotentiometerSize::Md => 2,
+            PotentiometerSize::Lg => 3,
+        };
+        ArcSpec {
+            color: arc_color,
+            width: self.design_tokens.knob_arc_widths[size_idx],
+            track_width: self.design_tokens.knob_arc_track_widths[size_idx].max(0.0),
+            glow: self.design_tokens.knob_arc_glow,
+            start_rad: metrics.start_rad,
+            end_rad: metrics.end_rad,
+            segments: self.design_tokens.knob_arc_segments,
+            normalized,
+        }
+    }
+
+    fn register_accessible(&self, cx: &mut App) {
         let effective_label = self
             .aria_label
             .clone()
@@ -409,458 +636,167 @@ impl RenderOnce for Potentiometer {
                 .value_range(self.value, self.min, self.max)
                 .maybe_state(self.disabled, AriaState::Disabled),
         });
+    }
+}
 
-        let global_theme = cx.theme();
-        let default_theme = PotentiometerTheme::from(global_theme.as_ref());
-        let theme = self.theme.clone().unwrap_or(default_theme);
-        let selected = self.selected;
-        let disabled = self.disabled;
+struct ChassisSpec {
+    id: ElementId,
+    min_width: f32,
+    underlined: bool,
+    selected: bool,
+    disabled: bool,
+    focus_handle: Option<FocusHandle>,
+}
 
-        // Use scale-aware normalization for indicator position
-        let normalized = self.value_to_normalized(self.value) as f32;
-
-        // Calculate angle for indicator with dead zone at bottom
-        let start_rad: f32 = self.design_tokens.knob_arc_start_deg.to_radians();
-        let end_rad: f32 = (self.design_tokens.knob_arc_start_deg
-            + self.design_tokens.knob_arc_sweep_deg)
-            .to_radians();
-        let angle_rad = start_rad + (end_rad - start_rad) * normalized;
-
-        let knob_size = self.size.knob_size();
-        let radius = self.size.indicator_radius();
-        let center = knob_size / 2.0;
-        // Make indicator larger for Lg size to be more visible
-        let indicator_size = match self.size {
-            PotentiometerSize::Xs => {
-                if selected {
-                    5.0
-                } else {
-                    3.0
-                }
-            }
-            PotentiometerSize::Sm => {
-                if selected {
-                    6.0
-                } else {
-                    4.0
-                }
-            }
-            PotentiometerSize::Md => {
-                if selected {
-                    6.0
-                } else {
-                    4.0
-                }
-            }
-            PotentiometerSize::Lg => {
-                if selected {
-                    10.0
-                } else {
-                    8.0
-                }
-            }
-        };
-
-        let x = center + radius * angle_rad.cos() - (indicator_size / 2.0);
-        let y = center + radius * angle_rad.sin() - (indicator_size / 2.0);
-
-        let formatted_label = self.formatted_label;
-        let value_str_only = self.formatted_value_only;
-        let unit_str = self.unit.clone();
-        let min_width = self.size.min_width();
-
-        // Colors based on selection state
-        let bg_color = if selected {
-            theme.accent_muted
-        } else {
-            theme.surface
-        };
-        let border_color = if selected { theme.accent } else { theme.border };
-        let knob_bg = if selected {
-            theme.surface_hover
-        } else {
-            theme.knob_bg
-        };
-        let label_color = if selected {
-            theme.accent
-        } else {
-            theme.text_secondary
-        };
-        let value_color = if selected {
-            theme.text_on_accent
-        } else {
-            theme.text_primary
-        };
-        // For Lg size or when selected, use accent color for better visibility
-        let indicator_color = if matches!(self.size, PotentiometerSize::Lg) || selected {
-            theme.accent
-        } else {
-            theme.text_muted
-        };
-
-        // Capture values for closures
-        let value = self.value;
-        let min = self.min;
-        let max = self.max;
-        let scale = self.scale;
-
-        // Shared current value tracker and interaction config
-        let current_value = value_tracker(value);
-        // Potentiometer uses rotational config (drag distance = knob_size for full range)
-        let interaction_config = InteractionConfig::rotational(min, max, scale, knob_size);
-        let drag_key = self.id.clone();
-
-        // Layout style: boxed (chassis around the whole knob) vs underlined
-        // (title above with a thin rule, no surrounding chassis).
-        let underlined = self.design_tokens.knob_label_style
-            == crate::audio_design_tokens::AudioDesignTokens::LABEL_UNDERLINED;
-
-        let mut container = div()
-            .id(self.id)
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap_2()
-            .min_w(px(min_width));
-
-        if underlined {
-            // No chassis fill or border — just the title rule + knob below.
-            // Selection is communicated via the title color and weight (set
-            // further down) rather than a surrounding box.
-        } else {
-            container = container
-                .p_2()
-                .rounded_lg()
-                .bg(bg_color)
-                .border_2()
-                .border_color(border_color);
+impl ChassisSpec {
+    fn new(
+        id: ElementId,
+        min_width: f32,
+        underlined: bool,
+        selected: bool,
+        disabled: bool,
+        focus_handle: Option<FocusHandle>,
+    ) -> Self {
+        Self {
+            id,
+            min_width,
+            underlined,
+            selected,
+            disabled,
+            focus_handle,
         }
+    }
+}
 
-        // Track focus if handle provided
-        // Both track_focus (for focus observation) and focusable (for key events) are needed
-        if let Some(ref focus_handle) = self.focus_handle {
-            container = container.track_focus(focus_handle).focusable();
-        }
+/// Boxed/underlined chassis plus focus, shadow, hover, and cursor styling.
+fn build_pot_chassis(spec: ChassisSpec, palette: &KnobPalette) -> Stateful<Div> {
+    let mut container = div()
+        .id(spec.id)
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap_2()
+        .min_w(px(spec.min_width));
 
-        // Add shadow when selected (chassis only — underlined style stays flat).
-        if selected && !underlined {
-            container = container.shadow_md();
-        }
+    if spec.underlined {
+        // No chassis fill or border — just the title rule + knob below.
+        // Selection is communicated via the title color and weight.
+    } else {
+        container = container
+            .p_2()
+            .rounded_lg()
+            .bg(palette.bg)
+            .border_2()
+            .border_color(palette.border);
+    }
 
-        // Hover effect — only apply chassis-style hover when boxed; the
-        // underlined variant relies on indicator/title color changes instead.
-        if !underlined {
-            let hover_border = theme.accent;
-            let hover_bg = theme.surface_hover;
-            container = container.hover(|s| s.border_color(hover_border).bg(hover_bg));
-        }
+    // Track focus if handle provided. Both track_focus (for focus
+    // observation) and focusable (for key events) are needed.
+    if let Some(ref focus_handle) = spec.focus_handle {
+        container = container.track_focus(focus_handle).focusable();
+    }
 
-        // Cursor
-        if disabled {
-            container = container.cursor_not_allowed().opacity(0.5);
+    // Add shadow when selected (chassis only — underlined style stays flat).
+    if spec.selected && !spec.underlined {
+        container = container.shadow_md();
+    }
+
+    // Hover effect — only apply chassis-style hover when boxed; the
+    // underlined variant relies on indicator/title color changes instead.
+    if !spec.underlined {
+        let hover_border = palette.hover_border;
+        let hover_bg = palette.hover_bg;
+        container = container.hover(|s| s.border_color(hover_border).bg(hover_bg));
+    }
+
+    // Cursor
+    if spec.disabled {
+        container = container.cursor_not_allowed().opacity(0.5);
+    } else {
+        container = container.cursor_ns_resize();
+    }
+    container
+}
+
+/// Title block with keyboard-shortcut label. Empty labels skip the entire
+/// title+rule block so no vertical space is reserved for an empty row.
+fn build_pot_title(
+    formatted_label: SharedString,
+    label_color: Rgba,
+    selected: bool,
+    min_width: f32,
+    underlined: bool,
+    rule_color: Rgba,
+) -> Option<Div> {
+    if formatted_label.is_empty() {
+        return None;
+    }
+    let label_text = div()
+        .text_xs()
+        .font_weight(if selected {
+            FontWeight::BOLD
         } else {
-            container = container.cursor_ns_resize();
-        }
+            FontWeight::SEMIBOLD
+        })
+        .text_color(label_color)
+        .text_center()
+        .child(formatted_label);
 
-        // Event handlers
-        if !disabled {
-            // Wrap on_change in Rc if it exists, so we can use it in multiple handlers
-            let on_change_rc = self.on_change.map(|handler| std::rc::Rc::new(handler));
-            let on_commit_rc = self.on_commit.map(|handler| std::rc::Rc::new(handler));
-            let on_reset_rc = self.on_reset.map(|handler| std::rc::Rc::new(handler));
+    if underlined {
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap_1()
+                .min_w(px(min_width))
+                .child(label_text)
+                // Thin underline rule — width keyed off the knob
+                // container so the rule lines up with the knob's
+                // bounding box.
+                .child(div().h(px(1.0)).w(px(min_width * 0.85)).bg(rule_color)),
+        )
+    } else {
+        Some(label_text)
+    }
+}
 
-            // Mouse down - focus, select, and optionally start drag
-            let on_select = self.on_select;
-            let on_drag_start = self.on_drag_start;
-            let on_change_click = on_change_rc.clone();
-            let drag_key_down = drag_key.clone();
-            let current_value_down = current_value.clone();
-            let focus_handle_click = self.focus_handle.clone();
+fn build_tick_lines(
+    geometry: &PotentiometerTickGeometry,
+    metrics: &DialMetrics,
+    palette: &KnobPalette,
+    renderers: DialRenderers,
+) -> PotentiometerTickLinesElement {
+    PotentiometerTickLinesElement {
+        id: ElementId::named_usize("potentiometer-ticks", 0),
+        container_width: metrics.container_width,
+        container_height: metrics.container_height,
+        major_tick_color: palette.major_tick,
+        minor_tick_color: palette.minor_tick,
+        ticks: geometry.ticks.clone(),
+        major_tick_width: geometry.major_tick_width,
+        minor_tick_width: geometry.minor_tick_width,
+        renderer_2d: renderers.renderer_2d,
+        vello_backend: renderers.vello_backend,
+        #[cfg(feature = "vello")]
+        painter: d3rs::vello2d::VelloScenePainter::new().backend(renderers.vello_backend),
+    }
+}
 
-            container = container.on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                cx.stop_propagation();
-                // Always focus for keyboard navigation
-                if let Some(ref fh) = focus_handle_click {
-                    fh.focus(window, cx);
-                }
-
-                // Handle Selection
-                if let Some(ref handler) = on_select {
-                    handler(window, cx);
-                }
-
-                // Handle Drag or Click-Step
-                if let Some(ref handler) = on_drag_start {
-                    handler(event.position.y.into(), value, window, cx);
-                } else if on_change_click.is_some() {
-                    store_drag_state(
-                        drag_key_down.clone(),
-                        event.position.y.into(),
-                        current_value_down.get(),
-                    );
-                }
-            });
-
-            // Native delta drag; a release without movement retains the legacy click-step.
-            if let Some(ref handler) = on_change_rc {
-                let drag_handler = handler.clone();
-                let drag_key_move = drag_key.clone();
-                let current_value_drag = current_value.clone();
-                let config_drag = interaction_config.clone();
-                container = container.on_mouse_move(move |event, window, cx| {
-                    if event.pressed_button == Some(MouseButton::Left)
-                        && let Some(state) = get_drag_state(&drag_key_move)
-                    {
-                        let position: f32 = event.position.y.into();
-                        if (position - state.start_pos).abs() > f32::EPSILON {
-                            mark_drag_moved(&drag_key_move);
-                        }
-                        if let Some(new_value) = handle_drag(position, &state, &config_drag) {
-                            current_value_drag.set(new_value);
-                            drag_handler(new_value, window, cx);
-                        }
-                    }
-                });
-                let release_change = handler.clone();
-                let release_commit = on_commit_rc.clone();
-                let drag_key_up = drag_key.clone();
-                let current_value_up = current_value.clone();
-                container = container.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
-                    if get_drag_state(&drag_key_up).is_some() {
-                        let mut final_value = current_value_up.get();
-                        if !drag_has_moved(&drag_key_up) {
-                            final_value = scale.step_value(final_value, min, max, 1.0, 0.1);
-                            current_value_up.set(final_value);
-                            release_change(final_value, window, cx);
-                        }
-                        if let Some(ref commit) = release_commit {
-                            commit(final_value, window, cx);
-                        }
-                    }
-                    clear_drag_state(drag_key_up.clone());
-                });
-
-                // GPUI dispatches this capture-phase handler when release
-                // occurs beyond the knob's hitbox. Finish the gesture there
-                // as well so automation receives its commit and the retained
-                // drag state cannot leak into a later gesture.
-                let release_change_out = handler.clone();
-                let release_commit_out = on_commit_rc.clone();
-                let drag_key_up_out = drag_key.clone();
-                let current_value_up_out = current_value.clone();
-                let config_up_out = interaction_config.clone();
-                container =
-                    container.on_mouse_up_out(MouseButton::Left, move |event, window, cx| {
-                        if let Some(state) = get_drag_state(&drag_key_up_out) {
-                            let position: f32 = event.position.y.into();
-                            if (position - state.start_pos).abs() > f32::EPSILON {
-                                mark_drag_moved(&drag_key_up_out);
-                            }
-                            let previous_value = current_value_up_out.get();
-                            let final_value = handle_drag(position, &state, &config_up_out)
-                                .unwrap_or(previous_value);
-                            current_value_up_out.set(final_value);
-                            if drag_has_moved(&drag_key_up_out) {
-                                if final_value != previous_value {
-                                    release_change_out(final_value, window, cx);
-                                }
-                                if let Some(ref commit) = release_commit_out {
-                                    commit(final_value, window, cx);
-                                }
-                            }
-                        }
-                        clear_drag_state(drag_key_up_out.clone());
-                    });
-            }
-
-            // Double-click - reset
-            if let Some(ref reset_rc) = on_reset_rc {
-                let reset_handler = reset_rc.clone();
-                container = container.on_click(move |event, window, cx| {
-                    if event.click_count() == 2 {
-                        reset_handler(window, cx);
-                    }
-                });
-            }
-
-            // Keyboard navigation - register when focused (works on focus, not selection)
-            // Register if either on_change or on_reset is provided
-            if on_change_rc.is_some() || on_reset_rc.is_some() {
-                let handler_key = on_change_rc.clone();
-                let reset_key = on_reset_rc.clone();
-                let current_value_key = current_value.clone();
-                let config_key = interaction_config.clone();
-                let commit_key = on_commit_rc.clone();
-                container = container.on_key_down(move |event, window, cx| {
-                    cx.stop_propagation();
-                    let key = event.keystroke.key.as_str();
-                    if key == "escape" {
-                        if let Some(ref reset_handler) = reset_key {
-                            reset_handler(window, cx);
-                        }
-                    } else if let Some(ref handler) = handler_key
-                        && let Some(new_value) = handle_keyboard(
-                            key,
-                            &event.keystroke.modifiers,
-                            current_value_key.get(),
-                            &config_key,
-                        )
-                    {
-                        current_value_key.set(new_value);
-                        handler(new_value, window, cx);
-                        if let Some(ref commit) = commit_key {
-                            commit(new_value, window, cx);
-                        }
-                    }
-                });
-            }
-
-            // Scroll wheel - adjust value
-            if let Some(handler_rc) = on_change_rc {
-                let current_value_scroll = current_value.clone();
-                let config_scroll = interaction_config.clone();
-                let commit_scroll = on_commit_rc.clone();
-                container = container.on_scroll_wheel(move |event, window, cx| {
-                    cx.stop_propagation();
-                    let val = current_value_scroll.get();
-                    if let Some(new_value) =
-                        handle_scroll(&event.delta, &event.modifiers, val, &config_scroll)
-                    {
-                        current_value_scroll.set(new_value);
-                        handler_rc(new_value, window, cx);
-                        if let Some(ref commit) = commit_scroll {
-                            commit(new_value, window, cx);
-                        }
-                    }
-                });
-            }
-        }
-
-        // Label with keyboard shortcut.
-        //
-        // Underlined variant adds a thin rule beneath the title and a small
-        // gap, mimicking the "title above + horizontal bar" mockup. When the
-        // caller passes an empty label (e.g. the Xone view, where the cell
-        // around the knob already supplies the parameter name as a header),
-        // we skip the *entire* title+rule block so no vertical space is
-        // reserved for an empty row of text.
-        let has_label = !formatted_label.is_empty();
-        if has_label {
-            let label_text = div()
-                .text_xs()
-                .font_weight(if selected {
-                    FontWeight::BOLD
-                } else {
-                    FontWeight::SEMIBOLD
-                })
-                .text_color(label_color)
-                .text_center()
-                .child(formatted_label);
-
-            if underlined {
-                let rule_color = if selected { theme.accent } else { theme.border };
-                container = container.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .gap_1()
-                        .min_w(px(min_width))
-                        .child(label_text)
-                        // Thin underline rule — width keyed off the knob
-                        // container so the rule lines up with the knob's
-                        // bounding box.
-                        .child(div().h(px(1.0)).w(px(min_width * 0.85)).bg(rule_color)),
-                );
-            } else {
-                container = container.child(label_text);
-            }
-        }
-
-        // Knob graphic with ticks. Horizontal labels still need room for the
-        // widest tick text, but the top/bottom gutter can be much tighter:
-        // just enough for the tick label's own line height plus a small gap.
-        let label_line_h = 10.0_f32;
-        let tick_label_pad = 1.5_f32;
-        let tick_inner_radius = knob_size / 2.0; // Start at knob edge
-        let major_tick_outer_radius = tick_inner_radius + 8.0; // Major ticks
-        let minor_tick_outer_radius = tick_inner_radius + 5.0; // Minor ticks (shorter)
-        let label_radius = major_tick_outer_radius + 8.0; // Labels outside ticks
-        let horizontal_label_gutter = 44.0;
-        let vertical_label_gutter = (label_radius - center + label_line_h + tick_label_pad).ceil();
-        let container_width = knob_size + (horizontal_label_gutter * 2.0);
-        let container_height = knob_size + (vertical_label_gutter * 2.0);
-        let mut knob_container = div()
-            .w(px(container_width))
-            .h(px(container_height))
-            .relative();
-
-        // Create tick colors - use accent-based colors for visibility
-        let major_tick_color = {
-            let a = theme.accent;
-            Rgba {
-                r: a.r,
-                g: a.g,
-                b: a.b,
-                a: if selected { 0.8 } else { 0.5 },
-            }
-        };
-        let minor_tick_color = {
-            let a = theme.accent;
-            Rgba {
-                r: a.r,
-                g: a.g,
-                b: a.b,
-                a: if selected { 0.4 } else { 0.25 },
-            }
-        };
-
-        // Cache tick geometry/labels by (min, max, scale, size, unit) and paint
-        // all tick lines in a single custom element instead of one div per dot.
-        let tick_geometry = get_tick_geometry(
-            min,
-            max,
-            scale,
-            self.size,
-            &self.unit,
-            self.design_tokens.knob_arc_start_deg,
-            self.design_tokens.knob_arc_sweep_deg,
-            knob_size,
-            center,
-            horizontal_label_gutter,
-            vertical_label_gutter,
-            container_width,
-            container_height,
-            major_tick_outer_radius,
-            minor_tick_outer_radius,
-            tick_inner_radius,
-            label_radius,
-        );
-
-        knob_container = knob_container.child(PotentiometerTickLinesElement {
-            id: ElementId::named_usize("potentiometer-ticks", 0),
-            container_width,
-            container_height,
-            major_tick_color,
-            minor_tick_color,
-            ticks: tick_geometry.ticks.clone(),
-            major_tick_width: tick_geometry.major_tick_width,
-            minor_tick_width: tick_geometry.minor_tick_width,
-            renderer_2d: self.renderer_2d,
-            vello_backend: self.vello_backend,
-            #[cfg(feature = "vello")]
-            painter: d3rs::vello2d::VelloScenePainter::new().backend(self.vello_backend),
-        });
-
-        // Add cached tick labels as div children.
-        let char_w = 5.4_f32;
-        let line_h = label_line_h;
-        let dead_zone = 0.30_f32;
-        let pad = tick_label_pad;
-        for (label_text, label_x, label_y) in tick_geometry.labels.iter() {
+/// Major tick labels positioned around the dial, anchored away from the
+/// knob center by the same dead-zone rule as the inline render path.
+fn tick_label_divs(geometry: &PotentiometerTickGeometry, center: f32, color: Rgba) -> Vec<Div> {
+    let char_w = 5.4_f32;
+    let line_h = 10.0_f32;
+    let dead_zone = 0.30_f32;
+    let pad = 1.5_f32;
+    geometry
+        .labels
+        .iter()
+        .map(|(label_text, label_x, label_y)| {
             let tick_angle = {
-                let dx = label_x - tick_geometry.knob_offset_x - center;
-                let dy = label_y - tick_geometry.knob_offset_y - center;
+                let dx = label_x - geometry.knob_offset_x - center;
+                let dy = label_y - geometry.knob_offset_y - center;
                 dy.atan2(dx)
             };
             let text_w = (label_text.len() as f32) * char_w;
@@ -882,191 +818,553 @@ impl RenderOnce for Potentiometer {
                 -line_h / 2.0
             };
 
-            knob_container = knob_container.child(
-                div()
-                    .absolute()
-                    .left(px(label_x + dx))
-                    .top(px(label_y + dy))
-                    .text_size(px(9.0))
-                    .text_color(major_tick_color)
-                    .child(label_text.clone()),
+            div()
+                .absolute()
+                .left(px(label_x + dx))
+                .top(px(label_y + dy))
+                .text_size(px(9.0))
+                .text_color(color)
+                .child(label_text.clone())
+        })
+        .collect()
+}
+
+/// Value arc painted behind the tick marks, around the knob.
+fn build_value_arc(
+    geometry: &PotentiometerTickGeometry,
+    metrics: &DialMetrics,
+    spec: &ArcSpec,
+    renderers: DialRenderers,
+) -> Div {
+    div().absolute().inset_0().child(KnobArcElement {
+        id: ElementId::named_usize("potentiometer-arc", 0),
+        container_width: metrics.container_width,
+        container_height: metrics.container_height,
+        knob_offset_x: geometry.knob_offset_x,
+        knob_offset_y: geometry.knob_offset_y,
+        knob_size: metrics.knob_size,
+        normalized: spec.normalized,
+        arc_color: spec.color,
+        arc_width: spec.width,
+        track_arc_width: spec.track_width,
+        arc_glow: spec.glow,
+        arc_start_rad: spec.start_rad,
+        arc_end_rad: spec.end_rad,
+        arc_segments: spec.segments,
+        renderer_2d: renderers.renderer_2d,
+        vello_backend: renderers.vello_backend,
+        #[cfg(feature = "vello")]
+        painter: d3rs::vello2d::VelloScenePainter::new().backend(renderers.vello_backend),
+    })
+}
+
+/// Knob circle with the selected-state ring. Indicator and value display are
+/// added by the caller.
+fn build_knob_shell(
+    geometry: &PotentiometerTickGeometry,
+    metrics: &DialMetrics,
+    bg: Rgba,
+    border_width: f32,
+    border_color: Rgba,
+    ring: Option<Rgba>,
+) -> Div {
+    let mut knob = div()
+        .absolute()
+        .left(px(geometry.knob_offset_x))
+        .top(px(geometry.knob_offset_y))
+        .w(px(metrics.knob_size))
+        .h(px(metrics.knob_size))
+        .rounded_full()
+        .bg(bg)
+        .border(px(border_width))
+        .border_color(border_color);
+
+    if let Some(ring_color) = ring {
+        knob = knob.shadow_sm();
+        // Arc indicator when selected
+        knob = knob.child(
+            div()
+                .absolute()
+                .inset_0()
+                .rounded_full()
+                .border_2()
+                .border_color(ring_color),
+        );
+    }
+    knob
+}
+
+/// Indicator marker. The dot rect is positioned at the arc tip; non-dot
+/// shapes keep the same anchor and width so geometry math stays meaningful.
+fn build_indicator(
+    metrics: &DialMetrics,
+    color: Rgba,
+    size: PotentiometerSize,
+    selected: bool,
+    style: u8,
+) -> Div {
+    let indicator_size = metrics.indicator_size;
+    let x = metrics.center + metrics.radius * metrics.angle_rad.cos() - (indicator_size / 2.0);
+    let y = metrics.center + metrics.radius * metrics.angle_rad.sin() - (indicator_size / 2.0);
+    let mut indicator = div()
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .w(px(indicator_size))
+        .h(px(indicator_size))
+        .bg(color);
+
+    match style {
+        crate::audio_design_tokens::AudioDesignTokens::INDICATOR_TICK => {
+            // Radial tick: stretch toward the rim, narrow tangentially.
+            // We approximate the radial direction by always extending the
+            // marker outward from center; for the dead-zone-bottom layout
+            // a simple square stretched 1.5x reads correctly at the
+            // common quadrants and stays inside the bounding box.
+            let tick_len = indicator_size * 1.6;
+            let tick_thick = (indicator_size * 0.55).max(2.0);
+            let tick_x =
+                metrics.center + metrics.radius * metrics.angle_rad.cos() - (tick_thick / 2.0);
+            let tick_y =
+                metrics.center + metrics.radius * metrics.angle_rad.sin() - (tick_len / 2.0);
+            indicator = div()
+                .absolute()
+                .left(px(tick_x))
+                .top(px(tick_y))
+                .w(px(tick_thick))
+                .h(px(tick_len))
+                .bg(color)
+                .rounded_sm();
+        }
+        crate::audio_design_tokens::AudioDesignTokens::INDICATOR_ARROW => {
+            // Arrow approximation: small triangular cap rendered as a
+            // tilted square (rotated 45° via overflow trick is not
+            // available without transforms in GPUI's stable surface, so
+            // approximate with a smaller, brighter rounded square at the
+            // arc tip).
+            let arrow_size = indicator_size * 0.85;
+            let arrow_x =
+                metrics.center + metrics.radius * metrics.angle_rad.cos() - (arrow_size / 2.0);
+            let arrow_y =
+                metrics.center + metrics.radius * metrics.angle_rad.sin() - (arrow_size / 2.0);
+            indicator = div()
+                .absolute()
+                .left(px(arrow_x))
+                .top(px(arrow_y))
+                .w(px(arrow_size))
+                .h(px(arrow_size))
+                .bg(color)
+                .rounded_sm();
+        }
+        // INDICATOR_DOT (or any unknown — fall through to dot).
+        _ => {
+            indicator = indicator.rounded_full();
+        }
+    }
+
+    // Add shiny shadow for Lg size and selected state
+    indicator = match size {
+        PotentiometerSize::Lg => indicator.shadow_md(), // Always shiny for Lg
+        _ => indicator.when(selected, |d| d.shadow_sm()),
+    };
+    indicator
+}
+
+/// Current value centered in the knob.
+fn build_value_display(value_str: SharedString, color: Rgba, size: PotentiometerSize) -> Div {
+    let mut value_display = div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .font_weight(FontWeight::BOLD)
+        .text_color(color);
+
+    // Increase font size for large potentiometer
+    value_display = match size {
+        PotentiometerSize::Xs => value_display.text_xs(),
+        PotentiometerSize::Sm => value_display.text_xs(),
+        PotentiometerSize::Md => value_display.text_xs(),
+        PotentiometerSize::Lg => value_display.text_sm(),
+    };
+    value_display.child(value_str)
+}
+
+/// Unit label at the 6 o'clock position, at the tick-label radius.
+fn build_unit_label(
+    geometry: &PotentiometerTickGeometry,
+    metrics: &DialMetrics,
+    unit: SharedString,
+    color: Rgba,
+) -> Option<Div> {
+    if unit.is_empty() {
+        return None;
+    }
+    let unit_angle = std::f32::consts::PI * 0.5; // 90° in screen coordinates (6 o'clock)
+    let unit_x = geometry.knob_offset_x + metrics.center + metrics.label_radius * unit_angle.cos();
+    let unit_y = geometry.knob_offset_y + metrics.center + metrics.label_radius * unit_angle.sin();
+
+    // Calculate approximate centering offset based on typical unit string lengths
+    // "%" is 1 char, "Hz" is 2 chars, "dB" is 2 chars
+    // At text_xs (12px), approximate char width is ~7px
+    let estimated_width = unit.len() as f32 * 7.0;
+    let center_offset_x = estimated_width / 2.0;
+
+    Some(
+        div()
+            .absolute()
+            .left(px(unit_x - center_offset_x))
+            .top(px(unit_y - 14.0)) // Move up (was -6.0, now -6-sizeoffont to be closer to circle)
+            .text_xs()
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(color)
+            .child(unit),
+    )
+}
+
+/// Press/drag/release gesture wiring (mouse down, move, up, up-out).
+fn wire_pot_gesture(mut container: Stateful<Div>, h: &PotHandlers) -> Stateful<Div> {
+    if h.disabled {
+        return container;
+    }
+    // Mouse down - focus, select, and optionally start drag
+    let on_select = h.on_select.clone();
+    let on_drag_start = h.on_drag_start.clone();
+    let on_change_click = h.on_change.clone();
+    let drag_key_down = h.drag_key.clone();
+    let current_value_down = h.current_value.clone();
+    let focus_handle_click = h.focus_handle.clone();
+    let value = h.value;
+
+    container = container.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+        cx.stop_propagation();
+        // Always focus for keyboard navigation
+        if let Some(ref fh) = focus_handle_click {
+            fh.focus(window, cx);
+        }
+
+        // Handle Selection
+        if let Some(ref handler) = on_select {
+            handler(window, cx);
+        }
+
+        // Handle Drag or Click-Step
+        if let Some(ref handler) = on_drag_start {
+            handler(event.position.y.into(), value, window, cx);
+        } else if on_change_click.is_some() {
+            store_drag_state(
+                drag_key_down.clone(),
+                event.position.y.into(),
+                current_value_down.get(),
             );
+        }
+    });
+
+    // Native delta drag; a release without movement retains the legacy click-step.
+    if let Some(ref handler) = h.on_change {
+        let drag_handler = handler.clone();
+        let drag_key_move = h.drag_key.clone();
+        let current_value_drag = h.current_value.clone();
+        let config_drag = h.config.clone();
+        container = container.on_mouse_move(move |event, window, cx| {
+            if event.pressed_button == Some(MouseButton::Left)
+                && let Some(state) = get_drag_state(&drag_key_move)
+            {
+                let position: f32 = event.position.y.into();
+                if (position - state.start_pos).abs() > f32::EPSILON {
+                    mark_drag_moved(&drag_key_move);
+                }
+                if let Some(new_value) = handle_drag(position, &state, &config_drag) {
+                    current_value_drag.set(new_value);
+                    drag_handler(new_value, window, cx);
+                }
+            }
+        });
+        let release_change = handler.clone();
+        let release_commit = h.on_commit.clone();
+        let drag_key_up = h.drag_key.clone();
+        let current_value_up = h.current_value.clone();
+        let min = h.min;
+        let max = h.max;
+        let scale = h.scale;
+        container = container.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
+            if get_drag_state(&drag_key_up).is_some() {
+                let mut final_value = current_value_up.get();
+                if !drag_has_moved(&drag_key_up) {
+                    final_value = scale.step_value(final_value, min, max, 1.0, 0.1);
+                    current_value_up.set(final_value);
+                    release_change(final_value, window, cx);
+                }
+                if let Some(ref commit) = release_commit {
+                    commit(final_value, window, cx);
+                }
+            }
+            clear_drag_state(drag_key_up.clone());
+        });
+
+        // GPUI dispatches this capture-phase handler when release
+        // occurs beyond the knob's hitbox. Finish the gesture there
+        // as well so automation receives its commit and the retained
+        // drag state cannot leak into a later gesture.
+        let release_change_out = handler.clone();
+        let release_commit_out = h.on_commit.clone();
+        let drag_key_up_out = h.drag_key.clone();
+        let current_value_up_out = h.current_value.clone();
+        let config_up_out = h.config.clone();
+        container = container.on_mouse_up_out(MouseButton::Left, move |event, window, cx| {
+            if let Some(state) = get_drag_state(&drag_key_up_out) {
+                let position: f32 = event.position.y.into();
+                if (position - state.start_pos).abs() > f32::EPSILON {
+                    mark_drag_moved(&drag_key_up_out);
+                }
+                let previous_value = current_value_up_out.get();
+                let final_value =
+                    handle_drag(position, &state, &config_up_out).unwrap_or(previous_value);
+                current_value_up_out.set(final_value);
+                if drag_has_moved(&drag_key_up_out) {
+                    if final_value != previous_value {
+                        release_change_out(final_value, window, cx);
+                    }
+                    if let Some(ref commit) = release_commit_out {
+                        commit(final_value, window, cx);
+                    }
+                }
+            }
+            clear_drag_state(drag_key_up_out.clone());
+        });
+    }
+    container
+}
+
+/// Discrete interaction wiring: double-click reset, keyboard, scroll wheel.
+fn wire_pot_discrete(mut container: Stateful<Div>, h: &PotHandlers) -> Stateful<Div> {
+    if h.disabled {
+        return container;
+    }
+    // Double-click - reset
+    if let Some(ref reset_rc) = h.on_reset {
+        let reset_handler = reset_rc.clone();
+        container = container.on_click(move |event, window, cx| {
+            if event.click_count() == 2 {
+                reset_handler(window, cx);
+            }
+        });
+    }
+
+    // Keyboard navigation - register when focused (works on focus, not selection)
+    // Register if either on_change or on_reset is provided
+    if h.on_change.is_some() || h.on_reset.is_some() {
+        let handler_key = h.on_change.clone();
+        let reset_key = h.on_reset.clone();
+        let current_value_key = h.current_value.clone();
+        let config_key = h.config.clone();
+        let commit_key = h.on_commit.clone();
+        container = container.on_key_down(move |event, window, cx| {
+            cx.stop_propagation();
+            let key = event.keystroke.key.as_str();
+            if key == "escape" {
+                if let Some(ref reset_handler) = reset_key {
+                    reset_handler(window, cx);
+                }
+            } else if let Some(ref handler) = handler_key
+                && let Some(new_value) = handle_keyboard(
+                    key,
+                    &event.keystroke.modifiers,
+                    current_value_key.get(),
+                    &config_key,
+                )
+            {
+                current_value_key.set(new_value);
+                handler(new_value, window, cx);
+                if let Some(ref commit) = commit_key {
+                    commit(new_value, window, cx);
+                }
+            }
+        });
+    }
+
+    // Scroll wheel - adjust value
+    if let Some(handler_rc) = h.on_change.clone() {
+        let current_value_scroll = h.current_value.clone();
+        let config_scroll = h.config.clone();
+        let commit_scroll = h.on_commit.clone();
+        container = container.on_scroll_wheel(move |event, window, cx| {
+            cx.stop_propagation();
+            let val = current_value_scroll.get();
+            if let Some(new_value) =
+                handle_scroll(&event.delta, &event.modifiers, val, &config_scroll)
+            {
+                current_value_scroll.set(new_value);
+                handler_rc(new_value, window, cx);
+                if let Some(ref commit) = commit_scroll {
+                    commit(new_value, window, cx);
+                }
+            }
+        });
+    }
+    container
+}
+
+impl RenderOnce for Potentiometer {
+    fn render(mut self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        self.register_accessible(cx);
+
+        let global_theme = cx.theme();
+        let default_theme = PotentiometerTheme::from(global_theme.as_ref());
+        let theme = self.theme.clone().unwrap_or(default_theme);
+        let selected = self.selected;
+        let disabled = self.disabled;
+        let palette = KnobPalette::resolve(&theme, selected, self.size);
+
+        // Use scale-aware normalization for indicator position
+        let normalized = self.value_to_normalized(self.value) as f32;
+        let metrics = self.dial_metrics(normalized, selected);
+        let tick_geometry = self.tick_geometry(&metrics);
+        let arc_color = self.accent_color.unwrap_or(theme.accent);
+        let arc_spec = self.arc_spec(&metrics, arc_color, normalized);
+
+        let formatted_label = self.formatted_label;
+        let value_str_only = self.formatted_value_only;
+        let unit_str = self.unit.clone();
+        let min_width = self.size.min_width();
+
+        // Capture values for closures
+        let value = self.value;
+        let min = self.min;
+        let max = self.max;
+        let scale = self.scale;
+
+        // Shared current value tracker and interaction config
+        let current_value = value_tracker(value);
+        // Potentiometer uses rotational config (drag distance = knob_size for full range)
+        let interaction_config = InteractionConfig::rotational(min, max, scale, metrics.knob_size);
+        let drag_key = self.id.clone();
+
+        // Layout style: boxed (chassis around the whole knob) vs underlined
+        // (title above with a thin rule, no surrounding chassis).
+        let underlined = self.design_tokens.knob_label_style
+            == crate::audio_design_tokens::AudioDesignTokens::LABEL_UNDERLINED;
+
+        let enabled = !disabled;
+        let handlers = PotHandlers {
+            on_change: take_if_enabled(enabled, self.on_change.take()).map(std::rc::Rc::new),
+            on_commit: take_if_enabled(enabled, self.on_commit.take()).map(std::rc::Rc::new),
+            on_reset: take_if_enabled(enabled, self.on_reset.take()).map(std::rc::Rc::new),
+            on_select: take_if_enabled(enabled, self.on_select.take()).map(std::rc::Rc::new),
+            on_drag_start: take_if_enabled(enabled, self.on_drag_start.take())
+                .map(std::rc::Rc::new),
+            current_value,
+            config: interaction_config,
+            focus_handle: self.focus_handle.clone(),
+            drag_key,
+            value,
+            min,
+            max,
+            scale,
+            disabled,
+        };
+
+        let chassis = ChassisSpec::new(
+            self.id.clone(),
+            min_width,
+            underlined,
+            selected,
+            disabled,
+            self.focus_handle.clone(),
+        );
+        let mut container = build_pot_chassis(chassis, &palette);
+        container = wire_pot_gesture(container, &handlers);
+        container = wire_pot_discrete(container, &handlers);
+
+        // Title block (empty labels skip it entirely).
+        let rule_color = if selected { theme.accent } else { theme.border };
+        if let Some(title) = build_pot_title(
+            formatted_label,
+            palette.label,
+            selected,
+            min_width,
+            underlined,
+            rule_color,
+        ) {
+            container = container.child(title);
+        }
+
+        // Knob graphic with ticks. Horizontal labels still need room for the
+        // widest tick text, but the top/bottom gutter stays tight: just the
+        // tick label's own line height plus a small gap.
+        let renderers = DialRenderers {
+            renderer_2d: self.renderer_2d,
+            vello_backend: self.vello_backend,
+        };
+        let mut knob_container = div()
+            .w(px(metrics.container_width))
+            .h(px(metrics.container_height))
+            .relative();
+
+        // Cached tick geometry/labels by (min, max, scale, size, unit); all
+        // tick lines paint in a single custom element instead of one div per dot.
+        knob_container = knob_container.child(build_tick_lines(
+            &tick_geometry,
+            &metrics,
+            &palette,
+            renderers,
+        ));
+
+        // Add cached tick labels as div children.
+        for label_div in tick_label_divs(&tick_geometry, metrics.center, palette.major_tick) {
+            knob_container = knob_container.child(label_div);
         }
 
         // Value arc — painted behind tick marks, around the knob
-        let arc_color = self.accent_color.unwrap_or(theme.accent);
-        let size_idx = match self.size {
-            PotentiometerSize::Xs => 0,
-            PotentiometerSize::Sm => 1,
-            PotentiometerSize::Md => 2,
-            PotentiometerSize::Lg => 3,
-        };
-        let arc_width = self.design_tokens.knob_arc_widths[size_idx];
-        let track_arc_width = self.design_tokens.knob_arc_track_widths[size_idx].max(0.0);
-        knob_container = knob_container.child(
-            div().absolute().inset_0().child(KnobArcElement {
-                id: ElementId::named_usize("potentiometer-arc", 0),
-                container_width,
-                container_height,
-                knob_offset_x: tick_geometry.knob_offset_x,
-                knob_offset_y: tick_geometry.knob_offset_y,
-                knob_size,
-                normalized,
-                arc_color,
-                arc_width,
-                track_arc_width,
-                arc_glow: self.design_tokens.knob_arc_glow,
-                arc_start_rad: self.design_tokens.knob_arc_start_deg.to_radians(),
-                arc_end_rad: (self.design_tokens.knob_arc_start_deg
-                    + self.design_tokens.knob_arc_sweep_deg)
-                    .to_radians(),
-                arc_segments: self.design_tokens.knob_arc_segments,
-                renderer_2d: self.renderer_2d,
-                vello_backend: self.vello_backend,
-                #[cfg(feature = "vello")]
-                painter: d3rs::vello2d::VelloScenePainter::new().backend(self.vello_backend),
-            }),
+        knob_container = knob_container.child(build_value_arc(
+            &tick_geometry,
+            &metrics,
+            &arc_spec,
+            renderers,
+        ));
+
+        // Knob circle (offset to center in larger container).
+        // The border matches ticks and labels.
+        let ring = selected.then_some(theme.accent_muted);
+        let mut knob = build_knob_shell(
+            &tick_geometry,
+            &metrics,
+            palette.knob_bg,
+            self.design_tokens.knob_border_width,
+            palette.major_tick,
+            ring,
         );
 
-        // Knob circle (offset to center in larger container)
-        // Use major_tick_color for border to match ticks and labels
-        let knob_border = self.design_tokens.knob_border_width;
-        let mut knob = div()
-            .absolute()
-            .left(px(tick_geometry.knob_offset_x))
-            .top(px(tick_geometry.knob_offset_y))
-            .w(px(knob_size))
-            .h(px(knob_size))
-            .rounded_full()
-            .bg(knob_bg)
-            .border(px(knob_border))
-            .border_color(major_tick_color);
-
-        if selected {
-            knob = knob.shadow_sm();
-            // Arc indicator when selected
-            knob = knob.child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .rounded_full()
-                    .border_2()
-                    .border_color(theme.accent_muted),
-            );
-        }
-
-        // Indicator marker — shape configured by `knob_indicator_style`. The
-        // dot rect is positioned at (x, y); for non-dot shapes we keep the
-        // same anchor and width so existing geometry math stays meaningful.
-        let mut indicator = div()
-            .absolute()
-            .left(px(x))
-            .top(px(y))
-            .w(px(indicator_size))
-            .h(px(indicator_size))
-            .bg(indicator_color);
-
-        match self.design_tokens.knob_indicator_style {
-            crate::audio_design_tokens::AudioDesignTokens::INDICATOR_TICK => {
-                // Radial tick: stretch toward the rim, narrow tangentially.
-                // We approximate the radial direction by always extending the
-                // marker outward from center; for the dead-zone-bottom layout
-                // a simple square stretched 1.5x reads correctly at the
-                // common quadrants and stays inside the bounding box.
-                let tick_len = indicator_size * 1.6;
-                let tick_thick = (indicator_size * 0.55).max(2.0);
-                let tick_x = center + radius * angle_rad.cos() - (tick_thick / 2.0);
-                let tick_y = center + radius * angle_rad.sin() - (tick_len / 2.0);
-                indicator = div()
-                    .absolute()
-                    .left(px(tick_x))
-                    .top(px(tick_y))
-                    .w(px(tick_thick))
-                    .h(px(tick_len))
-                    .bg(indicator_color)
-                    .rounded_sm();
-            }
-            crate::audio_design_tokens::AudioDesignTokens::INDICATOR_ARROW => {
-                // Arrow approximation: small triangular cap rendered as a
-                // tilted square (rotated 45° via overflow trick is not
-                // available without transforms in GPUI's stable surface, so
-                // approximate with a smaller, brighter rounded square at the
-                // arc tip).
-                let arrow_size = indicator_size * 0.85;
-                let arrow_x = center + radius * angle_rad.cos() - (arrow_size / 2.0);
-                let arrow_y = center + radius * angle_rad.sin() - (arrow_size / 2.0);
-                indicator = div()
-                    .absolute()
-                    .left(px(arrow_x))
-                    .top(px(arrow_y))
-                    .w(px(arrow_size))
-                    .h(px(arrow_size))
-                    .bg(indicator_color)
-                    .rounded_sm();
-            }
-            // INDICATOR_DOT (or any unknown — fall through to dot).
-            _ => {
-                indicator = indicator.rounded_full();
-            }
-        }
-
-        // Add shiny shadow for Lg size and selected state
-        indicator = match self.size {
-            PotentiometerSize::Lg => indicator.shadow_md(), // Always shiny for Lg
-            _ => indicator.when(selected, |d| d.shadow_sm()),
+        // Indicator marker + current value in center of knob.
+        knob = knob.child(build_indicator(
+            &metrics,
+            palette.indicator,
+            self.size,
+            selected,
+            self.design_tokens.knob_indicator_style,
+        ));
+        let value_display_color = if selected {
+            theme.accent
+        } else {
+            palette.value
         };
-
-        knob = knob.child(indicator);
-
-        // Current value in center of knob
-        let mut value_display = div()
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .font_weight(FontWeight::BOLD)
-            .text_color(if selected { theme.accent } else { value_color });
-
-        // Increase font size for large potentiometer
-        value_display = match self.size {
-            PotentiometerSize::Xs => value_display.text_xs(),
-            PotentiometerSize::Sm => value_display.text_xs(),
-            PotentiometerSize::Md => value_display.text_xs(),
-            PotentiometerSize::Lg => value_display.text_sm(),
-        };
-
-        knob = knob.child(value_display.child(value_str_only));
-
+        knob = knob.child(build_value_display(
+            value_str_only,
+            value_display_color,
+            self.size,
+        ));
         knob_container = knob_container.child(knob);
 
-        // Unit label at 6 o'clock position (270° standard = 90° screen, bottom center)
-        // Position it at the same radius as the tick labels
-        if !unit_str.is_empty() {
-            let unit_angle = std::f32::consts::PI * 0.5; // 90° in screen coordinates (6 o'clock)
-            let unit_x = tick_geometry.knob_offset_x + center + label_radius * unit_angle.cos();
-            let unit_y = tick_geometry.knob_offset_y + center + label_radius * unit_angle.sin();
-
-            // Calculate approximate centering offset based on typical unit string lengths
-            // "%" is 1 char, "Hz" is 2 chars, "dB" is 2 chars
-            // At text_xs (12px), approximate char width is ~7px
-            let estimated_width = unit_str.len() as f32 * 7.0;
-            let center_offset_x = estimated_width / 2.0;
-
-            knob_container = knob_container.child(
-                div()
-                    .absolute()
-                    .left(px(unit_x - center_offset_x))
-                    .top(px(unit_y - 14.0)) // Move up (was -6.0, now -6-sizeoffont to be closer to circle)
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(if selected {
-                        theme.accent
-                    } else {
-                        theme.text_secondary
-                    })
-                    .child(unit_str),
-            );
+        // Unit label at 6 o'clock position (270° standard = 90° screen,
+        // bottom center), at the same radius as the tick labels.
+        let unit_color = if selected {
+            theme.accent
+        } else {
+            theme.text_secondary
+        };
+        if let Some(unit_label) = build_unit_label(&tick_geometry, &metrics, unit_str, unit_color) {
+            knob_container = knob_container.child(unit_label);
         }
 
         container.child(knob_container)
@@ -1095,6 +1393,21 @@ mod tests {
 
         let pot_unmatched = Potentiometer::new("test").label("Gain").shortcut_key('z');
         assert_eq!(pot_unmatched.format_label(), "[Z] Gain");
+    }
+
+    #[test]
+    fn format_label_handles_multibyte_shortcuts() {
+        // ASCII key inside a multibyte label: byte-safe bracketing.
+        let pot = Potentiometer::new("test").label("Écho").shortcut_key('c');
+        assert_eq!(pot.format_label(), "É[C]ho");
+
+        // Exact non-ASCII key match still brackets the right char.
+        let cjk = Potentiometer::new("test").label("音量").shortcut_key('量');
+        assert_eq!(cjk.format_label(), "音[量]");
+
+        // Non-ASCII key with no exact match falls back to the prefix form.
+        let fallback = Potentiometer::new("test").label("Écho").shortcut_key('é');
+        assert_eq!(fallback.format_label(), "[é] Écho");
     }
 
     #[test]

@@ -15,6 +15,22 @@ impl MeterData {
         }
     }
 
+    /// Pull the latest [`super::MeterFifo`] frame into `scratch` and fold it
+    /// into the smoothed levels. Returns `false` (leaving levels untouched)
+    /// when no fresh frame arrived since the previous call.
+    pub fn update_from_fifo(
+        &mut self,
+        fifo: &super::MeterFifo,
+        scratch: &mut Vec<f32>,
+        smoothing: f32,
+    ) -> bool {
+        if !fifo.snapshot(scratch) {
+            return false;
+        }
+        self.update(scratch, smoothing);
+        true
+    }
+
     pub fn update(&mut self, new_levels: &[f32], smoothing: f32) {
         for (i, &new_level) in new_levels.iter().enumerate() {
             if i < self.levels.len() {
@@ -31,6 +47,7 @@ impl MeterData {
 
 #[cfg(test)]
 mod tests {
+    use super::super::MeterFifo;
     use super::MeterData;
 
     #[test]
@@ -55,6 +72,23 @@ mod tests {
         data.update(&[0.8, 0.6], 0.5);
         assert!(data.peaks[0] > 0.99 && data.peaks[0] <= 1.0);
         assert!(data.peaks[1] > 0.5);
+    }
+
+    #[test]
+    fn update_from_fifo_applies_fresh_frames_only() {
+        let fifo = MeterFifo::new(2);
+        let mut data = MeterData::new(2);
+        let mut scratch = Vec::new();
+
+        assert!(!data.update_from_fifo(&fifo, &mut scratch, 0.0));
+        assert!(data.levels.iter().all(|&v| v == 0.0));
+
+        fifo.push_frame(&[1.0, 0.5]);
+        assert!(data.update_from_fifo(&fifo, &mut scratch, 0.0));
+        assert!((data.levels[0] - 1.0).abs() < 1e-6);
+        assert!((data.levels[1] - 0.5).abs() < 1e-6);
+
+        assert!(!data.update_from_fifo(&fifo, &mut scratch, 0.0));
     }
 
     #[test]

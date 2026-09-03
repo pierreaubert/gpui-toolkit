@@ -37,13 +37,13 @@ pub fn set_status_bar_style(style: crate::StatusBarContentStyle) {
     unsafe {
         if let Some(wrapper) = super::super::ffi::IOS_WINDOW_LIST.get() {
             let windows = &*wrapper.0.get();
-            if let Some(&window_ptr) = windows.last() {
-                if !window_ptr.is_null() {
-                    let window = &*window_ptr;
-                    let vc = window.view_controller;
-                    if !vc.is_null() {
-                        let _: () = msg_send![vc, setNeedsStatusBarAppearanceUpdate];
-                    }
+            if let Some(&window_ptr) = windows.last()
+                && !window_ptr.is_null()
+            {
+                let window = &*window_ptr;
+                let vc = window.view_controller;
+                if !vc.is_null() {
+                    let _: () = msg_send![vc, setNeedsStatusBarAppearanceUpdate];
                 }
             }
         }

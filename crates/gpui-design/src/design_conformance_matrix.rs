@@ -30,6 +30,20 @@ impl DesignConformanceMatrix {
         self.cases.iter().all(DesignConformanceCase::passed)
     }
 
+    /// Breaking-change gate across all presets and motion policies: panics
+    /// with the markdown table on failure so CI logs the offending preset.
+    ///
+    /// # Panics
+    ///
+    /// Panics when any preset/motion case fails conformance.
+    pub fn assert_all_pass(&self) {
+        assert!(
+            self.passed(),
+            "design conformance gate failed:\n{}",
+            self.to_markdown_table()
+        );
+    }
+
     pub fn findings(&self) -> Vec<(&DesignConformanceCase, &ConformanceFinding)> {
         let mut findings = Vec::new();
         for case in &self.cases {

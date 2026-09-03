@@ -153,12 +153,9 @@ impl Showcase {
                     .child(
                         RadioGroup::new("rg-demo")
                             .options(vec![
-                                RadioOption::new("radio-a", small.clone()),
-                                RadioOption::new("radio-b", medium.clone()),
-                                RadioOption::new(
-                                    "radio-c",
-                                    large.clone(),
-                                )
+                                RadioOption::new("radio-a", small),
+                                RadioOption::new("radio-b", medium),
+                                RadioOption::new("radio-c", large)
                                 .disabled(true),
                             ])
                             .selected(radio_selected)

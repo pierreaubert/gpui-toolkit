@@ -247,22 +247,39 @@ impl ThemeEditor {
         }
         if self.export_cache_dirty || self.cached_export_format != self.export_format {
             self.cached_export_format.clone_from(&self.export_format);
-            let content = if self.export_format == "json" {
-                self.theme
+            let content = match self.export_format.as_str() {
+                "rust" => self.theme.to_rust_code(),
+                "css" => self.theme.to_css_variables(),
+                "tokens" => self
+                    .theme
+                    .to_style_dictionary_json()
+                    .unwrap_or_else(|e| format!("Error: {}", e)),
+                _ => self
+                    .theme
                     .to_json()
-                    .unwrap_or_else(|e| format!("Error: {}", e))
-            } else {
-                self.theme.to_rust_code()
+                    .unwrap_or_else(|e| format!("Error: {}", e)),
             };
             self.cached_export_content = SharedString::from(content);
+            let extension = match self.export_format.as_str() {
+                "rust" => "rs",
+                "css" => "css",
+                "tokens" => "tokens.json",
+                _ => "json",
+            };
             let filename = format!(
                 "{}_theme.{}",
                 slugify_theme_name(&self.theme.name),
-                self.export_format
+                extension
             );
             self.cached_export_filename = SharedString::from(filename);
             self.export_cache_dirty = false;
         }
+    }
+
+    /// One-line WCAG AA badge for the export tab, backed by
+    /// [`EditorTheme::accessibility_issues`](crate::theme::EditorTheme::accessibility_issues).
+    pub fn accessibility_badge(&self) -> SharedString {
+        SharedString::from(self.theme.accessibility_badge())
     }
 
     /// Update a color and sync to showcase
@@ -660,6 +677,11 @@ impl ThemeEditor {
                         )
                         .build(),
                 )
+                .child(
+                    Text::new(self.accessibility_badge())
+                        .size(TextSize::Sm)
+                        .color(theme.text_secondary.to_rgba()),
+                )
                 // Format selection
                 .child(
                     HStack::new()
@@ -695,6 +717,36 @@ impl ThemeEditor {
                                 .build()
                                 .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                                     this.export_format = "rust".to_string();
+                                    this.refresh_export_cache();
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            Button::new("format-css", "CSS")
+                                .variant(if export_format == "css" {
+                                    ButtonVariant::Primary
+                                } else {
+                                    ButtonVariant::Secondary
+                                })
+                                .size(ButtonSize::Sm)
+                                .build()
+                                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                    this.export_format = "css".to_string();
+                                    this.refresh_export_cache();
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            Button::new("format-tokens", "Tokens")
+                                .variant(if export_format == "tokens" {
+                                    ButtonVariant::Primary
+                                } else {
+                                    ButtonVariant::Secondary
+                                })
+                                .size(ButtonSize::Sm)
+                                .build()
+                                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                                    this.export_format = "tokens".to_string();
                                     this.refresh_export_cache();
                                     cx.notify();
                                 })),

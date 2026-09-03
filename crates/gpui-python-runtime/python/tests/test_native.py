@@ -2036,6 +2036,30 @@ class NativeWrapperTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"points\[0\]\.x"):
             native.Curve.linear().interpolate(((math.nan, 0.0),))
 
+    def test_line_config_is_immutable_and_validated(self) -> None:
+        original = native.LineConfig.new()
+        configured = (
+            original.stroke_width(3.0)
+            .opacity(0.5)
+            .curve(native.Curve.step())
+            .show_points(True)
+            .point_radius(4.0)
+            .dash_array(native.StrokeDashArray.custom((2.0, 1.0)))
+        )
+        self.assertIsNot(original, configured)
+        self.assertEqual(original._stroke_width, 2.0)
+        self.assertEqual(configured._stroke_width, 3.0)
+        self.assertEqual(configured._opacity, 0.5)
+        self.assertEqual(configured._dash_array.values, (2.0, 1.0))
+        with self.assertRaises(native.LineRenderError) as negative:
+            original.stroke_width(-1.0)
+        self.assertEqual(
+            negative.exception.kind,
+            native.LineRenderErrorKind.NEGATIVE_CONFIG_FIELD,
+        )
+        with self.assertRaises(ValueError):
+            native.StrokeDashArray.custom((2.0, 0.0))
+
     def test_installed_extension_runs_path_and_area_shapes(self) -> None:
         if not native.AVAILABLE:
             self.skipTest("requires an installed abi3 wheel")
@@ -2114,8 +2138,18 @@ class NativeWrapperTests(unittest.TestCase):
             ),
         )
 
-        with self.assertRaisesRegex(ValueError, "mismatched lengths"):
-            native.SimpleArea((0.0,), (), (1.0,)).path()
+        with self.assertRaises(native.AreaGenerationError) as mismatch:
+            native.SimpleArea((0.0,), (), (1.0,)).try_path()
+        self.assertEqual(
+            mismatch.exception.kind,
+            native.AreaGenerationErrorKind.COORDINATE_LENGTH_MISMATCH,
+        )
+        with self.assertRaises(native.AreaGenerationError) as nonfinite:
+            native.SimpleArea((0.0, math.nan), (0.0, 1.0), (1.0, 2.0)).try_points()
+        self.assertEqual(
+            nonfinite.exception.kind,
+            native.AreaGenerationErrorKind.NON_FINITE_COORDINATE,
+        )
         with self.assertRaisesRegex(ValueError, "radius"):
             native.PathBuilder().arc(0.0, 0.0, -1.0, 0.0, 1.0).build().bounds()
         with self.assertRaisesRegex(ValueError, "tolerance"):

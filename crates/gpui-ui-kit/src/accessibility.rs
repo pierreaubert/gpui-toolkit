@@ -318,7 +318,7 @@ pub fn apply_native_accessibility(
             AriaState::Selected(value) => {
                 element = element.aria_selected(*value);
             }
-            AriaState::Disabled | AriaState::Hidden => {}
+            AriaState::Disabled | AriaState::Hidden | AriaState::Modal => {}
         }
     }
 
@@ -351,6 +351,9 @@ pub enum AriaState {
     Selected(bool),
     Disabled,
     Hidden,
+    /// Modal dialog semantics (`aria-modal="true"`). Native passthrough is a
+    /// no-op until GPUI exposes a modal API; the bridge snapshot carries it.
+    Modal,
 }
 
 /// aria-live region behavior
@@ -482,6 +485,7 @@ impl AriaState {
             Self::Selected(value) => ("selected", Some(value)),
             Self::Disabled => ("disabled", None),
             Self::Hidden => ("hidden", None),
+            Self::Modal => ("modal", None),
         }
     }
 }
@@ -1089,6 +1093,7 @@ mod tests {
             ("checked", Some(true))
         );
         assert_eq!(AriaState::Mixed.bridge_name_value(), ("mixed", None));
+        assert_eq!(AriaState::Modal.bridge_name_value(), ("modal", None));
         assert_eq!(AriaLive::Assertive.as_str(), "assertive");
     }
 

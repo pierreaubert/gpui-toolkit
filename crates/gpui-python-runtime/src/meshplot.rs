@@ -122,6 +122,19 @@ fn default_equal_aspect() -> bool {
     true
 }
 
+fn check_schema_version(value: &Value) -> Result<(), String> {
+    let version = value
+        .get("schema_version")
+        .and_then(Value::as_u64)
+        .unwrap_or(MESHPLOT_SPEC_SCHEMA_VERSION as u64);
+    if version != MESHPLOT_SPEC_SCHEMA_VERSION as u64 {
+        return Err(format!(
+            "unsupported mesh_plot schema version {version}; supported version is {MESHPLOT_SPEC_SCHEMA_VERSION}"
+        ));
+    }
+    Ok(())
+}
+
 fn default_toolbar() -> bool {
     true
 }
@@ -143,18 +156,26 @@ impl MeshPlotSpec {
     }
 
     pub fn from_value(value: Value) -> Result<Self, String> {
-        let version = value
-            .get("schema_version")
-            .and_then(Value::as_u64)
-            .unwrap_or(MESHPLOT_SPEC_SCHEMA_VERSION as u64);
-        if version != MESHPLOT_SPEC_SCHEMA_VERSION as u64 {
-            return Err(format!(
-                "unsupported mesh_plot schema version {version}; supported version is {MESHPLOT_SPEC_SCHEMA_VERSION}"
-            ));
-        }
+        check_schema_version(&value)?;
         let spec: Self = serde_json::from_value(value).map_err(|error| error.to_string())?;
         spec.validate()?;
         Ok(spec)
+    }
+
+    /// Validate a borrowed spec value without cloning it. The schema-version
+    /// and structural gates run on the borrow; only version-compatible values
+    /// with the right coarse shape pay for deserialization (whose owned
+    /// `Value` lets `from_value` reuse string storage instead of copying).
+    pub fn validate_value(value: &Value) -> Result<(), String> {
+        check_schema_version(value)?;
+        if value.get("id").is_some_and(Value::is_null) {
+            return Err("mesh_plot id must not be null".into());
+        }
+        match value.get("geometry") {
+            Some(geometry) if geometry.is_object() => {}
+            _ => return Err("mesh_plot geometry must be an object".into()),
+        }
+        Self::from_value(value.clone()).map(|_| ())
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -811,6 +832,32 @@ mod tests {
             "field": {"values": [0.0, 0.5, 1.0], "association": "vertex"},
             "mode": "scalar_fill"
         })
+    }
+
+    #[test]
+    fn validate_value_matches_from_value_without_taking_ownership() {
+        let valid = valid_spec();
+        assert!(MeshPlotSpec::validate_value(&valid).is_ok());
+        // Borrowed gates reject before any clone/deserialization.
+        let mut versioned = valid.clone();
+        versioned["schema_version"] = serde_json::json!(u64::from(MESHPLOT_SPEC_SCHEMA_VERSION) + 1);
+        assert!(MeshPlotSpec::validate_value(&versioned).is_err());
+
+        let mut null_id = valid.clone();
+        null_id["id"] = serde_json::Value::Null;
+        assert!(MeshPlotSpec::validate_value(&null_id).is_err());
+
+        let mut no_geometry = valid.clone();
+        no_geometry["geometry"] = serde_json::json!("mesh");
+        assert!(MeshPlotSpec::validate_value(&no_geometry).is_err());
+
+        // Accept-path verdicts agree with the owned constructor.
+        let mut bad_topology = valid.clone();
+        bad_topology["geometry"]["triangles"] = serde_json::json!([[0, 1, 3]]);
+        assert_eq!(
+            MeshPlotSpec::validate_value(&bad_topology).is_ok(),
+            MeshPlotSpec::from_value(bad_topology).is_ok()
+        );
     }
 
     #[test]

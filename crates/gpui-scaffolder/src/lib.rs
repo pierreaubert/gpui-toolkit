@@ -3,16 +3,34 @@
 use anyhow::{Context, Result, bail};
 use std::ffi::OsString;
 use std::fs;
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 const GPUI_VERSION: &str = "0.2.2";
 const GPUI_ZED_TAG: &str = "v1.9.0";
 const SCAFFOLD_TEMPLATE_VERSION: &str = "1";
+/// Name of the only scaffold template shipped today. Custom templates are a
+/// future extension; [`ScaffoldFlags`] reserves the selection slot already.
+pub const DEFAULT_TEMPLATE: &str = "default";
 const TOOLKIT_ROOT_ENV: &str = "GPUI_TOOLKIT_ROOT";
 const SCAFFOLD_GITIGNORE: &str =
     "/target/\n/ios/build/\n/ios/lib/\n.gradle/\n**/local.properties\n";
+/// Toolkit-relative path of the Android activity host source.
+#[cfg(any(not(feature = "mobile"), test))]
+const GPUI_ANDROID_ACTIVITY_JAVA_PATH: &str =
+    "crates/gpui-android/android/src/main/java/dev/gpui/mobile/GpuiActivity.java";
+/// Toolkit-relative path of the Android file-provider host source.
+#[cfg(any(not(feature = "mobile"), test))]
+const GPUI_ANDROID_FILE_PROVIDER_JAVA_PATH: &str =
+    "crates/gpui-android/android/src/main/java/dev/gpui/mobile/GpuiFileProvider.java";
+
+/// Embedded Android Java hosts. Gated behind the `mobile` feature (enabled by
+/// default) so `--help`-only binaries can opt out with `--no-default-features`
+/// and load the same sources from a toolkit checkout at runtime instead.
+#[cfg(feature = "mobile")]
 const GPUI_ANDROID_ACTIVITY_JAVA: &str =
     include_str!("../../gpui-android/android/src/main/java/dev/gpui/mobile/GpuiActivity.java");
+#[cfg(feature = "mobile")]
 const GPUI_ANDROID_FILE_PROVIDER_JAVA: &str =
     include_str!("../../gpui-android/android/src/main/java/dev/gpui/mobile/GpuiFileProvider.java");
 
@@ -32,11 +50,64 @@ pub struct ScaffoldedApp {
 }
 
 /// Non-mutating scaffold plan. Paths are the exact files that a subsequent
-/// `scaffold_app` call with the same options would create.
+/// `scaffold_app` call with the same options and flags would create.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScaffoldPreview {
     pub app: ScaffoldedApp,
     pub files: Vec<PathBuf>,
+}
+
+/// Template and platform selection for a scaffold.
+///
+/// `ScaffoldOptions` is intentionally unchanged so existing callers keep
+/// compiling; pass these flags to [`scaffold_app_with_flags`] or
+/// [`preview_scaffold_with_flags`] to customize the generated project.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScaffoldFlags {
+    /// Template name. Only [`DEFAULT_TEMPLATE`] (`"default"`) exists today;
+    /// any other value is an error, reserving the slot for a future template
+    /// registry.
+    pub template: String,
+    /// Skip the iOS host (`ios/`, the `gpui-ios` dependency, iOS Just recipes).
+    pub no_ios: bool,
+    /// Skip the Android host (`android/`, the `gpui-android` dependency,
+    /// Android Just recipes).
+    pub no_android: bool,
+}
+
+impl Default for ScaffoldFlags {
+    fn default() -> Self {
+        Self {
+            template: DEFAULT_TEMPLATE.to_owned(),
+            no_ios: false,
+            no_android: false,
+        }
+    }
+}
+
+impl ScaffoldFlags {
+    /// Reject unknown templates before touching the filesystem.
+    pub fn validate(&self) -> Result<()> {
+        if self.template != DEFAULT_TEMPLATE {
+            bail!(
+                "unknown template \"{}\"; only \"default\" is supported",
+                self.template
+            );
+        }
+        Ok(())
+    }
+}
+
+/// Toolkit-relative dependency paths, derived from a single
+/// [`relative_path`] ancestor walk (see [`toolkit_dependency_paths`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DependencyPaths {
+    miniapp: PathBuf,
+    ui_kit: PathBuf,
+    ios: PathBuf,
+    android: PathBuf,
+    block: PathBuf,
+    zed_font_kit: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +124,17 @@ struct AppNames {
 }
 
 pub fn scaffold_app(options: &ScaffoldOptions) -> Result<ScaffoldedApp> {
+    scaffold_app_with_flags(options, &ScaffoldFlags::default())
+}
+
+/// Scaffold a project with explicit template/platform flags; see
+/// [`ScaffoldFlags`]. With `dry_run` the request is validated but nothing is
+/// created, deleted, or modified.
+pub fn scaffold_app_with_flags(
+    options: &ScaffoldOptions,
+    flags: &ScaffoldFlags,
+) -> Result<ScaffoldedApp> {
+    flags.validate()?;
     let names = AppNames::new(&options.name)?;
     let output_dir = options
         .output_dir
@@ -60,19 +142,12 @@ pub fn scaffold_app(options: &ScaffoldOptions) -> Result<ScaffoldedApp> {
         .with_context(|| format!("failed to resolve {}", options.output_dir.display()))?;
     let app_dir = output_dir.join(&names.directory_name);
 
-    if app_dir.exists() {
-        if options.force {
-            ensure_directory_is_replaceable(&app_dir)?;
-            if !options.dry_run {
-                replace_directory(&app_dir)?;
-            }
-        } else {
-            bail!(
-                "{} already exists; pass --force to replace an empty scaffold",
-                app_dir.display()
-            );
-        }
-    }
+    check_existing_app_dir(&app_dir, options.force, options.dry_run)?;
+
+    // Single source of truth: the same plan backs dry-run validation,
+    // `preview_scaffold`, and the files written below, so the three can never
+    // diverge.
+    let plan = build_scaffold_plan(&names, &app_dir, flags)?;
 
     if options.dry_run {
         return Ok(ScaffoldedApp {
@@ -82,117 +157,10 @@ pub fn scaffold_app(options: &ScaffoldOptions) -> Result<ScaffoldedApp> {
         });
     }
 
-    fs::create_dir_all(app_dir.join("src"))
-        .with_context(|| format!("failed to create {}", app_dir.display()))?;
-    fs::create_dir_all(app_dir.join("ios").join(&names.ios_source_dir))
-        .with_context(|| format!("failed to create {}", app_dir.join("ios").display()))?;
-    fs::create_dir_all(app_dir.join("ios/lib"))
-        .with_context(|| format!("failed to create {}", app_dir.join("ios/lib").display()))?;
-    fs::create_dir_all(app_dir.join("android/gradle/app/src/main/res/values"))
-        .with_context(|| format!("failed to create {}", app_dir.join("android").display()))?;
-    fs::create_dir_all(app_dir.join("android/gradle/app/src/main/java/dev/gpui/mobile"))
-        .with_context(|| format!("failed to create {}", app_dir.join("android").display()))?;
-    fs::create_dir_all(app_dir.join("android/gradle/app/src/main/jniLibs/arm64-v8a"))
-        .with_context(|| format!("failed to create {}", app_dir.join("android").display()))?;
-
-    let toolkit_root = toolkit_root()?;
-    let miniapp_path = relative_path(&app_dir, &toolkit_root.join("crates/gpui-miniapp"));
-    let ui_kit_path = relative_path(&app_dir, &toolkit_root.join("crates/gpui-ui-kit"));
-    let ios_path = relative_path(&app_dir, &toolkit_root.join("crates/gpui-ios"));
-    let android_path = relative_path(&app_dir, &toolkit_root.join("crates/gpui-android"));
-    let block_path = relative_path(&app_dir, &toolkit_root.join("crates/3rdparties/block"));
-    let zed_font_kit_path = relative_path(
-        &app_dir,
-        &toolkit_root.join("crates/3rdparties/zed-font-kit"),
-    );
-
-    write_file(
-        &app_dir.join("Cargo.toml"),
-        &cargo_toml(
-            &names,
-            &miniapp_path,
-            &ui_kit_path,
-            &ios_path,
-            &android_path,
-            &block_path,
-            &zed_font_kit_path,
-        ),
-    )?;
-    write_file(
-        &app_dir.join("gpui-scaffold.toml"),
-        &scaffold_metadata(&names),
-    )?;
-    write_file(&app_dir.join(".gitignore"), SCAFFOLD_GITIGNORE)?;
-    write_file(&app_dir.join("Justfile"), &justfile(&names))?;
-    write_file(&app_dir.join("README.md"), &readme(&names))?;
-    write_file(&app_dir.join("src/app.rs"), &app_rs(&names))?;
-    write_file(&app_dir.join("src/lib.rs"), &lib_rs(&names))?;
-    write_file(&app_dir.join("src/main.rs"), &main_rs(&names))?;
-    write_file(&app_dir.join("ios/project.yml"), &xcode_project_yml(&names))?;
-    write_file(
-        &app_dir
-            .join("ios")
-            .join(&names.ios_source_dir)
-            .join("AppDelegate.swift"),
-        &swift_app_delegate(&names),
-    )?;
-    write_file(
-        &app_dir
-            .join("ios")
-            .join(&names.ios_source_dir)
-            .join("BridgingHeader.h"),
-        &bridging_header(&names),
-    )?;
-    write_file(
-        &app_dir
-            .join("ios")
-            .join(&names.ios_source_dir)
-            .join("Info.plist"),
-        &info_plist(&names),
-    )?;
-    write_file(
-        &app_dir
-            .join("ios")
-            .join(&names.ios_source_dir)
-            .join("Entitlements.plist"),
-        &entitlements_plist(),
-    )?;
-    write_file(
-        &app_dir.join("android/gradle/settings.gradle.kts"),
-        &android_settings_gradle(&names),
-    )?;
-    write_file(
-        &app_dir.join("android/gradle/build.gradle.kts"),
-        &android_root_build_gradle(),
-    )?;
-    write_file(
-        &app_dir.join("android/gradle/gradle.properties"),
-        &android_gradle_properties(),
-    )?;
-    write_file(
-        &app_dir.join("android/gradle/app/build.gradle.kts"),
-        &android_app_build_gradle(&names),
-    )?;
-    write_file(
-        &app_dir.join("android/gradle/app/src/main/AndroidManifest.xml"),
-        &android_manifest(),
-    )?;
-    write_file(
-        &app_dir.join("android/gradle/app/src/main/res/values/strings.xml"),
-        &android_strings(&names),
-    )?;
-    write_file(
-        &app_dir.join("android/gradle/app/src/main/res/values/styles.xml"),
-        &android_styles(),
-    )?;
-    write_file(
-        &app_dir.join("android/gradle/app/src/main/java/dev/gpui/mobile/GpuiActivity.java"),
-        GPUI_ANDROID_ACTIVITY_JAVA,
-    )?;
-    write_file(
-        &app_dir.join("android/gradle/app/src/main/java/dev/gpui/mobile/GpuiFileProvider.java"),
-        GPUI_ANDROID_FILE_PROVIDER_JAVA,
-    )?;
+    create_scaffold_directories(&app_dir, &names, flags)?;
+    for (path, contents) in &plan {
+        write_file(path, contents)?;
+    }
 
     Ok(ScaffoldedApp {
         app_dir,
@@ -204,50 +172,233 @@ pub fn scaffold_app(options: &ScaffoldOptions) -> Result<ScaffoldedApp> {
 /// Validate a scaffold request and enumerate its generated files without
 /// creating, deleting, or modifying any project files.
 pub fn preview_scaffold(options: &ScaffoldOptions) -> Result<ScaffoldPreview> {
+    preview_scaffold_with_flags(options, &ScaffoldFlags::default())
+}
+
+/// Preview a scaffold with explicit template/platform flags; see
+/// [`ScaffoldFlags`]. Never touches the filesystem beyond resolving paths.
+pub fn preview_scaffold_with_flags(
+    options: &ScaffoldOptions,
+    flags: &ScaffoldFlags,
+) -> Result<ScaffoldPreview> {
+    flags.validate()?;
     let names = AppNames::new(&options.name)?;
-    let mut dry_run = options.clone();
-    dry_run.dry_run = true;
-    let app = scaffold_app(&dry_run)?;
+    let output_dir = options
+        .output_dir
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {}", options.output_dir.display()))?;
+    let app_dir = output_dir.join(&names.directory_name);
+
+    // Same collision rules as `scaffold_app` in dry-run mode: validate, never
+    // delete.
+    check_existing_app_dir(&app_dir, options.force, true)?;
+
+    let plan = build_scaffold_plan(&names, &app_dir, flags)?;
+    let app = ScaffoldedApp {
+        app_dir,
+        package_name: names.package_name,
+        title: names.title,
+    };
     Ok(ScaffoldPreview {
-        files: planned_scaffold_files(&app.app_dir, &names),
+        files: plan.into_iter().map(|(path, _)| path).collect(),
         app,
     })
 }
 
-fn planned_scaffold_files(app_dir: &Path, names: &AppNames) -> Vec<PathBuf> {
-    [
-        "Cargo.toml",
-        "gpui-scaffold.toml",
-        ".gitignore",
-        "Justfile",
-        "README.md",
-        "src/app.rs",
-        "src/lib.rs",
-        "src/main.rs",
-        "ios/project.yml",
-        "android/gradle/settings.gradle.kts",
-        "android/gradle/build.gradle.kts",
-        "android/gradle/gradle.properties",
-        "android/gradle/app/build.gradle.kts",
-        "android/gradle/app/src/main/AndroidManifest.xml",
-        "android/gradle/app/src/main/res/values/strings.xml",
-        "android/gradle/app/src/main/res/values/styles.xml",
-        "android/gradle/app/src/main/java/dev/gpui/mobile/GpuiActivity.java",
-        "android/gradle/app/src/main/java/dev/gpui/mobile/GpuiFileProvider.java",
-    ]
-    .into_iter()
-    .map(|path| app_dir.join(path))
-    .chain(
-        [
-            "AppDelegate.swift",
-            "BridgingHeader.h",
-            "Info.plist",
-            "Entitlements.plist",
-        ]
-        .into_iter()
-        .map(|path| app_dir.join("ios").join(&names.ios_source_dir).join(path)),
-    )
-    .collect()
+/// Enforce `--force` collision rules. `dry_run` only validates; otherwise an
+/// existing replaceable directory is removed in one validation+removal pass.
+fn check_existing_app_dir(app_dir: &Path, force: bool, dry_run: bool) -> Result<()> {
+    if !app_dir.exists() {
+        return Ok(());
+    }
+    if !force {
+        bail!(
+            "{} already exists; pass --force to replace an empty scaffold",
+            app_dir.display()
+        );
+    }
+    if dry_run {
+        ensure_directory_is_replaceable(app_dir)?;
+    } else {
+        // `replace_directory` re-checks the listing itself, so files added
+        // after validation are never removed (and the removal fails instead).
+        replace_directory(app_dir)?;
+    }
+    Ok(())
+}
+
+/// Compute every file a scaffold with these names and flags generates.
+/// Absolute paths are anchored at `app_dir`; this is the single plan consumed
+/// by both `scaffold_app` and `preview_scaffold`.
+fn build_scaffold_plan(
+    names: &AppNames,
+    app_dir: &Path,
+    flags: &ScaffoldFlags,
+) -> Result<Vec<(PathBuf, String)>> {
+    let toolkit_root = toolkit_root()?;
+    let dependencies = toolkit_dependency_paths(app_dir, &toolkit_root);
+    // Lazily loaded only when the Android host is actually generated.
+    let java = if flags.no_android {
+        None
+    } else {
+        Some(android_java_sources(&toolkit_root)?)
+    };
+
+    let mut plan = vec![
+        (
+            app_dir.join("Cargo.toml"),
+            cargo_toml(names, &dependencies, flags),
+        ),
+        (
+            app_dir.join("gpui-scaffold.toml"),
+            scaffold_metadata(names, flags),
+        ),
+        (app_dir.join(".gitignore"), SCAFFOLD_GITIGNORE.to_owned()),
+        (app_dir.join("Justfile"), justfile(names, flags)),
+        (app_dir.join("README.md"), readme(names, flags)),
+        (app_dir.join("src/app.rs"), app_rs(names)),
+        (app_dir.join("src/lib.rs"), lib_rs(names, flags)),
+        (app_dir.join("src/main.rs"), main_rs(names)),
+    ];
+
+    if !flags.no_ios {
+        let ios_source = app_dir.join("ios").join(&names.ios_source_dir);
+        plan.extend([
+            (app_dir.join("ios/project.yml"), xcode_project_yml(names)),
+            (
+                ios_source.join("AppDelegate.swift"),
+                swift_app_delegate(names),
+            ),
+            (ios_source.join("BridgingHeader.h"), bridging_header(names)),
+            (ios_source.join("Info.plist"), info_plist(names)),
+            (ios_source.join("Entitlements.plist"), entitlements_plist()),
+        ]);
+    }
+
+    if !flags.no_android {
+        let (activity_java, file_provider_java) =
+            java.context("android sources must be loaded when the android host is generated")?;
+        plan.extend([
+            (
+                app_dir.join("android/gradle/settings.gradle.kts"),
+                android_settings_gradle(names),
+            ),
+            (
+                app_dir.join("android/gradle/build.gradle.kts"),
+                android_root_build_gradle(),
+            ),
+            (
+                app_dir.join("android/gradle/gradle.properties"),
+                android_gradle_properties(),
+            ),
+            (
+                app_dir.join("android/gradle/app/build.gradle.kts"),
+                android_app_build_gradle(names),
+            ),
+            (
+                app_dir.join("android/gradle/app/src/main/AndroidManifest.xml"),
+                android_manifest(),
+            ),
+            (
+                app_dir.join("android/gradle/app/src/main/res/values/strings.xml"),
+                android_strings(names),
+            ),
+            (
+                app_dir.join("android/gradle/app/src/main/res/values/styles.xml"),
+                android_styles(),
+            ),
+            (
+                app_dir.join("android/gradle/app/src/main/java/dev/gpui/mobile/GpuiActivity.java"),
+                activity_java,
+            ),
+            (
+                app_dir
+                    .join("android/gradle/app/src/main/java/dev/gpui/mobile/GpuiFileProvider.java"),
+                file_provider_java,
+            ),
+        ]);
+    }
+
+    Ok(plan)
+}
+
+/// Create the scaffold directory tree (parents of every planned file plus the
+/// empty `ios/lib` and JNI staging directories the Just recipes expect).
+fn create_scaffold_directories(
+    app_dir: &Path,
+    names: &AppNames,
+    flags: &ScaffoldFlags,
+) -> Result<()> {
+    fs::create_dir_all(app_dir.join("src"))
+        .with_context(|| format!("failed to create {}", app_dir.display()))?;
+    if !flags.no_ios {
+        fs::create_dir_all(app_dir.join("ios").join(&names.ios_source_dir))
+            .with_context(|| format!("failed to create {}", app_dir.join("ios").display()))?;
+        fs::create_dir_all(app_dir.join("ios/lib"))
+            .with_context(|| format!("failed to create {}", app_dir.join("ios").display()))?;
+    }
+    if !flags.no_android {
+        for dir in [
+            "android/gradle/app/src/main/res/values",
+            "android/gradle/app/src/main/java/dev/gpui/mobile",
+            "android/gradle/app/src/main/jniLibs/arm64-v8a",
+        ] {
+            fs::create_dir_all(app_dir.join(dir)).with_context(|| {
+                format!("failed to create {}", app_dir.join("android").display())
+            })?;
+        }
+    }
+    Ok(())
+}
+
+/// Derive the six toolkit dependency paths from a single [`relative_path`]
+/// ancestor walk: everything below the toolkit root hangs off that base, so
+/// `relative_path(app, root.join(sub)) == relative_path(app, root).join(sub)`.
+fn toolkit_dependency_paths(app_dir: &Path, toolkit_root: &Path) -> DependencyPaths {
+    let base = relative_path(app_dir, toolkit_root);
+    // Joining onto "." would produce "./crates/..." while the direct walk
+    // produces "crates/..."; normalize so both spellings agree exactly.
+    let join = |sub: &str| {
+        if base == Path::new(".") {
+            PathBuf::from(sub)
+        } else {
+            base.join(sub)
+        }
+    };
+    DependencyPaths {
+        miniapp: join("crates/gpui-miniapp"),
+        ui_kit: join("crates/gpui-ui-kit"),
+        ios: join("crates/gpui-ios"),
+        android: join("crates/gpui-android"),
+        block: join("crates/3rdparties/block"),
+        zed_font_kit: join("crates/3rdparties/zed-font-kit"),
+    }
+}
+
+/// Android Java host sources: embedded at compile time with the default
+/// `mobile` feature, otherwise read from the surrounding toolkit checkout so
+/// lean binaries pay no size cost.
+#[cfg(feature = "mobile")]
+fn android_java_sources(_toolkit_root: &Path) -> Result<(String, String)> {
+    Ok((
+        GPUI_ANDROID_ACTIVITY_JAVA.to_owned(),
+        GPUI_ANDROID_FILE_PROVIDER_JAVA.to_owned(),
+    ))
+}
+
+/// Android Java host sources: embedded at compile time with the default
+/// `mobile` feature, otherwise read from the surrounding toolkit checkout so
+/// lean binaries pay no size cost.
+#[cfg(not(feature = "mobile"))]
+fn android_java_sources(toolkit_root: &Path) -> Result<(String, String)> {
+    let activity = toolkit_root.join(GPUI_ANDROID_ACTIVITY_JAVA_PATH);
+    let provider = toolkit_root.join(GPUI_ANDROID_FILE_PROVIDER_JAVA_PATH);
+    Ok((
+        fs::read_to_string(&activity)
+            .with_context(|| format!("failed to read {}", activity.display()))?,
+        fs::read_to_string(&provider)
+            .with_context(|| format!("failed to read {}", provider.display()))?,
+    ))
 }
 
 fn ensure_directory_is_replaceable(path: &Path) -> Result<()> {
@@ -292,8 +443,30 @@ fn is_ignored_system_entry(path: &Path) -> bool {
     )
 }
 
+/// Write a scaffold file atomically: the contents land in a same-directory
+/// temporary file (fsynced) that is then renamed over the destination, so a
+/// crash can never leave a half-written project behind.
 fn write_file(path: &Path, contents: &str) -> Result<()> {
-    fs::write(path, contents).with_context(|| format!("failed to write {}", path.display()))
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
+
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .with_context(|| format!("failed to create temporary file next to {}", path.display()))?;
+    temporary
+        .write_all(contents.as_bytes())
+        .with_context(|| format!("failed to write temporary file for {}", path.display()))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .with_context(|| format!("failed to sync temporary file for {}", path.display()))?;
+    temporary
+        .persist(path)
+        .map_err(|error| error.error)
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
 }
 
 fn toolkit_root() -> Result<PathBuf> {
@@ -528,16 +701,8 @@ fn rust_string(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-fn cargo_toml(
-    names: &AppNames,
-    miniapp_path: &Path,
-    ui_kit_path: &Path,
-    ios_path: &Path,
-    android_path: &Path,
-    block_path: &Path,
-    zed_font_kit_path: &Path,
-) -> String {
-    format!(
+fn cargo_toml(names: &AppNames, dependencies: &DependencyPaths, flags: &ScaffoldFlags) -> String {
+    let mut manifest = format!(
         r#"[package]
 name = "{package_name}"
 version = "0.1.0"
@@ -558,41 +723,61 @@ gpui-ui-kit = {{ path = "{ui_kit_path}" }}
 # compile without zune-core's optional log feature. Keep fresh scaffolds on the
 # compatible release until the upstream decoder constrains or fixes the pair.
 zune-core = "=0.5.1"
+"#,
+        package_name = toml_string(&names.package_name),
+        library_name = toml_string(&names.library_name),
+        gpui_version = GPUI_VERSION,
+        gpui_zed_tag = GPUI_ZED_TAG,
+        miniapp_path = cargo_path(&dependencies.miniapp),
+        ui_kit_path = cargo_path(&dependencies.ui_kit),
+    );
 
+    if !flags.no_ios {
+        manifest.push_str(&format!(
+            r#"
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 gpui-ios = {{ path = "{ios_path}" }}
+"#,
+            ios_path = cargo_path(&dependencies.ios),
+        ));
+    }
 
+    if !flags.no_android {
+        manifest.push_str(&format!(
+            r#"
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = {{ version = "0.6", features = ["native-activity"] }}
 android_logger = "0.15"
 gpui-android = {{ path = "{android_path}" }}
 log = "0.4"
+"#,
+            android_path = cargo_path(&dependencies.android),
+        ));
+    }
 
+    manifest.push_str(&format!(
+        r#"
 [patch."https://github.com/zed-industries/font-kit"]
 zed-font-kit = {{ path = "{zed_font_kit_path}" }}
 
 [patch.crates-io]
 block = {{ path = "{block_path}" }}
 "#,
-        package_name = toml_string(&names.package_name),
-        library_name = toml_string(&names.library_name),
-        gpui_version = GPUI_VERSION,
-        gpui_zed_tag = GPUI_ZED_TAG,
-        miniapp_path = cargo_path(miniapp_path),
-        ui_kit_path = cargo_path(ui_kit_path),
-        ios_path = cargo_path(ios_path),
-        android_path = cargo_path(android_path),
-        block_path = cargo_path(block_path),
-        zed_font_kit_path = cargo_path(zed_font_kit_path),
-    )
+        block_path = cargo_path(&dependencies.block),
+        zed_font_kit_path = cargo_path(&dependencies.zed_font_kit),
+    ));
+    manifest
 }
 
-fn scaffold_metadata(names: &AppNames) -> String {
+fn scaffold_metadata(names: &AppNames, flags: &ScaffoldFlags) -> String {
     format!(
         r#"[scaffold]
 generator = "gpui-scaffolder"
 generator_version = "{generator_version}"
 template_version = "{template_version}"
+template = "{template}"
+no_ios = {no_ios}
+no_android = {no_android}
 package_name = "{package_name}"
 title = "{title}"
 gpui_version = "{gpui_version}"
@@ -600,6 +785,9 @@ gpui_zed_tag = "{gpui_zed_tag}"
 "#,
         generator_version = env!("CARGO_PKG_VERSION"),
         template_version = SCAFFOLD_TEMPLATE_VERSION,
+        template = toml_string(&flags.template),
+        no_ios = flags.no_ios,
+        no_android = flags.no_android,
         package_name = toml_string(&names.package_name),
         title = toml_string(&names.title),
         gpui_version = GPUI_VERSION,
@@ -607,8 +795,8 @@ gpui_zed_tag = "{gpui_zed_tag}"
     )
 }
 
-fn justfile(names: &AppNames) -> String {
-    format!(
+fn justfile(names: &AppNames, flags: &ScaffoldFlags) -> String {
+    let mut out = String::from(
         r#"default:
 	just --list
 
@@ -618,7 +806,12 @@ run:
 check:
 	cargo check
 
-# Build the Rust static library for the iOS simulator and stage it for Xcode.
+"#,
+    );
+
+    if !flags.no_ios {
+        out.push_str(&format!(
+            r#"# Build the Rust static library for the iOS simulator and stage it for Xcode.
 ios-rust-sim:
 	rustup target add aarch64-apple-ios-sim
 	cargo build --lib --target aarch64-apple-ios-sim --release
@@ -676,7 +869,16 @@ tvos:
 
 alias tvos-device := tvos
 
-# Build the Rust dynamic library for Android ARM64 and stage it for Gradle.
+"#,
+            library_name = names.library_name,
+            xcode_target_name = names.xcode_target_name,
+            ios_source_dir = names.ios_source_dir,
+        ));
+    }
+
+    if !flags.no_android {
+        out.push_str(&format!(
+            r#"# Build the Rust dynamic library for Android ARM64 and stage it for Gradle.
 android-rust:
 	rustup target add aarch64-linux-android
 	cargo build --lib --target aarch64-linux-android --release
@@ -695,19 +897,34 @@ android-apk: android-rust
 
 alias android := android-apk
 "#,
-        library_name = names.library_name,
-        xcode_target_name = names.xcode_target_name,
-        ios_source_dir = names.ios_source_dir,
-    )
+            library_name = names.library_name,
+        ));
+    }
+
+    out
 }
 
-fn readme(names: &AppNames) -> String {
-    format!(
-        "# {title}\n\nRun the desktop app with:\n\n```sh\ncargo run\n```\n\nOr, if you use `just`:\n\n```sh\njust run\n```\n\nBuild the generated iOS app with:\n\n```sh\njust ios-sim\njust ios\n```\n\nBuild the generated tvOS Rust library with:\n\n```sh\njust tvos-sim\njust tvos\n```\n\nBuild the generated Android Rust library and debug APK with:\n\n```sh\njust android-rust\njust android-apk\n```\n\nThe iOS host lives in `ios/`, uses XcodeGen, and includes `ios/{ios_source_dir}/Entitlements.plist`. To sign an already-built device app explicitly:\n\n```sh\nIOS_SIGN_IDENTITY=\"Apple Development: Your Name\" just ios-sign\n```\n\nThe Android host lives in `android/gradle/`, uses Android `NativeActivity`, and loads `lib{library_name}.so` from `app/src/main/jniLibs/arm64-v8a/`. Install the Android SDK/NDK before running the Android recipes.\n",
+fn readme(names: &AppNames, flags: &ScaffoldFlags) -> String {
+    let mut out = format!(
+        "# {title}\n\nRun the desktop app with:\n\n```sh\ncargo run\n```\n\nOr, if you use `just`:\n\n```sh\njust run\n```\n",
         title = names.title,
-        ios_source_dir = names.ios_source_dir,
-        library_name = names.library_name,
-    )
+    );
+
+    if !flags.no_ios {
+        out.push_str(&format!(
+            "\nBuild the generated iOS app with:\n\n```sh\njust ios-sim\njust ios\n```\n\nBuild the generated tvOS Rust library with:\n\n```sh\njust tvos-sim\njust tvos\n```\n\nThe iOS host lives in `ios/`, uses XcodeGen, and includes `ios/{ios_source_dir}/Entitlements.plist`. To sign an already-built device app explicitly:\n\n```sh\nIOS_SIGN_IDENTITY=\"Apple Development: Your Name\" just ios-sign\n```\n",
+            ios_source_dir = names.ios_source_dir,
+        ));
+    }
+
+    if !flags.no_android {
+        out.push_str(&format!(
+            "\nBuild the generated Android Rust library and debug APK with:\n\n```sh\njust android-rust\njust android-apk\n```\n\nThe Android host lives in `android/gradle/`, uses Android `NativeActivity`, and loads `lib{library_name}.so` from `app/src/main/jniLibs/arm64-v8a/`. Install the Android SDK/NDK before running the Android recipes.\n",
+            library_name = names.library_name,
+        ));
+    }
+
+    out
 }
 
 fn app_rs(names: &AppNames) -> String {
@@ -777,13 +994,19 @@ pub fn open_app_window(cx: &mut App) {{
     )
 }
 
-fn lib_rs(names: &AppNames) -> String {
-    format!(
+fn lib_rs(names: &AppNames, flags: &ScaffoldFlags) -> String {
+    let mut out = format!(
         r#"mod app;
 
 pub use app::{{open_app_window, run_desktop, {view_name}}};
 
-#[cfg(any(target_os = "ios", target_os = "tvos"))]
+"#,
+        view_name = names.view_name,
+    );
+
+    if !flags.no_ios {
+        out.push_str(&format!(
+            r#"#[cfg(any(target_os = "ios", target_os = "tvos"))]
 mod mobile {{
     use gpui::*;
     use gpui_ui_kit::accessibility::AccessibilityTree;
@@ -819,7 +1042,14 @@ mod mobile {{
     }}
 }}
 
-#[cfg(target_os = "android")]
+"#,
+            ffi_start_symbol = names.ffi_start_symbol,
+        ));
+    }
+
+    if !flags.no_android {
+        out.push_str(&format!(
+            r#"#[cfg(target_os = "android")]
 mod android {{
     use gpui::{{App, AppContext, Application}};
     use gpui_ui_kit::accessibility::AccessibilityTree;
@@ -850,10 +1080,11 @@ mod android {{
     }}
 }}
 "#,
-        ffi_start_symbol = names.ffi_start_symbol,
-        library_name = rust_string(&names.library_name),
-        view_name = names.view_name,
-    )
+            library_name = rust_string(&names.library_name),
+        ));
+    }
+
+    out
 }
 
 fn main_rs(names: &AppNames) -> String {
@@ -1785,15 +2016,15 @@ mod tests {
     #[test]
     fn cargo_toml_escapes_package_name_and_path() {
         let names = AppNames::new("demo-app").unwrap();
-        let toml = cargo_toml(
-            &names,
-            Path::new("/tmp/miniapp"),
-            Path::new("/tmp/ui-kit"),
-            Path::new("/tmp/ios"),
-            Path::new("/tmp/android"),
-            Path::new("/tmp/block"),
-            Path::new("/tmp/zed-font-kit"),
-        );
+        let dependencies = DependencyPaths {
+            miniapp: Path::new("/tmp/miniapp").to_path_buf(),
+            ui_kit: Path::new("/tmp/ui-kit").to_path_buf(),
+            ios: Path::new("/tmp/ios").to_path_buf(),
+            android: Path::new("/tmp/android").to_path_buf(),
+            block: Path::new("/tmp/block").to_path_buf(),
+            zed_font_kit: Path::new("/tmp/zed-font-kit").to_path_buf(),
+        };
+        let toml = cargo_toml(&names, &dependencies, &ScaffoldFlags::default());
         assert!(toml.contains("name = \"demo-app\""));
         assert!(toml.contains("name = \"demo_app\""));
         assert!(toml.contains("/tmp/miniapp"));
@@ -1813,7 +2044,7 @@ mod tests {
     #[test]
     fn generated_mobile_ffi_guard_reports_panics() -> Result<()> {
         let names = AppNames::new("mobile-guard")?;
-        let source = lib_rs(&names);
+        let source = lib_rs(&names, &ScaffoldFlags::default());
 
         assert!(source.contains("gpui scaffold mobile startup panicked"));
         Ok(())
@@ -2066,6 +2297,281 @@ mod tests {
         );
         assert!(non_empty.join("file.txt").is_file());
 
+        Ok(())
+    }
+
+    fn options_with_flags(
+        dir: &Path,
+        name: &str,
+        flags: ScaffoldFlags,
+    ) -> (ScaffoldOptions, ScaffoldFlags) {
+        (
+            ScaffoldOptions {
+                name: name.to_owned(),
+                output_dir: dir.to_path_buf(),
+                force: false,
+                dry_run: false,
+            },
+            flags,
+        )
+    }
+
+    #[test]
+    fn unknown_template_is_rejected_without_writing() -> Result<()> {
+        let dir = tempdir()?;
+        let flags = ScaffoldFlags {
+            template: "tabs".to_owned(),
+            ..ScaffoldFlags::default()
+        };
+        let (options, flags) = options_with_flags(dir.path(), "bad-template", flags);
+
+        let scaffold_error =
+            scaffold_app_with_flags(&options, &flags).expect_err("unknown template must fail");
+        assert!(scaffold_error.to_string().contains("unknown template"));
+        assert!(!dir.path().join("bad-template").exists());
+
+        let preview_error = preview_scaffold_with_flags(&options, &flags)
+            .expect_err("unknown template must fail preview");
+        assert!(preview_error.to_string().contains("unknown template"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn platform_flags_control_the_generated_project() -> Result<()> {
+        for (case, flags, expected_files) in [
+            (
+                "desktop-only",
+                ScaffoldFlags {
+                    no_ios: true,
+                    no_android: true,
+                    ..ScaffoldFlags::default()
+                },
+                8,
+            ),
+            (
+                "no-ios",
+                ScaffoldFlags {
+                    no_ios: true,
+                    ..ScaffoldFlags::default()
+                },
+                17,
+            ),
+            (
+                "no-android",
+                ScaffoldFlags {
+                    no_android: true,
+                    ..ScaffoldFlags::default()
+                },
+                13,
+            ),
+            ("full", ScaffoldFlags::default(), 22),
+        ] {
+            let dir = tempdir()?;
+            let name = format!("flagged-{case}");
+            let (options, flags) = options_with_flags(dir.path(), &name, flags);
+            let preview = preview_scaffold_with_flags(&options, &flags)?;
+            assert_eq!(preview.files.len(), expected_files, "case {case}");
+            assert!(
+                preview.files.iter().all(|path| !path.exists()),
+                "case {case}: preview must not write files"
+            );
+
+            let scaffolded = scaffold_app_with_flags(&options, &flags)?;
+            let actual = generated_file_paths(&scaffolded.app_dir, &scaffolded.app_dir)?;
+            let expected = preview
+                .files
+                .iter()
+                .map(|path| {
+                    path.strip_prefix(&scaffolded.app_dir)
+                        .map(Path::to_path_buf)
+                })
+                .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+            assert_eq!(actual, expected, "case {case}: preview must equal apply");
+
+            // Match on app-relative paths: the app name itself may contain
+            // substrings like "ios" (e.g. "flagged-no-ios").
+            let relative: Vec<String> = preview
+                .files
+                .iter()
+                .map(|path| {
+                    path.strip_prefix(&scaffolded.app_dir)
+                        .map(|relative| relative.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                })
+                .collect();
+            let has_ios = relative.iter().any(|path| path.contains("ios"));
+            let has_android = relative.iter().any(|path| path.contains("android"));
+            assert_eq!(has_ios, !flags.no_ios, "case {case}");
+            assert_eq!(has_android, !flags.no_android, "case {case}");
+
+            let manifest = fs::read_to_string(scaffolded.app_dir.join("Cargo.toml"))?;
+            let _: toml::Value = toml::from_str(&manifest)?;
+            assert_eq!(manifest.contains("gpui-ios"), !flags.no_ios, "case {case}");
+            assert_eq!(
+                manifest.contains("gpui-android"),
+                !flags.no_android,
+                "case {case}"
+            );
+            // Desktop core is unconditional.
+            assert!(manifest.contains("gpui-miniapp"), "case {case}");
+            assert!(manifest.contains("gpui-ui-kit"), "case {case}");
+
+            let lib = fs::read_to_string(scaffolded.app_dir.join("src/lib.rs"))?;
+            assert_eq!(
+                lib.contains("gpui_ios::ios::ffi::run_app"),
+                !flags.no_ios,
+                "case {case}"
+            );
+            assert_eq!(
+                lib.contains("android_main"),
+                !flags.no_android,
+                "case {case}"
+            );
+
+            let justfile = fs::read_to_string(scaffolded.app_dir.join("Justfile"))?;
+            assert!(justfile.contains("cargo run"), "case {case}");
+            assert_eq!(justfile.contains("ios-sim:"), !flags.no_ios, "case {case}");
+            assert_eq!(
+                justfile.contains("android-apk:"),
+                !flags.no_android,
+                "case {case}"
+            );
+
+            let readme = fs::read_to_string(scaffolded.app_dir.join("README.md"))?;
+            assert_eq!(
+                readme.contains("just ios-sim"),
+                !flags.no_ios,
+                "case {case}"
+            );
+            assert_eq!(
+                readme.contains("just android-apk"),
+                !flags.no_android,
+                "case {case}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn scaffold_metadata_records_template_and_platform_flags() -> Result<()> {
+        let dir = tempdir()?;
+        let flags = ScaffoldFlags {
+            no_android: true,
+            ..ScaffoldFlags::default()
+        };
+        let (options, flags) = options_with_flags(dir.path(), "meta-app", flags);
+        let scaffolded = scaffold_app_with_flags(&options, &flags)?;
+        let metadata: toml::Value = toml::from_str(&fs::read_to_string(
+            scaffolded.app_dir.join("gpui-scaffold.toml"),
+        )?)?;
+        let metadata = metadata
+            .get("scaffold")
+            .context("gpui-scaffold.toml must contain [scaffold]")?;
+        assert_eq!(
+            metadata.get("template").and_then(toml::Value::as_str),
+            Some("default")
+        );
+        assert_eq!(
+            metadata.get("no_ios").and_then(toml::Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(
+            metadata.get("no_android").and_then(toml::Value::as_bool),
+            Some(true)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn default_flag_output_matches_unflagged_api() -> Result<()> {
+        let dir = tempdir()?;
+        let options = ScaffoldOptions {
+            name: "parity-app".to_owned(),
+            output_dir: dir.path().to_path_buf(),
+            force: false,
+            dry_run: false,
+        };
+        let preview = preview_scaffold(&options)?;
+        let (flagged_options, flags) =
+            options_with_flags(dir.path(), "parity-app", ScaffoldFlags::default());
+        let flagged_preview = preview_scaffold_with_flags(&flagged_options, &flags)?;
+        assert_eq!(preview, flagged_preview);
+        Ok(())
+    }
+
+    #[test]
+    fn write_file_creates_parents_and_replaces_atomically() -> Result<()> {
+        let dir = tempdir()?;
+        let target = dir.path().join("nested").join("deep").join("file.txt");
+
+        write_file(&target, "first")?;
+        assert_eq!(fs::read_to_string(&target)?, "first");
+
+        write_file(&target, "second")?;
+        assert_eq!(fs::read_to_string(&target)?, "second");
+
+        // No same-directory temporary files may survive the rename.
+        let leftovers = fs::read_dir(target.parent().context("target has no parent")?)?
+            .collect::<std::io::Result<Vec<_>>>()?;
+        assert_eq!(leftovers.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn toolkit_dependency_paths_match_direct_relative_paths() {
+        for (from, root) in [
+            ("/toolkit/out/my-app", "/toolkit"),
+            ("/other/out/my-app", "/toolkit"),
+            ("/toolkit", "/toolkit"),
+        ] {
+            let from = Path::new(from);
+            let root = Path::new(root);
+            let dependencies = toolkit_dependency_paths(from, root);
+            assert_eq!(
+                dependencies.miniapp,
+                relative_path(from, &root.join("crates/gpui-miniapp"))
+            );
+            assert_eq!(
+                dependencies.ui_kit,
+                relative_path(from, &root.join("crates/gpui-ui-kit"))
+            );
+            assert_eq!(
+                dependencies.ios,
+                relative_path(from, &root.join("crates/gpui-ios"))
+            );
+            assert_eq!(
+                dependencies.android,
+                relative_path(from, &root.join("crates/gpui-android"))
+            );
+            assert_eq!(
+                dependencies.block,
+                relative_path(from, &root.join("crates/3rdparties/block"))
+            );
+            assert_eq!(
+                dependencies.zed_font_kit,
+                relative_path(from, &root.join("crates/3rdparties/zed-font-kit"))
+            );
+        }
+    }
+
+    #[test]
+    fn android_java_sources_match_toolkit_checkout() -> Result<()> {
+        let root = toolkit_root()?;
+        let (activity, provider) = android_java_sources(&root)?;
+        assert!(activity.contains("GpuiActivity"));
+        assert!(provider.contains("GpuiFileProvider"));
+
+        // Whatever the `mobile` feature selects, the content must equal the
+        // checkout files so embedded and runtime payloads cannot diverge.
+        assert_eq!(
+            activity,
+            fs::read_to_string(root.join(GPUI_ANDROID_ACTIVITY_JAVA_PATH))?
+        );
+        assert_eq!(
+            provider,
+            fs::read_to_string(root.join(GPUI_ANDROID_FILE_PROVIDER_JAVA_PATH))?
+        );
         Ok(())
     }
 }

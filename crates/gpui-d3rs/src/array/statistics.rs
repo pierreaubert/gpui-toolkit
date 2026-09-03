@@ -183,7 +183,7 @@ pub fn median(data: &mut [f64]) -> Option<f64> {
     if valid.is_empty() {
         return None;
     }
-    valid.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    valid.sort_by(|a, b| a.total_cmp(b));
     let n = valid.len();
     if n.is_multiple_of(2) {
         Some((valid[n / 2 - 1] + valid[n / 2]) / 2.0)
@@ -242,7 +242,7 @@ pub fn quantile(data: &mut [f64], p: f64) -> Option<f64> {
     if valid.is_empty() {
         return None;
     }
-    valid.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    valid.sort_by(|a, b| a.total_cmp(b));
     quantile_sorted(&valid, p)
 }
 

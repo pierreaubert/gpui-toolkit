@@ -57,6 +57,16 @@ impl SpectrumElement {
         }
     }
 
+    /// Build an element from the latest frame published to a [`super::MeterFifo`].
+    ///
+    /// Snapshots into the caller-owned `scratch` buffer (keep it in view
+    /// state and reuse it across frames) so the audio thread can publish
+    /// without the UI thread allocating per frame or touching
+    /// `Rc<RefCell<...>>` element state.
+    pub fn new_shared(fifo: &super::MeterFifo, scratch: &mut Vec<f32>) -> Self {
+        Self::new(fifo.snapshot_shared(scratch))
+    }
+
     pub fn frequency_range(mut self, min: f32, max: f32) -> Self {
         self.min_freq = min;
         self.max_freq = max;

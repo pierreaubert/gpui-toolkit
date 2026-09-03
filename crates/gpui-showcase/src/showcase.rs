@@ -272,6 +272,8 @@ pub struct Showcase {
     pub embedded: bool,
     // Entity for updating self
     pub entity: Option<Entity<Self>>,
+    // Persistent weak handle that stays usable without panicking after teardown.
+    self_handle: ShowcaseHandle,
     // Focus handle for keyboard input
     pub focus_handle: FocusHandle,
     // Persistent child render entities to avoid rebuilding stable UI every frame.
@@ -308,6 +310,7 @@ impl Showcase {
         let workflow_canvas = cx.new(|cx| WorkflowCanvas::with_graph(WorkflowGraph::new(), cx));
         let entity = cx.entity().clone();
         let parent = entity.downgrade();
+        let self_handle = ShowcaseHandle(parent.clone());
 
         let sidebar_entity = cx.new(|_cx| ShowcaseSidebar::new(parent.clone()));
         let header_entity = cx.new(|_cx| ShowcaseHeader::new());
@@ -422,6 +425,7 @@ impl Showcase {
             current_section: ShowcaseSection::default(),
             embedded: false,
             entity: Some(entity),
+            self_handle,
             focus_handle: cx.focus_handle(),
             sidebar_entity,
             header_entity,
@@ -476,12 +480,7 @@ impl Showcase {
     }
 
     pub(crate) fn weak_entity_handle(&self) -> ShowcaseHandle {
-        ShowcaseHandle(
-            self.entity
-                .as_ref()
-                .expect("showcase entity handle released during teardown")
-                .downgrade(),
-        )
+        self.self_handle.clone()
     }
 
     pub fn release_entity_handle(&mut self) {
@@ -734,7 +733,9 @@ impl Showcase {
                     self.notify_content(cx);
                 }
                 key if key.len() == 1 => {
-                    let ch = key.chars().next().unwrap();
+                    let Some(ch) = key.chars().next() else {
+                        return;
+                    };
                     if self.input_selected {
                         self.input_edit_text.clear();
                         self.input_selected = false;
@@ -778,7 +779,9 @@ impl Showcase {
                     self.notify_content(cx);
                 }
                 key if key.len() == 1 => {
-                    let ch = key.chars().next().unwrap();
+                    let Some(ch) = key.chars().next() else {
+                        return;
+                    };
                     if ch.is_ascii_digit() || ch == '.' || ch == '-' {
                         if self.text_selected {
                             self.edit_text.clear();

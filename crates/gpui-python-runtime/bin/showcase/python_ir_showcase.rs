@@ -6678,6 +6678,34 @@ fn scene_selection_object_id(node_id: &str, spec: &Value) -> String {
         .to_string()
 }
 
+/// Collect the stable IDs of resource-backed px charts in a committed app.
+///
+/// Chart interaction state (zoom/pan/brush) is host-owned just like mesh
+/// camera state.  Keeping this traversal separate from the mesh-resource
+/// traversal lets snapshots prune both kinds of retained state without
+/// coupling chart declarations to mesh resource ownership.
+fn px_chart_ids(value: &Value, live_ids: &mut HashSet<String>) {
+    match value {
+        Value::Object(object) => {
+            if object.get("kind").and_then(Value::as_str) == Some("px_chart_v2")
+                && let Some(id) = object.get("id").and_then(Value::as_str)
+                && !id.trim().is_empty()
+            {
+                live_ids.insert(id.to_owned());
+            }
+            for child in object.values() {
+                px_chart_ids(child, live_ids);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                px_chart_ids(child, live_ids);
+            }
+        }
+        _ => {}
+    }
+}
+
 pub(super) struct PythonIrShowcase {
     pub(super) app: Option<PythonAppIr>,
     /// JSON form of the committed app, retained for patch/resource bookkeeping.
@@ -6960,6 +6988,7 @@ impl PythonIrShowcase {
         self.prepared_mesh_plots.clear();
         self.mesh_plot_states.clear();
         self.mesh_plot_errors.clear();
+        self.chart_interactions.clear();
         self.last_mesh_patch_id = None;
     }
 
@@ -7084,8 +7113,10 @@ impl PythonIrShowcase {
 
         let app_value = serde_json::to_value(&app_ir).unwrap_or(Value::Null);
         let mut next_resource_refs = HashMap::new();
-        let mut live_ids = HashSet::new();
-        mesh_plot_ids(&app_value, &mut live_ids);
+        let mut live_mesh_ids = HashSet::new();
+        mesh_plot_ids(&app_value, &mut live_mesh_ids);
+        let mut live_chart_ids = HashSet::new();
+        px_chart_ids(&app_value, &mut live_chart_ids);
         if let Err(error) = collect_mesh_plot_resource_refs(&app_value, &mut next_resource_refs) {
             self.load_error = Some(error);
             return;
@@ -7112,9 +7143,9 @@ impl PythonIrShowcase {
 
         self.app_value = Some(app_value);
         self.app = Some(app_ir);
-        self.prune_mesh_plot_runtime_ids(&live_ids);
+        self.prune_mesh_plot_runtime_ids(&live_mesh_ids, &live_chart_ids);
         self.load_error = None;
-        for live_id in live_ids {
+        for live_id in live_mesh_ids {
             self.mesh_plot_errors.remove(&live_id);
         }
     }
@@ -7148,14 +7179,23 @@ impl PythonIrShowcase {
         }
     }
 
-    fn prune_mesh_plot_runtime_ids(&mut self, live_ids: &HashSet<String>) {
-        self.session_state.retain_mesh_plot_generations(live_ids);
+    fn prune_mesh_plot_runtime_ids(
+        &mut self,
+        live_mesh_ids: &HashSet<String>,
+        live_chart_ids: &HashSet<String>,
+    ) {
+        self.session_state
+            .retain_mesh_plot_generations(live_mesh_ids);
         self.mesh_plots
-            .retain_only(live_ids.iter().map(String::as_str));
+            .retain_only(live_mesh_ids.iter().map(String::as_str));
         self.prepared_mesh_plots
-            .retain(|id, _| live_ids.contains(id));
-        self.mesh_plot_states.retain(|id, _| live_ids.contains(id));
-        self.mesh_plot_errors.retain(|id, _| live_ids.contains(id));
+            .retain(|id, _| live_mesh_ids.contains(id));
+        self.mesh_plot_states
+            .retain(|id, _| live_mesh_ids.contains(id));
+        self.mesh_plot_errors
+            .retain(|id, _| live_mesh_ids.contains(id));
+        self.chart_interactions
+            .retain(|id, _| live_chart_ids.contains(id));
     }
 
     fn load_session(&mut self, cx: &mut Context<Self>) {
@@ -11680,6 +11720,12 @@ impl PythonIrShowcase {
         ds: &DesignSystem,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        // A chart can keep its stable ID while its interaction handlers are
+        // removed by a snapshot. Do not let the old host-owned zoom/brush
+        // state remain queryable in that non-interactive configuration.
+        if node.viewport_action.is_none() && node.selection_action.is_none() {
+            self.chart_interactions.remove(&node.id);
+        }
         let source = node.data.get("source").unwrap_or(&node.data);
         let parsed_view = supported_dataset_view(source, true);
         let view_validation_error = parsed_view
@@ -16291,9 +16337,11 @@ impl PythonIrShowcase {
                             _ => {}
                         }
                     }
-                    let mut live_ids = HashSet::new();
-                    mesh_plot_ids(&next_app_value, &mut live_ids);
-                    self.prune_mesh_plot_runtime_ids(&live_ids);
+                    let mut live_mesh_ids = HashSet::new();
+                    mesh_plot_ids(&next_app_value, &mut live_mesh_ids);
+                    let mut live_chart_ids = HashSet::new();
+                    px_chart_ids(&next_app_value, &mut live_chart_ids);
+                    self.prune_mesh_plot_runtime_ids(&live_mesh_ids, &live_chart_ids);
                     self.app_value = Some(next_app_value);
                 }
             }

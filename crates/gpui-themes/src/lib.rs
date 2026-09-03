@@ -18,8 +18,9 @@ pub use showcase::ComponentShowcase;
 pub use theme::{
     AccentPalette, AccentSource, AccessibilityPalette, BuiltInThemePreset,
     COMMUNITY_THEME_SCHEMA_VERSION, Color, ColorGroup, CommunityThemeBundle,
-    CommunityThemeManifest, EQCurveColors, EditorTheme, GraphColors, MeterColors, PluginColors,
-    SpectrumColors, ThemeAppearance, ThemeGallery, ThemeGalleryEntry, ThemeModePreference,
-    ThemeSchedule, ThemeTransition, ThemeTransitionEasing, TimeOfDay, TuiAnsiPalette,
-    TuiThemePreset,
+    CommunityThemeManifest, ContrastIssue, EQCurveColors, EditorTheme, GraphColors, MeterColors,
+    PluginColors, SpectrumColors, ThemeAppearance, ThemeDesignToken, ThemeGallery,
+    ThemeGalleryEntry, ThemeModePreference, ThemeSchedule, ThemeTransition, ThemeTransitionEasing,
+    TimeOfDay, TuiAnsiPalette, TuiThemePreset, WCAG_AA_MIN_RATIO, nearest_passing_color,
+    token_aliases,
 };

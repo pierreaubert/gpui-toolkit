@@ -19,6 +19,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 type VecPairCache = Mutex<HashMap<usize, (Arc<[f64]>, Arc<[f64]>)>>;
 type VecF64Cache = Mutex<HashMap<(usize, usize), Arc<[f64]>>>;
 
+/// Locks a cache mutex, recovering the inner value when a previous
+/// holder panicked instead of crashing the lab on a poisoned lock.
+pub(super) fn lock_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
 pub(super) fn showcase_section_for_story_id(story_id: &str) -> Option<ShowcaseSection> {
     Some(match story_id {
         "ui-kit.buttons" => ShowcaseSection::Buttons,
@@ -161,7 +167,7 @@ fn scatter_story_data_inner(count: usize) -> (Vec<f64>, Vec<f64>) {
 pub(super) fn scatter_story_data(count: usize) -> (Arc<[f64]>, Arc<[f64]>) {
     static CACHE: OnceLock<VecPairCache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = cache.lock().unwrap();
+    let mut guard = lock_recover(cache);
     guard
         .entry(count)
         .or_insert_with(|| {
@@ -188,7 +194,7 @@ fn scalar_field_data_inner(width: usize, height: usize) -> Vec<f64> {
 pub(super) fn scalar_field_data(width: usize, height: usize) -> Arc<[f64]> {
     static CACHE: OnceLock<VecF64Cache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = cache.lock().unwrap();
+    let mut guard = lock_recover(cache);
     guard
         .entry((width, height))
         .or_insert_with(|| scalar_field_data_inner(width, height).into())
@@ -216,7 +222,7 @@ fn boxplot_story_data_inner(groups: usize) -> (Vec<f64>, Vec<f64>) {
 pub(super) fn boxplot_story_data(groups: usize) -> (Arc<[f64]>, Arc<[f64]>) {
     static CACHE: OnceLock<VecPairCache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = cache.lock().unwrap();
+    let mut guard = lock_recover(cache);
     guard
         .entry(groups)
         .or_insert_with(|| {
@@ -238,7 +244,7 @@ fn spectrum_magnitudes_inner(bins: usize) -> Vec<f32> {
 pub(super) fn spectrum_magnitudes(bins: usize) -> Arc<[f32]> {
     static CACHE: OnceLock<Mutex<HashMap<usize, Arc<[f32]>>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = cache.lock().unwrap();
+    let mut guard = lock_recover(cache);
     guard
         .entry(bins)
         .or_insert_with(|| spectrum_magnitudes_inner(bins).into())
@@ -367,7 +373,7 @@ static DESIGN_SYSTEM_CACHE: OnceLock<Mutex<HashMap<String, Arc<DesignSystem>>>> 
 pub(super) fn design_for_theme_preset(theme: &ThemePreset) -> Arc<DesignSystem> {
     let cache = DESIGN_SYSTEM_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     {
-        let locked = cache.lock().expect("design system cache poisoned");
+        let locked = lock_recover(cache);
         if let Some(cached) = locked.get(&theme.design) {
             return cached.clone();
         }
@@ -376,10 +382,7 @@ pub(super) fn design_for_theme_preset(theme: &ThemePreset) -> Arc<DesignSystem> 
     let design = Arc::new(
         DesignSystem::from_language_id(&theme.design).unwrap_or_else(DesignSystem::neutral),
     );
-    cache
-        .lock()
-        .expect("design system cache poisoned")
-        .insert(theme.design.clone(), design.clone());
+    lock_recover(cache).insert(theme.design.clone(), design.clone());
     design
 }
 
@@ -391,13 +394,129 @@ pub(super) fn clamp_f32(value: f64, min: f32, max: f32) -> f32 {
     }
 }
 
+static PROP_NUMBER_LABEL_CACHE: OnceLock<Mutex<HashMap<u64, SharedString>>> = OnceLock::new();
+const PROP_NUMBER_LABEL_CACHE_LIMIT: usize = 2048;
+
+/// Cached `"{value:.2}"` label for numeric props, keyed by the raw bits so
+/// the per-frame prop panel does not reformat (and reallocate) unchanged
+/// values on every render.
+pub(super) fn prop_number_label(value: f64) -> SharedString {
+    let key = value.to_bits();
+    let cache = PROP_NUMBER_LABEL_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(hit) = lock_recover(cache).get(&key) {
+        return hit.clone();
+    }
+    let label = SharedString::new(format!("{value:.2}"));
+    let mut guard = lock_recover(cache);
+    if guard.len() < PROP_NUMBER_LABEL_CACHE_LIMIT {
+        guard.insert(key, label.clone());
+    }
+    label
+}
+
 pub(super) fn prop_value_label(value: &StoryPropValue) -> SharedString {
     match value {
         StoryPropValue::Bool(value) => SharedString::new(value.to_string()),
-        StoryPropValue::Number(value) => SharedString::new(format!("{value:.2}")),
+        StoryPropValue::Number(value) => prop_number_label(*value),
         StoryPropValue::Text(value)
         | StoryPropValue::Choice(value)
         | StoryPropValue::Color(value) => value.clone(),
+    }
+}
+
+/// Maximum story rows rendered in the sidebar per frame. The registry can
+/// hold hundreds of stories; rendering all of them every frame is the
+/// dominant per-frame allocation in the lab, so the list renders a window
+/// centered on the selection plus a position footer.
+pub(super) const SIDEBAR_RENDER_WINDOW: usize = 200;
+
+/// Window `[start, end)` of story indices to render, centered on the
+/// selected row when the registry exceeds `window` rows.
+pub(super) fn sidebar_window(selected: usize, total: usize, window: usize) -> (usize, usize) {
+    if total <= window || window == 0 {
+        return (0, total);
+    }
+    let selected = selected.min(total.saturating_sub(1));
+    let half = window / 2;
+    let start = selected.saturating_sub(half).min(total - window);
+    (start, start + window)
+}
+
+/// Pure dispatch decision behind `ComponentLab::render_story_preview`,
+/// extracted so every branch (including the fallbacks) is unit-testable
+/// without a GPUI context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum StoryPreviewKind {
+    Button,
+    Form,
+    Status,
+    Navigation,
+    Feedback,
+    Card,
+    ExportedUiKit,
+    Showcase,
+    Potentiometer,
+    VerticalSlider,
+    VolumeKnob,
+    Meter,
+    HorizontalMeter,
+    Spectrum,
+    SpectrumAxis,
+    Line,
+    Bar,
+    Scatter,
+    Area,
+    Heatmap,
+    Contour,
+    Isoline,
+    Pie,
+    Donut,
+    Boxplot,
+    Treemap,
+    Surface3d,
+    MeshPlot,
+    RendererFallback,
+    Missing,
+}
+
+pub(super) fn story_preview_kind(
+    story_id: &str,
+    is_exported_ui_kit: bool,
+    has_showcase: bool,
+    has_renderer: bool,
+) -> StoryPreviewKind {
+    match story_id {
+        "ui-kit.button" => StoryPreviewKind::Button,
+        "ui-kit.form" => StoryPreviewKind::Form,
+        "ui-kit.status" => StoryPreviewKind::Status,
+        "ui-kit.navigation" => StoryPreviewKind::Navigation,
+        "ui-kit.feedback" => StoryPreviewKind::Feedback,
+        "ui-kit.card" => StoryPreviewKind::Card,
+        _ if is_exported_ui_kit => StoryPreviewKind::ExportedUiKit,
+        _ if has_showcase => StoryPreviewKind::Showcase,
+        "audio-kit.potentiometer" => StoryPreviewKind::Potentiometer,
+        "audio-kit.vertical-slider" => StoryPreviewKind::VerticalSlider,
+        "audio-kit.volume-knob" => StoryPreviewKind::VolumeKnob,
+        "audio-kit.meter" => StoryPreviewKind::Meter,
+        "audio-kit.horizontal-meter" => StoryPreviewKind::HorizontalMeter,
+        "audio-kit.spectrum" => StoryPreviewKind::Spectrum,
+        "audio-kit.spectrum-axis" => StoryPreviewKind::SpectrumAxis,
+        "px.line" => StoryPreviewKind::Line,
+        "px.bar" => StoryPreviewKind::Bar,
+        "px.scatter" => StoryPreviewKind::Scatter,
+        "px.area" => StoryPreviewKind::Area,
+        "px.heatmap" => StoryPreviewKind::Heatmap,
+        "px.contour" => StoryPreviewKind::Contour,
+        "px.isoline" => StoryPreviewKind::Isoline,
+        "px.pie" => StoryPreviewKind::Pie,
+        "px.donut" => StoryPreviewKind::Donut,
+        "px.boxplot" => StoryPreviewKind::Boxplot,
+        "px.treemap" => StoryPreviewKind::Treemap,
+        "px.surface3d" => StoryPreviewKind::Surface3d,
+        "px.mesh_plot" => StoryPreviewKind::MeshPlot,
+        _ if story_id.starts_with("px.mesh_plot.") => StoryPreviewKind::MeshPlot,
+        _ if has_renderer => StoryPreviewKind::RendererFallback,
+        _ => StoryPreviewKind::Missing,
     }
 }
 

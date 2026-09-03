@@ -11,6 +11,14 @@ pub struct InteractionRules {
     pub focus_ring_width: f32,
     /// Focus ring offset from element edge: px.
     pub focus_ring_offset: f32,
+    /// State-layer opacity for hover (M3 default 0.08).
+    pub state_hover_opacity: f32,
+    /// State-layer opacity for focus (M3 default 0.12).
+    pub state_focus_opacity: f32,
+    /// State-layer opacity for pressed (M3 default 0.12).
+    pub state_pressed_opacity: f32,
+    /// State-layer opacity for dragged (M3 default 0.16).
+    pub state_dragged_opacity: f32,
 }
 
 impl InteractionRules {
@@ -29,6 +37,10 @@ impl InteractionRules {
             border_width,
             focus_ring_width,
             focus_ring_offset,
+            state_hover_opacity: 0.08,
+            state_focus_opacity: 0.12,
+            state_pressed_opacity: 0.12,
+            state_dragged_opacity: 0.16,
         }
     }
 }

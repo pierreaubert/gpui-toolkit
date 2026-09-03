@@ -93,11 +93,66 @@ fn bench_layout_with_lines(c: &mut Criterion) {
     });
 }
 
+/// Miss-path benchmarks: every iteration measures uncached text, covering
+/// the CJK/emoji paths the hit-only benches above miss.
+fn bench_measure_cache_miss_cjk(c: &mut Criterion) {
+    let measure = FixedWidthMeasure { char_width: 10.0 };
+    // Distinct CJK segments defeat the cache: each iteration is a miss.
+    let texts: Vec<String> = (0..256).map(|i| format!("\u{6f22}\u{5b57}\u{6e2c}\u{8a66}{i}")).collect();
+
+    c.bench_function("measurement/get_width_cache_miss_cjk", |b| {
+        let mut cache = MeasureCache::new();
+        let mut i = 0;
+        b.iter(|| {
+            i += 1;
+            let result = cache.get_width(black_box(&texts[i % texts.len()]), &measure);
+            black_box(result);
+        });
+    });
+}
+
+fn bench_measure_cache_miss_emoji(c: &mut Criterion) {
+    let measure = FixedWidthMeasure { char_width: 10.0 };
+    // ZWJ emoji sequences: multi-codepoint graphemes on the miss path.
+    let texts: Vec<String> = (0..256)
+        .map(|i| format!("\u{1f469}\u{200d}\u{1f4bb}{i}\u{fe0f}"))
+        .collect();
+
+    c.bench_function("measurement/get_grapheme_widths_miss_emoji", |b| {
+        let mut cache = MeasureCache::new();
+        let mut i = 0;
+        b.iter(|| {
+            i += 1;
+            let result =
+                cache.get_grapheme_widths(black_box(&texts[i % texts.len()]), &measure);
+            black_box(&result);
+        });
+    });
+}
+
+fn bench_measure_cache_bounded_evict(c: &mut Criterion) {
+    let measure = FixedWidthMeasure { char_width: 10.0 };
+    let texts: Vec<String> = (0..64).map(|i| format!("segment {i}")).collect();
+
+    c.bench_function("measurement/bounded_cache_evict", |b| {
+        let mut cache = MeasureCache::with_capacity(8);
+        let mut i = 0;
+        b.iter(|| {
+            i += 1;
+            let result = cache.get_width(black_box(&texts[i % texts.len()]), &measure);
+            black_box(result);
+        });
+    });
+}
+
 criterion_group!(
     benches,
     bench_grapheme_prefix_widths,
     bench_measure_cache_hit,
     bench_grapheme_widths_cache_hit,
+    bench_measure_cache_miss_cjk,
+    bench_measure_cache_miss_emoji,
+    bench_measure_cache_bounded_evict,
     bench_layout_optimal,
     bench_layout_with_lines
 );

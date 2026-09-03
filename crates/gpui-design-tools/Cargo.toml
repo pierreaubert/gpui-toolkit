@@ -1,6 +1,6 @@
 [package]
 name = "gpui-design-tools"
-version = "0.9.4"
+version = "0.9.5"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -44,3 +44,7 @@ path = "src/bin/gpui_import_design_tokens.rs"
 [[bin]]
 name = "gpui-validate-design-tokens"
 path = "src/bin/gpui_validate_design_tokens.rs"
+
+[[bin]]
+name = "gpui-diff-design-tokens"
+path = "src/bin/gpui_diff_design_tokens.rs"

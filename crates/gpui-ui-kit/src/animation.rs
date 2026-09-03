@@ -173,9 +173,29 @@ impl Animation {
         ease(self.easing, t)
     }
 
+    /// Calculate the eased progress, honoring reduced-motion preferences.
+    ///
+    /// When `reduced_motion` is true (e.g. the OS `prefers-reduced-motion`
+    /// setting), the animation is skipped and the final frame is returned
+    /// immediately instead of interpolating. Callers should thread the
+    /// platform setting through; there is no global so headless/test
+    /// contexts stay deterministic.
+    pub fn progress_with_reduced_motion(&self, elapsed: Duration, reduced_motion: bool) -> f32 {
+        if reduced_motion {
+            return ease(self.easing, self.final_progress());
+        }
+        self.progress(elapsed)
+    }
+
     /// Check if the animation is complete
     pub fn is_complete(&self, elapsed: Duration) -> bool {
         elapsed >= self.total_duration()
+    }
+
+    /// Reduced-motion-aware completion: animations are instantly complete
+    /// when `reduced_motion` is true.
+    pub fn is_complete_with_reduced_motion(&self, elapsed: Duration, reduced_motion: bool) -> bool {
+        reduced_motion || self.is_complete(elapsed)
     }
 
     /// Get the total duration including delay

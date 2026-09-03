@@ -27,7 +27,7 @@ pub extern "C" fn gpui_ios_initialize() -> *mut c_void {
         return std::ptr::null_mut();
     }
     let _ = IOS_WINDOW_LIST.set(WindowListWrapper(std::cell::UnsafeCell::new(Vec::new())));
-    1 as *mut c_void
+    std::ptr::dangling_mut::<c_void>()
 }
 
 #[unsafe(no_mangle)]
@@ -43,11 +43,11 @@ pub extern "C" fn gpui_ios_attach_to_view(parent: *mut c_void) -> *mut c_void {
     if let Some(wrapper) = IOS_WINDOW_LIST.get() {
         unsafe {
             let windows = &*wrapper.0.get();
-            if let Some(&window_ptr) = windows.last() {
-                if !window_ptr.is_null() {
-                    (&*window_ptr).attach_to_parent_view(parent);
-                    return window_ptr as *mut c_void;
-                }
+            if let Some(&window_ptr) = windows.last()
+                && !window_ptr.is_null()
+            {
+                (&*window_ptr).attach_to_parent_view(parent);
+                return window_ptr as *mut c_void;
             }
         }
     }
@@ -193,8 +193,16 @@ pub extern "C" fn gpui_ios_request_current_frame() {
     }
 }
 
+/// Register a Swift `UIView` factory callable from GPUI platform views.
+///
+/// # Safety
+///
+/// `view_type` must be null or point to a valid NUL-terminated C string for
+/// the duration of this call. The `create`/`update_bounds`/`set_visible`/
+/// `set_z_index`/`dispose` callbacks must be valid function pointers (or
+/// null) with the signatures declared in `platform_view.rs`.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_ios_register_platform_view_factory(
+pub unsafe extern "C" fn gpui_ios_register_platform_view_factory(
     view_type: *const c_char,
     kind: i32,
     create: Option<crate::platform_view::SwiftPlatformViewCreateCallback>,
@@ -255,8 +263,14 @@ pub extern "C" fn gpui_ios_refresh_accessibility() {
     }
 }
 
+/// Begin an Xcode Metal frame capture scoped to `label`.
+///
+/// # Safety
+///
+/// `label` must be null or point to a valid NUL-terminated C string for the
+/// duration of this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_ios_begin_metal_capture(label: *const c_char) -> bool {
+pub unsafe extern "C" fn gpui_ios_begin_metal_capture(label: *const c_char) -> bool {
     let label = if label.is_null() {
         "gpui-ios".to_string()
     } else {

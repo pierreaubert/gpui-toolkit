@@ -1,6 +1,6 @@
 [package]
 name = "gpui-ios"
-version = "0.9.12"
+version = "0.9.13"
 edition = "2024"
 repository.workspace = true
 keywords.workspace = true
@@ -67,4 +67,8 @@ gpui-profiler = { path = "../gpui-profiler", features = ["global-allocator"] }
 
 [[bench]]
 name = "accessibility_diff"
+harness = false
+
+[[bench]]
+name = "momentum"
 harness = false

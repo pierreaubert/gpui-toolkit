@@ -34,6 +34,12 @@ fn encode_creation_params(params: &HashMap<String, String>) -> String {
         .join("|")
 }
 
+/// Java helper class for platform-view operations.
+///
+/// Resolved through the cached JNI lookup (`find_cached_app_class`) so
+/// per-frame bounds updates don't pay the Activity-classloader cost.
+const PLATFORM_VIEW_HELPER: &str = "dev.gpui.mobile.GpuiPlatformView";
+
 fn escape_creation_param(value: &str) -> String {
     value
         .replace('\\', "\\\\")
@@ -55,6 +61,9 @@ pub struct AndroidPlatformView {
     java_view_ref: std::sync::atomic::AtomicUsize,
     disposed: AtomicBool,
     bounds: std::sync::Mutex<PlatformViewBounds>,
+    /// Last visibility sent to Java. `set_visible` skips the JNI round-trip
+    /// when the state is unchanged (layout passes repeat the call often).
+    visible: AtomicBool,
 }
 
 impl AndroidPlatformView {
@@ -71,6 +80,8 @@ impl AndroidPlatformView {
             java_view_ref: std::sync::atomic::AtomicUsize::new(0),
             disposed: AtomicBool::new(false),
             bounds: std::sync::Mutex::new(params.bounds),
+            // New views start visible, matching the registry's tracking.
+            visible: AtomicBool::new(true),
         };
 
         // Create the native Android view via JNI
@@ -81,11 +92,13 @@ impl AndroidPlatformView {
 
     /// Create the native Android View via JNI.
     fn create_native_view(&self, params: &PlatformViewParams) -> Result<(), String> {
-        use super::jni::{JniExt, activity, find_app_class, with_env};
+        use super::jni::{
+            JniExt, activity, find_cached_app_class, invalidate_app_class_cache, with_env,
+        };
         use jni::objects::JValue;
 
         with_env(|env| {
-            let helper_class = find_app_class(env, "dev.gpui.mobile.GpuiPlatformView")?;
+            let helper_class = find_cached_app_class(env, PLATFORM_VIEW_HELPER)?;
             let view_type_jstr = env.new_string(&self.view_type).map_err(|e| e.to_string())?;
             let view_id = self.id.0 as i64;
 
@@ -121,6 +134,7 @@ impl AndroidPlatformView {
                 )
                 .map_err(|e| {
                     env.exception_clear();
+                    invalidate_app_class_cache(PLATFORM_VIEW_HELPER);
                     format!("createView JNI call failed: {}", e)
                 })?;
 
@@ -140,12 +154,12 @@ impl AndroidPlatformView {
 
     /// Update the native view's bounds via JNI.
     fn update_native_bounds(&self, bounds: &PlatformViewBounds) {
-        use super::jni::{find_app_class, with_env};
+        use super::jni::{find_cached_app_class, invalidate_app_class_cache, with_env};
         use jni::objects::JValue;
 
         let view_id = self.id.0 as i64;
         let _ = with_env(|env| {
-            let helper_class = find_app_class(env, "dev.gpui.mobile.GpuiPlatformView")?;
+            let helper_class = find_cached_app_class(env, PLATFORM_VIEW_HELPER)?;
             let _ = env
                 .call_static_method(
                     &helper_class,
@@ -161,6 +175,7 @@ impl AndroidPlatformView {
                 )
                 .map_err(|e| {
                     env.exception_clear();
+                    invalidate_app_class_cache(PLATFORM_VIEW_HELPER);
                     format!("setBounds failed: {}", e)
                 })?;
             Ok(())
@@ -169,12 +184,12 @@ impl AndroidPlatformView {
 
     /// Update the native view's visibility via JNI.
     fn update_native_visibility(&self, visible: bool) {
-        use super::jni::{find_app_class, with_env};
+        use super::jni::{find_cached_app_class, invalidate_app_class_cache, with_env};
         use jni::objects::JValue;
 
         let view_id = self.id.0 as i64;
         let _ = with_env(|env| {
-            let helper_class = find_app_class(env, "dev.gpui.mobile.GpuiPlatformView")?;
+            let helper_class = find_cached_app_class(env, PLATFORM_VIEW_HELPER)?;
             let _ = env
                 .call_static_method(
                     &helper_class,
@@ -184,6 +199,7 @@ impl AndroidPlatformView {
                 )
                 .map_err(|e| {
                     env.exception_clear();
+                    invalidate_app_class_cache(PLATFORM_VIEW_HELPER);
                     format!("setVisible failed: {}", e)
                 })?;
             Ok(())
@@ -192,12 +208,12 @@ impl AndroidPlatformView {
 
     /// Remove and dispose the native view via JNI.
     fn dispose_native_view(&self) {
-        use super::jni::{find_app_class, with_env};
+        use super::jni::{find_cached_app_class, invalidate_app_class_cache, with_env};
         use jni::objects::JValue;
 
         let view_id = self.id.0 as i64;
         let _ = with_env(|env| {
-            let helper_class = find_app_class(env, "dev.gpui.mobile.GpuiPlatformView")?;
+            let helper_class = find_cached_app_class(env, PLATFORM_VIEW_HELPER)?;
             let _ = env
                 .call_static_method(
                     &helper_class,
@@ -207,6 +223,7 @@ impl AndroidPlatformView {
                 )
                 .map_err(|e| {
                     env.exception_clear();
+                    invalidate_app_class_cache(PLATFORM_VIEW_HELPER);
                     format!("disposeView failed: {}", e)
                 })?;
             Ok(())
@@ -227,12 +244,25 @@ impl PlatformView for AndroidPlatformView {
         if self.disposed.load(Ordering::Relaxed) {
             return;
         }
-        *self.bounds.lock().unwrap() = bounds;
+        // Coalesce: layout emits bounds every frame during scroll; skip the
+        // JNI round-trip when nothing changed.
+        {
+            let mut cached = self.bounds.lock().unwrap();
+            if *cached == bounds {
+                return;
+            }
+            *cached = bounds;
+        }
         self.update_native_bounds(&bounds);
     }
 
     fn set_visible(&self, visible: bool) {
         if self.disposed.load(Ordering::Relaxed) {
+            return;
+        }
+        // Coalesce redundant transitions: layout passes repeat the call with
+        // the same state, and each one costs a JNI round-trip.
+        if self.visible.swap(visible, Ordering::Relaxed) == visible {
             return;
         }
         self.update_native_visibility(visible);
@@ -242,12 +272,12 @@ impl PlatformView for AndroidPlatformView {
         if self.disposed.load(Ordering::Relaxed) {
             return;
         }
-        use super::jni::{find_app_class, with_env};
+        use super::jni::{find_cached_app_class, invalidate_app_class_cache, with_env};
         use jni::objects::JValue;
 
         let view_id = self.id.0 as i64;
         let _ = with_env(|env| {
-            let helper_class = find_app_class(env, "dev.gpui.mobile.GpuiPlatformView")?;
+            let helper_class = find_cached_app_class(env, PLATFORM_VIEW_HELPER)?;
             let _ = env
                 .call_static_method(
                     &helper_class,
@@ -257,6 +287,7 @@ impl PlatformView for AndroidPlatformView {
                 )
                 .map_err(|e| {
                     env.exception_clear();
+                    invalidate_app_class_cache(PLATFORM_VIEW_HELPER);
                     format!("setZIndex failed: {}", e)
                 })?;
             Ok(())

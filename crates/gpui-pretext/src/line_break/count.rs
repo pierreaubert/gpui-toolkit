@@ -1,6 +1,7 @@
 use super::get::get_breakable_advance;
 use super::knuth_plass_params::KnuthPlassParams;
 use super::misc::is_simple_collapsible_space;
+use super::misc::skipped_at_fresh_line_start;
 use super::types::PreparedLineBreakData;
 use super::walk::walk_prepared_lines;
 use super::walk::walk_prepared_lines_optimal;
@@ -68,12 +69,24 @@ fn count_prepared_lines_simple(
             *has_content = true;
         };
 
-    for i in 0..widths.len() {
+    let mut i = 0;
+    while i < widths.len() {
+        // Mirror normalize_line_start (incremental path): a fresh line never
+        // starts with a collapsible/break-opportunity segment.
+        if !has_content {
+            while i < widths.len() && skipped_at_fresh_line_start(kinds[i]) {
+                i += 1;
+            }
+            if i >= widths.len() {
+                break;
+            }
+        }
         let w = widths[i];
         let kind = kinds[i];
 
         if !has_content {
             place_on_fresh_line(i, &mut line_count, &mut line_w, &mut has_content);
+            i += 1;
             continue;
         }
 
@@ -82,15 +95,18 @@ fn count_prepared_lines_simple(
             if is_simple_collapsible_space(kind) {
                 line_w = 0.0;
                 has_content = false;
+                i += 1;
                 continue;
             }
             line_w = 0.0;
             has_content = false;
             place_on_fresh_line(i, &mut line_count, &mut line_w, &mut has_content);
+            i += 1;
             continue;
         }
 
         line_w = new_w;
+        i += 1;
     }
 
     line_count

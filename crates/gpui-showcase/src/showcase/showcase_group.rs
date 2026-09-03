@@ -223,3 +223,38 @@ Audio Visuals demonstrates Vello-backed spectrum, meters, potentiometers, and vo
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_group_has_labels_description_and_sections() {
+        for group in ShowcaseGroup::all() {
+            assert!(!group.label().is_empty(), "{group:?} should have a label");
+            assert!(
+                !group.uppercase_label().is_empty(),
+                "{group:?} should have an uppercase label"
+            );
+            assert!(
+                !group.description().is_empty(),
+                "{group:?} should have a description"
+            );
+            assert!(
+                !group.sections().is_empty(),
+                "{group:?} should own at least one section"
+            );
+        }
+    }
+
+    #[test]
+    fn uppercase_labels_match_upper_cased_labels() {
+        for group in ShowcaseGroup::all() {
+            assert_eq!(
+                group.uppercase_label(),
+                group.label().to_uppercase().as_str(),
+                "{group:?} uppercase label should track its label"
+            );
+        }
+    }
+}

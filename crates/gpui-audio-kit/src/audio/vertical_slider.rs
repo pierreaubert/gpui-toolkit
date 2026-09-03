@@ -18,8 +18,8 @@
 //! - Linear or logarithmic scale
 
 use super::interactions::{
-    InteractionConfig, clear_drag_state, get_drag_state, handle_drag, handle_keyboard,
-    handle_scroll, store_drag_state, value_tracker,
+    InteractionConfig, ValueTracker, clear_drag_state, get_drag_state, handle_drag,
+    handle_keyboard, handle_scroll, store_drag_state, value_tracker,
 };
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
 use crate::audio_accessibility::{
@@ -84,6 +84,9 @@ pub struct VerticalSlider {
     formatted_label: SharedString,
     /// Cached formatted value display.
     formatted_value: SharedString,
+    /// Cached min/max scale markers (no-ticks branch), refreshed by setters.
+    formatted_min: SharedString,
+    formatted_max: SharedString,
 }
 
 impl VerticalSlider {
@@ -119,6 +122,8 @@ impl VerticalSlider {
             aria_role: None,
             formatted_label: SharedString::default(),
             formatted_value: SharedString::default(),
+            formatted_min: format_value_abbrev(0.0),
+            formatted_max: format_value_abbrev(100.0),
         }
     }
 
@@ -140,6 +145,7 @@ impl VerticalSlider {
     pub fn min(mut self, min: f64) -> Self {
         self.min = min;
         self.formatted_value = self.format_value();
+        self.formatted_min = format_value_abbrev(min);
         self
     }
 
@@ -147,6 +153,7 @@ impl VerticalSlider {
     pub fn max(mut self, max: f64) -> Self {
         self.max = max;
         self.formatted_value = self.format_value();
+        self.formatted_max = format_value_abbrev(max);
         self
     }
 
@@ -342,8 +349,9 @@ impl VerticalSlider {
                         break;
                     }
                 }
-                if let Some(pos) = match_pos {
-                    let matched_char = label[pos..].chars().next().unwrap();
+                if let Some(pos) = match_pos
+                    && let Some(matched_char) = label[pos..].chars().next()
+                {
                     let after_pos = pos + matched_char.len_utf8();
                     SharedString::new(format!(
                         "{}[{}]{}",
@@ -380,14 +388,97 @@ impl VerticalSlider {
     }
 }
 
-impl RenderOnce for VerticalSlider {
-    fn render(mut self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        // Clamp before formatting and accessibility registration so the
-        // displayed value, slider position, and ARIA range remain consistent.
-        self.value = self.value.clamp(self.min, self.max);
-        self.formatted_value = self.format_value();
+/// Selection-aware colors resolved once per slider render.
+struct SliderPalette {
+    bg: Rgba,
+    border: Rgba,
+    track_border: Rgba,
+    label: Rgba,
+    value_bg: Rgba,
+    value: Rgba,
+    track_bg: Rgba,
+    thumb: Rgba,
+    scale: Rgba,
+    hover_border: Rgba,
+    hover_bg: Rgba,
+    thumb_height: f32,
+}
 
-        // Register in accessibility tree
+impl SliderPalette {
+    fn resolve(theme: &VerticalSliderTheme, selected: bool) -> Self {
+        Self {
+            bg: if selected {
+                theme.accent_muted
+            } else {
+                theme.surface
+            },
+            border: if selected { theme.accent } else { theme.border },
+            track_border: if selected { theme.accent } else { theme.border },
+            label: if selected {
+                theme.accent
+            } else {
+                theme.text_secondary
+            },
+            value_bg: if selected {
+                theme.accent
+            } else {
+                theme.background_secondary
+            },
+            value: if selected {
+                theme.text_on_accent
+            } else {
+                theme.text_primary
+            },
+            track_bg: if selected {
+                theme.surface_hover
+            } else {
+                theme.track_bg
+            },
+            thumb: if selected {
+                theme.text_on_accent
+            } else {
+                theme.accent
+            },
+            scale: if selected {
+                theme.text_secondary
+            } else {
+                theme.text_muted
+            },
+            hover_border: theme.accent,
+            hover_bg: theme.surface_hover,
+            thumb_height: if selected { 8.0 } else { 6.0 },
+        }
+    }
+}
+
+type SharedChangeHandler = std::rc::Rc<Box<dyn Fn(f64, &mut Window, &mut App) + 'static>>;
+type SharedNotifyHandler = std::rc::Rc<Box<dyn Fn(&mut Window, &mut App) + 'static>>;
+type SharedDragStartHandler = std::rc::Rc<Box<dyn Fn(f32, f64, &mut Window, &mut App) + 'static>>;
+
+/// Keep a taken handler only when the control is enabled (disabled
+/// controls expose no pointer/keyboard wiring).
+pub(crate) fn take_if_enabled<T>(enabled: bool, handler: Option<T>) -> Option<T> {
+    handler.filter(|_| enabled)
+}
+
+/// Owned interaction wiring shared by the container and track builders.
+/// Handler slots are `None` when the control is disabled, so wiring helpers
+/// stay behavior-identical to the previous inline `if !disabled` gates.
+struct SliderHandlers {
+    on_change: Option<SharedChangeHandler>,
+    on_commit: Option<SharedChangeHandler>,
+    on_reset: Option<SharedNotifyHandler>,
+    on_select: Option<SharedNotifyHandler>,
+    on_drag_start: Option<SharedDragStartHandler>,
+    current_value: ValueTracker,
+    config: InteractionConfig,
+    focus_handle: Option<FocusHandle>,
+    element_id: ElementId,
+    disabled: bool,
+}
+
+impl VerticalSlider {
+    fn register_accessible(&self, cx: &mut App) {
         let effective_label = self
             .aria_label
             .clone()
@@ -400,6 +491,675 @@ impl RenderOnce for VerticalSlider {
                 .value_range(self.value, self.min, self.max)
                 .maybe_state(self.disabled, AriaState::Disabled),
         });
+    }
+}
+
+/// Resolve the focus handle: prefer an externally-provided one, else reuse
+/// the thread-local registry entry for this element id.
+fn resolve_slider_focus(
+    element_id: &ElementId,
+    external: Option<FocusHandle>,
+    cx: &mut App,
+) -> FocusHandle {
+    external.unwrap_or_else(|| {
+        VERTICAL_SLIDER_FOCUS_HANDLES.with(|handles| {
+            let mut handles = handles.borrow_mut();
+            if let Some(handle) = handles.get(element_id) {
+                return handle.clone();
+            }
+            let handle = cx.focus_handle();
+            if handles.len() >= VERTICAL_SLIDER_FOCUS_HANDLE_CAPACITY
+                && let Some(evicted_id) = handles.keys().next().cloned()
+            {
+                handles.remove(&evicted_id);
+            }
+            handles.insert(element_id.clone(), handle.clone());
+            handle
+        })
+    })
+}
+
+/// Boxed/underlined chassis plus focus, shadow, hover, and cursor styling.
+struct ChassisSpec {
+    id: ElementId,
+    min_width: f32,
+    underlined: bool,
+    selected: bool,
+    disabled: bool,
+}
+
+impl ChassisSpec {
+    fn new(
+        id: ElementId,
+        min_width: f32,
+        underlined: bool,
+        selected: bool,
+        disabled: bool,
+    ) -> Self {
+        Self {
+            id,
+            min_width,
+            underlined,
+            selected,
+            disabled,
+        }
+    }
+}
+
+fn build_chassis(
+    spec: &ChassisSpec,
+    palette: &SliderPalette,
+    focus_handle: &FocusHandle,
+) -> Stateful<Div> {
+    let mut container = div()
+        .id(spec.id.clone())
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap_2()
+        .min_w(px(spec.min_width));
+
+    if !spec.underlined {
+        container = container
+            .p_2()
+            .rounded_lg()
+            .bg(palette.bg)
+            .border_2()
+            .border_color(palette.border);
+    }
+
+    // Both track_focus (for focus observation) and focusable (for key events)
+    // are needed.
+    container = container.track_focus(focus_handle).focusable();
+
+    // Add shadow when selected (chassis-only).
+    if spec.selected && !spec.underlined {
+        container = container.shadow_md();
+    }
+
+    // Hover effect — chassis-only.
+    if !spec.underlined {
+        let hover_border = palette.hover_border;
+        let hover_bg = palette.hover_bg;
+        container = container.hover(|s| s.border_color(hover_border).bg(hover_bg));
+    }
+
+    // Cursor
+    if spec.disabled {
+        container = container.cursor_not_allowed().opacity(0.5);
+    } else {
+        container = container.cursor_ns_resize();
+    }
+    container
+}
+
+/// Title block with keyboard-shortcut label. Empty labels collapse the whole
+/// block (the Xone hardware view passes "" so the cell owns the title row).
+fn build_slider_title(
+    formatted_label: SharedString,
+    palette: &SliderPalette,
+    selected: bool,
+    min_width: f32,
+    underlined: bool,
+    rule_color: Rgba,
+) -> Option<Div> {
+    if formatted_label.is_empty() {
+        return None;
+    }
+    let label_text = div()
+        .text_xs()
+        .font_weight(if selected {
+            FontWeight::BOLD
+        } else {
+            FontWeight::SEMIBOLD
+        })
+        .text_color(palette.label)
+        .text_center()
+        .child(formatted_label);
+
+    if underlined {
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap_1()
+                .min_w(px(min_width))
+                .child(label_text)
+                .child(div().h(px(1.0)).w(px(min_width * 0.85)).bg(rule_color)),
+        )
+    } else {
+        Some(label_text)
+    }
+}
+
+fn build_value_badge(value_bg: Rgba, value_color: Rgba, value_str: SharedString) -> Div {
+    div()
+        .px_2()
+        .py_1()
+        .rounded_md()
+        .bg(value_bg)
+        .text_xs()
+        .font_weight(FontWeight::BOLD)
+        .text_color(value_color)
+        .child(value_str)
+}
+
+/// Track dimensions resolved from size tokens and the current value.
+struct TrackDims {
+    width: f32,
+    height: f32,
+    normalized: f32,
+    peak: Option<f32>,
+    corner: f32,
+    glow: f32,
+}
+
+impl TrackDims {
+    fn new(
+        width: f32,
+        height: f32,
+        normalized: f32,
+        peak: Option<f32>,
+        corner: f32,
+        glow: f32,
+    ) -> Self {
+        Self {
+            width,
+            height,
+            normalized,
+            peak,
+            corner,
+            glow,
+        }
+    }
+}
+
+fn slider_track_layout(
+    dims: &TrackDims,
+    palette: &SliderPalette,
+    accent: Rgba,
+    peak_color: Rgba,
+    selected: bool,
+) -> TrackLayout {
+    TrackLayout {
+        width: dims.width,
+        height: dims.height,
+        bg: palette.track_bg,
+        border: palette.track_border,
+        corner: dims.corner,
+        bar_top_px: (dims.normalized * dims.height).max(0.0),
+        fill: accent,
+        glow: dims.glow,
+        thumb: palette.thumb,
+        thumb_height: palette.thumb_height,
+        // Thumb extends beyond the track edges for a proper grab affordance.
+        overhang: 3.0,
+        bar_radius: dims.corner,
+        peak: dims.peak,
+        peak_color,
+        selected,
+    }
+}
+
+/// Geometry + colors for the track, fill, thumb, and peak marker.
+struct TrackLayout {
+    width: f32,
+    height: f32,
+    bg: Rgba,
+    border: Rgba,
+    corner: f32,
+    bar_top_px: f32,
+    fill: Rgba,
+    glow: f32,
+    thumb: Rgba,
+    thumb_height: f32,
+    overhang: f32,
+    bar_radius: f32,
+    peak: Option<f32>,
+    peak_color: Rgba,
+    selected: bool,
+}
+
+fn build_track_fill(layout: &TrackLayout) -> Div {
+    let mut fill = div()
+        .absolute()
+        .bottom_0()
+        .left_0()
+        .right_0()
+        .h(px(layout.bar_top_px))
+        .bg(layout.fill)
+        // Top corners stay square (the bar's top edge is the value reading);
+        // bottom corners follow the meter corner-radius token.
+        .rounded(px(0.0))
+        .rounded_b(px(layout.bar_radius));
+    if layout.glow > 0.0 {
+        // Outer halo: same color as the fill, blurred, zero offset.
+        let glow_color = Hsla::from(Rgba {
+            r: layout.fill.r,
+            g: layout.fill.g,
+            b: layout.fill.b,
+            a: (layout.fill.a * 0.55 * layout.glow).clamp(0.0, 1.0),
+        });
+        fill = fill.shadow(vec![BoxShadow {
+            color: glow_color,
+            offset: point(px(0.0), px(0.0)),
+            blur_radius: px(8.0 * layout.glow),
+            spread_radius: px(2.0 * layout.glow),
+            inset: false,
+        }]);
+    }
+    fill
+}
+
+fn build_track_thumb(layout: &TrackLayout) -> Div {
+    // Top edge at the value position so the bar's visible end coincides with
+    // the tick. The thumb extends past the track sides via `overhang` so it
+    // remains a clear grab affordance.
+    let thumb_bottom_px = (layout.bar_top_px - layout.thumb_height).max(-layout.thumb_height);
+    div()
+        .absolute()
+        .left(px(-layout.overhang))
+        .w(px(layout.width + layout.overhang * 2.0))
+        .bottom(px(thumb_bottom_px))
+        .h(px(layout.thumb_height))
+        .bg(layout.thumb)
+        .rounded(px(layout.bar_radius))
+        .shadow_sm()
+}
+
+fn build_peak_marker(layout: &TrackLayout) -> Option<Div> {
+    let peak_pos = layout.peak?;
+    let peak_thickness = 3.0_f32;
+    let peak_bottom_px = (peak_pos * layout.height) - (peak_thickness / 2.0);
+    Some(
+        div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom(px(peak_bottom_px))
+            .h(px(peak_thickness))
+            .bg(layout.peak_color),
+    )
+}
+
+fn build_track(track_id: ElementId, layout: &TrackLayout) -> Stateful<Div> {
+    let mut track = div()
+        .id(track_id)
+        .w(px(layout.width))
+        .h(px(layout.height))
+        .bg(layout.bg)
+        .rounded(px(layout.corner))
+        .border_2()
+        .border_color(layout.border)
+        .relative()
+        .overflow_hidden()
+        .cursor_ns_resize();
+
+    if layout.selected {
+        track = track.shadow_sm();
+    }
+
+    track = track.child(build_track_fill(layout));
+    track = track.child(build_track_thumb(layout));
+    if let Some(marker) = build_peak_marker(layout) {
+        track = track.child(marker);
+    }
+    track
+}
+
+fn wire_container_handlers(mut container: Stateful<Div>, h: &SliderHandlers) -> Stateful<Div> {
+    if h.disabled {
+        return container;
+    }
+    // Mouse down on container - focus, select, and external drag start
+    let on_select_container = h.on_select.clone();
+    let on_drag_start = h.on_drag_start.clone();
+    let current_value_container = h.current_value.clone();
+    let focus_handle_container = h.focus_handle.clone();
+
+    container = container.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+        // Focus for keyboard navigation (focus follows click)
+        if let Some(ref fh) = focus_handle_container {
+            fh.focus(window, cx);
+        }
+
+        if let Some(ref handler) = on_select_container {
+            handler(window, cx);
+        }
+        if let Some(ref handler) = on_drag_start {
+            let val = current_value_container.get();
+            handler(event.position.y.into(), val, window, cx);
+        }
+    });
+
+    // Double-click - reset
+    if let Some(ref reset_rc) = h.on_reset {
+        let reset_handler = reset_rc.clone();
+        container = container.on_click(move |event, window, cx| {
+            if event.click_count() == 2 {
+                reset_handler(window, cx);
+            }
+        });
+    }
+
+    // Scroll wheel - adjust value (Shift for fine control)
+    if let Some(ref handler_rc) = h.on_change {
+        let handler_scroll = handler_rc.clone();
+        let current_value_scroll = h.current_value.clone();
+        let config_scroll = h.config.clone();
+        let commit_scroll = h.on_commit.clone();
+        container = container.on_scroll_wheel(move |event, window, cx| {
+            cx.stop_propagation();
+            let val = current_value_scroll.get();
+            if let Some(new_value) =
+                handle_scroll(&event.delta, &event.modifiers, val, &config_scroll)
+            {
+                current_value_scroll.set(new_value);
+                handler_scroll(new_value, window, cx);
+                if let Some(ref commit) = commit_scroll {
+                    commit(new_value, window, cx);
+                }
+            }
+        });
+    }
+
+    // Keyboard navigation - register on container (which has track_focus)
+    if h.on_change.is_some() || h.on_reset.is_some() {
+        let handler_key = h.on_change.clone();
+        let reset_key = h.on_reset.clone();
+        let current_value_key = h.current_value.clone();
+        let config_key = h.config.clone();
+        let commit_key = h.on_commit.clone();
+        container = container.on_key_down(move |event, window, cx| {
+            cx.stop_propagation();
+            let key = event.keystroke.key.as_str();
+
+            // Escape resets to default
+            if key == "escape" {
+                if let Some(ref reset_handler) = reset_key {
+                    reset_handler(window, cx);
+                }
+                return;
+            }
+
+            // Arrow keys and other navigation
+            if let Some(ref handler) = handler_key {
+                let val = current_value_key.get();
+                if let Some(new_value) =
+                    handle_keyboard(key, &event.keystroke.modifiers, val, &config_key)
+                {
+                    current_value_key.set(new_value);
+                    handler(new_value, window, cx);
+                    if let Some(ref commit) = commit_key {
+                        commit(new_value, window, cx);
+                    }
+                }
+            }
+        });
+    }
+    container
+}
+
+fn wire_track_press_handlers(mut track: Stateful<Div>, h: &SliderHandlers) -> Stateful<Div> {
+    if h.disabled {
+        return track;
+    }
+    // Create a unique key for this slider's drag state (survives re-renders)
+    let drag_key_down = h.element_id.clone();
+
+    // Mouse down - focus, select, and start drag
+    let on_select_track = h.on_select.clone();
+    let on_drag_start_track = h.on_drag_start.clone();
+    let current_value_at_click = h.current_value.clone();
+    let has_change_handler = h.on_change.is_some();
+    let focus_handle_track = h.focus_handle.clone();
+    track = track.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+        // The track owns this gesture and stops bubbling after it has
+        // invoked the same focus, selection, and drag-start hooks as
+        // the surrounding control.
+
+        // Focus for keyboard navigation (focus follows click)
+        if let Some(ref fh) = focus_handle_track {
+            fh.focus(window, cx);
+        }
+
+        // Select the slider (if handler provided)
+        if let Some(ref handler) = on_select_track {
+            handler(window, cx);
+        }
+
+        if let Some(ref handler) = on_drag_start_track {
+            handler(
+                event.position.y.into(),
+                current_value_at_click.get(),
+                window,
+                cx,
+            );
+        }
+
+        // Store drag state only if we have a change handler
+        if has_change_handler {
+            let click_pos: f32 = event.position.y.into();
+            store_drag_state(
+                drag_key_down.clone(),
+                click_pos,
+                current_value_at_click.get(),
+            );
+        }
+
+        cx.stop_propagation();
+    });
+
+    // Double-clicking the track resets once rather than bubbling to
+    // the container's reset handler too.
+    if let Some(ref reset_rc) = h.on_reset {
+        let reset_handler = reset_rc.clone();
+        track = track.on_click(move |event, window, cx| {
+            if event.click_count() == 2 {
+                reset_handler(window, cx);
+            }
+            cx.stop_propagation();
+        });
+    }
+    track
+}
+
+fn wire_track_drag_handlers(mut track: Stateful<Div>, h: &SliderHandlers) -> Stateful<Div> {
+    if h.disabled {
+        return track;
+    }
+    // Drag and scroll handlers (only if on_change is set)
+    if let Some(ref handler_rc) = h.on_change {
+        let drag_key_move = h.element_id.clone();
+        // Mouse move while pressed - drag to change value
+        let handler_drag = handler_rc.clone();
+        let current_value_drag = h.current_value.clone();
+        let config_drag = h.config.clone();
+        track = track.on_mouse_move(move |event, window, cx| {
+            if event.pressed_button == Some(MouseButton::Left)
+                && let Some(state) = get_drag_state(&drag_key_move)
+            {
+                let current_pos: f32 = event.position.y.into();
+                if let Some(new_value) = handle_drag(current_pos, &state, &config_drag) {
+                    current_value_drag.set(new_value);
+                    handler_drag(new_value, window, cx);
+                }
+            }
+        });
+
+        // Mouse up - clear drag state
+        let drag_key_up = h.element_id.clone();
+        let commit_drag = h.on_commit.clone();
+        let current_value_up = h.current_value.clone();
+        track = track.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
+            if get_drag_state(&drag_key_up).is_some()
+                && let Some(ref commit) = commit_drag
+            {
+                commit(current_value_up.get(), window, cx);
+            }
+            clear_drag_state(drag_key_up.clone());
+        });
+
+        // Capture a release beyond the narrow track. Without this,
+        // the final automation commit is lost and retained drag state
+        // survives until the next press on this slider.
+        let handler_drag_out = handler_rc.clone();
+        let commit_drag_out = h.on_commit.clone();
+        let current_value_up_out = h.current_value.clone();
+        let config_up_out = h.config.clone();
+        let drag_key_up_out = h.element_id.clone();
+        track = track.on_mouse_up_out(MouseButton::Left, move |event, window, cx| {
+            if let Some(state) = get_drag_state(&drag_key_up_out) {
+                let position: f32 = event.position.y.into();
+                let previous_value = current_value_up_out.get();
+                let final_value =
+                    handle_drag(position, &state, &config_up_out).unwrap_or(previous_value);
+                current_value_up_out.set(final_value);
+                if final_value != previous_value {
+                    handler_drag_out(final_value, window, cx);
+                }
+                if let Some(ref commit) = commit_drag_out {
+                    commit(final_value, window, cx);
+                }
+            }
+            clear_drag_state(drag_key_up_out.clone());
+        });
+
+        // Scroll wheel handler on track
+        let handler_scroll_track = handler_rc.clone();
+        let current_value_track_scroll = h.current_value.clone();
+        let config_track_scroll = h.config.clone();
+        let commit_track_scroll = h.on_commit.clone();
+        track = track.on_scroll_wheel(move |event, window, cx| {
+            cx.stop_propagation();
+            let val = current_value_track_scroll.get();
+            if let Some(new_value) =
+                handle_scroll(&event.delta, &event.modifiers, val, &config_track_scroll)
+            {
+                current_value_track_scroll.set(new_value);
+                handler_scroll_track(new_value, window, cx);
+                if let Some(ref commit) = commit_track_scroll {
+                    commit(new_value, window, cx);
+                }
+            }
+        });
+    }
+    track
+}
+
+/// Track flanked by tick columns, or the bare track plus min/max markers.
+fn build_track_with_ticks(
+    track: Stateful<Div>,
+    ticks: &[TickMark],
+    track_height: f32,
+    scale_color: Rgba,
+) -> Div {
+    // Calculate label width for alignment (find widest label)
+    let label_width = ticks
+        .iter()
+        .filter_map(|t| t.label.as_ref())
+        .map(|l| l.len())
+        .max()
+        .unwrap_or(2) as f32
+        * 7.0; // Approximate character width
+
+    let tick_mark_width = 6.0_f32; // Major tick width
+    let label_tick_gap = 3.0_f32; // Gap between label and tick
+    let label_height = 12.0_f32; // Approximate label height for centering
+
+    // Build tick marks container with absolute positioning
+    // Height matches track exactly for proper alignment
+    let mut ticks_container = div()
+        .relative()
+        .h(px(track_height))
+        .w(px(label_width + label_tick_gap + tick_mark_width));
+
+    for tick in ticks.iter() {
+        let pos = tick.normalized_pos as f32;
+        let tick_width = if tick.is_major { 6.0 } else { 3.0 };
+
+        // Calculate pixel position from top (inverted: 0=bottom, 1=top)
+        // pos=0 should be at bottom (top = track_height - label_height/2)
+        // pos=1 should be at top (top = -label_height/2)
+        let top_pos = (1.0 - pos) * track_height - label_height / 2.0;
+
+        // Create a tick row positioned from top, centered vertically
+        let tick_element = div()
+            .absolute()
+            .top(px(top_pos))
+            .right_0()
+            .h(px(label_height))
+            .flex()
+            .items_center()
+            .gap(px(label_tick_gap))
+            // Add label for major ticks
+            .when(tick.label.is_some(), |d| {
+                d.child(
+                    div()
+                        .text_xs()
+                        .text_color(scale_color)
+                        .min_w(px(label_width))
+                        .text_right()
+                        .child(tick.label.clone().unwrap_or_default()),
+                )
+            })
+            // Tick mark
+            .child(div().w(px(tick_width)).h(px(1.0)).bg(scale_color));
+
+        ticks_container = ticks_container.child(tick_element);
+    }
+
+    // Build right-side tick marks (no labels, just tick marks)
+    let mut ticks_right = div().relative().h(px(track_height)).w(px(tick_mark_width));
+
+    for tick in ticks.iter() {
+        let pos = tick.normalized_pos as f32;
+        let tick_width = if tick.is_major { 6.0 } else { 3.0 };
+        let top_pos = (1.0 - pos) * track_height - label_height / 2.0;
+
+        let tick_element = div()
+            .absolute()
+            .top(px(top_pos))
+            .left_0()
+            .h(px(label_height))
+            .flex()
+            .items_center()
+            .child(div().w(px(tick_width)).h(px(1.0)).bg(scale_color));
+
+        ticks_right = ticks_right.child(tick_element);
+    }
+
+    // Wrap track and ticks in HStack (left ticks - track - right ticks)
+    div()
+        .flex()
+        .items_center()
+        .gap(px(2.0))
+        .child(ticks_container)
+        .child(track)
+        .child(ticks_right)
+}
+
+fn build_scale_markers(min_label: SharedString, max_label: SharedString, scale_color: Rgba) -> Div {
+    // Scale markers (only when not showing ticks) - use abbreviated format
+    div()
+        .flex()
+        .justify_between()
+        .w_full()
+        .text_xs()
+        .text_color(scale_color)
+        .child(min_label)
+        .child(max_label)
+}
+
+impl RenderOnce for VerticalSlider {
+    fn render(mut self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // Clamp before formatting and accessibility registration so the
+        // displayed value, slider position, and ARIA range remain consistent.
+        self.value = self.value.clamp(self.min, self.max);
+        self.formatted_value = self.format_value();
+
+        self.register_accessible(cx);
 
         let global_theme = cx.theme();
         let theme = self
@@ -420,6 +1180,8 @@ impl RenderOnce for VerticalSlider {
 
         let formatted_label = self.formatted_label;
         let value_str = self.formatted_value;
+        let formatted_min = self.formatted_min;
+        let formatted_max = self.formatted_max;
 
         let track_width = self.size.track_width(&self.design_tokens);
         let track_height = self
@@ -431,47 +1193,7 @@ impl RenderOnce for VerticalSlider {
         // Calculate ticks based on scale type and available height
         let ticks = calculate_ticks(self.min, self.max, self.scale, track_height);
 
-        // Colors based on selection state
-        let bg_color = if selected {
-            theme.accent_muted
-        } else {
-            theme.surface
-        };
-        let border_color = if selected { theme.accent } else { theme.border };
-        let track_border = if selected { theme.accent } else { theme.border };
-        let label_color = if selected {
-            theme.accent
-        } else {
-            theme.text_secondary
-        };
-        let value_bg = if selected {
-            theme.accent
-        } else {
-            theme.background_secondary
-        };
-        let value_color = if selected {
-            theme.text_on_accent
-        } else {
-            theme.text_primary
-        };
-        let track_bg = if selected {
-            theme.surface_hover
-        } else {
-            theme.track_bg
-        };
-        let thumb_color = if selected {
-            theme.text_on_accent
-        } else {
-            theme.accent
-        };
-        let thumb_height = if selected { 8.0 } else { 6.0 };
-        // Thumb extends beyond the track edges for a proper grab affordance
-        let thumb_overhang: f32 = 3.0;
-        let scale_color = if selected {
-            theme.text_secondary
-        } else {
-            theme.text_muted
-        };
+        let palette = SliderPalette::resolve(&theme, selected);
 
         // Capture values for closures
         let value = self.value;
@@ -486,584 +1208,97 @@ impl RenderOnce for VerticalSlider {
         let underlined = self.design_tokens.meter_label_style
             == crate::audio_design_tokens::AudioDesignTokens::LABEL_UNDERLINED;
 
-        let mut container = div()
-            .id(self.id)
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap_2()
-            .min_w(px(min_width));
-
-        if !underlined {
-            container = container
-                .p_2()
-                .rounded_lg()
-                .bg(bg_color)
-                .border_2()
-                .border_color(border_color);
-        }
-
-        // Get or create a stable FocusHandle for this slider.
-        // Prefer an externally-provided handle; fall back to the thread-local registry.
-        let focus_handle = self.focus_handle.clone().unwrap_or_else(|| {
-            VERTICAL_SLIDER_FOCUS_HANDLES.with(|handles| {
-                let mut handles = handles.borrow_mut();
-                if let Some(handle) = handles.get(&element_id) {
-                    return handle.clone();
-                }
-                let handle = cx.focus_handle();
-                if handles.len() >= VERTICAL_SLIDER_FOCUS_HANDLE_CAPACITY
-                    && let Some(evicted_id) = handles.keys().next().cloned()
-                {
-                    handles.remove(&evicted_id);
-                }
-                handles.insert(element_id.clone(), handle.clone());
-                handle
-            })
-        });
-        let focus_handle = Some(focus_handle);
-
-        // Track focus on container for visual styling and keyboard events
-        // Both track_focus (for focus observation) and focusable (for key events) are needed
-        if let Some(ref fh) = focus_handle {
-            container = container.track_focus(fh).focusable();
-        }
-
-        // Add shadow when selected (chassis-only).
-        if selected && !underlined {
-            container = container.shadow_md();
-        }
-
-        // Hover effect — chassis-only.
-        if !underlined {
-            let hover_border = theme.accent;
-            let hover_bg = theme.surface_hover;
-            container = container.hover(|s| s.border_color(hover_border).bg(hover_bg));
-        }
-
-        // Cursor
-        if disabled {
-            container = container.cursor_not_allowed().opacity(0.5);
-        } else {
-            container = container.cursor_ns_resize();
-        }
-
-        // Wrap handlers in Rc for sharing between container and track handlers
-        // These need to be created before the if block so they can be used for track handlers later
-        let on_change_rc: Option<std::rc::Rc<Box<dyn Fn(f64, &mut Window, &mut App) + 'static>>> =
-            if !disabled {
-                self.on_change.map(|h| std::rc::Rc::new(h))
-            } else {
-                None
-            };
-        let on_commit_rc = if !disabled {
-            self.on_commit.map(std::rc::Rc::new)
-        } else {
-            None
-        };
-        let on_reset_rc: Option<std::rc::Rc<Box<dyn Fn(&mut Window, &mut App) + 'static>>> =
-            if !disabled {
-                self.on_reset.map(|h| std::rc::Rc::new(h))
-            } else {
-                None
-            };
-        let on_select_rc: Option<std::rc::Rc<Box<dyn Fn(&mut Window, &mut App) + 'static>>> =
-            if !disabled {
-                self.on_select.map(std::rc::Rc::new)
-            } else {
-                None
-            };
-        let on_drag_start_rc = if !disabled {
-            self.on_drag_start.map(std::rc::Rc::new)
-        } else {
-            None
-        };
+        let focus_handle = resolve_slider_focus(&element_id, self.focus_handle.clone(), cx);
+        let mut container = build_chassis(
+            &ChassisSpec::new(self.id.clone(), min_width, underlined, selected, disabled),
+            &palette,
+            &focus_handle,
+        );
 
         // Shared current value tracker and interaction config
         let current_value = value_tracker(value);
         let interaction_config = InteractionConfig::vertical(min, max, scale, track_height);
 
-        // Event handlers for container
-        if !disabled {
-            // Mouse down on container - focus, select, and external drag start
-            let on_select_container = on_select_rc.clone();
-            let on_drag_start = on_drag_start_rc.clone();
-            let current_value_container = current_value.clone();
-            let focus_handle_container = focus_handle.clone();
+        // Wrap handlers in Rc for sharing between container and track builders.
+        // Slots stay `None` when disabled, matching the old `if !disabled` gates.
+        let enabled = !disabled;
+        let handlers = SliderHandlers {
+            on_change: take_if_enabled(enabled, self.on_change.take()).map(std::rc::Rc::new),
+            on_commit: take_if_enabled(enabled, self.on_commit.take()).map(std::rc::Rc::new),
+            on_reset: take_if_enabled(enabled, self.on_reset.take()).map(std::rc::Rc::new),
+            on_select: take_if_enabled(enabled, self.on_select.take()).map(std::rc::Rc::new),
+            on_drag_start: take_if_enabled(enabled, self.on_drag_start.take())
+                .map(std::rc::Rc::new),
+            current_value,
+            config: interaction_config,
+            focus_handle: Some(focus_handle.clone()),
+            element_id: element_id.clone(),
+            disabled,
+        };
 
-            container = container.on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                // Focus for keyboard navigation (focus follows click)
-                if let Some(ref fh) = focus_handle_container {
-                    fh.focus(window, cx);
-                }
+        container = wire_container_handlers(container, &handlers);
 
-                if let Some(ref handler) = on_select_container {
-                    handler(window, cx);
-                }
-                if let Some(ref handler) = on_drag_start {
-                    let val = current_value_container.get();
-                    handler(event.position.y.into(), val, window, cx);
-                }
-            });
-
-            // Double-click - reset
-            if let Some(ref reset_rc) = on_reset_rc {
-                let reset_handler = reset_rc.clone();
-                container = container.on_click(move |event, window, cx| {
-                    if event.click_count() == 2 {
-                        reset_handler(window, cx);
-                    }
-                });
-            }
-
-            // Scroll wheel - adjust value (Shift for fine control)
-            if let Some(ref handler_rc) = on_change_rc {
-                let handler_scroll = handler_rc.clone();
-                let current_value_scroll = current_value.clone();
-                let config_scroll = interaction_config.clone();
-                let commit_scroll = on_commit_rc.clone();
-                container = container.on_scroll_wheel(move |event, window, cx| {
-                    cx.stop_propagation();
-                    let val = current_value_scroll.get();
-                    if let Some(new_value) =
-                        handle_scroll(&event.delta, &event.modifiers, val, &config_scroll)
-                    {
-                        current_value_scroll.set(new_value);
-                        handler_scroll(new_value, window, cx);
-                        if let Some(ref commit) = commit_scroll {
-                            commit(new_value, window, cx);
-                        }
-                    }
-                });
-            }
-
-            // Keyboard navigation - register on container (which has track_focus)
-            if on_change_rc.is_some() || on_reset_rc.is_some() {
-                let handler_key = on_change_rc.clone();
-                let reset_key = on_reset_rc.clone();
-                let current_value_key = current_value.clone();
-                let config_key = interaction_config.clone();
-                let commit_key = on_commit_rc.clone();
-                container = container.on_key_down(move |event, window, cx| {
-                    cx.stop_propagation();
-                    let key = event.keystroke.key.as_str();
-
-                    // Escape resets to default
-                    if key == "escape" {
-                        if let Some(ref reset_handler) = reset_key {
-                            reset_handler(window, cx);
-                        }
-                        return;
-                    }
-
-                    // Arrow keys and other navigation
-                    if let Some(ref handler) = handler_key {
-                        let val = current_value_key.get();
-                        if let Some(new_value) =
-                            handle_keyboard(key, &event.keystroke.modifiers, val, &config_key)
-                        {
-                            current_value_key.set(new_value);
-                            handler(new_value, window, cx);
-                            if let Some(ref commit) = commit_key {
-                                commit(new_value, window, cx);
-                            }
-                        }
-                    }
-                });
-            }
+        // Title block (empty labels collapse it) plus the value badge.
+        let rule_color = if selected { theme.accent } else { theme.border };
+        if let Some(title) = build_slider_title(
+            formatted_label,
+            &palette,
+            selected,
+            min_width,
+            underlined,
+            rule_color,
+        ) {
+            container = container.child(title);
         }
-
-        // Label with keyboard shortcut. Empty labels collapse the entire
-        // title+rule block (the Xone hardware view passes "" so the cell can
-        // own the title row without leaving an empty band of vertical space).
-        let has_label = !formatted_label.is_empty();
-        if has_label {
-            let label_text = div()
-                .text_xs()
-                .font_weight(if selected {
-                    FontWeight::BOLD
-                } else {
-                    FontWeight::SEMIBOLD
-                })
-                .text_color(label_color)
-                .text_center()
-                .child(formatted_label);
-
-            if underlined {
-                let rule_color = if selected { theme.accent } else { theme.border };
-                container = container.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .gap_1()
-                        .min_w(px(min_width))
-                        .child(label_text)
-                        .child(div().h(px(1.0)).w(px(min_width * 0.85)).bg(rule_color)),
-                );
-            } else {
-                container = container.child(label_text);
-            }
-        }
-
-        // Value badge
-        container = container.child(
-            div()
-                .px_2()
-                .py_1()
-                .rounded_md()
-                .bg(value_bg)
-                .text_xs()
-                .font_weight(FontWeight::BOLD)
-                .text_color(value_color)
-                .child(value_str),
-        );
+        container = container.child(build_value_badge(
+            palette.value_bg,
+            palette.value,
+            value_str,
+        ));
 
         // Track ID for click-to-position handling
         let track_id = self.track_id.clone();
 
-        // Track with fill and thumb. Track corners are driven by the meter
-        // corner-radius design token so a brutalist preset can render a
-        // square-cornered fader and a softer preset can keep the rounded look.
+        // Track corners follow the meter corner-radius design token so a
+        // brutalist preset can render a square-cornered fader and a softer
+        // preset keeps the rounded look.
         let track_corner_px = self
             .design_tokens
             .meter_corner_radius
             .clamp(0.0, (track_width / 2.0).min(8.0));
-        let mut track = div()
-            .id(track_id)
-            .w(px(track_width))
-            .h(px(track_height))
-            .bg(track_bg)
-            .rounded(px(track_corner_px))
-            .border_2()
-            .border_color(track_border)
-            .relative()
-            .overflow_hidden()
-            .cursor_ns_resize();
-
-        if selected {
-            track = track.shadow_sm();
-        }
-
-        // Filled portion (from bottom).
-        //
-        // The bar's *visible top edge* sits exactly at the value position —
-        // that's the line the user reads against the tick marks. The thumb is
-        // then placed so its top edge coincides with the bar top (i.e. the
-        // thumb is the top `thumb_height` px of the visible bar) instead of
-        // sitting half above it.
-        let bar_top_px = (normalized * track_height).max(0.0);
-        let bar_radius = self
-            .design_tokens
-            .meter_corner_radius
-            .clamp(0.0, (track_width / 2.0).min(8.0));
-
-        // Build the fill div. When `meter_glow` is enabled, attach a colored,
-        // zero-offset box-shadow to fake an outer halo around the bar.
-        let glow_intensity = self.design_tokens.meter_glow.clamp(0.0, 1.0);
-        let fill_color = theme.accent;
-        let mut fill = div()
-            .absolute()
-            .bottom_0()
-            .left_0()
-            .right_0()
-            .h(px(bar_top_px))
-            .bg(fill_color)
-            // Top corners stay square (the bar's top edge is the value reading);
-            // bottom corners follow the meter corner-radius token.
-            .rounded(px(0.0))
-            .rounded_b(px(bar_radius));
-        if glow_intensity > 0.0 {
-            // Outer halo: same color as the fill, blurred, zero offset.
-            let glow_color = Hsla::from(Rgba {
-                r: fill_color.r,
-                g: fill_color.g,
-                b: fill_color.b,
-                a: (fill_color.a * 0.55 * glow_intensity).clamp(0.0, 1.0),
-            });
-            fill = fill.shadow(vec![BoxShadow {
-                color: glow_color,
-                offset: point(px(0.0), px(0.0)),
-                blur_radius: px(8.0 * glow_intensity),
-                spread_radius: px(2.0 * glow_intensity),
-                inset: false,
-            }]);
-        }
-        track = track.child(fill);
-
-        // Thumb indicator — top edge at the value position so the bar's
-        // visible end coincides with the tick. The thumb still extends past
-        // the track sides via `thumb_overhang` so it remains a clear grab
-        // affordance.
-        let thumb_top_px = bar_top_px;
-        let thumb_bottom_px = (thumb_top_px - thumb_height).max(-thumb_height);
-        track = track.child(
-            div()
-                .absolute()
-                .left(px(-thumb_overhang))
-                .w(px(track_width + thumb_overhang * 2.0))
-                .bottom(px(thumb_bottom_px))
-                .h(px(thumb_height))
-                .bg(thumb_color)
-                .rounded(px(bar_radius))
-                .shadow_sm(),
+        let layout = slider_track_layout(
+            &TrackDims::new(
+                track_width,
+                track_height,
+                normalized,
+                peak_normalized,
+                track_corner_px,
+                self.design_tokens.meter_glow.clamp(0.0, 1.0),
+            ),
+            &palette,
+            theme.accent,
+            theme.peak_marker,
+            selected,
         );
+        let mut track = build_track(track_id, &layout);
+        track = wire_track_press_handlers(track, &handlers);
+        track = wire_track_drag_handlers(track, &handlers);
 
-        // Peak marker (optional) - thick horizontal line centered at peak position.
-        if let Some(peak_pos) = peak_normalized {
-            let peak_color = theme.peak_marker;
-            let peak_thickness = 3.0_f32;
-            let peak_bottom_px = (peak_pos * track_height) - (peak_thickness / 2.0);
-            track = track.child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .right_0()
-                    .bottom(px(peak_bottom_px))
-                    .h(px(peak_thickness))
-                    .bg(peak_color),
-            );
-        }
-
-        // Track event handlers (if not disabled)
-        if !disabled {
-            // Create a unique key for this slider's drag state (survives re-renders)
-            let drag_key_down = element_id.clone();
-            let drag_key_move = element_id.clone();
-            let drag_key_up = element_id.clone();
-
-            // Mouse down - focus, select, and start drag
-            let on_select_track = on_select_rc.clone();
-            let on_drag_start_track = on_drag_start_rc.clone();
-            let current_value_at_click = current_value.clone();
-            let has_change_handler = on_change_rc.is_some();
-            let focus_handle_track = focus_handle.clone();
-            track = track.on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                // The track owns this gesture and stops bubbling after it has
-                // invoked the same focus, selection, and drag-start hooks as
-                // the surrounding control.
-
-                // Focus for keyboard navigation (focus follows click)
-                if let Some(ref fh) = focus_handle_track {
-                    fh.focus(window, cx);
-                }
-
-                // Select the slider (if handler provided)
-                if let Some(ref handler) = on_select_track {
-                    handler(window, cx);
-                }
-
-                if let Some(ref handler) = on_drag_start_track {
-                    handler(
-                        event.position.y.into(),
-                        current_value_at_click.get(),
-                        window,
-                        cx,
-                    );
-                }
-
-                // Store drag state only if we have a change handler
-                if has_change_handler {
-                    let click_pos: f32 = event.position.y.into();
-                    store_drag_state(
-                        drag_key_down.clone(),
-                        click_pos,
-                        current_value_at_click.get(),
-                    );
-                }
-
-                cx.stop_propagation();
-            });
-
-            // Double-clicking the track resets once rather than bubbling to
-            // the container's reset handler too.
-            if let Some(ref reset_rc) = on_reset_rc {
-                let reset_handler = reset_rc.clone();
-                track = track.on_click(move |event, window, cx| {
-                    if event.click_count() == 2 {
-                        reset_handler(window, cx);
-                    }
-                    cx.stop_propagation();
-                });
-            }
-
-            // Drag and scroll handlers (only if on_change is set)
-            if let Some(ref handler_rc) = on_change_rc {
-                // Mouse move while pressed - drag to change value
-                let handler_drag = handler_rc.clone();
-                let current_value_drag = current_value.clone();
-                let config_drag = interaction_config.clone();
-                track = track.on_mouse_move(move |event, window, cx| {
-                    if event.pressed_button == Some(MouseButton::Left)
-                        && let Some(state) = get_drag_state(&drag_key_move)
-                    {
-                        let current_pos: f32 = event.position.y.into();
-                        if let Some(new_value) = handle_drag(current_pos, &state, &config_drag) {
-                            current_value_drag.set(new_value);
-                            handler_drag(new_value, window, cx);
-                        }
-                    }
-                });
-
-                // Mouse up - clear drag state
-                let commit_drag = on_commit_rc.clone();
-                let current_value_up = current_value.clone();
-                track = track.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
-                    if get_drag_state(&drag_key_up).is_some()
-                        && let Some(ref commit) = commit_drag
-                    {
-                        commit(current_value_up.get(), window, cx);
-                    }
-                    clear_drag_state(drag_key_up.clone());
-                });
-
-                // Capture a release beyond the narrow track. Without this,
-                // the final automation commit is lost and retained drag state
-                // survives until the next press on this slider.
-                let handler_drag_out = handler_rc.clone();
-                let commit_drag_out = on_commit_rc.clone();
-                let current_value_up_out = current_value.clone();
-                let config_up_out = interaction_config.clone();
-                let drag_key_up_out = element_id.clone();
-                track = track.on_mouse_up_out(MouseButton::Left, move |event, window, cx| {
-                    if let Some(state) = get_drag_state(&drag_key_up_out) {
-                        let position: f32 = event.position.y.into();
-                        let previous_value = current_value_up_out.get();
-                        let final_value =
-                            handle_drag(position, &state, &config_up_out).unwrap_or(previous_value);
-                        current_value_up_out.set(final_value);
-                        if final_value != previous_value {
-                            handler_drag_out(final_value, window, cx);
-                        }
-                        if let Some(ref commit) = commit_drag_out {
-                            commit(final_value, window, cx);
-                        }
-                    }
-                    clear_drag_state(drag_key_up_out.clone());
-                });
-
-                // Scroll wheel handler on track
-                let handler_scroll_track = handler_rc.clone();
-                let current_value_track_scroll = current_value.clone();
-                let config_track_scroll = interaction_config.clone();
-                let commit_track_scroll = on_commit_rc.clone();
-                track = track.on_scroll_wheel(move |event, window, cx| {
-                    cx.stop_propagation();
-                    let val = current_value_track_scroll.get();
-                    if let Some(new_value) =
-                        handle_scroll(&event.delta, &event.modifiers, val, &config_track_scroll)
-                    {
-                        current_value_track_scroll.set(new_value);
-                        handler_scroll_track(new_value, window, cx);
-                        if let Some(ref commit) = commit_track_scroll {
-                            commit(new_value, window, cx);
-                        }
-                    }
-                });
-            }
-        }
-
-        // Track with optional tick marks
+        // Track with optional tick marks, else min/max scale markers.
         if show_ticks {
-            // Calculate label width for alignment (find widest label)
-            let label_width = ticks
-                .iter()
-                .filter_map(|t| t.label.as_ref())
-                .map(|l| l.len())
-                .max()
-                .unwrap_or(2) as f32
-                * 7.0; // Approximate character width
-
-            let tick_mark_width = 6.0_f32; // Major tick width
-            let label_tick_gap = 3.0_f32; // Gap between label and tick
-            let label_height = 12.0_f32; // Approximate label height for centering
-
-            // Build tick marks container with absolute positioning
-            // Height matches track exactly for proper alignment
-            let mut ticks_container = div()
-                .relative()
-                .h(px(track_height))
-                .w(px(label_width + label_tick_gap + tick_mark_width));
-
-            for tick in ticks.iter() {
-                let pos = tick.normalized_pos as f32;
-                let tick_width = if tick.is_major { 6.0 } else { 3.0 };
-
-                // Calculate pixel position from top (inverted: 0=bottom, 1=top)
-                // pos=0 should be at bottom (top = track_height - label_height/2)
-                // pos=1 should be at top (top = -label_height/2)
-                let top_pos = (1.0 - pos) * track_height - label_height / 2.0;
-
-                // Create a tick row positioned from top, centered vertically
-                let tick_element = div()
-                    .absolute()
-                    .top(px(top_pos))
-                    .right_0()
-                    .h(px(label_height))
-                    .flex()
-                    .items_center()
-                    .gap(px(label_tick_gap))
-                    // Add label for major ticks
-                    .when(tick.label.is_some(), |d| {
-                        d.child(
-                            div()
-                                .text_xs()
-                                .text_color(scale_color)
-                                .min_w(px(label_width))
-                                .text_right()
-                                .child(tick.label.clone().unwrap_or_default()),
-                        )
-                    })
-                    // Tick mark
-                    .child(div().w(px(tick_width)).h(px(1.0)).bg(scale_color));
-
-                ticks_container = ticks_container.child(tick_element);
-            }
-
-            // Build right-side tick marks (no labels, just tick marks)
-            let mut ticks_right = div().relative().h(px(track_height)).w(px(tick_mark_width));
-
-            for tick in ticks.iter() {
-                let pos = tick.normalized_pos as f32;
-                let tick_width = if tick.is_major { 6.0 } else { 3.0 };
-                let top_pos = (1.0 - pos) * track_height - label_height / 2.0;
-
-                let tick_element = div()
-                    .absolute()
-                    .top(px(top_pos))
-                    .left_0()
-                    .h(px(label_height))
-                    .flex()
-                    .items_center()
-                    .child(div().w(px(tick_width)).h(px(1.0)).bg(scale_color));
-
-                ticks_right = ticks_right.child(tick_element);
-            }
-
-            // Wrap track and ticks in HStack (left ticks - track - right ticks)
-            container = container.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(2.0))
-                    .child(ticks_container)
-                    .child(track)
-                    .child(ticks_right),
-            );
+            container = container.child(build_track_with_ticks(
+                track,
+                &ticks,
+                track_height,
+                palette.scale,
+            ));
         } else {
             container = container.child(track);
-
-            // Scale markers (only when not showing ticks) - use abbreviated format
-            container = container.child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .w_full()
-                    .text_xs()
-                    .text_color(scale_color)
-                    .child(format_value_abbrev(min))
-                    .child(format_value_abbrev(max)),
-            );
+            container = container.child(build_scale_markers(
+                formatted_min,
+                formatted_max,
+                palette.scale,
+            ));
         }
 
         container
@@ -1084,6 +1319,21 @@ mod tests {
 
         let slider_unmatched = VerticalSlider::new("test").label("Gain").shortcut_key('z');
         assert_eq!(slider_unmatched.format_label(), "[Z] Gain");
+    }
+
+    #[test]
+    fn format_label_handles_multibyte_shortcuts() {
+        // ASCII key inside a multibyte label: byte-safe bracketing.
+        let slider = VerticalSlider::new("test").label("Écho").shortcut_key('c');
+        assert_eq!(slider.format_label(), "É[C]ho");
+
+        // Exact non-ASCII key match still brackets the right char.
+        let cjk = VerticalSlider::new("test").label("音量").shortcut_key('量');
+        assert_eq!(cjk.format_label(), "音[量]");
+
+        // Non-ASCII key with no exact match falls back to the prefix form.
+        let fallback = VerticalSlider::new("test").label("Écho").shortcut_key('é');
+        assert_eq!(fallback.format_label(), "[é] Écho");
     }
 
     #[test]

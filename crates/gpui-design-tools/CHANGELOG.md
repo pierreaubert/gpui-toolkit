@@ -1,3 +1,11 @@
+# Unreleased
+
+## Added
+
+- Added a `gpui_diff_design_tokens` binary plus compact token export,
+  borrowed (allocation-free) validation, DTCG format support, and a
+  `--durable` output mode.
+
 # 0.7.3
 
 ## Features

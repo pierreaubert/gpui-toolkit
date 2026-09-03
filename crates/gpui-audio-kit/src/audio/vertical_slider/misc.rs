@@ -1,7 +1,13 @@
 use gpui::SharedString;
 
 /// Format a value with abbreviated suffix (1k, 10k, etc.)
+///
+/// Non-finite values have no abbreviation; they render as-is (`NaN`, `inf`,
+/// `-inf`) instead of saturating an integer cast.
 pub(super) fn format_value_abbrev(value: f64) -> SharedString {
+    if !value.is_finite() {
+        return format!("{value}").into();
+    }
     let abs_value = value.abs();
     let sign = if value < 0.0 { "-" } else { "" };
 
@@ -83,6 +89,13 @@ mod tests {
     fn find_nice_step_falls_back_for_bad_inputs() {
         assert_eq!(find_nice_step(0.0, 5), 0.0);
         assert_eq!(find_nice_step(100.0, 1), 100.0);
+    }
+
+    #[test]
+    fn format_value_abbrev_renders_non_finite_as_is() {
+        assert_eq!(format_value_abbrev(f64::NAN), "NaN");
+        assert_eq!(format_value_abbrev(f64::INFINITY), "inf");
+        assert_eq!(format_value_abbrev(f64::NEG_INFINITY), "-inf");
     }
 
     #[test]

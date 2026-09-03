@@ -651,3 +651,71 @@ fn test_validate_range_log_zero_max() {
         })
     ));
 }
+
+/// Golden SVG coverage for the top-risk `build()` paths via the static-export
+/// harness (`to_svg`). Exports must be deterministic and carry the series
+/// geometry; these goldens catch regressions in the god-function builds for
+/// line, scatter, bar, and heatmap charts.
+#[cfg(feature = "gpui")]
+#[test]
+fn test_golden_line_svg_is_deterministic_and_carries_series() {
+    let chart = crate::line(&[0.0, 1.0, 2.0], &[0.0, 1.0, 4.0])
+        .title("Golden line")
+        .label("quadratic");
+    let first = chart.to_svg().expect("line svg exports");
+    let second = chart.to_svg().expect("line svg is deterministic");
+    assert_eq!(first, second);
+    assert!(first.starts_with("<svg"), "svg header missing");
+    assert!(first.trim_end().ends_with("</svg>"));
+    // Series polyline and default Plotly-blue stroke survive the export.
+    assert!(first.contains("<polyline"), "line series polyline missing");
+    assert!(first.contains("1f77b4"), "series color missing");
+    assert!(first.contains("Golden line"), "title missing");
+    // One quadratic series: exactly one line-series group marker.
+    assert_eq!(first.matches("class=\"gpui-px-line\"").count(), 1);
+}
+
+#[cfg(feature = "gpui")]
+#[test]
+fn test_golden_scatter_svg_marks_every_datum() {
+    let chart =
+        crate::scatter(&[1.0, 2.0, 3.0, 4.0], &[2.0, 4.0, 6.0, 8.0]).title("Golden scatter");
+    let first = chart.to_svg().expect("scatter svg exports");
+    assert_eq!(first, chart.to_svg().expect("scatter svg is deterministic"));
+    assert!(first.starts_with("<svg"));
+    assert!(first.contains("Golden scatter"));
+    // Four data points render as four circle marks.
+    assert_eq!(first.matches("<circle").count(), 4);
+}
+
+#[cfg(feature = "gpui")]
+#[test]
+fn test_golden_bar_svg_renders_every_category() {
+    let chart = crate::bar(&["a", "b", "c"], &[1.0, 2.0, 3.0]).title("Golden bars");
+    let first = chart.to_svg().expect("bar svg exports");
+    assert_eq!(first, chart.to_svg().expect("bar svg is deterministic"));
+    assert!(first.starts_with("<svg"));
+    assert!(first.contains("Golden bars"));
+    // Three categories render as three bar rects inside the series group.
+    assert!(first.matches("<rect").count() >= 3);
+}
+
+#[cfg(feature = "gpui")]
+#[test]
+fn test_golden_heatmap_svg_covers_full_grid() {
+    let chart = crate::heatmap(&[0.0, 0.5, 1.0, 0.25], 2, 2).title("Golden heatmap");
+    let first = chart.to_svg().expect("heatmap svg exports");
+    assert_eq!(first, chart.to_svg().expect("heatmap svg is deterministic"));
+    assert!(first.starts_with("<svg"));
+    assert!(first.contains("Golden heatmap"));
+    // All four cells of the 2x2 grid are painted.
+    assert!(first.matches("<rect").count() >= 4);
+}
+
+#[cfg(feature = "gpui")]
+#[test]
+fn test_golden_exports_reject_invalid_data() {
+    assert!(crate::line(&[f64::NAN], &[1.0]).to_svg().is_err());
+    assert!(crate::scatter(&[1.0], &[1.0, 2.0]).to_svg().is_err());
+    assert!(crate::bar(&["a"], &[]).to_svg().is_err());
+}

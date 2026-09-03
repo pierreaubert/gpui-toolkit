@@ -1,5 +1,11 @@
 # Unreleased
 
+## Added
+
+- Split iOS window internals into `touch` and `renderer` modules with full
+  accessibility support, and added `haptics`, `local_auth`, and
+  `notifications` modules plus a momentum bench.
+
 ## 0.9.12 - 2026-08-23
 
 ### Performance

@@ -50,23 +50,27 @@ impl Showcase {
                         VStack::new()
                             .spacing(StackSpacing::Sm)
                             .child(Text::new("Tiny (50px)").weight(TextWeight::Medium))
-                            .child(
-                                self.animated_qr_tiny
-                                    .as_ref()
-                                    .expect("QR section initializes the animated QR entities")
-                                    .clone(),
-                            ),
+                            .child(self.animated_qr_tiny.as_ref().map_or_else(
+                                || {
+                                    Text::new("QR preview unavailable.")
+                                        .muted(true)
+                                        .into_any_element()
+                                },
+                                |entity| entity.clone().into_any_element(),
+                            )),
                     )
                     .child(
                         VStack::new()
                             .spacing(StackSpacing::Sm)
                             .child(Text::new("Small (80px)").weight(TextWeight::Medium))
-                            .child(
-                                self.animated_qr_small
-                                    .as_ref()
-                                    .expect("QR section initializes the animated QR entities")
-                                    .clone(),
-                            ),
+                            .child(self.animated_qr_small.as_ref().map_or_else(
+                                || {
+                                    Text::new("QR preview unavailable.")
+                                        .muted(true)
+                                        .into_any_element()
+                                },
+                                |entity| entity.clone().into_any_element(),
+                            )),
                     )
                     .child(
                         VStack::new()
