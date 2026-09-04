@@ -673,34 +673,27 @@ fn walk_optimal_multi_chunk(
         // Build a zero-copy view over this chunk's segment range.
         let chunk_start = chunk.start_segment_index;
         let chunk_end = chunk.end_segment_index;
-        let sub_prepared =
-            prepared.slice(chunk_start, chunk_end, chunk.consumed_end_segment_index);
+        let sub_prepared = prepared.slice(chunk_start, chunk_end, chunk.consumed_end_segment_index);
 
         let items = build_kp_items(&sub_prepared, profile, params);
 
-        let result =
-            knuth_plass_chunk(&items, max_width, params, params.tolerance).or_else(|| {
-                if params.looseness_recovery {
-                    // Retry with progressively larger tolerance.
-                    for extra in [2.0, 4.0, 8.0, 16.0] {
-                        let result = knuth_plass_chunk(
-                            &items,
-                            max_width,
-                            params,
-                            params.tolerance + extra,
-                        );
-                        if result.is_some() {
-                            return result;
-                        }
+        let result = knuth_plass_chunk(&items, max_width, params, params.tolerance).or_else(|| {
+            if params.looseness_recovery {
+                // Retry with progressively larger tolerance.
+                for extra in [2.0, 4.0, 8.0, 16.0] {
+                    let result =
+                        knuth_plass_chunk(&items, max_width, params, params.tolerance + extra);
+                    if result.is_some() {
+                        return result;
                     }
                 }
-                None
-            });
+            }
+            None
+        });
 
         match result {
             Some(mut breaks) => {
-                let mut collect =
-                    |line: &InternalLayoutLine| pending_lines.push(*line);
+                let mut collect = |line: &InternalLayoutLine| pending_lines.push(*line);
                 let mut on_pending_line: Option<&mut dyn FnMut(&InternalLayoutLine)> =
                     Some(&mut collect);
                 // Remap chunk-local breakpoints to global coordinates in
@@ -709,12 +702,8 @@ fn walk_optimal_multi_chunk(
                 breaks.remap_segments(chunk_start);
                 breaks.set_last_break((chunk.consumed_end_segment_index, 0));
 
-                total_lines += breakpoints_to_lines(
-                    prepared,
-                    profile,
-                    &breaks,
-                    &mut on_pending_line,
-                );
+                total_lines +=
+                    breakpoints_to_lines(prepared, profile, &breaks, &mut on_pending_line);
             }
             None => {
                 // Fall back to greedy for the entire paragraph.

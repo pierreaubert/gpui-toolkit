@@ -4,6 +4,8 @@
 
 - Split the solver pass (`solve`) for readability and added `child_info`
   unit tests covering priority collapse.
+- Added empty `gpu-2d`/`gpu-3d` feature flags for workspace feature
+  unification.
 
 ## Fixed
 

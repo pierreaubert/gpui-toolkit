@@ -578,18 +578,9 @@ fn density_tiers_round_trip_and_scale() {
     assert_eq!(DensityTier::Medium.scale(), 1.0);
     assert_eq!(DensityTier::Expanded.scale(), 1.1);
 
-    assert_eq!(
-        DesignSystem::fluent().spacing.density,
-        DensityTier::Compact
-    );
-    assert_eq!(
-        DesignSystem::breeze().spacing.density,
-        DensityTier::Compact
-    );
-    assert_eq!(
-        DesignSystem::carbon().spacing.density,
-        DensityTier::Compact
-    );
+    assert_eq!(DesignSystem::fluent().spacing.density, DensityTier::Compact);
+    assert_eq!(DesignSystem::breeze().spacing.density, DensityTier::Compact);
+    assert_eq!(DesignSystem::carbon().spacing.density, DensityTier::Compact);
     assert_eq!(
         DesignSystem::material3().spacing.density,
         DensityTier::Medium

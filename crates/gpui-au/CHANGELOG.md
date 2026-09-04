@@ -6,6 +6,11 @@
   entries (plus `gpui_au.h` declarations) for host parameter exchange.
 - Cleaned up `NSLog` hygiene and added renderer safety counters.
 
+## Refactored
+
+- Normalized formatting across FFI, params, and window modules; no behavior
+  change.
+
 ## 0.9.8 - 2026-08-23
 
 ### Performance

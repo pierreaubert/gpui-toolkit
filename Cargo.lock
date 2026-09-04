@@ -2899,7 +2899,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-au"
-version = "0.9.9"
+version = "0.9.10"
 dependencies = [
  "anyhow",
  "core-foundation 0.10.0",
@@ -2922,7 +2922,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-audio-kit"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "gpui-d3rs",
  "gpui-design",
@@ -2934,7 +2934,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-builder"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "criterion 0.8.2",
  "gpui-design",
@@ -2952,7 +2952,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-component-lab"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -2976,7 +2976,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-d3rs"
-version = "0.9.16"
+version = "0.9.17"
 dependencies = [
  "approx",
  "autoeq",
@@ -3019,7 +3019,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-design"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "gpui-toolkit-gpui",
  "serde",
@@ -3028,7 +3028,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-design-tools"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -3044,6 +3044,7 @@ version = "0.1.2"
 dependencies = [
  "gpui-miniapp",
  "gpui-toolkit-gpui",
+ "js-sys",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
@@ -3051,7 +3052,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ios"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "anyhow",
  "block2 0.6.2",
@@ -3089,7 +3090,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-miniapp"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "console_error_panic_hook",
  "gpui-android",
@@ -3108,7 +3109,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-pretext"
-version = "0.9.10"
+version = "0.9.11"
 dependencies = [
  "criterion 0.8.2",
  "gpui-profiler",
@@ -3128,7 +3129,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-px"
-version = "0.9.12"
+version = "0.9.13"
 dependencies = [
  "autoeq",
  "criterion 0.8.2",
@@ -3199,7 +3200,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-showcase"
-version = "0.9.4"
+version = "0.9.5"
 dependencies = [
  "gpui-audio-kit",
  "gpui-builder",
@@ -3254,7 +3255,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-themes"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "gpui-design",
  "gpui-miniapp",
@@ -3730,7 +3731,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit"
-version = "0.9.41"
+version = "0.9.42"
 dependencies = [
  "block2 0.6.2",
  "criterion 0.8.2",
@@ -3755,7 +3756,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit-macros"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "proc-macro2",
  "quote",

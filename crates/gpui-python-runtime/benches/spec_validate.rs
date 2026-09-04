@@ -10,9 +10,7 @@
 //! `cargo bench -p gpui-python-runtime --bench spec_validate -- --save-baseline main`.
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use gpui_python_runtime::mesh_frames::{
-    MeshDtype, MeshFrame, MeshFrameKind, MeshFrameStore,
-};
+use gpui_python_runtime::mesh_frames::{MeshDtype, MeshFrame, MeshFrameKind, MeshFrameStore};
 use gpui_python_runtime::meshplot::MeshPlotSpec;
 use std::hint::black_box;
 

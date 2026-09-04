@@ -9,6 +9,11 @@
 
 - Corrected tick rendering and slider value mapping edge cases.
 
+## Refactored
+
+- Reworked potentiometer knob rendering around cached tick lines/labels, a
+  value arc, and a centered value display; no behavior change.
+
 ## 0.9.6 - 2026-08-23
 
 ### Performance

@@ -647,32 +647,17 @@ impl InputEntity {
         }
     }
 
-    fn handle_key_down(
+    /// Clipboard and undo shortcuts (platform or ctrl modifier).
+    fn handle_clipboard_key(
         &mut self,
-        event: &KeyDownEvent,
+        key: &str,
+        shift: bool,
+        ctrl: bool,
+        cmd: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
-        if !self.focus_handle.is_focused(window) && !self.edit_state.borrow().editing {
-            return;
-        }
-        if event.keystroke.key.as_str() == "tab" {
-            return;
-        }
-        let key = event.keystroke.key.as_str();
-        let ctrl = event.keystroke.modifiers.control;
-        let cmd = event.keystroke.modifiers.platform;
-        let alt = event.keystroke.modifiers.alt;
-        let shift = event.keystroke.modifiers.shift;
-
+    ) -> bool {
         let mut state = self.edit_state.borrow_mut();
-        if !state.editing {
-            state.text = self.props.value.to_string();
-            state.editing = true;
-            state.cursor = state.text.chars().count();
-            state.clear_selection();
-        }
-
         // Platform modifier handles clipboard shortcuts and select-all. Keep
         // ctrl+a available for the Emacs start-of-line binding below.
         if (cmd && matches!(key, "c" | "x" | "v" | "a" | "z" | "y"))
@@ -682,17 +667,17 @@ impl InputEntity {
             match key {
                 "c" => {
                     if self.props.password {
-                        return;
+                        return true;
                     }
                     if let Some(selected) = state.get_selected_text() {
                         drop(state);
                         cx.write_to_clipboard(ClipboardItem::new_string(selected));
                     }
-                    return;
+                    return true;
                 }
                 "x" => {
                     if self.props.password {
-                        return;
+                        return true;
                     }
                     if let Some(selected) = state.get_selected_text() {
                         cx.write_to_clipboard(ClipboardItem::new_string(selected));
@@ -703,7 +688,7 @@ impl InputEntity {
                         drop(state);
                         window.refresh();
                     }
-                    return;
+                    return true;
                 }
                 "v" => {
                     if let Some(clipboard) = cx.read_from_clipboard()
@@ -716,7 +701,7 @@ impl InputEntity {
                         drop(state);
                         window.refresh();
                     }
-                    return;
+                    return true;
                 }
                 "a" => {
                     state.select_all();
@@ -724,7 +709,7 @@ impl InputEntity {
                     drop(state);
                     self.emit_selection_change(selection, window, cx);
                     window.refresh();
-                    return;
+                    return true;
                 }
                 "z" => {
                     let changed = if shift { state.redo() } else { state.undo() };
@@ -735,7 +720,7 @@ impl InputEntity {
                         self.emit_selection_change(selection, window, cx);
                         window.refresh();
                     }
-                    return;
+                    return true;
                 }
                 "y" if ctrl => {
                     if state.redo() {
@@ -745,12 +730,24 @@ impl InputEntity {
                         self.emit_selection_change(selection, window, cx);
                         window.refresh();
                     }
-                    return;
+                    return true;
                 }
-                _ => {}
+                _ => return false,
             }
         }
+        false
+    }
 
+    /// Cmd+left/right line jumps (macOS); shift extends the selection.
+    fn handle_line_jump_key(
+        &mut self,
+        key: &str,
+        shift: bool,
+        cmd: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let mut state = self.edit_state.borrow_mut();
         // cmd+left/right — line start/end (macOS); cmd+shift extends selection
         if cmd && matches!(key, "left" | "right") {
             cx.stop_propagation();
@@ -771,9 +768,21 @@ impl InputEntity {
             drop(state);
             self.emit_selection_change(selection, window, cx);
             window.refresh();
-            return;
+            return true;
         }
+        false
+    }
 
+    /// Alt+left/right word jumps; shift extends the selection.
+    fn handle_word_jump_key(
+        &mut self,
+        key: &str,
+        shift: bool,
+        alt: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let mut state = self.edit_state.borrow_mut();
         // alt+left/right — word jump; alt+shift extends selection
         if alt && matches!(key, "left" | "right") {
             cx.stop_propagation();
@@ -794,9 +803,20 @@ impl InputEntity {
             drop(state);
             self.emit_selection_change(selection, window, cx);
             window.refresh();
-            return;
+            return true;
         }
+        false
+    }
 
+    /// Alt+backspace / alt+d word kill.
+    fn handle_kill_word_key(
+        &mut self,
+        key: &str,
+        alt: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let mut state = self.edit_state.borrow_mut();
         // alt+backspace / alt+d — kill word
         if alt && matches!(key, "backspace" | "d") {
             cx.stop_propagation();
@@ -809,7 +829,7 @@ impl InputEntity {
                     }
                     drop(state);
                     window.refresh();
-                    return;
+                    return true;
                 }
                 "d" => {
                     state.kill_word_forward();
@@ -818,12 +838,24 @@ impl InputEntity {
                     }
                     drop(state);
                     window.refresh();
-                    return;
+                    return true;
                 }
                 _ => {}
             }
         }
+        false
+    }
 
+    /// Emacs ctrl bindings.
+    fn handle_emacs_key(
+        &mut self,
+        key: &str,
+        shift: bool,
+        ctrl: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let mut state = self.edit_state.borrow_mut();
         // Emacs ctrl bindings
         if ctrl
             && matches!(
@@ -871,11 +903,26 @@ impl InputEntity {
             }
             drop(state);
             window.refresh();
-            return;
+            return true;
         }
+        false
+    }
 
+    /// Unmodified keys: commit, escape, editing, navigation, text entry.
+    fn handle_plain_key(
+        &mut self,
+        key: &str,
+        event: &KeyDownEvent,
+        shift: bool,
+        ctrl: bool,
+        cmd: bool,
+        alt: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let mut state = self.edit_state.borrow_mut();
         if ctrl || cmd || alt {
-            return;
+            return false;
         }
 
         if !matches!(
@@ -883,7 +930,7 @@ impl InputEntity {
             "enter" | "escape" | "backspace" | "delete" | "left" | "right" | "home" | "end"
         ) && keystroke_to_char(&event.keystroke).is_none()
         {
-            return;
+            return false;
         }
         cx.stop_propagation();
 
@@ -969,9 +1016,59 @@ impl InputEntity {
                     }
                     drop(state);
                     window.refresh();
+                } else {
+                    return false;
                 }
             }
         }
+        true
+    }
+
+    fn handle_key_down(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.focus_handle.is_focused(window) && !self.edit_state.borrow().editing {
+            return;
+        }
+        if event.keystroke.key.as_str() == "tab" {
+            return;
+        }
+        let key = event.keystroke.key.as_str();
+        let ctrl = event.keystroke.modifiers.control;
+        let cmd = event.keystroke.modifiers.platform;
+        let alt = event.keystroke.modifiers.alt;
+        let shift = event.keystroke.modifiers.shift;
+
+        let mut state = self.edit_state.borrow_mut();
+        if !state.editing {
+            state.text = self.props.value.to_string();
+            state.editing = true;
+            state.cursor = state.text.chars().count();
+            state.clear_selection();
+        }
+        // Release the borrow: each key group below re-borrows on entry so
+        // `&mut self` handlers never alias a live edit borrow.
+        drop(state);
+
+        if self.handle_clipboard_key(key, shift, ctrl, cmd, window, cx) {
+            return;
+        }
+        if self.handle_line_jump_key(key, shift, cmd, window, cx) {
+            return;
+        }
+        if self.handle_word_jump_key(key, shift, alt, window, cx) {
+            return;
+        }
+        if self.handle_kill_word_key(key, alt, window, cx) {
+            return;
+        }
+        if self.handle_emacs_key(key, shift, ctrl, window, cx) {
+            return;
+        }
+        self.handle_plain_key(key, event, shift, ctrl, cmd, alt, window, cx);
     }
 
     fn set_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {

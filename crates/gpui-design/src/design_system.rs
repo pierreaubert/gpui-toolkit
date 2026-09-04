@@ -690,11 +690,7 @@ impl DesignSystem {
                 },
                 "string",
             ),
-            token(
-                "radius.flip_in_rtl",
-                self.corners.flip_in_rtl,
-                "boolean",
-            ),
+            token("radius.flip_in_rtl", self.corners.flip_in_rtl, "boolean"),
             token("spacing.grid_unit", self.spacing.grid_unit, "dimension"),
             token(
                 "spacing.control_padding_x",
@@ -713,16 +709,8 @@ impl DesignSystem {
                 self.spacing.card_padding,
                 "dimension",
             ),
-            token(
-                "spacing.density",
-                self.spacing.density.as_str(),
-                "string",
-            ),
-            token(
-                "spacing.flip_in_rtl",
-                self.spacing.flip_in_rtl,
-                "boolean",
-            ),
+            token("spacing.density", self.spacing.density.as_str(), "string"),
+            token("spacing.flip_in_rtl", self.spacing.flip_in_rtl, "boolean"),
             token(
                 "interaction.min_touch_target",
                 self.interaction.min_touch_target,
@@ -989,9 +977,7 @@ impl DesignSystem {
                 }
                 _ => {
                     out.push('"');
-                    out.push_str(
-                        &token.value.replace('\\', "\\\\").replace('"', "\\\""),
-                    );
+                    out.push_str(&token.value.replace('\\', "\\\\").replace('"', "\\\""));
                     out.push('"');
                 }
             }

@@ -33,7 +33,10 @@ const DELIBERATELY_UNCOVERED: &[(&str, &str)] = &[
     // (`src/input/types.rs`) and `Select` uses its own trigger token, so no
     // component consumes the global hover-border token. Kept (not removed)
     // so a future hover-border pass has a token to adopt.
-    ("border_hover", "global hover-border token reserved; see src/input/types.rs"),
+    (
+        "border_hover",
+        "global hover-border token reserved; see src/input/types.rs",
+    ),
 ];
 
 /// Global fields consumed by direct `Theme` reads instead of `from = ...`.
@@ -43,16 +46,8 @@ const DELIBERATELY_UNCOVERED: &[(&str, &str)] = &[
 /// the gate. Prefer `from = ...` mappings for new code — direct reads are
 /// grandfathered, not encouraged.
 const DIRECTLY_CONSUMED: &[(&str, &str, &str)] = &[
-    (
-        "badge_info_bg",
-        "src/badge.rs",
-        "theme.badge_info_bg",
-    ),
-    (
-        "badge_info_text",
-        "src/badge.rs",
-        "theme.badge_info_text",
-    ),
+    ("badge_info_bg", "src/badge.rs", "theme.badge_info_bg"),
+    ("badge_info_text", "src/badge.rs", "theme.badge_info_text"),
     ("code_text", "src/text/misc.rs", "theme.code_text"),
 ];
 
@@ -188,10 +183,7 @@ fn every_theme_field_is_consumed() {
         if covered.contains(field) || direct_covered.contains(field) {
             continue;
         }
-        if DELIBERATELY_UNCOVERED
-            .iter()
-            .any(|(name, _)| name == field)
-        {
+        if DELIBERATELY_UNCOVERED.iter().any(|(name, _)| name == field) {
             continue;
         }
         uncovered.push(*field);

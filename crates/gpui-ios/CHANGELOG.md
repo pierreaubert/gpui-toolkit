@@ -5,6 +5,8 @@
 - Split iOS window internals into `touch` and `renderer` modules with full
   accessibility support, and added `haptics`, `local_auth`, and
   `notifications` modules plus a momentum bench.
+- Capped the fallback atlas tile cache with LRU eviction (`MAX_TILES`),
+  verified via the sim-target build and device-lane tests.
 
 ## 0.9.12 - 2026-08-23
 

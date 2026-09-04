@@ -124,21 +124,19 @@ pub(crate) fn derive_component_variant_impl(input: TokenStream) -> TokenStream {
             };
             for meta in nested {
                 match meta {
-                    Meta::NameValue(nv) if nv.path.is_ident("name") => {
-                        match &nv.value {
-                            syn::Expr::Lit(lit) => match &lit.lit {
-                                Lit::Str(value) => str_name = value.value(),
-                                _ => errors.push(syn::Error::new(
-                                    nv.value.span(),
-                                    "`name` in #[variant(...)] must be a string literal",
-                                )),
-                            },
+                    Meta::NameValue(nv) if nv.path.is_ident("name") => match &nv.value {
+                        syn::Expr::Lit(lit) => match &lit.lit {
+                            Lit::Str(value) => str_name = value.value(),
                             _ => errors.push(syn::Error::new(
                                 nv.value.span(),
                                 "`name` in #[variant(...)] must be a string literal",
                             )),
-                        }
-                    }
+                        },
+                        _ => errors.push(syn::Error::new(
+                            nv.value.span(),
+                            "`name` in #[variant(...)] must be a string literal",
+                        )),
+                    },
                     other => errors.push(syn::Error::new(
                         other.span(),
                         "Unknown variant attribute; expected `name = \"...\"`",
@@ -151,9 +149,7 @@ pub(crate) fn derive_component_variant_impl(input: TokenStream) -> TokenStream {
             .attrs
             .iter()
             .any(|attr| attr.path().is_ident("default"));
-        if default_attr
-            && let Some(previous) = seen_default.replace(variant.ident.clone())
-        {
+        if default_attr && let Some(previous) = seen_default.replace(variant.ident.clone()) {
             errors.push(syn::Error::new(
                 variant.ident.span(),
                 format!("Multiple #[default] variants; `{previous}` is already the default"),

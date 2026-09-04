@@ -73,10 +73,9 @@ impl fmt::Display for AuStateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AuStateError::Empty => write!(f, "empty AU state payload"),
-            AuStateError::BadMagic { expected, found } => write!(
-                f,
-                "bad AU state magic {found:#x} (expected {expected:#x})"
-            ),
+            AuStateError::BadMagic { expected, found } => {
+                write!(f, "bad AU state magic {found:#x} (expected {expected:#x})")
+            }
             AuStateError::UnsupportedVersion { version } => {
                 write!(f, "unsupported AU state version {version}")
             }
@@ -509,10 +508,7 @@ mod tests {
             AuFullState::decode(&bytes[..bytes.len() - 1]),
             Err(AuStateError::Truncated { .. })
         ));
-        assert!(matches!(
-            AuFullState::decode(&[]),
-            Err(AuStateError::Empty)
-        ));
+        assert!(matches!(AuFullState::decode(&[]), Err(AuStateError::Empty)));
         let mut too_many = AuFullState::encode(&[]);
         too_many[8..12].copy_from_slice(&(AU_STATE_MAX_ENTRIES + 1).to_le_bytes());
         assert!(matches!(

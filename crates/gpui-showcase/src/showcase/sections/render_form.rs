@@ -155,8 +155,7 @@ impl Showcase {
                             .options(vec![
                                 RadioOption::new("radio-a", small),
                                 RadioOption::new("radio-b", medium),
-                                RadioOption::new("radio-c", large)
-                                .disabled(true),
+                                RadioOption::new("radio-c", large).disabled(true),
                             ])
                             .selected(radio_selected)
                             .on_change({

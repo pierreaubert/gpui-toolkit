@@ -11,6 +11,7 @@
 use crate::button::{Button, ButtonSize, ButtonVariant};
 use crate::progress::{Progress, ProgressSize, ProgressVariant};
 use crate::theme::ThemeExt;
+use crate::validation::{Validate, ValidationError};
 use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
 use gpui::{App, Div, ElementId, FontWeight, SharedString, Window, div, px};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -65,6 +66,59 @@ pub struct Wizard {
     on_back: Option<std::rc::Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
     /// Callback when next is clicked
     on_next: Option<std::rc::Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>>,
+}
+
+impl Validate for Wizard {
+    /// Validate the wizard step config.
+    ///
+    /// Reports `steps` when no steps are configured, `current_step` when it
+    /// points past the last step, `step_statuses` when the status list length
+    /// diverges from the step list, and `progress` when an async progress
+    /// value falls outside `0.0..=1.0`.
+    fn validate(&self) -> Result<(), Vec<ValidationError>> {
+        let mut errors = Vec::new();
+
+        if self.steps.is_empty() {
+            errors.push(ValidationError::new(
+                "steps",
+                "wizard requires at least one step",
+            ));
+        }
+        if !self.steps.is_empty() && self.current_step >= self.steps.len() {
+            errors.push(ValidationError::new(
+                "current_step",
+                format!(
+                    "current_step ({}) must be < steps len ({})",
+                    self.current_step,
+                    self.steps.len()
+                ),
+            ));
+        }
+        if self.step_statuses.len() != self.steps.len() {
+            errors.push(ValidationError::new(
+                "step_statuses",
+                format!(
+                    "step_statuses len ({}) must match steps len ({})",
+                    self.step_statuses.len(),
+                    self.steps.len()
+                ),
+            ));
+        }
+        if let Some(progress) = self.progress
+            && !(0.0..=1.0).contains(&progress)
+        {
+            errors.push(ValidationError::new(
+                "progress",
+                format!("progress ({progress}) must be within 0.0..=1.0"),
+            ));
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
 }
 
 impl Wizard {
@@ -525,5 +579,68 @@ impl IntoElement for Wizard {
 
     fn into_element(self) -> Self::Element {
         gpui::Component::new(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Validate, Wizard, WizardStep};
+
+    fn two_step_wizard() -> Wizard {
+        Wizard::new().steps(vec![
+            WizardStep::new("one", "One"),
+            WizardStep::new("two", "Two"),
+        ])
+    }
+
+    #[test]
+    fn fully_configured_wizard_passes_schema_validation() {
+        let wizard = two_step_wizard().current_step(1).progress(0.5);
+
+        assert!(wizard.validate().is_ok());
+        assert!(wizard.validate_first().is_ok());
+        assert!(wizard.is_valid());
+    }
+
+    #[test]
+    fn empty_wizard_reports_missing_steps() {
+        let wizard = Wizard::new();
+
+        let errors = wizard.validate().expect_err("wizard has no steps");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].field.as_ref(), "steps");
+        assert!(!wizard.is_valid());
+    }
+
+    #[test]
+    fn out_of_range_step_and_progress_collect_every_failure() {
+        let wizard = two_step_wizard().current_step(7).progress(1.5);
+
+        let errors = wizard.validate().expect_err("wizard config is invalid");
+        assert_eq!(errors.len(), 2);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.field.as_ref() == "current_step")
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.field.as_ref() == "progress")
+        );
+
+        let first = wizard
+            .validate_first()
+            .expect_err("first failure is an error");
+        assert_eq!(first.field.as_ref(), "current_step");
+    }
+
+    #[test]
+    fn mismatched_step_statuses_fail_schema_validation() {
+        let wizard = two_step_wizard().step_statuses(vec![crate::wizard::StepStatus::Active]);
+
+        let errors = wizard.validate().expect_err("statuses diverge from steps");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].field.as_ref(), "step_statuses");
     }
 }

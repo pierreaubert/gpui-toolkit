@@ -13,9 +13,7 @@ use crate::accessibility::{
 };
 use crate::theme::ThemeExt;
 use crate::{ComponentTheme, ComponentVariant};
-use gpui::prelude::{
-    InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled,
-};
+use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
 use gpui::{
     App, Div, ElementId, MouseButton, Pixels, Rgba, SharedString, Stateful, Window, div, px,
 };
@@ -246,9 +244,8 @@ impl RadioGroup {
         design: &DesignSystem,
     ) -> Stateful<Div> {
         let group_label = self.aria_label.clone().unwrap_or_default();
-        let group_props =
-            AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Radiogroup))
-                .maybe_state(self.disabled, AriaState::Disabled);
+        let group_props = AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Radiogroup))
+            .maybe_state(self.disabled, AriaState::Disabled);
         let circle = self.size.circle_with_design(design);
         let dot = circle - px(8.0);
         let gap = px(design.spacing.control_gap);
@@ -303,13 +300,8 @@ impl RadioGroup {
                 .border_color(border_color);
 
             if is_selected {
-                circle_el = circle_el.child(
-                    div()
-                        .w(dot)
-                        .h(dot)
-                        .rounded_full()
-                        .bg(theme.selected_dot),
-                );
+                circle_el =
+                    circle_el.child(div().w(dot).h(dot).rounded_full().bg(theme.selected_dot));
             }
 
             if !option_disabled {
@@ -354,12 +346,9 @@ impl RadioGroup {
                 if let Some(handler) = handler_rc.clone() {
                     let value = option.value.clone();
                     let click_handler = handler.clone();
-                    row = row.on_mouse_up(
-                        MouseButton::Left,
-                        move |_event, window, cx| {
-                            click_handler(value.clone(), window, cx);
-                        },
-                    );
+                    row = row.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
+                        click_handler(value.clone(), window, cx);
+                    });
                 }
             }
 
@@ -382,8 +371,7 @@ impl RadioGroup {
                     _ => None,
                 };
                 if let Some(direction) = direction
-                    && let Some(next) =
-                        step_enabled_index(&options, selected_index, direction)
+                    && let Some(next) = step_enabled_index(&options, selected_index, direction)
                     && let Some(option) = options.get(next)
                 {
                     handler(option.value.clone(), window, cx);
@@ -410,28 +398,17 @@ fn step_enabled_index(
         return None;
     }
     if direction == 0 {
-        return from.filter(|index| {
-            options
-                .get(*index)
-                .is_some_and(|option| !option.disabled)
-        });
+        return from.filter(|index| options.get(*index).is_some_and(|option| !option.disabled));
     }
     let len = options.len();
     let mut index = from.map_or_else(
         || {
-            if direction >= 0 {
-                0
-            } else {
-                len - 1
-            }
+            if direction >= 0 { 0 } else { len - 1 }
         },
         |current| (current as i32 + direction).rem_euclid(len as i32) as usize,
     );
     for _ in 0..len {
-        if options
-            .get(index)
-            .is_some_and(|option| !option.disabled)
-        {
+        if options.get(index).is_some_and(|option| !option.disabled) {
             return Some(index);
         }
         index = (index as i32 + direction).rem_euclid(len as i32) as usize;

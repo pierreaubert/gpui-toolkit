@@ -90,9 +90,13 @@ pub mod allocation_contracts {
         cx: &mut Context<Showcase>,
     ) {
         showcase.input_editing = true;
+        let Ok(keystroke) = gpui::Keystroke::parse("a") else {
+            showcase.input_editing = false;
+            return;
+        };
         showcase.handle_key_down(
             &KeyDownEvent {
-                keystroke: gpui::Keystroke::parse("a").expect("valid test keystroke"),
+                keystroke,
                 is_held: false,
                 prefer_character_input: false,
             },

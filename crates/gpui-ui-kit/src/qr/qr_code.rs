@@ -1,4 +1,4 @@
-use super::paint::rasterize_qr_image;
+use super::paint::cached_rasterize_qr_image;
 use super::{QrCodeError, QrCodeLimits};
 use crate::theme::ThemeExt;
 use gpui::prelude::{IntoElement, RenderOnce, Styled};
@@ -7,8 +7,8 @@ use qrcode::QrCode as QrMatrix;
 
 /// A QR code display component.
 ///
-/// Encodes a string at Medium error-correction level and renders each dark
-/// module as a filled rectangle scaled to the requested pixel size.
+/// Encodes a string at Medium error-correction level and paints the matrix
+/// as one cached bitmap, scaled on the GPU to the requested pixel size.
 ///
 /// # Example
 ///
@@ -110,7 +110,7 @@ impl QrCode {
     pub(super) fn build(self, fg_color: Rgba, bg_color: Rgba) -> impl IntoElement {
         let requested_size = self.size;
         let modules = self.modules;
-        let image = rasterize_qr_image(&self.colors, modules, fg_color, bg_color);
+        let image = cached_rasterize_qr_image(&self.colors, modules, fg_color, bg_color);
 
         canvas(
             move |_bounds, _window, _cx| image,

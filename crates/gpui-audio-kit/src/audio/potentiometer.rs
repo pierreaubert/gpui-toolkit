@@ -1206,6 +1206,72 @@ fn wire_pot_discrete(mut container: Stateful<Div>, h: &PotHandlers) -> Stateful<
     container
 }
 
+/// Knob graphic: container with cached tick lines/labels, value arc,
+/// knob shell, indicator, and centered value display.
+#[allow(clippy::too_many_arguments)]
+fn build_knob_graphic(
+    metrics: &DialMetrics,
+    tick_geometry: &PotentiometerTickGeometry,
+    palette: &KnobPalette,
+    renderers: DialRenderers,
+    arc_spec: &ArcSpec,
+    selected: bool,
+    accent: Rgba,
+    accent_muted: Rgba,
+    value_str_only: SharedString,
+    size: PotentiometerSize,
+    knob_border_width: f32,
+    knob_indicator_style: u8,
+) -> Div {
+    let mut knob_container = div()
+        .w(px(metrics.container_width))
+        .h(px(metrics.container_height))
+        .relative();
+
+    // Cached tick geometry/labels by (min, max, scale, size, unit); all
+    // tick lines paint in a single custom element instead of one div per dot.
+    knob_container =
+        knob_container.child(build_tick_lines(tick_geometry, metrics, palette, renderers));
+
+    // Add cached tick labels as div children.
+    for label_div in tick_label_divs(tick_geometry, metrics.center, palette.major_tick) {
+        knob_container = knob_container.child(label_div);
+    }
+
+    // Value arc — painted behind tick marks, around the knob
+    knob_container =
+        knob_container.child(build_value_arc(tick_geometry, metrics, arc_spec, renderers));
+
+    // Knob circle (offset to center in larger container).
+    // The border matches ticks and labels.
+    let ring = selected.then_some(accent_muted);
+    let mut knob = build_knob_shell(
+        tick_geometry,
+        metrics,
+        palette.knob_bg,
+        knob_border_width,
+        palette.major_tick,
+        ring,
+    );
+
+    // Indicator marker + current value in center of knob.
+    knob = knob.child(build_indicator(
+        metrics,
+        palette.indicator,
+        size,
+        selected,
+        knob_indicator_style,
+    ));
+    let value_display_color = if selected { accent } else { palette.value };
+    knob = knob.child(build_value_display(
+        value_str_only,
+        value_display_color,
+        size,
+    ));
+    knob_container = knob_container.child(knob);
+    knob_container
+}
+
 impl RenderOnce for Potentiometer {
     fn render(mut self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         self.register_accessible(cx);
@@ -1216,6 +1282,9 @@ impl RenderOnce for Potentiometer {
         let selected = self.selected;
         let disabled = self.disabled;
         let palette = KnobPalette::resolve(&theme, selected, self.size);
+        let size = self.size;
+        let knob_border_width = self.design_tokens.knob_border_width;
+        let knob_indicator_style = self.design_tokens.knob_indicator_style;
 
         // Use scale-aware normalization for indicator position
         let normalized = self.value_to_normalized(self.value) as f32;
@@ -1297,64 +1366,20 @@ impl RenderOnce for Potentiometer {
             renderer_2d: self.renderer_2d,
             vello_backend: self.vello_backend,
         };
-        let mut knob_container = div()
-            .w(px(metrics.container_width))
-            .h(px(metrics.container_height))
-            .relative();
-
-        // Cached tick geometry/labels by (min, max, scale, size, unit); all
-        // tick lines paint in a single custom element instead of one div per dot.
-        knob_container = knob_container.child(build_tick_lines(
-            &tick_geometry,
+        let mut knob_container = build_knob_graphic(
             &metrics,
+            &tick_geometry,
             &palette,
             renderers,
-        ));
-
-        // Add cached tick labels as div children.
-        for label_div in tick_label_divs(&tick_geometry, metrics.center, palette.major_tick) {
-            knob_container = knob_container.child(label_div);
-        }
-
-        // Value arc — painted behind tick marks, around the knob
-        knob_container = knob_container.child(build_value_arc(
-            &tick_geometry,
-            &metrics,
             &arc_spec,
-            renderers,
-        ));
-
-        // Knob circle (offset to center in larger container).
-        // The border matches ticks and labels.
-        let ring = selected.then_some(theme.accent_muted);
-        let mut knob = build_knob_shell(
-            &tick_geometry,
-            &metrics,
-            palette.knob_bg,
-            self.design_tokens.knob_border_width,
-            palette.major_tick,
-            ring,
-        );
-
-        // Indicator marker + current value in center of knob.
-        knob = knob.child(build_indicator(
-            &metrics,
-            palette.indicator,
-            self.size,
             selected,
-            self.design_tokens.knob_indicator_style,
-        ));
-        let value_display_color = if selected {
-            theme.accent
-        } else {
-            palette.value
-        };
-        knob = knob.child(build_value_display(
+            theme.accent,
+            theme.accent_muted,
             value_str_only,
-            value_display_color,
-            self.size,
-        ));
-        knob_container = knob_container.child(knob);
+            size,
+            knob_border_width,
+            knob_indicator_style,
+        );
 
         // Unit label at 6 o'clock position (270° standard = 90° screen,
         // bottom center), at the same radius as the tick labels.

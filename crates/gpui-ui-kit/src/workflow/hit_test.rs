@@ -1,6 +1,9 @@
 //! Hit testing for workflow canvas elements
 
-use super::bezier::{connection_path_into, horizontal_bezier};
+use super::bezier::{ObstacleRect, connection_path_into, horizontal_bezier};
+use super::canvas::{
+    CONNECTION_FLATTEN_TOLERANCE, CONNECTION_ROUTING_MARGIN, cached_connection_path_with_bounds,
+};
 use super::state::{
     Connection, ConnectionId, NodeId, Position, ViewportState, WorkflowGraph, WorkflowNodeData,
 };
@@ -66,6 +69,24 @@ impl HitTester {
         graph: &WorkflowGraph,
         viewport: &ViewportState,
     ) -> HitTestResult {
+        self.hit_test_with_viewport_and_obstacles(screen_point, graph, viewport, &[])
+    }
+
+    /// Hit test against obstacle-routed connection curves.
+    ///
+    /// `obstacles` are node bounding rects in screen coordinates, matching
+    /// what the canvas passes to connection routing at paint time. Detoured
+    /// connections are then hittable along their routed (rather than direct)
+    /// curves. Canvas mouse handlers can switch to this once they carry the
+    /// paint-time obstacle set; until then the plain entry point above keeps
+    /// behavior unchanged.
+    pub(crate) fn hit_test_with_viewport_and_obstacles(
+        &self,
+        screen_point: Position,
+        graph: &WorkflowGraph,
+        viewport: &ViewportState,
+        obstacles: &[ObstacleRect],
+    ) -> HitTestResult {
         // Test ports first (highest priority)
         // Port positions are calculated in screen coordinates for accurate hit testing
         for node in graph.nodes.values() {
@@ -95,7 +116,13 @@ impl HitTester {
 
         // Test connections (third priority) - in screen coordinates
         for conn in &graph.connections {
-            if self.point_on_connection_screen(screen_point, conn, graph, viewport) {
+            if self.point_on_connection_screen_with_obstacles(
+                screen_point,
+                conn,
+                graph,
+                viewport,
+                obstacles,
+            ) {
                 return HitTestResult::Connection(conn.id);
             }
         }
@@ -237,13 +264,20 @@ impl HitTester {
         false
     }
 
-    /// Check if a point is near a connection curve (screen coordinates)
-    fn point_on_connection_screen(
+    /// Check if a point is near an obstacle-routed connection curve (screen
+    /// coordinates).
+    ///
+    /// The flattened routed path and its exact bounding box come from the
+    /// canvas connection-path cache, so repeated hit tests over unchanged
+    /// geometry never re-flatten. A point outside the stored box (expanded
+    /// by the connection tolerance) returns false without walking segments.
+    fn point_on_connection_screen_with_obstacles(
         &self,
         point: Position,
         conn: &Connection,
         graph: &WorkflowGraph,
         viewport: &ViewportState,
+        obstacles: &[ObstacleRect],
     ) -> bool {
         let from_node = match graph.nodes.get(&conn.from_node) {
             Some(n) => n,
@@ -258,15 +292,22 @@ impl HitTester {
         let from_pos = self.port_screen_position(from_node, conn.from_port, false, viewport);
         let to_pos = self.port_screen_position(to_node, conn.to_port, true, viewport);
 
-        if !self.point_in_connection_bounds(point, from_pos, to_pos) {
+        // AABB pre-reject on the exact flattened-path bounds. With no
+        // obstacles this matches the direct bezier within flattening
+        // tolerance, so no separate control-hull check is needed here.
+        let entry = cached_connection_path_with_bounds(
+            from_pos,
+            to_pos,
+            obstacles,
+            CONNECTION_ROUTING_MARGIN,
+            CONNECTION_FLATTEN_TOLERANCE,
+        );
+        if !entry.contains_with_pad(point.x, point.y, self.connection_tolerance) {
             return false;
         }
 
-        // Get the connection path points (in screen coordinates)
-        let mut path_points = self.path_scratch.borrow_mut();
-        connection_path_into(from_pos, to_pos, 2.0, &mut path_points);
-
-        // Check if point is near any segment of the path
+        // Check if point is near any segment of the shared cached path
+        let path_points = entry.path();
         for i in 0..path_points.len().saturating_sub(1) {
             let p1 = &path_points[i];
             let p2 = &path_points[i + 1];
@@ -420,5 +461,94 @@ mod tests {
         let result =
             tester.hit_test_with_viewport(Position::new(300.0, 250.0), &graph, &zoomed_viewport);
         assert!(matches!(result, HitTestResult::Node(_)));
+    }
+
+    #[test]
+    fn obstacle_routed_connection_hit_follows_detour() {
+        use super::super::bezier::{ObstacleRect, connection_path, connection_path_avoiding};
+        use super::super::canvas::cached_connection_path_with_bounds;
+        use std::sync::Arc;
+
+        let mut graph = WorkflowGraph::new();
+        let node1 = WorkflowNodeData::new("A", Position::new(0.0, 0.0))
+            .with_ports(1, 1)
+            .with_size(100.0, 60.0);
+        let node2 = WorkflowNodeData::new("B", Position::new(300.0, 100.0))
+            .with_ports(1, 1)
+            .with_size(100.0, 60.0);
+        let id1 = graph.add_node(node1);
+        let id2 = graph.add_node(node2);
+        graph.add_connection(id1, 0, id2, 0).unwrap();
+
+        let tester = HitTester::new();
+        let viewport = ViewportState::default();
+        let from_node = graph.nodes.get(&id1).expect("node 1");
+        let to_node = graph.nodes.get(&id2).expect("node 2");
+        let from = tester.port_screen_position(from_node, 0, false, &viewport);
+        let to = tester.port_screen_position(to_node, 0, true, &viewport);
+
+        // Center an obstacle on a direct-curve sample so the direct path is
+        // guaranteed to collide and the router is forced onto a detour.
+        let direct = connection_path(from, to, 2.0);
+        assert!(direct.len() >= 2);
+        let anchor = direct[direct.len() / 2];
+        let obstacle = ObstacleRect::new(anchor.x - 30.0, anchor.y - 30.0, 60.0, 60.0);
+
+        // Pick the routed point farthest from the direct curve.
+        let routed = connection_path_avoiding(from, to, &[obstacle], 15.0, 2.0);
+        let clearance = |candidate: &Position| {
+            direct
+                .iter()
+                .map(|sample| candidate.distance(sample))
+                .fold(f32::INFINITY, f32::min)
+        };
+        let detour = routed
+            .iter()
+            .max_by(|a, b| {
+                clearance(a)
+                    .partial_cmp(&clearance(b))
+                    .expect("distances are finite")
+            })
+            .expect("routed path is non-empty");
+        assert!(
+            clearance(detour) > 5.0,
+            "test detour should clear the direct curve by more than hit tolerance"
+        );
+
+        let conn = graph.connections.first().expect("one connection").clone();
+        assert!(tester.point_on_connection_screen_with_obstacles(
+            *detour,
+            &conn,
+            &graph,
+            &viewport,
+            &[obstacle],
+        ));
+        // The same point misses the direct curve tested without obstacles.
+        assert!(!tester.point_on_connection_screen_with_obstacles(
+            *detour,
+            &conn,
+            &graph,
+            &viewport,
+            &[],
+        ));
+
+        // Shared cache: repeated lookups return the identical entry whose
+        // stored box contains the detour and rejects far-away points.
+        let first = cached_connection_path_with_bounds(from, to, &[obstacle], 15.0, 2.0);
+        let second = cached_connection_path_with_bounds(from, to, &[obstacle], 15.0, 2.0);
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(first.contains_with_pad(detour.x, detour.y, 5.0));
+        assert!(!first.contains_with_pad(-500.0, -500.0, 5.0));
+
+        // A far-away point still resolves to canvas through the public API.
+        assert_eq!(
+            tester.hit_test_with_viewport_and_obstacles(
+                Position::new(-500.0, -500.0),
+                &graph,
+                &viewport,
+                &[obstacle],
+            ),
+            HitTestResult::Canvas
+        );
     }
 }

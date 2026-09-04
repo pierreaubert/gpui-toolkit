@@ -463,11 +463,19 @@ fn test_color_field_registry_is_cached_and_unique() {
     assert!(std::ptr::eq(first, second));
     assert!(!first.is_empty());
 
-    let probe = ColorField::new(ColorGroup::Base, "Probe", |t| t.background, |t, c| {
-        t.background = c;
-    });
+    let probe = ColorField::new(
+        ColorGroup::Base,
+        "Probe",
+        |t| t.background,
+        |t, c| {
+            t.background = c;
+        },
+    );
     assert_eq!(probe.name, "Probe");
-    assert_eq!((probe.getter)(&EditorTheme::dark()), EditorTheme::dark().background);
+    assert_eq!(
+        (probe.getter)(&EditorTheme::dark()),
+        EditorTheme::dark().background
+    );
 
     let mut names = std::collections::HashSet::new();
     for field in first {
@@ -499,11 +507,17 @@ fn test_rust_export_formats_alpha_and_non_finite_separator() {
     assert!(code.contains("Color::from_hex("));
 
     theme.separator_size = f32::INFINITY;
-    assert!(theme.to_rust_code().contains("separator_size: f32::INFINITY,"));
+    assert!(
+        theme
+            .to_rust_code()
+            .contains("separator_size: f32::INFINITY,")
+    );
     theme.separator_size = f32::NEG_INFINITY;
-    assert!(theme
-        .to_rust_code()
-        .contains("separator_size: f32::NEG_INFINITY,"));
+    assert!(
+        theme
+            .to_rust_code()
+            .contains("separator_size: f32::NEG_INFINITY,")
+    );
 }
 
 #[test]
@@ -532,7 +546,10 @@ fn test_css_variables_export_covers_core_and_aliases() {
     let css = theme.to_css_variables();
     assert!(css.starts_with(":root {"));
     assert!(css.ends_with("}\n"));
-    assert!(css.contains(&format!("--color-accent: {};", theme.accent.to_hex_string())));
+    assert!(css.contains(&format!(
+        "--color-accent: {};",
+        theme.accent.to_hex_string()
+    )));
     assert!(css.contains(&format!(
         "--palette-primary-main: {};",
         theme.accent.to_hex_string()
@@ -565,7 +582,10 @@ fn test_style_dictionary_tokens_round_trip() {
     for entry in colors {
         let name = entry.get("name").and_then(|n| n.as_str()).unwrap();
         let token = tokens.iter().find(|t| t.name == name).unwrap();
-        assert_eq!(entry.get("value").and_then(|v| v.as_str()).unwrap(), token.value);
+        assert_eq!(
+            entry.get("value").and_then(|v| v.as_str()).unwrap(),
+            token.value
+        );
         assert_eq!(
             entry.get("type").and_then(|v| v.as_str()).unwrap(),
             token.token_type
@@ -595,7 +615,10 @@ fn test_contrast_auto_fix_repairs_broken_theme() {
             _ => (broken.text_primary, broken.background),
         };
         assert!(contrast_ratio(issue.suggested, bg) >= WCAG_AA_MIN_RATIO);
-        assert_eq!(broken.suggested_contrast_fix(issue.pair), Some(issue.suggested));
+        assert_eq!(
+            broken.suggested_contrast_fix(issue.pair),
+            Some(issue.suggested)
+        );
         let _ = fg;
     }
     assert_eq!(broken.suggested_contrast_fix("bogus/pair"), None);

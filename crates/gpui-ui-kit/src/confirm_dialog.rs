@@ -75,6 +75,10 @@ pub struct ConfirmDialog {
     cancel_label: SharedString,
     focus_handle: Option<FocusHandle>,
     restore_focus_to: Option<FocusHandle>,
+    /// Trap Tab inside the dialog while it is focused (Radix-Dialog parity).
+    trap_focus: bool,
+    /// Focus handles that Tab/Shift+Tab cycle through while the trap is active.
+    trap_targets: Vec<FocusHandle>,
     on_confirm: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
     on_cancel: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
     aria_label: Option<SharedString>,
@@ -93,6 +97,8 @@ impl ConfirmDialog {
             cancel_label: "Cancel".into(),
             focus_handle: None,
             restore_focus_to: None,
+            trap_focus: true,
+            trap_targets: Vec::new(),
             on_confirm: None,
             on_cancel: None,
             aria_label: None,
@@ -139,6 +145,29 @@ impl ConfirmDialog {
     /// Set the focus handle to restore before confirm or cancel callbacks run.
     pub fn restore_focus_to(mut self, handle: FocusHandle) -> Self {
         self.restore_focus_to = Some(handle);
+        self
+    }
+
+    /// Trap Tab key presses inside the dialog while it is focused.
+    ///
+    /// Enabled by default. Requires [`Self::focus_handle`] for key handling.
+    pub fn trap_focus(mut self, trap: bool) -> Self {
+        self.trap_focus = trap;
+        self
+    }
+
+    /// Cycle Tab/Shift+Tab through these focus handles while the trap is active.
+    ///
+    /// Pass the handles of the dialog's interactive children. Requires
+    /// [`Self::focus_handle`] for key handling.
+    pub fn trap_targets(mut self, handles: impl IntoIterator<Item = FocusHandle>) -> Self {
+        self.trap_targets = handles.into_iter().collect();
+        self
+    }
+
+    /// Add one focus handle to the Tab trap cycle.
+    pub fn trap_target(mut self, handle: FocusHandle) -> Self {
+        self.trap_targets.push(handle);
         self
     }
 
@@ -218,13 +247,37 @@ impl ConfirmDialog {
             .overflow_hidden()
             .on_mouse_down(MouseButton::Left, |_event, _window, _cx| {});
 
+        let trap_focus = self.trap_focus;
+        let trap_targets = self.trap_targets;
+        // Tab trap without dismissal still needs a key handler when the caller
+        // registered trap targets; Escape dismissal keeps its existing gate.
         if let Some(handle) = focus_handle
-            && let Some(ref handler) = on_cancel_rc
+            && (on_cancel_rc.is_some() || (trap_focus && !trap_targets.is_empty()))
         {
-            let handler = handler.clone();
+            let handler = on_cancel_rc.clone();
             let restore_focus_to = restore_focus_to.clone();
             dialog = dialog.track_focus(&handle).focusable().on_key_down(
                 move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
+                    if trap_focus
+                        && event.keystroke.key.as_str() == "tab"
+                        && !trap_targets.is_empty()
+                    {
+                        let current = trap_targets
+                            .iter()
+                            .position(|target| target.is_focused(window));
+                        if let Some(index) = crate::focus::FocusTrap::cycle_index(
+                            trap_targets.len(),
+                            current,
+                            event.keystroke.modifiers.shift,
+                        ) {
+                            window.focus(&trap_targets[index], cx);
+                        }
+                        cx.stop_propagation();
+                        return;
+                    }
+                    let Some(handler) = handler.as_ref() else {
+                        return;
+                    };
                     if crate::interaction::overlay_key_action(
                         event.keystroke.key.as_str(),
                         handle.is_focused(window),
@@ -369,5 +422,16 @@ mod tests {
         assert_eq!(dialog.cancel_label.as_ref(), "Keep");
         assert!(dialog.on_confirm.is_some());
         assert!(dialog.on_cancel.is_some());
+    }
+
+    #[test]
+    fn confirm_dialog_traps_focus_by_default_without_targets() {
+        let dialog = ConfirmDialog::new("delete").on_cancel(|_, _| {});
+
+        assert!(dialog.trap_focus);
+        assert!(dialog.trap_targets.is_empty());
+
+        let relaxed = ConfirmDialog::new("plain").trap_focus(false);
+        assert!(!relaxed.trap_focus);
     }
 }

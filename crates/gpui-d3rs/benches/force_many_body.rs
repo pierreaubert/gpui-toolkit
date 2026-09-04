@@ -57,6 +57,40 @@ fn bench_many_body(c: &mut Criterion) {
     }
 
     group.finish();
+
+    // 10k-node tier (rec4): brute force is O(n^2) here (~50M pairs per
+    // tick); Barnes-Hut is the feasible path at this scale. Kept in a
+    // separate group with fewer samples so the tier stays runnable.
+    let mut big = c.benchmark_group("force_many_body_10k");
+    big.measurement_time(Duration::from_secs(5));
+    big.sample_size(10);
+    big.warm_up_time(Duration::from_millis(500));
+
+    let nodes = deterministic_nodes(10_000);
+
+    big.bench_function("brute_force", |b| {
+        b.iter_batched(
+            || clone_nodes(&nodes),
+            |clone| {
+                let mut force = ForceManyBody::new();
+                force.force(black_box(1.0), &clone);
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+
+    big.bench_function("barnes_hut", |b| {
+        b.iter_batched(
+            || clone_nodes(&nodes),
+            |clone| {
+                let mut force = ForceManyBody::new().theta(0.9);
+                force.force(black_box(1.0), &clone);
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+
+    big.finish();
 }
 
 criterion_group!(benches, bench_many_body);

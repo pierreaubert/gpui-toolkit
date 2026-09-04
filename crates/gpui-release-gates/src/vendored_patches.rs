@@ -771,9 +771,7 @@ mod tests {
                 .and_then(|name| name.to_str())
                 .expect("utf-8 crate directory name")
                 .to_string();
-            let known = vendored_patches()
-                .iter()
-                .any(|patch| patch.name == name);
+            let known = vendored_patches().iter().any(|patch| patch.name == name);
             if !known {
                 missing.push(name.clone());
             }

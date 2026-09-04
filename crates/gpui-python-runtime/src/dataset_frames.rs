@@ -280,6 +280,94 @@ impl DatasetFrame {
         }
         Ok(())
     }
+
+    /// Encode a JSON header line, the exact payload, and the framing newline,
+    /// mirroring [`MeshFrame::encode`](crate::mesh_frames::MeshFrame::encode).
+    /// This is the bytes ingest path alongside JSON specs: numpy-backed
+    /// buffers cross the session channel here without JSON expansion.
+    pub fn encode(&self) -> Vec<u8> {
+        let header = DatasetFrameHeader {
+            message_type: "dataset_frame",
+            resource_id: &self.resource_id,
+            generation: self.generation,
+            sequence: self.sequence,
+            chunk_count: self.chunk_count,
+            byte_length: self.payload.len(),
+            schema_fingerprint: &self.schema_fingerprint,
+            checksum: self.checksum,
+        };
+        let mut encoded = serde_json::to_vec(&header)
+            .expect("DatasetFrameHeader contains only infallible serde values");
+        encoded.push(b'\n');
+        encoded.extend_from_slice(&self.payload);
+        encoded.push(b'\n');
+        encoded
+    }
+
+    /// Decode a header and its already-separated raw payload. The declared
+    /// byte budget is enforced from the header alone, so an oversized peer
+    /// cannot force a large allocation before validation runs.
+    pub fn decode(header: &str, payload: &[u8]) -> Result<Self, DatasetFrameError> {
+        let header: DecodedDatasetFrameHeader = serde_json::from_str(header)
+            .map_err(|error| DatasetFrameError::Decode(error.to_string()))?;
+        if header.byte_length > MAX_DATASET_FRAME_BYTES {
+            return Err(DatasetFrameError::TooLarge);
+        }
+        let frame = header.into_frame(payload)?;
+        frame.validate()?;
+        Ok(frame)
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct DatasetFrameHeader<'a> {
+    #[serde(rename = "type")]
+    message_type: &'static str,
+    resource_id: &'a str,
+    generation: u64,
+    sequence: u32,
+    chunk_count: u32,
+    byte_length: usize,
+    schema_fingerprint: &'a str,
+    checksum: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct DecodedDatasetFrameHeader {
+    #[serde(rename = "type", default)]
+    message_type: Option<String>,
+    resource_id: String,
+    generation: u64,
+    sequence: u32,
+    chunk_count: u32,
+    byte_length: usize,
+    schema_fingerprint: String,
+    checksum: u64,
+}
+
+impl DecodedDatasetFrameHeader {
+    fn into_frame(self, payload: &[u8]) -> Result<DatasetFrame, DatasetFrameError> {
+        if let Some(message_type) = self.message_type
+            && message_type != "dataset_frame"
+        {
+            return Err(DatasetFrameError::Decode(format!(
+                "unexpected dataset frame type {message_type:?}"
+            )));
+        }
+        if self.byte_length != payload.len() {
+            return Err(DatasetFrameError::InvalidMetadata);
+        }
+        Ok(DatasetFrame {
+            resource_id: self.resource_id,
+            generation: self.generation,
+            sequence: self.sequence,
+            chunk_count: self.chunk_count,
+            byte_length: self.byte_length,
+            schema_fingerprint: self.schema_fingerprint,
+            checksum: self.checksum,
+            payload: payload.to_vec(),
+        })
+    }
 }
 
 #[derive(Debug, Default)]
@@ -1110,6 +1198,39 @@ impl DatasetFrameStore {
         self.bytes_used = self.bytes_used.saturating_sub(reclaimed);
         self.frames.insert(resource_id, completed);
         Ok(true)
+    }
+
+    /// Ingest raw Arrow IPC stream bytes (numpy-backed producers) alongside
+    /// the JSON-spec path. The bytes must decode as an Arrow IPC stream
+    /// within the frame budget; the stream is drained during validation so a
+    /// header-valid but truncated payload is rejected before it is stored.
+    /// Returns true only when this call makes a completed generation
+    /// available, matching [`DatasetFrameStore::ingest`].
+    pub fn ingest_arrow_ipc(
+        &mut self,
+        resource_id: &str,
+        generation: u64,
+        schema_fingerprint: &str,
+        ipc: &[u8],
+    ) -> Result<bool, DatasetFrameError> {
+        if ipc.len() > MAX_DATASET_FRAME_BYTES {
+            return Err(DatasetFrameError::TooLarge);
+        }
+        let reader = StreamReader::try_new(Cursor::new(ipc), None)
+            .map_err(|error| DatasetFrameError::Decode(error.to_string()))?;
+        for batch in reader {
+            batch.map_err(|error| DatasetFrameError::Decode(error.to_string()))?;
+        }
+        self.ingest(DatasetFrame {
+            resource_id: resource_id.into(),
+            generation,
+            sequence: 0,
+            chunk_count: 1,
+            byte_length: ipc.len(),
+            schema_fingerprint: schema_fingerprint.into(),
+            checksum: DatasetFrame::checksum(ipc),
+            payload: ipc.to_vec(),
+        })
     }
     pub fn get(&self, resource_id: &str) -> Option<&DatasetFrame> {
         self.frames.get(resource_id)
@@ -2873,6 +2994,116 @@ mod tests {
         frame.payload.push(0);
         frame.byte_length = frame.payload.len();
         assert_eq!(frame.validate(), Err(DatasetFrameError::ChecksumMismatch));
+    }
+    fn split_wire(bytes: &[u8]) -> (&str, &[u8]) {
+        let separator = bytes.iter().position(|byte| *byte == b'\n').unwrap();
+        let end = bytes.len() - 1;
+        (
+            std::str::from_utf8(&bytes[..separator]).unwrap(),
+            &bytes[separator + 1..end],
+        )
+    }
+    fn arrow_ipc_fixture() -> Vec<u8> {
+        let batch = RecordBatch::try_from_iter(vec![
+            ("id", Arc::new(Int64Array::from(vec![1, 2, 3])) as ArrayRef),
+            (
+                "label",
+                Arc::new(StringArray::from(vec!["a", "b", "c"])) as ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let mut encoded = Vec::new();
+        let mut writer = StreamWriter::try_new(&mut encoded, &batch.schema()).unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+        encoded
+    }
+    #[test]
+    fn wire_roundtrip_preserves_dataset_payload() {
+        let frame = frame(1, 0, 1, b"ARROW1");
+        let bytes = frame.encode();
+        let (header, payload) = split_wire(&bytes);
+        assert_eq!(DatasetFrame::decode(header, payload).unwrap(), frame);
+    }
+    #[test]
+    fn wire_decode_rejects_wrong_type_and_tampering() {
+        let frame = frame(1, 0, 1, b"ARROW1");
+        let bytes = frame.encode();
+        let (header, payload) = split_wire(&bytes);
+        let mut value: serde_json::Value = serde_json::from_str(header).unwrap();
+        value["type"] = serde_json::json!("mesh_frame");
+        assert!(matches!(
+            DatasetFrame::decode(&value.to_string(), payload),
+            Err(DatasetFrameError::Decode(_))
+        ));
+        let mut tampered = payload.to_vec();
+        tampered[0] ^= 0xff;
+        assert_eq!(
+            DatasetFrame::decode(header, &tampered),
+            Err(DatasetFrameError::ChecksumMismatch)
+        );
+        assert!(matches!(
+            DatasetFrame::decode("not json", payload),
+            Err(DatasetFrameError::Decode(_))
+        ));
+    }
+    #[test]
+    fn wire_decode_enforces_frame_budget_from_header() {
+        let header = serde_json::json!({
+            "type": "dataset_frame",
+            "resource_id": "events",
+            "generation": 1,
+            "sequence": 0,
+            "chunk_count": 1,
+            "byte_length": MAX_DATASET_FRAME_BYTES + 1,
+            "schema_fingerprint": "schema",
+            "checksum": 0,
+        });
+        assert_eq!(
+            DatasetFrame::decode(&header.to_string(), b"tiny"),
+            Err(DatasetFrameError::TooLarge)
+        );
+    }
+    #[test]
+    fn arrow_ipc_ingest_stores_bytes_for_preview() {
+        let ipc = arrow_ipc_fixture();
+        let mut store = DatasetFrameStore::default();
+        assert!(store.ingest_arrow_ipc("events", 1, "schema", &ipc).unwrap());
+        assert_eq!(store.get("events").unwrap().payload, ipc);
+        let rows = store
+            .preview_rows("events", &["id".to_string(), "label".to_string()], 0, 8)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                vec!["1".to_string(), "a".to_string()],
+                vec!["2".to_string(), "b".to_string()],
+                vec!["3".to_string(), "c".to_string()],
+            ]
+        );
+    }
+    #[test]
+    fn arrow_ipc_ingest_rejects_non_arrow_bytes() {
+        let mut store = DatasetFrameStore::default();
+        assert!(matches!(
+            store.ingest_arrow_ipc("events", 1, "schema", b"not arrow"),
+            Err(DatasetFrameError::Decode(_))
+        ));
+        assert!(matches!(
+            store.ingest_arrow_ipc("events", 1, "schema", b""),
+            Err(DatasetFrameError::Decode(_))
+        ));
+        assert!(store.get("events").is_none());
+    }
+    #[test]
+    fn arrow_ipc_ingest_enforces_frame_budget() {
+        let mut store = DatasetFrameStore::default();
+        let oversize = vec![0_u8; MAX_DATASET_FRAME_BYTES + 1];
+        assert_eq!(
+            store.ingest_arrow_ipc("events", 1, "schema", &oversize),
+            Err(DatasetFrameError::TooLarge)
+        );
     }
     #[test]
     fn store_assembles_out_of_order_chunks_only_when_complete() {

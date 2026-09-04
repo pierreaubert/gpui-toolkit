@@ -1,6 +1,6 @@
 [package]
 name = "gpui-themes"
-version = "0.9.7"
+version = "0.9.8"
 authors.workspace = true
 edition.workspace = true
 description = "Theme editor and management for GPUI applications"
@@ -13,6 +13,8 @@ categories = ["gui"]
 [features]
 default = []
 autoeq = []
+gpu-2d = []
+gpu-3d = []
 reqwest = []
 showcase = []
 spinorama = []

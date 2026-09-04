@@ -165,6 +165,13 @@ const FOCUS_INTEGRATION_ENTRIES: &[FocusIntegrationEntry] = &[
         release_requirement: "Keep focus_group tests green before release.",
     },
     FocusIntegrationEntry {
+        id: "focus-trap",
+        component: "FocusTrap",
+        status: FocusIntegrationStatus::PrimitiveReady,
+        evidence: "FocusTrap cycles Tab/Shift+Tab with wraparound across registered targets and stops propagation at the container boundary, with unit tests.",
+        release_requirement: "Keep focus trap tests green; pass dialog and modal focus targets through trap_targets.",
+    },
+    FocusIntegrationEntry {
         id: "forms",
         component: "Input, NumberInput, Select, Slider, Checkbox, Toggle",
         status: FocusIntegrationStatus::CoveredByComponentTests,
@@ -337,7 +344,7 @@ impl FocusGroup {
         }
     }
 
-    fn target_index(
+    pub(crate) fn target_index(
         target_count: usize,
         current_index: Option<usize>,
         movement: FocusMove,
@@ -382,7 +389,7 @@ impl FocusGroup {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FocusMove {
+pub(crate) enum FocusMove {
     First,
     Last,
     Next,
@@ -468,6 +475,133 @@ impl IntoElement for FocusGroup {
     }
 }
 
+/// A container that traps Tab cycling inside dialog/modal surfaces.
+///
+/// Unlike [`FocusGroup`] (roving arrow-key navigation with optional
+/// wraparound), `FocusTrap` always wraps: Tab on the last target moves to the
+/// first, Shift+Tab on the first moves to the last, and the key never
+/// propagates past the container boundary. Register the same focus handles
+/// the inner fields use via [`FocusTrap::focus_target`] or
+/// [`FocusTrap::focus_targets`]; with no targets the trap is a plain wrapper
+/// and does not intercept keyboard events.
+///
+/// Focus entry and restore remain the caller's job (focus the first target
+/// when opening the surface, restore on close, as `Dialog` does with
+/// `restore_focus_to`).
+pub struct FocusTrap {
+    id: ElementId,
+    children: Vec<AnyElement>,
+    focus_targets: Vec<FocusHandle>,
+    focus_handle: Option<FocusHandle>,
+}
+
+impl FocusTrap {
+    /// Create a new focus trap.
+    pub fn new(id: impl Into<ElementId>) -> Self {
+        Self {
+            id: id.into(),
+            children: Vec::new(),
+            focus_targets: Vec::new(),
+            focus_handle: None,
+        }
+    }
+
+    /// Set the focus handle tracked by this trap container.
+    pub fn focus_handle(mut self, handle: FocusHandle) -> Self {
+        self.focus_handle = Some(handle);
+        self
+    }
+
+    /// Set the focus handles that Tab/Shift+Tab cycle through with wraparound.
+    pub fn focus_targets(mut self, handles: impl IntoIterator<Item = FocusHandle>) -> Self {
+        self.focus_targets = handles.into_iter().collect();
+        self
+    }
+
+    /// Add one focus target to the trap cycle.
+    pub fn focus_target(mut self, handle: FocusHandle) -> Self {
+        self.focus_targets.push(handle);
+        self
+    }
+
+    /// Add a child element.
+    pub fn child(mut self, child: impl IntoElement) -> Self {
+        self.children.push(child.into_any_element());
+        self
+    }
+
+    /// Add multiple children.
+    pub fn children(mut self, children: impl IntoIterator<Item = impl IntoElement>) -> Self {
+        self.children
+            .extend(children.into_iter().map(|c| c.into_any_element()));
+        self
+    }
+
+    /// Compute the next trap index for a Tab (`shift == false`) or
+    /// Shift+Tab (`shift == true`) press, always wrapping around.
+    ///
+    /// Returns `None` when there are no targets. A missing current index
+    /// (focus outside the trap) enters at the first target for Tab and the
+    /// last target for Shift+Tab.
+    pub fn cycle_index(
+        target_count: usize,
+        current_index: Option<usize>,
+        shift: bool,
+    ) -> Option<usize> {
+        let movement = if shift {
+            FocusMove::Previous
+        } else {
+            FocusMove::Next
+        };
+        FocusGroup::target_index(target_count, current_index, movement, true)
+    }
+}
+
+impl RenderOnce for FocusTrap {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let focus_targets = self.focus_targets;
+
+        let focus_handle = self.focus_handle.unwrap_or_else(|| cx.focus_handle());
+
+        let mut container = div().id(self.id).track_focus(&focus_handle).focusable();
+
+        if !focus_targets.is_empty() {
+            container =
+                container.on_key_down(move |event: &KeyDownEvent, window: &mut Window, cx| {
+                    if event.keystroke.key.as_str() != "tab" {
+                        return;
+                    }
+                    let Some(target_index) = FocusTrap::cycle_index(
+                        focus_targets.len(),
+                        focus_targets
+                            .iter()
+                            .position(|target| target.is_focused(window)),
+                        event.keystroke.modifiers.shift,
+                    ) else {
+                        return;
+                    };
+
+                    window.focus(&focus_targets[target_index], cx);
+                    cx.stop_propagation();
+                });
+        }
+
+        for child in self.children {
+            container = container.child(child);
+        }
+
+        container
+    }
+}
+
+impl IntoElement for FocusTrap {
+    type Element = gpui::Component<Self>;
+
+    fn into_element(self) -> Self::Element {
+        gpui::Component::new(self)
+    }
+}
+
 /// Helper trait for adding focus group behavior to existing containers
 pub trait FocusGroupExt {
     /// Wrap this element in a focus group with vertical navigation
@@ -478,7 +612,7 @@ pub trait FocusGroupExt {
 mod tests {
     use super::{
         FOCUS_INTEGRATION_REPORT_TYPE, FOCUS_INTEGRATION_SCHEMA_VERSION, FocusDirection,
-        FocusGroup, FocusIntegrationStatus, FocusMove, focus_integration_report,
+        FocusGroup, FocusIntegrationStatus, FocusMove, FocusTrap, focus_integration_report,
     };
     use gpui::px;
 
@@ -615,6 +749,43 @@ mod tests {
         assert!(report.entries.iter().any(|entry| {
             entry.id == "focus-group" && entry.status == FocusIntegrationStatus::PrimitiveReady
         }));
+    }
+
+    #[test]
+    fn focus_trap_builder_covers_all_setters() {
+        let _ = FocusTrap::new("trap")
+            .child(gpui::div())
+            .children(vec![gpui::div(), gpui::div()]);
+    }
+
+    #[test]
+    fn focus_trap_cycles_tab_with_wraparound() {
+        assert_eq!(FocusTrap::cycle_index(0, None, false), None);
+        assert_eq!(FocusTrap::cycle_index(3, None, false), Some(0));
+        assert_eq!(FocusTrap::cycle_index(3, None, true), Some(2));
+        assert_eq!(FocusTrap::cycle_index(3, Some(0), false), Some(1));
+        assert_eq!(FocusTrap::cycle_index(3, Some(2), false), Some(0));
+        assert_eq!(FocusTrap::cycle_index(3, Some(0), true), Some(2));
+        assert_eq!(FocusTrap::cycle_index(3, Some(1), true), Some(0));
+        assert_eq!(FocusTrap::cycle_index(1, Some(0), false), Some(0));
+        assert_eq!(FocusTrap::cycle_index(1, Some(0), true), Some(0));
+    }
+
+    #[test]
+    fn focus_integration_report_lists_focus_trap_as_primitive_ready() {
+        let report = focus_integration_report();
+        let trap = report
+            .entries
+            .iter()
+            .find(|entry| entry.id == "focus-trap")
+            .expect("focus trap report entry");
+
+        assert_eq!(trap.status, FocusIntegrationStatus::PrimitiveReady);
+        assert!(
+            !report
+                .blocking_entries()
+                .any(|entry| entry.id == "focus-trap")
+        );
     }
 
     #[test]

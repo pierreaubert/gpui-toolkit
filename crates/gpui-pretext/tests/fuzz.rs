@@ -83,7 +83,8 @@ fn fuzz_analysis_bidi_breakpoints() {
         }
 
         // Pre-wrap must accept the same input without panicking.
-        let _ = gpui_pretext::analysis::analyze_text(&text, &analysis_profile, WhiteSpaceMode::PreWrap);
+        let _ =
+            gpui_pretext::analysis::analyze_text(&text, &analysis_profile, WhiteSpaceMode::PreWrap);
     }
 }
 

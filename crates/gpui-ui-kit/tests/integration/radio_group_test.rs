@@ -7,9 +7,7 @@ use gpui::{
     Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,
     VisualTestContext, Window, div,
 };
-use gpui_ui_kit::radio_group::{
-    RadioGroup, RadioGroupOrientation, RadioGroupSize, RadioOption,
-};
+use gpui_ui_kit::radio_group::{RadioGroup, RadioGroupOrientation, RadioGroupSize, RadioOption};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;

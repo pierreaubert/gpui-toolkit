@@ -5,6 +5,17 @@
 - Added a `deep_link` module for shareable lab URLs, window recovery for
   crashed sidebars, preview caches, and a preview-kind classifier.
 
+## Performance
+
+- Added a `prop_strings` cache built once per document set, replacing
+  per-render `SharedString` allocations in prop labels, option labels, and
+  variant select lists.
+
+## Fixed
+
+- Fixed the `story_file_names_are_stable` expectation to match the
+  lowercase-hex filename escaping (`.` encodes as `~2e`).
+
 # 0.7.2
 
 ## Features

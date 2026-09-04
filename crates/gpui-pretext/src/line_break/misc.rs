@@ -38,9 +38,7 @@ pub(super) fn is_simple_collapsible_space(kind: SegmentBreakKind) -> bool {
 pub(super) fn skipped_at_fresh_line_start(kind: SegmentBreakKind) -> bool {
     matches!(
         kind,
-        SegmentBreakKind::Space
-            | SegmentBreakKind::ZeroWidthBreak
-            | SegmentBreakKind::SoftHyphen
+        SegmentBreakKind::Space | SegmentBreakKind::ZeroWidthBreak | SegmentBreakKind::SoftHyphen
     )
 }
 

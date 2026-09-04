@@ -7,6 +7,10 @@
   badge).
 - Theme mode preference now live-resolves OS dark mode, and transitions
   honor the reduced-motion gate.
+- Added empty `gpu-2d`/`gpu-3d` feature flags for workspace feature
+  unification.
+- Checked `text_primary/background` before `text_on_accent/accent` in
+  `accessibility_issues` so the most common failure reports first.
 
 # 0.9.6 - 2026-08-23
 

@@ -12,7 +12,7 @@ use crate::mesh::gpu::{
     FieldRevision, GeometryRevision, MeshColorConfig, MeshGpuRenderer, RetainedMeshRenderer,
 };
 #[cfg(not(test))]
-use crate::mesh::upload_chunks;
+use crate::mesh::{BufferUploadCache, upload_chunks};
 use crate::mesh::{MeshUpload, expand_cell_shading};
 #[cfg(not(test))]
 use glam::Vec3Swizzles;
@@ -237,6 +237,12 @@ struct WgpuMesh3DResources {
     indices: wgpu::Buffer,
     edges: wgpu::Buffer,
     uniform: wgpu::Buffer,
+    /// Last uniforms uploaded via `queue.write_buffer`; camera-static frames
+    /// skip the queue write.
+    uniform_cache: BufferUploadCache,
+    /// Last orientation-triad vertices uploaded; static cameras skip the
+    /// queue write.
+    triad_cache: BufferUploadCache,
     bind_group: wgpu::BindGroup,
     surface_pipeline: wgpu::RenderPipeline,
     wire_pipeline: wgpu::RenderPipeline,
@@ -585,6 +591,8 @@ impl WgpuMesh3DResources {
             indices: index_buffer,
             edges: edge_buffer,
             uniform,
+            uniform_cache: BufferUploadCache::new(),
+            triad_cache: BufferUploadCache::new(),
             bind_group,
             surface_pipeline,
             wire_pipeline,
@@ -649,13 +657,20 @@ impl WgpuMesh3DResources {
         }
     }
 
-    fn write_triad(&self, ctx: &gpui_wgpu::WgpuContext, camera: &Camera3D) {
+    fn write_triad(&mut self, ctx: &gpui_wgpu::WgpuContext, camera: &Camera3D) {
         let vertices = triad_vertices(camera);
-        write_chunked_buffer(ctx, &self.triad, bytemuck::cast_slice(&vertices));
+        // Persistent buffer: the triad is camera-derived, so a static camera
+        // produces byte-identical vertices and skips the queue write.
+        if self
+            .triad_cache
+            .needs_write(bytemuck::cast_slice(&vertices))
+        {
+            write_chunked_buffer(ctx, &self.triad, bytemuck::cast_slice(&vertices));
+        }
     }
 
     fn write_uniform(
-        &self,
+        &mut self,
         ctx: &gpui_wgpu::WgpuContext,
         state: &crate::mesh::gpu::MeshSceneState,
         camera: &Camera3D,
@@ -703,8 +718,16 @@ impl WgpuMesh3DResources {
             ],
             isoline_color: [0.08, 0.10, 0.14, 1.0],
         };
-        ctx.queue
-            .write_buffer(&self.uniform, 0, bytemuck::bytes_of(&uniforms));
+        // Persistent buffer: skip the queue write when camera, range, and
+        // style are unchanged. Unobservable — the buffer already holds these
+        // exact bytes.
+        if self
+            .uniform_cache
+            .needs_write(bytemuck::bytes_of(&uniforms))
+        {
+            ctx.queue
+                .write_buffer(&self.uniform, 0, bytemuck::bytes_of(&uniforms));
+        }
     }
 }
 

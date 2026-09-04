@@ -98,7 +98,9 @@ fn bench_layout_with_lines(c: &mut Criterion) {
 fn bench_measure_cache_miss_cjk(c: &mut Criterion) {
     let measure = FixedWidthMeasure { char_width: 10.0 };
     // Distinct CJK segments defeat the cache: each iteration is a miss.
-    let texts: Vec<String> = (0..256).map(|i| format!("\u{6f22}\u{5b57}\u{6e2c}\u{8a66}{i}")).collect();
+    let texts: Vec<String> = (0..256)
+        .map(|i| format!("\u{6f22}\u{5b57}\u{6e2c}\u{8a66}{i}"))
+        .collect();
 
     c.bench_function("measurement/get_width_cache_miss_cjk", |b| {
         let mut cache = MeasureCache::new();
@@ -123,8 +125,7 @@ fn bench_measure_cache_miss_emoji(c: &mut Criterion) {
         let mut i = 0;
         b.iter(|| {
             i += 1;
-            let result =
-                cache.get_grapheme_widths(black_box(&texts[i % texts.len()]), &measure);
+            let result = cache.get_grapheme_widths(black_box(&texts[i % texts.len()]), &measure);
             black_box(&result);
         });
     });

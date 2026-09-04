@@ -4,6 +4,23 @@
 
 - Added `date_picker` and `scroll_area` components; extended `dialog`,
   `drag_list`, `input`, `i18n`, and `split_pane`.
+- Added a `validation` module (`ValidationError` for form validation).
+- Added accessibility node diffing (`accessibility_node_key`,
+  `diff_accessibility_nodes`, `AccessibilityTree::apply_snapshot`) so
+  unchanged trees skip snapshot rebuilds and native bridge exports.
+
+## Performance
+
+- Added a bounded shared QR raster cache: one native-resolution raster per
+  matrix/colors combination, scaled on the GPU at paint time.
+
+## Refactored
+
+- Split `TabsEntity::render` into a `tabs::tab_render` module (per-variant
+  builders), `Table::build` into `table::table_build` section builders,
+  `InputEntity::handle_key_down` into per-group handlers, and the workflow
+  canvas `render` into snapshot/layer/menu helpers — no behavior change
+  (disabled card-tab hover registration is now consistently skipped).
 
 ## Fixed
 

@@ -5,20 +5,20 @@ use super::deep_link::coerce_prop_value;
 use super::deep_link::encode_lab_deep_link;
 use super::deep_link::parse_lab_deep_link;
 use super::initial_lab_state::InitialLabState;
+use super::misc::StoryPreviewKind;
 use super::misc::button_variant;
 use super::misc::design_for_theme_preset;
 use super::misc::id_fragment;
 use super::misc::lab_id;
-use super::misc::prop_value_label;
-use super::misc::scatter_story_data;
-use super::misc::StoryPreviewKind;
 use super::misc::lock_recover;
 use super::misc::prop_number_label;
+use super::misc::prop_value_label;
+use super::misc::scatter_story_data;
 use super::misc::showcase_section_for_story_id;
 use super::misc::sidebar_window;
-use super::misc::story_preview_kind;
 use super::misc::spectrum_axis_magnitudes;
 use super::misc::spectrum_magnitudes;
+use super::misc::story_preview_kind;
 use super::misc::surface_colormap;
 use super::number::number_prop;
 use super::number::number_step;
@@ -51,7 +51,7 @@ use std::sync::Mutex;
 fn story_file_names_are_stable() {
     assert_eq!(
         story_file_name("audio-kit.potentiometer"),
-        "audio~2dkit~2dpotentiometer.story.json"
+        "audio~2dkit~2epotentiometer.story.json"
     );
     assert_ne!(story_file_name("a.b"), story_file_name("a-b"));
 }
@@ -462,6 +462,28 @@ fn sidebar_labels_are_built_from_documents() {
 }
 
 #[test]
+fn prop_strings_are_cached_from_documents() {
+    let mut story = ComponentStory::new("ui-kit.button", "gpui-ui-kit", "Button", "A button");
+    let mut variant = StoryProp::new(
+        "variant",
+        "Variant",
+        StoryPropValue::Text("Primary".into()),
+    );
+    variant.options = vec!["Primary".to_string(), "Ghost".to_string()];
+    story.props.push(variant);
+    let mut documents = BTreeMap::new();
+    documents.insert("ui-kit.button".to_string(), StoryDocument::new(story));
+    let cached = ComponentLab::build_prop_strings(&documents);
+    assert_eq!(cached.len(), 1);
+    let entry = &cached[&("ui-kit.button".to_string(), "variant".to_string())];
+    assert_eq!(entry.story_id, "ui-kit.button");
+    assert_eq!(entry.name, "variant");
+    assert_eq!(entry.label, "Variant");
+    assert_eq!(entry.option_label("Ghost"), "Ghost");
+    assert_eq!(entry.option_label("Missing"), "Missing");
+}
+
+#[test]
 fn cache_locks_recover_from_poison() {
     let mutex = Mutex::new(7u32);
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -642,7 +664,9 @@ fn deep_links_reject_bad_input() {
     assert_eq!(parse_lab_deep_link("?prop.variant=primary"), None);
     assert_eq!(parse_lab_deep_link("?story=%ZZ"), None);
     assert_eq!(
-        parse_lab_deep_link("story=px.line").expect("bare query").story_id,
+        parse_lab_deep_link("story=px.line")
+            .expect("bare query")
+            .story_id,
         "px.line"
     );
 }

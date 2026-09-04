@@ -197,8 +197,7 @@ mod tests {
 
     #[test]
     fn unknown_entry_id_executes_to_none() {
-        let output =
-            execute_packaging_entry("no-such-row").expect("unknown id is not an io error");
+        let output = execute_packaging_entry("no-such-row").expect("unknown id is not an io error");
         assert!(output.is_none());
     }
 

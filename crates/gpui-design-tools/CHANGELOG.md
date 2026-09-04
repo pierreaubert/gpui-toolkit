@@ -6,6 +6,11 @@
   borrowed (allocation-free) validation, DTCG format support, and a
   `--durable` output mode.
 
+## Refactored
+
+- Normalized formatting in the token validation and diff paths; no behavior
+  change.
+
 # 0.7.3
 
 ## Features

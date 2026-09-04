@@ -8,6 +8,8 @@
     "generate:core": "node generate.js",
     "generate:examples": "node generate_examples.js",
     "generate:observable": "node generate_observable_examples.js",
+    "generate:force": "node force_manybody.mjs",
+    "generate:gpu-diff": "node gpu_buffer_diff.mjs",
     "format": "npx prettier --write \"*.js\"",
     "upgrade": "npx npm-check-updates -u",
     "lint": "npx oxlint"

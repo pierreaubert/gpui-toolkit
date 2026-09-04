@@ -1,4 +1,6 @@
-use super::mini_app::{MiniApp, QUIT_KEYSTROKE, TOGGLE_THEME_KEYSTROKE};
+use super::mini_app::{
+    AppliedMenuSignature, MiniApp, QUIT_KEYSTROKE, TOGGLE_THEME_KEYSTROKE, should_refresh_menus,
+};
 use super::mini_app_config::MiniAppConfig;
 use super::mini_app_shell::MiniAppShell;
 use super::misc::current_platform;
@@ -662,4 +664,29 @@ fn config_with_persisted_state_applies_file_and_ignores_missing() {
     assert_eq!(applied.initial_theme, ThemeVariant::Light);
     assert_eq!(applied.initial_language, Language::Japanese);
     let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn menu_refresh_skips_unchanged_checked_states() {
+    let signature = AppliedMenuSignature {
+        theme: ThemeVariant::Dark,
+        design: DesignLanguage::AppleHig,
+        language: Language::English,
+    };
+    assert!(should_refresh_menus(None, signature));
+    assert!(!should_refresh_menus(Some(signature), signature));
+    assert!(should_refresh_menus(
+        Some(signature),
+        AppliedMenuSignature {
+            theme: ThemeVariant::Light,
+            ..signature
+        }
+    ));
+    assert!(should_refresh_menus(
+        Some(signature),
+        AppliedMenuSignature {
+            language: Language::French,
+            ..signature
+        }
+    ));
 }

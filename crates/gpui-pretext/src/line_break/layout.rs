@@ -63,7 +63,6 @@ fn layout_next_line_range_complex(
     max_width: f64,
     profile: &EngineProfile,
 ) -> Option<InternalLayoutLine> {
-
     let widths = &prepared.widths;
     let line_end_fit_advances = &prepared.line_end_fit_advances;
     let line_end_paint_advances = &prepared.line_end_paint_advances;

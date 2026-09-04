@@ -3,23 +3,27 @@
 //! Provides a horizontal tab bar with content panels and theming support.
 
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
-use crate::theme::{ThemeExt, glow_shadow};
+use crate::theme::ThemeExt;
 use gpui::prelude::{
-    FluentBuilder, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    StatefulInteractiveElement, Styled,
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    App, AppContext, Context, ElementId, Entity, FocusHandle, FontWeight, KeyDownEvent,
-    MouseButton, MouseDownEvent, Render, SharedString, WeakEntity, Window, div, px,
+    App, AppContext, Context, ElementId, Entity, FocusHandle, KeyDownEvent, MouseDownEvent, Render,
+    SharedString, WeakEntity, Window, div,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 mod tab_item;
+mod tab_render;
 mod types;
 
 pub use tab_item::TabItem;
+use tab_render::{
+    TabColors, TabRenderState, render_card_tab, render_regular_tab, render_underline_tab,
+    style_tab_container,
+};
 pub use types::{IconFactory, TabVariant, TabsTheme};
 
 thread_local! {
@@ -257,17 +261,7 @@ impl Render for TabsEntity {
         let theme = self.props.theme.clone().unwrap_or(tabs_theme);
 
         // Capture theme colors as local Copy values.
-        let text_hover = theme.text_hover;
-        let hover_bg = theme.hover_bg;
-        let selected_bg = theme.selected_bg;
-        let close_hover_color = theme.close_hover_color;
-        let text_selected = theme.text_selected;
-        let text_unselected = theme.text_unselected;
-        let accent = theme.accent;
-        let container_bg = theme.container_bg;
-        let container_border = theme.container_border;
-        let badge_bg = theme.badge_bg;
-        let close_color = theme.close_color;
+        let colors = TabColors::from_theme(&theme);
 
         let mut container = div()
             .id(id.clone())
@@ -278,25 +272,7 @@ impl Render for TabsEntity {
             .focusable();
 
         // Apply variant-specific container styling
-        match self.props.variant {
-            TabVariant::Underline => {
-                // No border on container - we'll add underlines per-tab
-            }
-            TabVariant::Enclosed => {
-                container = container.gap_1();
-            }
-            TabVariant::Pills => {
-                container = container.gap_2().p_1().bg(container_bg).rounded_lg();
-            }
-            TabVariant::VerticalCard => {
-                container = container
-                    .flex_wrap()
-                    .gap_2()
-                    .p_1()
-                    .bg(container_bg)
-                    .rounded_lg();
-            }
-        }
+        container = style_tab_container(container, self.props.variant, &colors);
 
         // Consume the tab list for this render. The props are refreshed before
         // each render by the RenderOnce impl, so the vector will be repopulated.
@@ -304,316 +280,18 @@ impl Render for TabsEntity {
         let variant = self.props.variant;
 
         for (index, tab) in tabs.into_iter().enumerate() {
-            let is_selected = index == self.props.selected_index;
-            let tab_element_id = tab.tab_element_id;
-            let close_element_id = tab.close_element_id;
-            let wrapper_element_id = tab.wrapper_element_id;
-            let label = tab.label;
-            let icon = tab.icon;
-            let custom_icon = tab.custom_icon;
-            let icon_factory = tab.icon_factory;
-            let badge = tab.badge;
-            let disabled = tab.disabled;
-            let closeable = tab.closeable;
-
-            let hovered = self.hovered_tab == Some(index);
-            let close_hovered = self.hovered_close == Some(index);
-
-            // For Underline variant, we wrap the tab content and underline in a flex column
-            let tab_element = if variant == TabVariant::Underline {
-                let mut tab_content = div()
-                    .id(tab_element_id)
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px_4()
-                    .py_2();
-
-                if is_selected {
-                    tab_content = tab_content
-                        .text_color(text_selected)
-                        .font_weight(FontWeight::SEMIBOLD);
-                } else {
-                    tab_content = tab_content
-                        .text_color(text_unselected)
-                        .when(hovered, |s| s.text_color(text_hover));
+            let state = TabRenderState {
+                index,
+                is_selected: index == self.props.selected_index,
+                hovered: self.hovered_tab == Some(index),
+                close_hovered: self.hovered_close == Some(index),
+            };
+            let tab_element = match variant {
+                TabVariant::Underline => render_underline_tab(tab, &state, &colors, cx),
+                TabVariant::VerticalCard => render_card_tab(tab, &state, &colors, cx),
+                TabVariant::Enclosed | TabVariant::Pills => {
+                    render_regular_tab(tab, variant, &state, &colors, cx)
                 }
-
-                if disabled {
-                    tab_content = tab_content.opacity(0.5).cursor_not_allowed();
-                } else {
-                    tab_content = tab_content.cursor_pointer().on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                            this.handle_tab_click(index, event, window, cx);
-                        }),
-                    );
-                }
-
-                // Add icon
-                if let Some(custom_icon) = custom_icon {
-                    tab_content = tab_content.child(custom_icon);
-                } else if let Some(icon) = icon {
-                    tab_content = tab_content.child(div().text_sm().child(icon));
-                }
-
-                // Add label
-                tab_content = tab_content.child(div().text_sm().child(label));
-
-                // Add badge
-                if let Some(badge) = badge {
-                    tab_content = tab_content.child(
-                        div()
-                            .text_xs()
-                            .px_1()
-                            .py(px(1.0))
-                            .bg(badge_bg)
-                            .rounded(px(3.0))
-                            .child(badge),
-                    );
-                }
-
-                // Add close button
-                if closeable {
-                    let mut close_btn = div()
-                        .id(close_element_id)
-                        .text_xs()
-                        .text_color(close_color)
-                        .when(close_hovered, |s| s.text_color(close_hover_color));
-
-                    close_btn = close_btn
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                                this.handle_close_click(index, event, window, cx);
-                            }),
-                        )
-                        .on_hover(cx.listener(
-                            move |this: &mut TabsEntity, hovered: &bool, _window, cx| {
-                                this.set_close_hovered(index, *hovered, cx);
-                            },
-                        ));
-
-                    tab_content = tab_content.child(close_btn.child("×"));
-                }
-
-                if !disabled {
-                    tab_content = tab_content.on_hover(cx.listener(
-                        move |this: &mut TabsEntity, hovered: &bool, _window, cx| {
-                            this.set_hovered(index, *hovered, cx);
-                        },
-                    ));
-                }
-
-                // Create the underline - accent color for selected, border color for unselected
-                let underline = if is_selected {
-                    div().h(px(2.0)).w_full().bg(accent)
-                } else {
-                    div().h(px(1.0)).w_full().bg(container_border)
-                };
-
-                // Wrap in a flex column
-                div()
-                    .id(wrapper_element_id)
-                    .flex()
-                    .flex_col()
-                    .child(tab_content)
-                    .child(underline)
-            } else if variant == TabVariant::VerticalCard {
-                // VerticalCard variant: icon on left (spanning 2 rows), title + number on right
-                let mut tab_el = div()
-                    .id(tab_element_id)
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px_3()
-                    .py_2()
-                    .min_w(px(90.0));
-
-                if is_selected {
-                    tab_el = tab_el.bg(accent).rounded_lg().text_color(text_selected);
-                } else {
-                    tab_el = tab_el
-                        .bg(selected_bg)
-                        .rounded_lg()
-                        .text_color(text_unselected)
-                        .when(hovered, |s| {
-                            s.bg(selected_bg)
-                                .text_color(text_hover)
-                                .shadow(glow_shadow(selected_bg))
-                        });
-                }
-
-                if disabled {
-                    tab_el = tab_el.opacity(0.5).cursor_not_allowed();
-                } else {
-                    tab_el = tab_el.cursor_pointer().on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                            this.handle_tab_click(index, event, window, cx);
-                        }),
-                    );
-                }
-
-                // Icon on left (large, spans both rows visually)
-                let icon_color = if is_selected {
-                    theme.icon_selected.unwrap_or(text_selected)
-                } else {
-                    theme.icon_unselected.unwrap_or(accent)
-                };
-                if let Some(factory) = icon_factory {
-                    let icon_element = factory(icon_color);
-                    tab_el = tab_el.child(div().flex().items_center().child(icon_element));
-                } else if let Some(custom_icon) = custom_icon {
-                    tab_el = tab_el.child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .text_color(icon_color)
-                            .child(custom_icon),
-                    );
-                } else if let Some(icon) = icon {
-                    tab_el = tab_el.child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .text_xl()
-                            .text_color(icon_color)
-                            .child(icon),
-                    );
-                }
-
-                // Right side: Title on top, Number below
-                let mut right_col = div().flex().flex_col().gap(px(1.0));
-
-                right_col = right_col.child(
-                    div()
-                        .text_xs()
-                        .font_weight(if is_selected {
-                            FontWeight::SEMIBOLD
-                        } else {
-                            FontWeight::NORMAL
-                        })
-                        .child(label),
-                );
-
-                if let Some(badge) = badge {
-                    right_col =
-                        right_col.child(div().text_sm().font_weight(FontWeight::BOLD).child(badge));
-                }
-
-                tab_el = tab_el.child(right_col);
-
-                tab_el.on_hover(cx.listener(
-                    move |this: &mut TabsEntity, hovered: &bool, _window, cx| {
-                        this.set_hovered(index, *hovered, cx);
-                    },
-                ))
-            } else {
-                // Non-underline variants (Enclosed, Pills)
-                let mut tab_el = div()
-                    .id(tab_element_id)
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px_4()
-                    .py_2();
-
-                match variant {
-                    TabVariant::Enclosed => {
-                        if is_selected {
-                            tab_el = tab_el
-                                .bg(selected_bg)
-                                .rounded_t_md()
-                                .text_color(text_selected);
-                        } else {
-                            tab_el = tab_el.text_color(text_unselected).when(hovered, |s| {
-                                s.bg(hover_bg)
-                                    .text_color(text_hover)
-                                    .shadow(glow_shadow(hover_bg))
-                            });
-                        }
-                    }
-                    TabVariant::Pills => {
-                        if is_selected {
-                            tab_el = tab_el.bg(accent).rounded_md().text_color(text_selected);
-                        } else {
-                            tab_el = tab_el.rounded_md().text_color(text_unselected).when(
-                                hovered,
-                                |s| {
-                                    s.bg(selected_bg)
-                                        .text_color(text_hover)
-                                        .shadow(glow_shadow(selected_bg))
-                                },
-                            );
-                        }
-                    }
-                    TabVariant::Underline | TabVariant::VerticalCard => unreachable!(),
-                }
-
-                if disabled {
-                    tab_el = tab_el.opacity(0.5).cursor_not_allowed();
-                } else {
-                    tab_el = tab_el.cursor_pointer().on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                            this.handle_tab_click(index, event, window, cx);
-                        }),
-                    );
-                }
-
-                // Add icon
-                if let Some(custom_icon) = custom_icon {
-                    tab_el = tab_el.child(custom_icon);
-                } else if let Some(icon) = icon {
-                    tab_el = tab_el.child(div().text_sm().child(icon));
-                }
-
-                // Add label
-                tab_el = tab_el.child(div().text_sm().child(label));
-
-                // Add badge
-                if let Some(badge) = badge {
-                    tab_el = tab_el.child(
-                        div()
-                            .text_xs()
-                            .px_1()
-                            .py(px(1.0))
-                            .bg(badge_bg)
-                            .rounded(px(3.0))
-                            .child(badge),
-                    );
-                }
-
-                // Add close button
-                if closeable {
-                    let mut close_btn = div()
-                        .id(close_element_id)
-                        .text_xs()
-                        .text_color(close_color)
-                        .when(close_hovered, |s| s.text_color(close_hover_color));
-
-                    close_btn = close_btn
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                                this.handle_close_click(index, event, window, cx);
-                            }),
-                        )
-                        .on_hover(cx.listener(
-                            move |this: &mut TabsEntity, hovered: &bool, _window, cx| {
-                                this.set_close_hovered(index, *hovered, cx);
-                            },
-                        ));
-
-                    tab_el = tab_el.child(close_btn.child("×"));
-                }
-
-                tab_el.on_hover(cx.listener(
-                    move |this: &mut TabsEntity, hovered: &bool, _window, cx| {
-                        this.set_hovered(index, *hovered, cx);
-                    },
-                ))
             };
 
             container = container.child(tab_element);

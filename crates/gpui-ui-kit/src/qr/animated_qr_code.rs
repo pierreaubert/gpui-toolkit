@@ -2,7 +2,7 @@ use super::misc::MIN_MODULE_PX;
 use super::misc::QUIET_ZONE;
 use super::misc::clamped_scroll_range;
 use super::misc::ease_in_out_cubic;
-use super::paint::rasterize_qr_image;
+use super::paint::cached_rasterize_qr_image;
 use super::{QrCodeError, QrCodeLimits};
 use crate::theme::ThemeExt;
 use gpui::prelude::{Context, IntoElement, Render, Styled};
@@ -51,8 +51,6 @@ pub struct AnimatedQrCode {
     pub(super) cycle_duration: Duration,
     /// Zoom factor: how many times larger we render modules vs the tiny size.
     pub(super) zoom: f32,
-    /// Theme-colored module raster, rebuilt only when its colors change.
-    raster: Option<(Rgba, Rgba, Arc<RenderImage>)>,
 }
 
 impl AnimatedQrCode {
@@ -72,7 +70,6 @@ impl AnimatedQrCode {
             start: Instant::now(),
             cycle_duration: Duration::ZERO,
             zoom: 1.0,
-            raster: None,
         })
     }
 
@@ -161,7 +158,6 @@ impl AnimatedQrCode {
             start: Instant::now(),
             cycle_duration,
             zoom,
-            raster: None,
         })
     }
 
@@ -177,17 +173,11 @@ impl AnimatedQrCode {
         self
     }
 
-    fn raster_image(&mut self, fg: Rgba, bg: Rgba) -> Option<Arc<RenderImage>> {
-        if let Some((cached_fg, cached_bg, image)) = &self.raster
-            && *cached_fg == fg
-            && *cached_bg == bg
-        {
-            return Some(Arc::clone(image));
-        }
-
-        let image = rasterize_qr_image(&self.colors, self.modules, fg, bg)?;
-        self.raster = Some((fg, bg, Arc::clone(&image)));
-        Some(image)
+    /// Theme-colored module raster from the shared content-keyed cache.
+    /// The matrix never changes after construction, so any color change
+    /// addresses a different cache entry and rebuilds exactly once.
+    fn raster_image(&self, fg: Rgba, bg: Rgba) -> Option<Arc<RenderImage>> {
+        cached_rasterize_qr_image(&self.colors, self.modules, fg, bg)
     }
 }
 

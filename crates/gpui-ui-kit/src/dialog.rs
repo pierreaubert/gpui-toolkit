@@ -28,6 +28,7 @@
 
 use crate::ComponentTheme;
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
+use crate::focus::FocusTrap;
 use crate::theme::ThemeExt;
 use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
@@ -115,6 +116,11 @@ pub struct Dialog {
     close_on_backdrop: bool,
     /// Trap Tab inside the dialog while it is focused (Radix-Dialog parity).
     trap_focus: bool,
+    /// Focus handles that Tab/Shift+Tab cycle through while the trap is active.
+    ///
+    /// Register the same handles the dialog's interactive children use. When
+    /// empty, the trap only stops Tab propagation at the dialog boundary.
+    trap_targets: Vec<FocusHandle>,
     /// Close on Escape when a close handler is set.
     dismiss_on_escape: bool,
     focus_handle: Option<FocusHandle>,
@@ -138,6 +144,7 @@ impl Dialog {
             show_close_button: true,
             close_on_backdrop: true,
             trap_focus: true,
+            trap_targets: Vec::new(),
             dismiss_on_escape: true,
             focus_handle: None,
             restore_focus_to: None,
@@ -242,6 +249,22 @@ impl Dialog {
         self
     }
 
+    /// Cycle Tab/Shift+Tab through these focus handles while the trap is active.
+    ///
+    /// Pass the handles of the dialog's interactive children. Tab wraps from
+    /// the last target to the first (Shift+Tab reverses) and never propagates
+    /// past the dialog. Requires [`Self::focus_handle`] for key handling.
+    pub fn trap_targets(mut self, handles: impl IntoIterator<Item = FocusHandle>) -> Self {
+        self.trap_targets = handles.into_iter().collect();
+        self
+    }
+
+    /// Add one focus handle to the Tab trap cycle.
+    pub fn trap_target(mut self, handle: FocusHandle) -> Self {
+        self.trap_targets.push(handle);
+        self
+    }
+
     /// Close the dialog on Escape when a close handler is set.
     ///
     /// Enabled by default. Requires [`Self::focus_handle`] for key handling.
@@ -335,6 +358,7 @@ impl Dialog {
         if let Some(handle) = focus_handle.clone() {
             dialog = dialog.track_focus(&handle).focusable();
             let trap_focus = self.trap_focus;
+            let trap_targets = self.trap_targets;
             let dismiss_on_escape = self.dismiss_on_escape;
             if on_close.is_some() || trap_focus {
                 let handler = on_close.clone();
@@ -343,11 +367,28 @@ impl Dialog {
                     move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
                         let key = event.keystroke.key.as_str();
                         // Focus trap: keep Tab inside the modal. Inner fields
-                        // run their own handlers first (bubbling); stopping it
+                        // run their own handlers first (bubbling); cycling (or
+                        // stopping propagation when no targets are registered)
                         // here only prevents focus escaping the dialog.
-                        if trap_focus && key == "tab" && handle.is_focused(window) {
-                            cx.stop_propagation();
-                            return;
+                        if trap_focus && key == "tab" {
+                            if !trap_targets.is_empty() {
+                                let current = trap_targets
+                                    .iter()
+                                    .position(|target| target.is_focused(window));
+                                if let Some(index) = FocusTrap::cycle_index(
+                                    trap_targets.len(),
+                                    current,
+                                    event.keystroke.modifiers.shift,
+                                ) {
+                                    window.focus(&trap_targets[index], cx);
+                                }
+                                cx.stop_propagation();
+                                return;
+                            }
+                            if handle.is_focused(window) {
+                                cx.stop_propagation();
+                                return;
+                            }
                         }
                         if !dismiss_on_escape {
                             return;
@@ -515,5 +556,11 @@ mod tests {
             .dismiss_on_escape(false);
         assert!(!relaxed.trap_focus);
         assert!(!relaxed.dismiss_on_escape);
+    }
+
+    #[test]
+    fn dialog_defaults_to_empty_trap_targets() {
+        let dialog = Dialog::new("modal").on_close(|_, _| {});
+        assert!(dialog.trap_targets.is_empty());
     }
 }

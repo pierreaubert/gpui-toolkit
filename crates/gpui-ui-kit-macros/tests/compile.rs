@@ -223,7 +223,10 @@ fn test_component_variant_matchers_round_trip() {
     assert!(SampleVariant::Primary.is_default_variant());
     assert!(!SampleVariant::Secondary.is_default_variant());
     assert_eq!(SampleVariant::Primary.to_string(), "primary");
-    assert_eq!(SampleVariant::from_str("primary"), Ok(SampleVariant::Primary));
+    assert_eq!(
+        SampleVariant::from_str("primary"),
+        Ok(SampleVariant::Primary)
+    );
     assert_eq!(
         SampleVariant::from_str("danger"),
         Ok(SampleVariant::Destructive)

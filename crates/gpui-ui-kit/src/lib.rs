@@ -75,6 +75,7 @@ pub mod alert;
 pub mod scroll_area;
 pub mod search_bar;
 pub mod tooltip;
+pub mod validation;
 
 // Navigation
 pub mod accordion;
@@ -130,7 +131,7 @@ pub use wizard::{
 pub use focus::{
     FOCUS_INTEGRATION_REPORT_TYPE, FOCUS_INTEGRATION_SCHEMA_VERSION, FocusDirection, FocusGroup,
     FocusGroupExt, FocusIntegrationEntry, FocusIntegrationReport, FocusIntegrationStatus,
-    focus_integration_entries, focus_integration_report,
+    FocusTrap, focus_integration_entries, focus_integration_report,
 };
 pub use security_surface::{
     SECURITY_SURFACE_REPORT_TYPE, SECURITY_SURFACE_SCHEMA_VERSION, SecuritySurfaceEntry,
@@ -155,9 +156,6 @@ pub use combobox::{
     Combobox, ComboboxOption, ComboboxSize, ComboboxTheme, default_combobox_filter,
 };
 pub use date_picker::{CalendarDate, DatePicker};
-pub use radio_group::{
-    RadioGroup, RadioGroupOrientation, RadioGroupSize, RadioGroupTheme, RadioOption,
-};
 pub use input::{
     Input, InputSize, InputTheme, InputValidator, InputVariant, cleanup_input_state,
     cleanup_stale_input_states, clear_all_input_states, input_state_count, is_input_editing,
@@ -165,6 +163,9 @@ pub use input::{
 pub use number_input::{
     NumberInput, NumberInputSize, NumberInputTheme, cleanup_number_input_state,
     is_number_input_editing,
+};
+pub use radio_group::{
+    RadioGroup, RadioGroupOrientation, RadioGroupSize, RadioGroupTheme, RadioOption,
 };
 pub use select::{Select, SelectOption, SelectSize, SelectTheme};
 pub use slider::{Slider, SliderSize, SliderTheme};
@@ -221,7 +222,8 @@ pub use accessibility::{
     AccessibilityReadinessReport, AccessibilityReadinessStatus, AccessibilityTree, AriaLive,
     AriaProps, AriaRole, AriaState, NativeAccessibilityAction, NativeAccessibilityAdapterError,
     NativeAccessibilityAdapterNode, NativeAccessibilityAdapterPayload, NativeAccessibilityTarget,
-    accessibility_readiness_entries, accessibility_readiness_report, apply_native_accessibility,
+    accessibility_node_key, accessibility_readiness_entries, accessibility_readiness_report,
+    apply_native_accessibility, diff_accessibility_nodes,
 };
 pub use behavior_matrix::{
     BehaviorStatus, COMPONENT_BEHAVIOR_REPORT_TYPE, COMPONENT_BEHAVIOR_SCHEMA_VERSION,
@@ -233,6 +235,7 @@ pub use mobile::{
     ContextPreview, DynamicTypePolicy, EdgeInsets, MomentumDelta, MomentumScroller,
     PullToRefreshState, SwipeAction, SwipeDirection, VelocityTracker, WaveformScrubber, is_mobile,
 };
+pub use validation::{Validate, ValidationError};
 // Theme and i18n
 pub use color_tokens::{
     BackgroundColors, BorderColors, ColorPalette, ColorToken, SemanticColors, TextColors, darken,

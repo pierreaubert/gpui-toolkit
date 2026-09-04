@@ -36,9 +36,7 @@ impl DesignTokenFormat {
             "json" | "style-dictionary-json" | "style_dictionary_json" => {
                 Ok(Self::StyleDictionaryJson)
             }
-            "dtcg" | "w3c-dtcg" | "w3c-dtcg-json" | "w3c_dtcg_json" => {
-                Ok(Self::W3cDtcgJson)
-            }
+            "dtcg" | "w3c-dtcg" | "w3c-dtcg-json" | "w3c_dtcg_json" => Ok(Self::W3cDtcgJson),
             other => bail!("unsupported design token format '{other}'"),
         }
     }
@@ -479,10 +477,7 @@ fn inspect_token_value(raw: &Value) -> (usize, usize, Vec<Cow<'static, str>>) {
                 .and_then(Value::as_array)
                 .is_some_and(|path| path.iter().all(Value::is_string));
             let value_ok = token.get("value").and_then(Value::as_str).is_some();
-            let type_ok = token
-                .get("token_type")
-                .and_then(Value::as_str)
-                .is_some();
+            let type_ok = token.get("token_type").and_then(Value::as_str).is_some();
             if name_ok && path_ok && value_ok && type_ok {
                 continue;
             }
@@ -499,9 +494,7 @@ fn inspect_token_value(raw: &Value) -> (usize, usize, Vec<Cow<'static, str>>) {
                 findings.push(Cow::Owned(format!("{prefix}.value must be a string")));
             }
             if !type_ok {
-                findings.push(Cow::Owned(format!(
-                    "{prefix}.token_type must be a string"
-                )));
+                findings.push(Cow::Owned(format!("{prefix}.token_type must be a string")));
             }
         }
     }
@@ -650,9 +643,7 @@ fn inspect_dtcg_node(
     findings: &mut Vec<Cow<'static, str>>,
 ) {
     let Some(object) = node.as_object() else {
-        findings.push(Cow::Owned(format!(
-            "{path} must be a token group object"
-        )));
+        findings.push(Cow::Owned(format!("{path} must be a token group object")));
         return;
     };
     if let Some(value) = object.get("$value") {
@@ -716,10 +707,7 @@ impl DesignTokenDiff {
                 self.is_breaking(),
             ),
         );
-        for section in [
-            ("Added", &self.added),
-            ("Removed", &self.removed),
-        ] {
+        for section in [("Added", &self.added), ("Removed", &self.removed)] {
             push_markdown(&mut output, format_args!("## {}\n\n", section.0));
             if section.1.is_empty() {
                 output.push_str("(none)\n\n");
@@ -802,14 +790,13 @@ fn flatten_style_dictionary(raw: &Value) -> Result<BTreeMap<String, (String, Str
         let tokens = preset
             .get("tokens")
             .and_then(Value::as_array)
-            .with_context(|| format!("diff requires preset '{preset_id}' to have a tokens array"))?;
+            .with_context(|| {
+                format!("diff requires preset '{preset_id}' to have a tokens array")
+            })?;
         for token in tokens {
-            let name = token
-                .get("name")
-                .and_then(Value::as_str)
-                .with_context(|| {
-                    format!("diff requires every token in preset '{preset_id}' to have a string name")
-                })?;
+            let name = token.get("name").and_then(Value::as_str).with_context(|| {
+                format!("diff requires every token in preset '{preset_id}' to have a string name")
+            })?;
             let value = token
                 .get("value")
                 .and_then(Value::as_str)
@@ -851,11 +838,11 @@ fn flatten_dtcg_node(
         let value = value
             .as_str()
             .with_context(|| format!("diff requires DTCG leaf '{path}.$value' to be a string"))?;
-        let token_type = object.get("$type").and_then(Value::as_str).unwrap_or_default();
-        map.insert(
-            path.to_owned(),
-            (value.to_owned(), token_type.to_owned()),
-        );
+        let token_type = object
+            .get("$type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        map.insert(path.to_owned(), (value.to_owned(), token_type.to_owned()));
     }
     for (key, child) in object {
         if key.starts_with('$') {
@@ -874,9 +861,7 @@ fn diff_token_maps(
     for (id, (old_value, old_type)) in old {
         match new.get(id) {
             None => diff.removed.push(id.clone()),
-            Some((new_value, new_type))
-                if new_value != old_value || new_type != old_type =>
-            {
+            Some((new_value, new_type)) if new_value != old_value || new_type != old_type => {
                 diff.changed.push(DesignTokenValueChange {
                     id: id.clone(),
                     old_value: old_value.clone(),
@@ -1425,10 +1410,7 @@ mod tests {
                 DesignTokenFormat::W3cDtcgJson
             );
         }
-        assert_eq!(
-            DesignTokenFormat::W3cDtcgJson.as_str(),
-            "w3c-dtcg-json"
-        );
+        assert_eq!(DesignTokenFormat::W3cDtcgJson.as_str(), "w3c-dtcg-json");
         assert_eq!(
             DesignTokenFormat::StyleDictionaryJson.as_str(),
             "style-dictionary-json"
@@ -1457,12 +1439,11 @@ mod tests {
 
     #[test]
     fn dtcg_export_import_round_trip_matches_preset_counts() {
-        let style =
-            import_design_tokens(
-                &export_design_tokens(DesignTokenFormat::StyleDictionaryJson).unwrap(),
-                DesignTokenFormat::StyleDictionaryJson,
-            )
-            .unwrap();
+        let style = import_design_tokens(
+            &export_design_tokens(DesignTokenFormat::StyleDictionaryJson).unwrap(),
+            DesignTokenFormat::StyleDictionaryJson,
+        )
+        .unwrap();
         let dtcg = import_design_tokens(
             &export_design_tokens(DesignTokenFormat::W3cDtcgJson).unwrap(),
             DesignTokenFormat::W3cDtcgJson,
@@ -1496,7 +1477,12 @@ mod tests {
         let empty = validate_design_tokens("{}", DesignTokenFormat::W3cDtcgJson, false).unwrap();
         assert!(!empty.passed);
         assert!(empty.findings.iter().any(|f| f.contains("preset group")));
-        assert!(empty.findings.iter().any(|f| f.contains("at least one token")));
+        assert!(
+            empty
+                .findings
+                .iter()
+                .any(|f| f.contains("at least one token"))
+        );
 
         let array = validate_design_tokens("[]", DesignTokenFormat::W3cDtcgJson, false).unwrap();
         assert!(!array.passed);
@@ -1509,15 +1495,21 @@ mod tests {
         )
         .unwrap();
         assert!(!bad_leaf.passed);
-        assert!(bad_leaf.findings.iter().any(|f| f.contains("$value must be a string")));
-        assert!(bad_leaf.findings.iter().any(|f| f.contains("$type must be a string")));
+        assert!(
+            bad_leaf
+                .findings
+                .iter()
+                .any(|f| f.contains("$value must be a string"))
+        );
+        assert!(
+            bad_leaf
+                .findings
+                .iter()
+                .any(|f| f.contains("$type must be a string"))
+        );
 
-        let bad_group = validate_design_tokens(
-            r#"{"a": 1}"#,
-            DesignTokenFormat::W3cDtcgJson,
-            false,
-        )
-        .unwrap();
+        let bad_group =
+            validate_design_tokens(r#"{"a": 1}"#, DesignTokenFormat::W3cDtcgJson, false).unwrap();
         assert!(!bad_group.passed);
         assert!(
             bad_group
@@ -1539,8 +1531,7 @@ mod tests {
         ));
         std::fs::write(&path, &json).unwrap();
         let report =
-            validate_design_tokens_from_path(&path, DesignTokenFormat::W3cDtcgJson, false)
-                .unwrap();
+            validate_design_tokens_from_path(&path, DesignTokenFormat::W3cDtcgJson, false).unwrap();
         assert!(report.preset_count > 0);
         assert!(report.token_count >= report.preset_count);
         std::fs::remove_file(&path).unwrap();
@@ -1549,14 +1540,13 @@ mod tests {
     #[test]
     fn diff_is_empty_for_identical_documents() {
         let json = export_design_tokens(DesignTokenFormat::StyleDictionaryJson).unwrap();
-        let diff = diff_design_tokens(&json, &json, DesignTokenFormat::StyleDictionaryJson)
-            .unwrap();
+        let diff =
+            diff_design_tokens(&json, &json, DesignTokenFormat::StyleDictionaryJson).unwrap();
         assert!(diff.is_empty());
         assert!(!diff.is_breaking());
 
         let dtcg = export_design_tokens(DesignTokenFormat::W3cDtcgJson).unwrap();
-        let dtcg_diff =
-            diff_design_tokens(&dtcg, &dtcg, DesignTokenFormat::W3cDtcgJson).unwrap();
+        let dtcg_diff = diff_design_tokens(&dtcg, &dtcg, DesignTokenFormat::W3cDtcgJson).unwrap();
         assert!(dtcg_diff.is_empty());
     }
 
@@ -1576,8 +1566,7 @@ mod tests {
                 {"name": "tweak", "path": ["tweak"], "value": "new", "token_type": "color"}
             ]}
         ]}"#;
-        let diff =
-            diff_design_tokens(old, new, DesignTokenFormat::StyleDictionaryJson).unwrap();
+        let diff = diff_design_tokens(old, new, DesignTokenFormat::StyleDictionaryJson).unwrap();
         assert_eq!(diff.added, vec!["a/fresh".to_owned()]);
         assert_eq!(diff.removed, vec!["a/gone".to_owned()]);
         assert_eq!(diff.changed.len(), 1);
@@ -1611,8 +1600,7 @@ mod tests {
                 {"name": "fresh", "path": ["fresh"], "value": "2", "token_type": "string"}
             ]}
         ]}"#;
-        let diff =
-            diff_design_tokens(old, new, DesignTokenFormat::StyleDictionaryJson).unwrap();
+        let diff = diff_design_tokens(old, new, DesignTokenFormat::StyleDictionaryJson).unwrap();
         assert!(!diff.is_breaking());
         assert!(!diff.is_empty());
         assert_eq!(diff.added.len(), 1);
@@ -1621,14 +1609,18 @@ mod tests {
     #[test]
     fn diff_rejects_invalid_documents() {
         let ok = export_design_tokens(DesignTokenFormat::StyleDictionaryJson).unwrap();
-        assert!(diff_design_tokens("not json", &ok, DesignTokenFormat::StyleDictionaryJson).is_err());
+        assert!(
+            diff_design_tokens("not json", &ok, DesignTokenFormat::StyleDictionaryJson).is_err()
+        );
         assert!(diff_design_tokens("{}", &ok, DesignTokenFormat::StyleDictionaryJson).is_err());
-        assert!(diff_design_tokens_from_paths(
-            Path::new("/nonexistent/gpui-design-tools-diff-old.json"),
-            Path::new("/nonexistent/gpui-design-tools-diff-new.json"),
-            DesignTokenFormat::StyleDictionaryJson,
-        )
-        .is_err());
+        assert!(
+            diff_design_tokens_from_paths(
+                Path::new("/nonexistent/gpui-design-tools-diff-old.json"),
+                Path::new("/nonexistent/gpui-design-tools-diff-new.json"),
+                DesignTokenFormat::StyleDictionaryJson,
+            )
+            .is_err()
+        );
     }
 
     #[test]

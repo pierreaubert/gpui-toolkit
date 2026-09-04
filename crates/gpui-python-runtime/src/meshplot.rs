@@ -840,7 +840,8 @@ mod tests {
         assert!(MeshPlotSpec::validate_value(&valid).is_ok());
         // Borrowed gates reject before any clone/deserialization.
         let mut versioned = valid.clone();
-        versioned["schema_version"] = serde_json::json!(u64::from(MESHPLOT_SPEC_SCHEMA_VERSION) + 1);
+        versioned["schema_version"] =
+            serde_json::json!(u64::from(MESHPLOT_SPEC_SCHEMA_VERSION) + 1);
         assert!(MeshPlotSpec::validate_value(&versioned).is_err());
 
         let mut null_id = valid.clone();

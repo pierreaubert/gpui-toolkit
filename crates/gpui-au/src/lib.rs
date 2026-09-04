@@ -31,8 +31,8 @@ mod window;
 pub(crate) use dispatcher::AuDispatcher;
 pub(crate) use display::AuDisplay;
 pub use params::{
-    AU_STATE_MAGIC, AU_STATE_MAX_ENTRIES, AU_STATE_VERSION, AuFullState, AuParamError,
-    AuParameter, AuParameterTree, AuStateError,
+    AU_STATE_MAGIC, AU_STATE_MAX_ENTRIES, AU_STATE_VERSION, AuFullState, AuParamError, AuParameter,
+    AuParameterTree, AuStateError,
 };
 pub use platform::AuPlatform;
 pub use safety_report::{

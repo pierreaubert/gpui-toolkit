@@ -97,6 +97,25 @@ pub struct MiniApp;
 pub(super) const QUIT_KEYSTROKE: &str = "secondary-q";
 pub(super) const TOGGLE_THEME_KEYSTROKE: &str = "secondary-t";
 
+/// Checked-state signature of the last applied menu bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct AppliedMenuSignature {
+    pub(super) theme: ThemeVariant,
+    pub(super) design: DesignLanguage,
+    pub(super) language: Language,
+}
+
+impl Global for AppliedMenuSignature {}
+
+/// Whether the menu bar needs a rebuild: first application always does,
+/// later calls only when the checked states changed.
+pub(super) fn should_refresh_menus(
+    applied: Option<AppliedMenuSignature>,
+    current: AppliedMenuSignature,
+) -> bool {
+    applied.is_none_or(|signature| signature != current)
+}
+
 impl MiniApp {
     /// Run a MiniApp with the given configuration and view builder
     ///
@@ -179,70 +198,9 @@ impl MiniApp {
                 cx.set_global(i18n);
             }
 
-            // Register quit action
-            cx.on_action::<Quit>(|_action, cx| {
-                cx.quit();
-            });
-
-            // The closures below are all `'static`, so each one holds its own
-            // cheap `Rc` clone pointing at this single shared config
-            // allocation; the config itself is allocated exactly once above.
-            let shared_config = Rc::clone(&config_rc);
-
-            // Register theme actions if enabled
-            if config_rc.with_theme {
-                let theme_config = Rc::clone(&shared_config);
-                let config = Rc::clone(&theme_config);
-                cx.on_action::<ToggleTheme>(move |_action, cx| {
-                    cx.update_global::<ThemeState, _>(|state, _cx| {
-                        state.toggle();
-                    });
-                    Self::refresh_menus(cx, &config);
-                    cx.refresh_windows();
-                });
-
-                let config = Rc::clone(&theme_config);
-                cx.on_action::<SetThemeVariant>(move |action, cx| {
-                    Self::set_theme_variant(cx, action.variant);
-                    Self::refresh_menus(cx, &config);
-                });
-            }
-
-            // Register design system actions
-            let config = Rc::clone(&shared_config);
-            cx.on_action::<SetDesignLanguage>(move |action, cx| {
-                Self::set_design_language(cx, action.language);
-                Self::refresh_menus(cx, &config);
-            });
-
-            // Register language actions if enabled
-            if config_rc.with_i18n {
-                let language_config = Rc::clone(&shared_config);
-                let config = Rc::clone(&language_config);
-                cx.on_action::<SetLanguageEnglish>(move |_action, cx| {
-                    Self::set_language(cx, &config, Language::English);
-                });
-
-                let config = Rc::clone(&language_config);
-                cx.on_action::<SetLanguageFrench>(move |_action, cx| {
-                    Self::set_language(cx, &config, Language::French);
-                });
-
-                let config = Rc::clone(&language_config);
-                cx.on_action::<SetLanguageGerman>(move |_action, cx| {
-                    Self::set_language(cx, &config, Language::German);
-                });
-
-                let config = Rc::clone(&language_config);
-                cx.on_action::<SetLanguageSpanish>(move |_action, cx| {
-                    Self::set_language(cx, &config, Language::Spanish);
-                });
-
-                let config = Rc::clone(&language_config);
-                cx.on_action::<SetLanguageJapanese>(move |_action, cx| {
-                    Self::set_language(cx, &config, Language::Japanese);
-                });
-            }
+            // Register actions (shared with `run_multi`: they mutate globals
+            // only, so one registration serves every window).
+            Self::register_actions(cx, &config_rc);
 
             // Build menu bar.
             Self::refresh_menus(cx, &config_rc);
@@ -254,42 +212,8 @@ impl MiniApp {
                 cx.bind_keys([KeyBinding::new(TOGGLE_THEME_KEYSTROKE, ToggleTheme, None)]);
             }
 
-            // Create window
-            let display_size = cx
-                .primary_display()
-                .map(|display| display.visible_bounds().size);
-            let window_min_size = clamp_window_min_size(config_rc.min_size, display_size);
-            let initial_size = size(px(config_rc.width), px(config_rc.height));
-            let initial_size = window_min_size
-                .as_ref()
-                .map(|min_size| initial_size.max(min_size))
-                .unwrap_or(initial_size);
-            let initial_size = display_size
-                .as_ref()
-                .map(|display_size| initial_size.min(display_size))
-                .unwrap_or(initial_size);
-            let bounds = Bounds::centered(None, initial_size, cx);
-
-            let scrollable = config_rc.scrollable;
-            if let Err(e) = cx.open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    window_min_size,
-                    titlebar: Some(TitlebarOptions {
-                        title: Some(config_rc.title.clone()),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                },
-                move |_, cx| {
-                    let inner_view = build_view(cx);
-                    cx.new(|_| MiniAppShell {
-                        inner: inner_view.into(),
-                        scrollable,
-                    })
-                },
-            ) {
-                eprintln!("MiniApp window error: {e:?}");
+            // Create window (shared with `run_multi`).
+            if !Self::open_window(cx, &config_rc, build_view) {
                 #[cfg(not(target_family = "wasm"))]
                 cx.quit();
                 return;
@@ -311,6 +235,219 @@ impl MiniApp {
         }
         #[cfg(not(target_family = "wasm"))]
         app.run(launch);
+    }
+
+    /// Run a MiniApp opening one window per configuration. Actions and the
+    /// menu bar come from the first configuration; `build_view` receives the
+    /// window index so each window can render distinct content.
+    pub fn run_multi<V, F>(configs: Vec<MiniAppConfig>, build_view: F)
+    where
+        V: Render + 'static,
+        F: FnMut(&mut App, usize) -> Entity<V> + 'static,
+    {
+        if configs.is_empty() {
+            eprintln!("MiniApp run_multi needs at least one configuration");
+            return;
+        }
+        let mut normalized = Vec::with_capacity(configs.len());
+        for config in configs {
+            let config = match Self::config_with_cli_window_min_size(config) {
+                Ok(config) => config,
+                Err(error) => {
+                    eprintln!("MiniApp argument error: {error}");
+                    #[cfg(not(target_family = "wasm"))]
+                    std::process::exit(2);
+                    #[cfg(target_family = "wasm")]
+                    return;
+                }
+            };
+            normalized.push(Rc::new(Self::config_with_persisted_state(config)));
+        }
+
+        let platform = match current_platform() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("MiniApp platform error: {e}");
+                return;
+            }
+        };
+
+        let configs = Rc::new(normalized);
+        let build_view = Rc::new(std::cell::RefCell::new(build_view));
+        let launch = move |cx: &mut App| {
+            Self::register_close_handler(cx, &configs[0], |_, _| {});
+
+            // Initialize theme state if enabled
+            if configs[0].with_theme {
+                cx.set_global(ThemeState::with_variant(configs[0].initial_theme));
+            }
+
+            // Always set design system global (platform-appropriate defaults)
+            cx.set_global(DesignSystemState::new());
+
+            // Initialize accessibility tree
+            cx.set_global(AccessibilityTree::new());
+
+            // Initialize i18n state if enabled
+            if configs[0].with_i18n {
+                let mut i18n = I18nState::new();
+                i18n.set_language(configs[0].initial_language);
+                cx.set_global(i18n);
+            }
+
+            // Build menu bar.
+            Self::refresh_menus(cx, &configs[0]);
+
+            // Bind keyboard shortcuts
+            cx.bind_keys([KeyBinding::new(QUIT_KEYSTROKE, Quit, None)]);
+
+            if configs[0].with_theme {
+                cx.bind_keys([KeyBinding::new(TOGGLE_THEME_KEYSTROKE, ToggleTheme, None)]);
+            }
+
+            // Actions mutate globals only, so one registration serves every
+            // window; menus refresh against live state via `refresh_menus`.
+            Self::register_actions(cx, &configs[0]);
+
+            let mut failed = false;
+            for (index, config) in configs.iter().enumerate() {
+                let factory = Rc::clone(&build_view);
+                if !Self::open_window(cx, config, move |cx| factory.borrow_mut()(cx, index)) {
+                    failed = true;
+                }
+            }
+            if failed {
+                #[cfg(not(target_family = "wasm"))]
+                cx.quit();
+                return;
+            }
+
+            cx.activate(true);
+
+            #[cfg(target_family = "wasm")]
+            crate::web_mark_ready();
+        };
+
+        let app = gpui::Application::with_platform(platform);
+        #[cfg(target_family = "wasm")]
+        {
+            std::mem::forget(app.run_embedded(launch));
+        }
+        #[cfg(not(target_family = "wasm"))]
+        app.run(launch);
+    }
+
+    /// Register quit/theme/design/language actions. The closures are all
+    /// `'static`, so each one holds its own cheap `Rc` clone pointing at the
+    /// single shared config allocation. Actions mutate globals only, so one
+    /// registration serves every window opened by `run_multi`.
+    fn register_actions(cx: &mut App, config: &Rc<MiniAppConfig>) {
+        // Register quit action
+        cx.on_action::<Quit>(|_action, cx| {
+            cx.quit();
+        });
+
+        // Register theme actions if enabled
+        if config.with_theme {
+            let theme_config = Rc::clone(config);
+            let config = Rc::clone(&theme_config);
+            cx.on_action::<ToggleTheme>(move |_action, cx| {
+                cx.update_global::<ThemeState, _>(|state, _cx| {
+                    state.toggle();
+                });
+                Self::refresh_menus(cx, &config);
+                cx.refresh_windows();
+            });
+
+            let config = Rc::clone(&theme_config);
+            cx.on_action::<SetThemeVariant>(move |action, cx| {
+                Self::set_theme_variant(cx, action.variant);
+                Self::refresh_menus(cx, &config);
+            });
+        }
+
+        // Register design system actions
+        let design_config = Rc::clone(config);
+        cx.on_action::<SetDesignLanguage>(move |action, cx| {
+            Self::set_design_language(cx, action.language);
+            Self::refresh_menus(cx, &design_config);
+        });
+
+        // Register language actions if enabled
+        if config.with_i18n {
+            let language_config = Rc::clone(config);
+            let config = Rc::clone(&language_config);
+            cx.on_action::<SetLanguageEnglish>(move |_action, cx| {
+                Self::set_language(cx, &config, Language::English);
+            });
+
+            let config = Rc::clone(&language_config);
+            cx.on_action::<SetLanguageFrench>(move |_action, cx| {
+                Self::set_language(cx, &config, Language::French);
+            });
+
+            let config = Rc::clone(&language_config);
+            cx.on_action::<SetLanguageGerman>(move |_action, cx| {
+                Self::set_language(cx, &config, Language::German);
+            });
+
+            let config = Rc::clone(&language_config);
+            cx.on_action::<SetLanguageSpanish>(move |_action, cx| {
+                Self::set_language(cx, &config, Language::Spanish);
+            });
+
+            let config = Rc::clone(&language_config);
+            cx.on_action::<SetLanguageJapanese>(move |_action, cx| {
+                Self::set_language(cx, &config, Language::Japanese);
+            });
+        }
+    }
+
+    /// Open one native window for `config`, rendering `build_view` inside a
+    /// `MiniAppShell`. Returns false (after logging) when the window fails.
+    fn open_window<V, F>(cx: &mut App, config: &MiniAppConfig, build_view: F) -> bool
+    where
+        V: Render + 'static,
+        F: FnOnce(&mut App) -> Entity<V> + 'static,
+    {
+        let display_size = cx
+            .primary_display()
+            .map(|display| display.visible_bounds().size);
+        let window_min_size = clamp_window_min_size(config.min_size, display_size);
+        let initial_size = size(px(config.width), px(config.height));
+        let initial_size = window_min_size
+            .as_ref()
+            .map(|min_size| initial_size.max(min_size))
+            .unwrap_or(initial_size);
+        let initial_size = display_size
+            .as_ref()
+            .map(|display_size| initial_size.min(display_size))
+            .unwrap_or(initial_size);
+        let bounds = Bounds::centered(None, initial_size, cx);
+
+        let scrollable = config.scrollable;
+        if let Err(e) = cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size,
+                titlebar: Some(TitlebarOptions {
+                    title: Some(config.title.clone()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            move |_, cx| {
+                let inner_view = build_view(cx);
+                cx.new(|_| MiniAppShell {
+                    inner: inner_view.into(),
+                    scrollable,
+                })
+            },
+        ) {
+            eprintln!("MiniApp window error: {e:?}");
+            return false;
+        }
+        true
     }
 
     /// Apply the shared native-window CLI overrides to a configuration.
@@ -524,12 +661,23 @@ impl MiniApp {
             .try_global::<I18nState>()
             .map(|state| state.language)
             .unwrap_or(config.initial_language);
+        let signature = AppliedMenuSignature {
+            theme: current_theme,
+            design: current_design,
+            language: current_language,
+        };
+        // Rebuilds are the toggle-cost hotspot: skip them when the
+        // checked-state signature is unchanged (e.g. repeated toggles).
+        if !should_refresh_menus(cx.try_global::<AppliedMenuSignature>().copied(), signature) {
+            return;
+        }
         cx.set_menus(Self::build_menus(
             config,
             current_theme,
             current_design,
             current_language,
         ));
+        cx.set_global(signature);
     }
 
     fn set_language(cx: &mut App, config: &MiniAppConfig, language: Language) {

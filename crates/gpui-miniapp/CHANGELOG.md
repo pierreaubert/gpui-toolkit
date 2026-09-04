@@ -4,6 +4,9 @@
 
 - Added a dedicated `mini_app_state` module with expanded config/shell
   options and host lifecycle tests.
+- Added `run_multi` (one window per config, shared actions/menus) and
+  signature-guarded `refresh_menus` that skips rebuilds with unchanged
+  checked states.
 
 ## New
 

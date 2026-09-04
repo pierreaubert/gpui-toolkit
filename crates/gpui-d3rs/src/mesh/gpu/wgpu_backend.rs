@@ -2,7 +2,7 @@ use super::shaders::MESH_WGSL;
 use super::{
     FieldRevision, GeometryRevision, MeshGpuRenderer, MeshSceneState, replace_retained_field,
 };
-use crate::mesh::{MeshUpload, expand_cell_shading, upload_chunks};
+use crate::mesh::{BufferUploadCache, MeshUpload, expand_cell_shading, upload_chunks};
 use gpui::{Bounds, CustomDraw, Pixels};
 use gpui_wgpu::{WgpuContext, WgpuCustomDraw, WgpuCustomDrawAdapter};
 use std::borrow::Cow;
@@ -30,6 +30,9 @@ struct WgpuResources {
     geometry_bytes: u64,
     resident_bytes: u64,
     uniform: wgpu::Buffer,
+    /// Last uniforms uploaded via `queue.write_buffer`; camera-static frames
+    /// skip the queue write.
+    uniform_cache: BufferUploadCache,
     bind_group: wgpu::BindGroup,
     fill_pipeline: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
@@ -185,6 +188,7 @@ impl WgpuResources {
                 .saturating_add(value_bytes.max(4))
                 .saturating_add(uniform_bytes),
             uniform,
+            uniform_cache: BufferUploadCache::new(),
             bind_group,
             fill_pipeline: pipeline(wgpu::PrimitiveTopology::TriangleList, "fragment"),
             line_pipeline: pipeline(wgpu::PrimitiveTopology::LineList, "line_fragment"),
@@ -211,7 +215,7 @@ impl WgpuResources {
         }
     }
 
-    fn update_uniform(&self, ctx: &WgpuContext, state: &MeshSceneState) {
+    fn update_uniform(&mut self, ctx: &WgpuContext, state: &MeshSceneState) {
         let range = state.color.range;
         let field_enabled = state
             .upload
@@ -236,8 +240,13 @@ impl WgpuResources {
                 state.color.unlit as u32 as f32,
             ],
         };
-        ctx.queue
-            .write_buffer(&self.uniform, 0, bytemuck::bytes_of(&uniform));
+        // Persistent buffer: skip the queue write when view, range, and
+        // style are unchanged. Unobservable — the buffer already holds these
+        // exact bytes.
+        if self.uniform_cache.needs_write(bytemuck::bytes_of(&uniform)) {
+            ctx.queue
+                .write_buffer(&self.uniform, 0, bytemuck::bytes_of(&uniform));
+        }
     }
 }
 

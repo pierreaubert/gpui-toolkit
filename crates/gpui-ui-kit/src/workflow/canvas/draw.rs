@@ -7,6 +7,14 @@ use std::sync::Arc;
 
 const CONNECTION_PATH_CACHE_CAPACITY: usize = 512;
 
+/// Lateral clearance used when routing connections around node obstacles.
+/// Shared with hit testing so both sides address the same cache entries.
+pub(crate) const CONNECTION_ROUTING_MARGIN: f32 = 15.0;
+
+/// Flattening tolerance for routed connection paths. Shared with hit
+/// testing so both sides address the same cache entries.
+pub(crate) const CONNECTION_FLATTEN_TOLERANCE: f32 = 2.0;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct ConnectionPathCacheKey {
     from_x: u32,
@@ -19,10 +27,63 @@ struct ConnectionPathCacheKey {
     obstacles_len: usize,
 }
 
+/// A flattened connection path with its exact axis-aligned bounding box.
+///
+/// The bounds cover every flattened polyline point. Hit testing expands them
+/// by its own tolerance before rejecting, so a stored box that misses means
+/// the expensive per-segment distance walk can be skipped entirely.
+#[derive(Debug)]
+pub(crate) struct CachedConnectionPath {
+    path: Arc<[Position]>,
+    min_x: f32,
+    min_y: f32,
+    max_x: f32,
+    max_y: f32,
+}
+
+impl CachedConnectionPath {
+    fn new(path: Arc<[Position]>) -> Self {
+        let mut min_x = f32::INFINITY;
+        let mut min_y = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+        for point in path.iter() {
+            min_x = min_x.min(point.x);
+            min_y = min_y.min(point.y);
+            max_x = max_x.max(point.x);
+            max_y = max_y.max(point.y);
+        }
+        Self {
+            path,
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+        }
+    }
+
+    /// Raw flattened points for painting and segment-distance hit testing.
+    pub(crate) fn path(&self) -> &Arc<[Position]> {
+        &self.path
+    }
+
+    /// True when `(x, y)` lies inside the stored box expanded by `pad`.
+    /// Hit testing calls this with its connection tolerance before walking
+    /// any segments.
+    pub(crate) fn contains_with_pad(&self, x: f32, y: f32, pad: f32) -> bool {
+        x >= self.min_x - pad
+            && x <= self.max_x + pad
+            && y >= self.min_y - pad
+            && y <= self.max_y + pad
+    }
+}
+
 thread_local! {
     /// Bounded per-UI-thread cache: paths normally stay identical across drag
     /// repaint frames and only change with endpoints or routing obstacles.
-    static CONNECTION_PATH_CACHE: RefCell<HashMap<ConnectionPathCacheKey, Arc<[Position]>>> =
+    /// Each entry carries its exact bounding box so hit testing can reject
+    /// far-away points without flattening or walking any segments.
+    static CONNECTION_PATH_CACHE: RefCell<HashMap<ConnectionPathCacheKey, Arc<CachedConnectionPath>>> =
         RefCell::new(HashMap::new());
 }
 
@@ -37,13 +98,16 @@ fn obstacle_signature(obstacles: &[ObstacleRect]) -> u64 {
     hash
 }
 
-fn cached_connection_path(
+/// Flattened connection path plus its exact bounding box, shared between
+/// painting and hit testing so a curve is flattened at most once per
+/// distinct geometry.
+pub(crate) fn cached_connection_path_with_bounds(
     from: Position,
     to: Position,
     obstacles: &[ObstacleRect],
     margin: f32,
     tolerance: f32,
-) -> Arc<[Position]> {
+) -> Arc<CachedConnectionPath> {
     let key = ConnectionPathCacheKey {
         from_x: from.x.to_bits(),
         from_y: from.y.to_bits(),
@@ -56,17 +120,28 @@ fn cached_connection_path(
     };
     CONNECTION_PATH_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        if let Some(path) = cache.get(&key) {
-            return Arc::clone(path);
+        if let Some(entry) = cache.get(&key) {
+            return Arc::clone(entry);
         }
         if cache.len() >= CONNECTION_PATH_CACHE_CAPACITY {
             cache.clear();
         }
         let path: Arc<[Position]> =
             connection_path_avoiding(from, to, obstacles, margin, tolerance).into();
-        cache.insert(key, Arc::clone(&path));
-        path
+        let entry = Arc::new(CachedConnectionPath::new(Arc::clone(&path)));
+        cache.insert(key, Arc::clone(&entry));
+        entry
     })
+}
+
+fn cached_connection_path(
+    from: Position,
+    to: Position,
+    obstacles: &[ObstacleRect],
+    margin: f32,
+    tolerance: f32,
+) -> Arc<[Position]> {
+    Arc::clone(cached_connection_path_with_bounds(from, to, obstacles, margin, tolerance).path())
 }
 
 /// Draw a connection line between two ports, shortened at both ends by port_radius.
@@ -103,8 +178,13 @@ pub(super) fn draw_connection(
     let shortened_from = Position::new(from.x + nx * port_radius, from.y + ny * port_radius);
     let shortened_to = Position::new(to.x - nx * port_radius, to.y - ny * port_radius);
 
-    let margin = 15.0;
-    let path_points = cached_connection_path(shortened_from, shortened_to, obstacles, margin, 2.0);
+    let path_points = cached_connection_path(
+        shortened_from,
+        shortened_to,
+        obstacles,
+        CONNECTION_ROUTING_MARGIN,
+        CONNECTION_FLATTEN_TOLERANCE,
+    );
 
     if path_points.len() < 2 {
         return;

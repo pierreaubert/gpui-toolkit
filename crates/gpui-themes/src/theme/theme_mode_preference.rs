@@ -22,11 +22,7 @@ impl ThemeAppearance {
     /// dark-mode callback and feed its flag through here (or through
     /// [`ThemeModePreference::resolve_live`]) instead of branching inline.
     pub fn from_system_dark_flag(is_dark: bool) -> Self {
-        if is_dark {
-            Self::Dark
-        } else {
-            Self::Light
-        }
+        if is_dark { Self::Dark } else { Self::Light }
     }
 }
 

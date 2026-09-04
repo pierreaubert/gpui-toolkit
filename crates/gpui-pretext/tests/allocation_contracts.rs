@@ -94,9 +94,15 @@ fn warmed_optimal_multichunk_walk_does_not_reallocate_lines() {
     let mut total = 0;
     for _ in 0..200 {
         let mut n = 0;
-        black_box(walk_line_ranges_optimal(&prepared, 60.0, &profile, &params, |_| {
-            n += 1;
-        }));
+        black_box(walk_line_ranges_optimal(
+            &prepared,
+            60.0,
+            &profile,
+            &params,
+            |_| {
+                n += 1;
+            },
+        ));
         total += n;
     }
     black_box(total);

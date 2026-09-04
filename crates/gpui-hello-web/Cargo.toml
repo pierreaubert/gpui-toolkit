@@ -15,8 +15,9 @@ gpui = { workspace = true }
 gpui-miniapp = { workspace = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
+js-sys = "0.3"
 wasm-bindgen = "0.2"
-web-sys = { version = "0.3.104", features = ["Window", "Document", "Element", "HtmlElement", "console"] }
+web-sys = { version = "0.3.104", features = ["Window", "Document", "Element", "HtmlElement", "console", "ResizeObserver", "ResizeObserverEntry", "DomRectReadOnly"] }
 
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen-test = "0.3"

@@ -1,3 +1,10 @@
+# Unreleased
+
+## Refactored
+
+- Normalized formatting in the `ComponentVariant` derive; no behavior
+  change.
+
 # 0.8.5
 
 - Restored backward compatibility in the toolkit by adding a From<&Arc<Theme>> impl in the ComponentTheme derive macro

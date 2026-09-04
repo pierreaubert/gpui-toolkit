@@ -22,8 +22,8 @@ use super::types::SharedNodeMenuSelectCallback;
 use crate::menu::{Menu, MenuItem};
 use crate::theme::ThemeExt;
 use gpui::{
-    App, Context, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Render, ScrollDelta,
+    App, Context, Div, Entity, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Render, ScrollDelta,
     ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled, Window, canvas, div, px,
 };
 use std::cell::RefCell;
@@ -974,85 +974,71 @@ impl WorkflowCanvas {
         }
         hasher.finish()
     }
-}
 
-/// GPUI View implementation
-impl Render for WorkflowCanvas {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self
-            .theme
-            .clone()
-            .unwrap_or_else(|| WorkflowTheme::from_theme(&cx.theme()));
+    /// Snapshot inputs for the render cache: connection endpoints and node
+    /// obstacle rects, both in screen coordinates.
+    fn snapshot_inputs(
+        &self,
+        viewport: ViewportState,
+    ) -> (Arc<[ConnectionRenderData]>, Arc<[(NodeId, ObstacleRect)]>) {
+        // Build connection render data with screen-space port positions
+        let connections: Arc<[ConnectionRenderData]> = Arc::from(
+            self.state
+                .graph
+                .connections
+                .iter()
+                .filter_map(|conn| {
+                    let from_node = self.state.graph.nodes.get(&conn.from_node)?;
+                    let to_node = self.state.graph.nodes.get(&conn.to_node)?;
+                    // Calculate port positions in screen coordinates (not canvas coordinates)
+                    let from_pos =
+                        port_screen_position(from_node, conn.from_port, false, &viewport);
+                    let to_pos = port_screen_position(to_node, conn.to_port, true, &viewport);
+                    let selected = self.state.selection.is_connection_selected(conn.id);
+                    let link_type = conn.link_type;
+                    Some((
+                        from_pos,
+                        to_pos,
+                        selected,
+                        link_type,
+                        conn.from_node,
+                        conn.to_node,
+                    ))
+                })
+                .collect::<Vec<_>>(),
+        );
 
-        let viewport = self.state.viewport;
-        let scaled_theme = theme.scale(viewport.zoom);
-
-        let snapshot_key = self.render_snapshot_key(viewport);
-        if self
-            .render_snapshot
-            .as_ref()
-            .is_none_or(|snapshot| snapshot.key != snapshot_key)
-        {
-            // Build connection render data with screen-space port positions
-            let connections: Arc<[ConnectionRenderData]> = Arc::from(
-                self.state
-                    .graph
-                    .connections
-                    .iter()
-                    .filter_map(|conn| {
-                        let from_node = self.state.graph.nodes.get(&conn.from_node)?;
-                        let to_node = self.state.graph.nodes.get(&conn.to_node)?;
-                        // Calculate port positions in screen coordinates (not canvas coordinates)
-                        let from_pos =
-                            port_screen_position(from_node, conn.from_port, false, &viewport);
-                        let to_pos = port_screen_position(to_node, conn.to_port, true, &viewport);
-                        let selected = self.state.selection.is_connection_selected(conn.id);
-                        let link_type = conn.link_type;
-                        Some((
-                            from_pos,
-                            to_pos,
-                            selected,
-                            link_type,
-                            conn.from_node,
-                            conn.to_node,
-                        ))
-                    })
-                    .collect::<Vec<_>>(),
-            );
-
-            // Collect node bounding rects in screen coordinates for obstacle avoidance
-            let node_screen_rects: Arc<[(NodeId, ObstacleRect)]> = Arc::from(
-                self.state
-                    .graph
-                    .nodes
-                    .values()
-                    .map(|node| {
-                        let sp = viewport.canvas_to_screen(&node.position);
-                        (
-                            node.id,
-                            ObstacleRect::new(
-                                sp.x,
-                                sp.y,
-                                node.width * viewport.zoom,
-                                node.height * viewport.zoom,
-                            ),
-                        )
-                    })
-                    .collect::<Vec<_>>(),
-            );
-            self.render_snapshot = Some(WorkflowRenderSnapshot {
-                key: snapshot_key,
-                connections,
-                node_screen_rects,
-            });
-        }
-        let snapshot = self
-            .render_snapshot
-            .as_ref()
-            .expect("workflow render snapshot was initialized");
-        let connections = snapshot.connections.clone();
-        let node_screen_rects = snapshot.node_screen_rects.clone();
-
+        // Collect node bounding rects in screen coordinates for obstacle avoidance
+        let node_screen_rects: Arc<[(NodeId, ObstacleRect)]> = Arc::from(
+            self.state
+                .graph
+                .nodes
+                .values()
+                .map(|node| {
+                    let sp = viewport.canvas_to_screen(&node.position);
+                    (
+                        node.id,
+                        ObstacleRect::new(
+                            sp.x,
+                            sp.y,
+                            node.width * viewport.zoom,
+                            node.height * viewport.zoom,
+                        ),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
+        (connections, node_screen_rects)
+    }
+    /// Drag preview endpoints. Derived (not cloned) from the drag state so
+    /// mouse-move renders avoid copying the graph.
+    fn drag_previews(
+        &self,
+        viewport: ViewportState,
+    ) -> (
+        Option<(Position, Position, bool)>,
+        Option<(Position, Position)>,
+    ) {
         let connection_drag = self.state.connection_drag.clone();
         let bulk_connect_drag = self.state.bulk_connect_drag.clone();
         // Paint callbacks only need the preview endpoints. Deriving them here
@@ -1085,7 +1071,23 @@ impl Render for WorkflowCanvas {
                     )
                 })
         });
-
+        (connection_preview_data, bulk_preview_data)
+    }
+    /// Connections layer: cached paths painted on a canvas element.
+    /// Takes `entity` instead of `cx` so the returned element owns
+    /// everything and callers keep a free `cx` borrow for later setup.
+    fn render_connections_layer(
+        &self,
+        connections: &Arc<[ConnectionRenderData]>,
+        connection_preview_data: Option<(Position, Position, bool)>,
+        bulk_preview_data: Option<(Position, Position)>,
+        node_screen_rects: &Arc<[(NodeId, ObstacleRect)]>,
+        entity: Entity<Self>,
+        theme: &WorkflowTheme,
+        scaled_theme: &WorkflowTheme,
+    ) -> impl IntoElement {
+        let connections = Arc::clone(connections);
+        let node_screen_rects = Arc::clone(node_screen_rects);
         let conn_color = theme.connection_color;
         let conn_selected = theme.connection_selected;
         let conn_preview = theme.connection_preview;
@@ -1095,11 +1097,8 @@ impl Render for WorkflowCanvas {
         // Port radius for shortening connection lines
         let port_radius = scaled_theme.port_radius;
 
-        // Use entity to update canvas origin during prepaint
-        let entity = cx.entity().clone();
-
         // Build connection lines using canvas
-        let connections_element = canvas(
+        canvas(
             move |bounds, _, cx| {
                 // Update canvas origin for mouse event coordinate translation
                 let origin_x: f32 = bounds.origin.x.into();
@@ -1201,10 +1200,12 @@ impl Render for WorkflowCanvas {
         )
         .size_full()
         .absolute()
-        .inset_0();
-
+        .inset_0()
+    }
+    /// Rubber-band selection box, if a box selection is active.
+    fn render_selection_box(&self, viewport: ViewportState, theme: &WorkflowTheme) -> Option<Div> {
         // Build selection box element
-        let selection_box_element = self.state.box_selection.as_ref().map(|sel| {
+        self.state.box_selection.as_ref().map(|sel| {
             let (x, y, w, h) = sel.rect();
             let screen_start = viewport.canvas_to_screen(&Position::new(x, y));
 
@@ -1217,11 +1218,16 @@ impl Render for WorkflowCanvas {
                 .bg(theme.selection_fill)
                 .border_1()
                 .border_color(theme.selection_border)
-        });
-
+        })
+    }
+    /// Node elements at screen positions with selection/drag state.
+    fn render_node_elements(
+        &self,
+        viewport: ViewportState,
+        scaled_theme: &WorkflowTheme,
+    ) -> Vec<WorkflowNode> {
         // Build node elements
-        let node_elements: Vec<_> = self
-            .state
+        self.state
             .graph
             .nodes
             .values()
@@ -1246,14 +1252,16 @@ impl Render for WorkflowCanvas {
                     .dragging(dragging)
                     .theme(scaled_theme.clone())
             })
-            .collect();
-
+            .collect()
+    }
+    /// Right-click context menu: per-node items win over the canvas menu.
+    fn render_context_menu(&self, cx: &mut Context<Self>) -> Option<Div> {
         // Build context menu.
         //
         // When the right-click hit a node and the parent has registered
         // node-specific menu items, show those instead of the canvas menu so
         // per-node actions (edit / solo / bypass / remove) can be dispatched.
-        let context_menu = if let Some(menu_state) = &self.state.context_menu {
+        if let Some(menu_state) = &self.state.context_menu {
             let entity = cx.entity().clone();
 
             // Ask the resolver whether this specific node has a per-node
@@ -1322,7 +1330,60 @@ impl Render for WorkflowCanvas {
             )
         } else {
             None
-        };
+        }
+    }
+}
+
+/// GPUI View implementation
+impl Render for WorkflowCanvas {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self
+            .theme
+            .clone()
+            .unwrap_or_else(|| WorkflowTheme::from_theme(&cx.theme()));
+
+        let viewport = self.state.viewport;
+        let scaled_theme = theme.scale(viewport.zoom);
+
+        let snapshot_key = self.render_snapshot_key(viewport);
+        if self
+            .render_snapshot
+            .as_ref()
+            .is_none_or(|snapshot| snapshot.key != snapshot_key)
+        {
+            let (connections, node_screen_rects) = self.snapshot_inputs(viewport);
+            self.render_snapshot = Some(WorkflowRenderSnapshot {
+                key: snapshot_key,
+                connections,
+                node_screen_rects,
+            });
+        }
+        let snapshot = self
+            .render_snapshot
+            .as_ref()
+            .expect("workflow render snapshot was initialized");
+        let connections = snapshot.connections.clone();
+        let node_screen_rects = snapshot.node_screen_rects.clone();
+
+        let (connection_preview_data, bulk_preview_data) = self.drag_previews(viewport);
+
+        // Use entity to update canvas origin during prepaint
+        let entity = cx.entity().clone();
+        let connections_element = self.render_connections_layer(
+            &connections,
+            connection_preview_data,
+            bulk_preview_data,
+            &node_screen_rects,
+            entity,
+            &theme,
+            &scaled_theme,
+        );
+
+        let selection_box_element = self.render_selection_box(viewport, &theme);
+
+        let node_elements = self.render_node_elements(viewport, &scaled_theme);
+
+        let context_menu = self.render_context_menu(cx);
 
         let mut result = div()
             .id("workflow-canvas")

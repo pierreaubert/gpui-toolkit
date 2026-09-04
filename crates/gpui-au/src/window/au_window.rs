@@ -1,11 +1,11 @@
 use super::super::AuDisplay;
 use super::PENDING_VIEW;
-use crate::helpers::{nslog, nslog_verbose};
-use crate::params::AuParameterTree;
 use super::au_raw_window::AuRawWindow;
 use super::au_window_ptr::AU_WINDOW;
 use super::au_window_ptr::AuWindowPtr;
 use super::fallback_atlas::FallbackAtlas;
+use crate::helpers::{nslog, nslog_verbose};
+use crate::params::AuParameterTree;
 use gpui::{
     AnyWindowHandle, Bounds, Capslock, DevicePixels, DispatchEventResult, GpuSpecs, Modifiers,
     Pixels, PlatformAtlas, PlatformDisplay, PlatformInput, PlatformInputHandler, PlatformWindow,
@@ -754,10 +754,7 @@ impl PlatformWindow for AuWindow {
         // held across the GPU work. When the lock (or the renderer) is
         // unavailable the previous frame is still in flight: drop this one
         // and count it instead of stalling the realtime thread.
-        let renderer = self
-            .renderer
-            .try_lock()
-            .and_then(|guard| guard.clone());
+        let renderer = self.renderer.try_lock().and_then(|guard| guard.clone());
         let Some(renderer) = renderer else {
             self.dropped_frames.fetch_add(1, Ordering::Relaxed);
             return;

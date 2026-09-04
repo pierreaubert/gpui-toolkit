@@ -1,6 +1,7 @@
 //! Unstructured triangle mesh data model, validation, topology, contours,
 //! picking, and revolve. Feature-independent: no GPUI, no wgpu.
 
+mod buffer_diff;
 mod bvh;
 mod decimate;
 #[cfg(any(feature = "gpu-2d", feature = "gpu-3d", feature = "gpu-compute"))]
@@ -12,6 +13,7 @@ mod revolve;
 mod spatial;
 mod topology;
 mod upload;
+pub use buffer_diff::{BufferUploadCache, upload_differs};
 pub use bvh::MeshBvh;
 pub use decimate::{
     MeshDecimation, decimate_vertex_clustering, decimate_vertex_clustering_with_mapping,

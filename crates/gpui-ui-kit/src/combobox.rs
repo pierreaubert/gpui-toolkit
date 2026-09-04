@@ -145,10 +145,7 @@ pub fn default_combobox_filter(query: &str, option: &ComboboxOption) -> bool {
     if query.is_empty() {
         return true;
     }
-    option
-        .label
-        .to_lowercase()
-        .contains(&query.to_lowercase())
+    option.label.to_lowercase().contains(&query.to_lowercase())
 }
 
 /// A filterable dropdown combobox.
@@ -277,10 +274,7 @@ impl Combobox {
     }
 
     /// Override the match function (default: [`default_combobox_filter`]).
-    pub fn filter(
-        mut self,
-        filter: impl Fn(&str, &ComboboxOption) -> bool + 'static,
-    ) -> Self {
+    pub fn filter(mut self, filter: impl Fn(&str, &ComboboxOption) -> bool + 'static) -> Self {
         self.filter = Some(Box::new(filter));
         self
     }
@@ -394,12 +388,7 @@ impl Combobox {
             .gap(px(design.spacing.control_gap / 2.0));
 
         if let Some(label) = self.label.clone() {
-            container = container.child(
-                div()
-                    .text_sm()
-                    .text_color(theme.label_color)
-                    .child(label),
-            );
+            container = container.child(div().text_sm().text_color(theme.label_color).child(label));
         }
 
         // Query box: embedded controlled Input plus chevron toggle.
@@ -509,9 +498,7 @@ impl Combobox {
 
                 let mut option_el = div()
                     .id(option_id)
-                    .debug_selector(|| {
-                        format!("{:?}-option-{option_index}", self.id)
-                    })
+                    .debug_selector(|| format!("{:?}-option-{option_index}", self.id))
                     .px_3()
                     .py(px(6.0))
                     .cursor_pointer()
@@ -556,11 +543,8 @@ impl Combobox {
                 let option_props = AriaProps::with_role(AriaRole::Option)
                     .state(AriaState::Selected(is_selected))
                     .maybe_state(option.disabled, AriaState::Disabled);
-                option_el = apply_native_accessibility(
-                    option_el,
-                    option.label.clone(),
-                    &option_props,
-                );
+                option_el =
+                    apply_native_accessibility(option_el, option.label.clone(), &option_props);
                 dropdown = dropdown.child(option_el);
             }
 
@@ -699,17 +683,13 @@ mod tests {
 
     #[test]
     fn substring_filter_is_case_insensitive() {
-        let combo = Combobox::new("test")
-            .options(test_options())
-            .query("AP");
+        let combo = Combobox::new("test").options(test_options()).query("AP");
         assert_eq!(combo.filtered_indices(), vec![0, 1]);
     }
 
     #[test]
     fn no_match_yields_empty_list() {
-        let combo = Combobox::new("test")
-            .options(test_options())
-            .query("zzz");
+        let combo = Combobox::new("test").options(test_options()).query("zzz");
         assert!(combo.filtered_indices().is_empty());
     }
 

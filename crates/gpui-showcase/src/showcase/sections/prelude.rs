@@ -20,6 +20,9 @@ pub use gpui_ui_kit::accordion::AccordionOrientation;
 pub use gpui_ui_kit::i18n::{I18nExt, TranslationKey};
 pub use gpui_ui_kit::menu::{Menu, MenuItem};
 pub use gpui_ui_kit::qr::AnimatedQrCode;
+pub use gpui_ui_kit::radio_group::{
+    RadioGroup, RadioGroupOrientation, RadioGroupSize, RadioOption,
+};
 pub use gpui_ui_kit::theme::ThemeExt;
 pub use gpui_ui_kit::workflow::{Position, WorkflowCanvas, WorkflowGraph, WorkflowNodeData};
 pub use gpui_ui_kit::{
@@ -31,7 +34,7 @@ pub use gpui_ui_kit::{
     DragListOrientation, EmptyState, HStack, Heading, IconButton, IconButtonSize,
     IconButtonVariant, ImageFit, ImageView, InlineAlert, Input, InputVariant,
     KeyboardShortcutLabel, KeyboardShortcutSize, Link, LoadingDots, LoadingOverlay, MenuTheme,
-    Notification, NotificationVariant, NumberInput, NumberInputSize,     PaginationState, PaneDivider,
+    Notification, NotificationVariant, NumberInput, NumberInputSize, PaginationState, PaneDivider,
     Popover, PopoverPlacement, Progress, ProgressSize, ProgressVariant, QrCode, SearchBar,
     SearchBarSize, Select, SelectOption, SelectionMode, SettingsForm, SettingsRow, Sidebar,
     SidebarSide, Slider, SliderSize, SortDirection, SortState, Spacer, Spinner, SpinnerSize,
@@ -40,8 +43,5 @@ pub use gpui_ui_kit::{
     TabItem, TabVariant, Table, Tabs, Tag, TagSize, TagVariant, Text, TextSize, TextWeight, Toast,
     ToastVariant, Toggle, ToggleSize, Toolbar, ToolbarItem, TooltipPlacement, TreeNode, TreeView,
     VStack, WithTooltip, WizardHeader, WizardStep, menu_bar_button,
-};
-pub use gpui_ui_kit::radio_group::{
-    RadioGroup, RadioGroupOrientation, RadioGroupSize, RadioOption,
 };
 pub use std::collections::HashSet;

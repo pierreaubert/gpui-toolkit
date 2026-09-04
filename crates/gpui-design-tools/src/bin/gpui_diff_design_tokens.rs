@@ -42,6 +42,9 @@ fn main() -> Result<()> {
             diff.added.len()
         );
     }
-    println!("No breaking design token changes ({} added).", diff.added.len());
+    println!(
+        "No breaking design token changes ({} added).",
+        diff.added.len()
+    );
     Ok(())
 }

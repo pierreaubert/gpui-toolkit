@@ -527,12 +527,8 @@ mod tests {
                 "actual_path",
                 "diff_path",
             ] {
-                assert!(
-                    capture.get(key).is_some(),
-                    "capture should carry key {key}"
-                );
+                assert!(capture.get(key).is_some(), "capture should carry key {key}");
             }
         }
     }
-
 }

@@ -11,6 +11,13 @@
 - Replaced panic-prone `partial_cmp().unwrap()` sorts across array/scale
   modules.
 
+## Performance
+
+- Added a `mesh::buffer_diff` module (`upload_differs`,
+  `BufferUploadCache`) that gates per-frame `queue.write_buffer` uploads in
+  the wgpu renderers on byte changes, with a golden equivalence test
+  pinning skip-vs-full-upload equality.
+
 ## 0.9.15 - 2026-08-23
 
 ### Performance

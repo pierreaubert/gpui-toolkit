@@ -59,13 +59,13 @@ impl EditorTheme {
     /// Returns an empty vec when the theme passes validation.
     pub fn accessibility_issues(&self) -> Vec<ContrastIssue> {
         let pairs: [(&'static str, Color, Color); 3] = [
-            ("text_primary/background", self.text_primary, self.background),
-            ("text_primary/surface", self.text_primary, self.surface),
             (
-                "text_on_accent/accent",
-                self.text_on_accent,
-                self.accent,
+                "text_primary/background",
+                self.text_primary,
+                self.background,
             ),
+            ("text_primary/surface", self.text_primary, self.surface),
+            ("text_on_accent/accent", self.text_on_accent, self.accent),
         ];
         pairs
             .into_iter()

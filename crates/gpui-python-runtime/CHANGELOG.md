@@ -1,5 +1,13 @@
 # Unreleased
 
+## Features
+
+- Added `DatasetFrame::encode`/`decode` wire framing and
+  `DatasetFrameStore::ingest_arrow_ipc` so numpy-backed Arrow IPC bytes
+  ingest alongside JSON specs with header-first budget enforcement.
+- Split `PxChartV2Node::validate` into per-chart-kind helpers with unchanged
+  error precedence.
+
 ## Performance
 
 - Added `MeshPlotSpec::validate_value`, which runs schema-version and

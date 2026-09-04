@@ -6,6 +6,7 @@
 //! native AccessKit element API. Platform screen-reader validation remains a
 //! separate release-QA requirement.
 
+use crate::collection_diff::{CollectionPatch, diff_by_key};
 use gpui::prelude::StatefulInteractiveElement;
 use gpui::{App, Div, ElementId, Global, Role, SharedString, Stateful, Window};
 use std::collections::HashMap;
@@ -1051,6 +1052,65 @@ impl Default for AccessibilityTree {
     }
 }
 
+/// Stable identity key for an accessibility node.
+///
+/// Backed by the node's element id, this is the key [`diff_accessibility_nodes`]
+/// and [`AccessibilityTree::apply_snapshot`] diff on.
+pub fn accessibility_node_key(node: &AccessibilityNode) -> String {
+    format!("{:?}", node.element_id)
+}
+
+/// Diff two ordered accessibility node lists by stable element identity.
+///
+/// Returns [`CollectionPatch`] operations (insert/delete/move/update) using
+/// the same conventions as [`diff_by_key`]. Identical lists produce no
+/// patches, so callers can skip snapshot rebuilds and native bridge exports
+/// when nothing changed.
+pub fn diff_accessibility_nodes(
+    old: &[AccessibilityNode],
+    new: &[AccessibilityNode],
+) -> Vec<CollectionPatch<String>> {
+    diff_by_key(old, new, accessibility_node_key)
+}
+
+impl AccessibilityTree {
+    /// Replace the tree contents with `next`, diffing instead of rebuilding.
+    ///
+    /// Computes [`diff_accessibility_nodes`] between the current ordered nodes
+    /// and `next`, then applies only the resulting patches: removed nodes are
+    /// dropped, new nodes are inserted, survivors keep their order from `next`,
+    /// and semantically unchanged nodes reuse their existing allocation. The
+    /// patches are returned so callers can forward minimal updates (bridge
+    /// snapshots, native adapter payloads) instead of re-exporting the tree.
+    pub fn apply_snapshot(&mut self, next: Vec<AccessibilityNode>) -> Vec<CollectionPatch<String>> {
+        let current: Vec<AccessibilityNode> = self.nodes_in_order().into_iter().cloned().collect();
+        let patches = diff_accessibility_nodes(&current, &next);
+        if patches.is_empty() {
+            return patches;
+        }
+
+        let mut replacement: HashMap<ElementId, AccessibilityNode> =
+            HashMap::with_capacity(next.len());
+        let mut order = Vec::with_capacity(next.len());
+        for node in next {
+            let id = node.element_id.clone();
+            order.push(id.clone());
+            match self.nodes.remove(&id) {
+                Some(existing) if existing == node => {
+                    replacement.insert(id, existing);
+                }
+                _ => {
+                    replacement.insert(id, node);
+                }
+            }
+        }
+        self.nodes = replacement;
+        self.order = order;
+        self.last_seen.retain(|id, _| self.nodes.contains_key(id));
+        patches
+    }
+}
+
 /// Extension trait for accessibility tree access on App
 pub trait AccessibilityExt {
     fn register_accessible(&mut self, node: AccessibilityNode);
@@ -1077,8 +1137,10 @@ mod tests {
         ACCESSIBILITY_READINESS_REPORT_TYPE, ACCESSIBILITY_READINESS_SCHEMA_VERSION,
         AccessibilityNode, AccessibilityReadinessStatus, AccessibilityTree, AriaLive, AriaProps,
         AriaRole, AriaState, NativeAccessibilityAction, NativeAccessibilityAdapterError,
-        NativeAccessibilityTarget, accessibility_readiness_entries, accessibility_readiness_report,
+        NativeAccessibilityTarget, accessibility_node_key, accessibility_readiness_entries,
+        accessibility_readiness_report, diff_accessibility_nodes,
     };
+    use crate::collection_diff::CollectionPatch;
     use gpui::ElementId;
 
     #[test]
@@ -1439,6 +1501,90 @@ mod tests {
         assert!(markdown.contains("component-tested"));
         assert!(markdown.contains("platform-qa-pending"));
         assert!(markdown.contains("VoiceOver"));
+    }
+
+    #[test]
+    fn diff_reports_insert_delete_move_and_update_by_element_id() {
+        let node = |id: &'static str, label: &'static str| AccessibilityNode {
+            element_id: ElementId::Name(id.into()),
+            label: label.into(),
+            props: AriaProps::with_role(AriaRole::Button),
+        };
+        let old = vec![node("a", "A"), node("b", "B"), node("c", "C")];
+        let new = vec![node("b", "B2"), node("d", "D"), node("a", "A")];
+
+        assert!(!accessibility_node_key(&old[0]).is_empty());
+
+        let patches = diff_accessibility_nodes(&old, &new);
+        let key = |id: &str| format!("{:?}", ElementId::Name(id.into()));
+
+        assert!(patches.contains(&CollectionPatch::Delete {
+            key: key("c"),
+            index: 2,
+        }));
+        assert!(patches.contains(&CollectionPatch::Insert {
+            key: key("d"),
+            index: 1,
+        }));
+        assert!(patches.contains(&CollectionPatch::Move {
+            key: key("b"),
+            from: 1,
+            to: 0,
+        }));
+        assert!(patches.contains(&CollectionPatch::Update {
+            key: key("b"),
+            index: 0,
+        }));
+        assert!(diff_accessibility_nodes(&old, &old).is_empty());
+    }
+
+    #[test]
+    fn apply_snapshot_applies_only_patches_and_keeps_order() {
+        let node = |id: &'static str| AccessibilityNode {
+            element_id: ElementId::Name(id.into()),
+            label: id.into(),
+            props: AriaProps::with_role(AriaRole::Button),
+        };
+        let mut tree = AccessibilityTree::new();
+        let initial = tree.apply_snapshot(vec![node("first"), node("second")]);
+        assert_eq!(tree.len(), 2);
+        assert!(
+            initial
+                .iter()
+                .any(|patch| matches!(patch, CollectionPatch::Insert { .. }))
+        );
+
+        // Identical snapshot: no patches, tree untouched.
+        let noop = tree.apply_snapshot(vec![node("first"), node("second")]);
+        assert!(noop.is_empty());
+        assert_eq!(tree.len(), 2);
+
+        // Reorder + content update + removal + insert in one snapshot.
+        let updated = AccessibilityNode {
+            element_id: ElementId::Name("second".into()),
+            label: "Second!".into(),
+            props: AriaProps::with_role(AriaRole::Button),
+        };
+        let patches = tree.apply_snapshot(vec![updated, node("third")]);
+        assert!(
+            patches
+                .iter()
+                .any(|patch| matches!(patch, CollectionPatch::Delete { .. }))
+        );
+        assert!(
+            patches
+                .iter()
+                .any(|patch| matches!(patch, CollectionPatch::Insert { .. }))
+        );
+
+        assert_eq!(tree.len(), 2);
+        assert!(tree.get(&ElementId::Name("first".into())).is_none());
+        let ordered: Vec<_> = tree
+            .nodes_in_order()
+            .iter()
+            .map(|node| node.label.as_ref().to_string())
+            .collect();
+        assert_eq!(ordered, vec!["Second!".to_string(), "third".to_string()]);
     }
 
     #[test]

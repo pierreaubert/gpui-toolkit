@@ -49,20 +49,14 @@
 // Release gates live in their own dependency-free crate; re-export the full
 // surface here so `gpui_toolkit::release_qa_matrix` and friends keep working.
 pub use gpui_release_gates::{
+    AggregateFeature, CRATE_STABILITY_MANIFEST, CrateStability, PublishDecision, StabilityLevel,
+    crate_stability_manifest,
+};
+pub use gpui_release_gates::{
     DEPENDENCY_HYGIENE_REPORT_TYPE, DEPENDENCY_HYGIENE_SCHEMA_VERSION, DependencyAdvisoryTriage,
     DependencyAdvisoryTriageStatus, DependencyHygieneCheck, DependencyHygieneReport,
     DependencyHygieneStatus, dependency_advisory_triage, dependency_hygiene_checks,
     dependency_hygiene_report,
-};
-pub use gpui_release_gates::{
-    PUBLISH_PLAN_REPORT_TYPE, PUBLISH_PLAN_SCHEMA_VERSION, PublishPlan, PublishPlanEntry,
-    PublishPlanStatus, publish_plan, publish_plan_entries,
-};
-pub use gpui_release_gates::{
-    RELEASE_NOTES_ARTIFACT_REPORT_TYPE, RELEASE_NOTES_REPORT_TYPE, RELEASE_NOTES_SCHEMA_VERSION,
-    ReleaseNotesArtifact, ReleaseNotesArtifactReport, ReleaseNotesArtifactStatus,
-    ReleaseNotesEntry, ReleaseNotesReport, ReleaseNotesStatus, release_notes_artifact_report,
-    release_notes_artifacts, release_notes_entries, release_notes_report,
 };
 pub use gpui_release_gates::{
     ExecutableGateCommand, GateExecutionOutput, RELEASE_PACKAGING_REPORT_TYPE,
@@ -78,8 +72,14 @@ pub use gpui_release_gates::{
     release_qa_gates, release_qa_matrix,
 };
 pub use gpui_release_gates::{
-    AggregateFeature, CRATE_STABILITY_MANIFEST, CrateStability, PublishDecision, StabilityLevel,
-    crate_stability_manifest,
+    PUBLISH_PLAN_REPORT_TYPE, PUBLISH_PLAN_SCHEMA_VERSION, PublishPlan, PublishPlanEntry,
+    PublishPlanStatus, publish_plan, publish_plan_entries,
+};
+pub use gpui_release_gates::{
+    RELEASE_NOTES_ARTIFACT_REPORT_TYPE, RELEASE_NOTES_REPORT_TYPE, RELEASE_NOTES_SCHEMA_VERSION,
+    ReleaseNotesArtifact, ReleaseNotesArtifactReport, ReleaseNotesArtifactStatus,
+    ReleaseNotesEntry, ReleaseNotesReport, ReleaseNotesStatus, release_notes_artifact_report,
+    release_notes_artifacts, release_notes_entries, release_notes_report,
 };
 pub use gpui_release_gates::{
     VENDORED_PATCH_REPORT_TYPE, VENDORED_PATCH_SCHEMA_VERSION, VendoredPatch,

@@ -174,6 +174,14 @@ impl TouchStateMap {
 pub(super) struct FallbackAtlasState {
     pub(super) next_id: u32,
     pub(super) tiles: HashMap<AtlasKey, AtlasTile>,
+    /// Insertion/recency order for LRU eviction, front = oldest.
+    pub(super) order: std::collections::VecDeque<AtlasKey>,
+}
+
+impl FallbackAtlasState {
+    /// Maximum retained tiles; the fallback atlas never uploads to the GPU,
+    /// so this only bounds host memory.
+    pub(super) const MAX_TILES: usize = 4096;
 }
 
 #[cfg(test)]

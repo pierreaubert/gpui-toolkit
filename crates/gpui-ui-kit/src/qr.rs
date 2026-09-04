@@ -1,8 +1,8 @@
 //! QR Code display component
 //!
-//! Renders an encoded QR code as a matrix of filled squares using GPUI's
-//! low-level paint API. Suitable for sharing URLs, wallet addresses, or any
-//! string data.
+//! Renders an encoded QR code as a single cached bitmap painted through one
+//! GPUI image primitive per frame. Suitable for sharing URLs, wallet
+//! addresses, or any string data.
 //!
 //! Two variants are provided:
 //!

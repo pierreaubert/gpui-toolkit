@@ -22,6 +22,7 @@ use crate::interaction::{
 };
 use crate::scale::Scale;
 use crate::theme::ThemeExt;
+use crate::validation::{Validate, ValidationError};
 use gpui::{
     App, ElementId, InteractiveElement, IntoElement, MouseButton, MouseMoveEvent, RenderOnce, Rgba,
     SharedString, StatefulInteractiveElement, Styled, Window, div, px,
@@ -596,6 +597,46 @@ impl RenderOnce for Slider {
     }
 }
 
+impl Validate for Slider {
+    /// Validate the slider range config.
+    ///
+    /// Reports `min` when the range is inverted, `value` when it falls
+    /// outside `[min, max]`, and `step` when a non-positive step is set.
+    fn validate(&self) -> Result<(), Vec<ValidationError>> {
+        let mut errors = Vec::new();
+
+        if self.min > self.max {
+            errors.push(ValidationError::new(
+                "min",
+                format!("min ({}) must be <= max ({})", self.min, self.max),
+            ));
+        }
+        if self.min <= self.max && !(self.min..=self.max).contains(&self.value) {
+            errors.push(ValidationError::new(
+                "value",
+                format!(
+                    "value ({}) must be within [min, max] ([{}, {}])",
+                    self.value, self.min, self.max
+                ),
+            ));
+        }
+        if let Some(step) = self.step
+            && step <= 0.0
+        {
+            errors.push(ValidationError::new(
+                "step",
+                format!("step ({step}) must be positive"),
+            ));
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -612,5 +653,45 @@ mod tests {
         let slider = Slider::new("frequency").value(10.0).range(20.0, 20_000.0);
 
         assert_eq!(slider.clamped_value(), 20.0);
+    }
+
+    #[test]
+    fn valid_slider_config_passes_schema_validation() {
+        let slider = Slider::new("volume").range(0.0, 100.0).value(75.0);
+
+        assert!(slider.validate().is_ok());
+        assert!(slider.validate_first().is_ok());
+        assert!(slider.is_valid());
+    }
+
+    #[test]
+    fn invalid_slider_config_collects_every_field_failure() {
+        // Note: `range()` rejects inverted bounds at build time, so the
+        // inverted case is built through the individual setters.
+        let slider = Slider::new("broken")
+            .min(100.0)
+            .max(0.0)
+            .value(50.0)
+            .step(0.0);
+
+        let errors = slider.validate().expect_err("slider config is invalid");
+        assert_eq!(errors.len(), 2);
+        assert!(errors.iter().any(|error| error.field.as_ref() == "min"));
+        assert!(errors.iter().any(|error| error.field.as_ref() == "step"));
+        assert!(!slider.is_valid());
+
+        let first = slider
+            .validate_first()
+            .expect_err("first failure is an error");
+        assert_eq!(first.field.as_ref(), "min");
+    }
+
+    #[test]
+    fn out_of_range_value_fails_schema_validation() {
+        let slider = Slider::new("volume").range(0.0, 100.0).value(150.0);
+
+        let errors = slider.validate().expect_err("value is out of range");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].field.as_ref(), "value");
     }
 }

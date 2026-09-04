@@ -1,6 +1,7 @@
 //! Zero-copy vello backend: render the scene to an offscreen texture with
 //! the shared wgpu device, then alpha-composite into the GPUI frame.
 
+use crate::mesh::BufferUploadCache;
 use crate::vello2d::{ChartScene, to_vello_scene};
 use gpui::{Bounds, CustomDraw, Pixels};
 use gpui_wgpu::{WgpuContext, WgpuCustomDraw, WgpuCustomDrawAdapter};
@@ -393,6 +394,9 @@ pub(crate) struct CompositePipeline {
     resources: Rc<CompositeResources>,
     uniform: wgpu::Buffer,
     bind_group: Option<wgpu::BindGroup>,
+    /// Last uniforms handed to `queue.write_buffer`. The composite rect is
+    /// static on most frames, so the per-frame upload is usually skipped.
+    uniform_cache: BufferUploadCache,
 }
 
 /// Shader, pipeline, bind-group layout, and sampler shared by all custom
@@ -544,6 +548,7 @@ impl CompositePipeline {
             resources,
             uniform,
             bind_group: None,
+            uniform_cache: BufferUploadCache::new(),
         }
     }
 
@@ -579,8 +584,16 @@ impl CompositePipeline {
             target_size[0],
             target_size[1],
         ];
-        ctx.queue
-            .write_buffer(&self.uniform, 0, bytemuck::cast_slice(&uniforms));
+        // Persistent buffer: only touch the queue when the composite rect
+        // actually changed. Skipping is unobservable — the buffer already
+        // holds these exact bytes.
+        if self
+            .uniform_cache
+            .needs_write(bytemuck::cast_slice(&uniforms))
+        {
+            ctx.queue
+                .write_buffer(&self.uniform, 0, bytemuck::cast_slice(&uniforms));
+        }
         if self.bind_group.is_none() {
             self.bind_group = Some(ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("vello2d_composite_bind_group"),

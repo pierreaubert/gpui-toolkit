@@ -1,6 +1,6 @@
 [package]
 name = "gpui-builder"
-version = "0.9.10"
+version = "0.9.11"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -31,6 +31,8 @@ gpui-ios = { workspace = true, optional = true }
 [features]
 default = []
 autoeq = []
+gpu-2d = []
+gpu-3d = []
 reqwest = []
 showcase = [
     "dep:gpui",

@@ -1,5 +1,11 @@
+use super::deep_link::coerce_prop_value;
+use super::deep_link::encode_lab_deep_link;
+use super::deep_link::parse_lab_deep_link;
+use super::deep_link::prop_value_to_query_string;
 use super::initial_lab_state::InitialLabState;
 use super::lab_app_config::LabAppConfig;
+use super::misc::SIDEBAR_RENDER_WINDOW;
+use super::misc::StoryPreviewKind;
 use super::misc::alert_variant;
 use super::misc::badge_variant;
 use super::misc::boxplot_story_data;
@@ -16,17 +22,11 @@ use super::misc::progress_variant;
 use super::misc::prop_value_label;
 use super::misc::scalar_field_data;
 use super::misc::scatter_story_data;
-use super::deep_link::coerce_prop_value;
-use super::deep_link::encode_lab_deep_link;
-use super::deep_link::parse_lab_deep_link;
-use super::deep_link::prop_value_to_query_string;
-use super::misc::SIDEBAR_RENDER_WINDOW;
-use super::misc::StoryPreviewKind;
 use super::misc::showcase_section_for_story_id;
 use super::misc::sidebar_window;
-use super::misc::story_preview_kind;
 use super::misc::spectrum_axis_magnitudes;
 use super::misc::spectrum_magnitudes;
+use super::misc::story_preview_kind;
 use super::misc::surface_colormap;
 use super::misc::tab_variant;
 use super::misc::tag_variant;
@@ -393,6 +393,7 @@ pub struct ComponentLab {
     pub(super) cached_matrix: ResponsivePreviewMatrix,
     story_revision: u64,
     pub(super) sidebar_labels: BTreeMap<String, SharedString>,
+    pub(super) prop_strings: BTreeMap<(String, String), CachedPropStrings>,
     // Persistent child render entities to avoid rebuilding stable UI every frame.
     sidebar_entity: Entity<LabSidebar>,
     toolbar_entity: Entity<LabToolbar>,
@@ -432,31 +433,97 @@ pub(super) enum ExportedStoryFamily {
 /// Pure family decision behind `render_exported_ui_kit_component_story`.
 pub(super) fn exported_story_family(story_id: &str) -> ExportedStoryFamily {
     match story_id {
-        "ui-kit.button-set" | "ui-kit.icon-button" | "ui-kit.alert" | "ui-kit.inline-alert"
-        | "ui-kit.toast" | "ui-kit.toast-container" => ExportedStoryFamily::Feedback,
-        "ui-kit.checkbox" | "ui-kit.color-picker" | "ui-kit.input" | "ui-kit.number-input"
-        | "ui-kit.select" | "ui-kit.slider" | "ui-kit.toggle" => ExportedStoryFamily::Input,
-        "ui-kit.avatar" | "ui-kit.avatar-group" | "ui-kit.badge" | "ui-kit.badge-dot"
-        | "ui-kit.empty-state-component" | "ui-kit.image-view-component"
-        | "ui-kit.keyboard-shortcut-label" | "ui-kit.progress-bar" | "ui-kit.circular-progress"
-        | "ui-kit.qr-code-component" | "ui-kit.animated-qr-code" | "ui-kit.spinner"
-        | "ui-kit.loading-dots" | "ui-kit.step-indicator-component" | "ui-kit.text-component"
-        | "ui-kit.heading" | "ui-kit.code" | "ui-kit.link" | "ui-kit.search-bar-component"
-        | "ui-kit.tooltip-component" | "ui-kit.with-tooltip"
-        | "ui-kit.loading-overlay-component" | "ui-kit.pane-divider" | "ui-kit.settings-row"
-        | "ui-kit.settings-form-component" | "ui-kit.sidebar-component"
-        | "ui-kit.split-pane-component" | "ui-kit.vstack" | "ui-kit.hstack" | "ui-kit.spacer"
-        | "ui-kit.divider" | "ui-kit.status-bar-component" => ExportedStoryFamily::Display,
-        "ui-kit.accordion-component" | "ui-kit.breadcrumbs-component" | "ui-kit.menu-component"
-        | "ui-kit.menu-bar" | "ui-kit.dialog-component" | "ui-kit.confirm-dialog-component"
-        | "ui-kit.popover-component" | "ui-kit.context-menu-component" | "ui-kit.tabs-component"
-        | "ui-kit.wizard-component" | "ui-kit.wizard-header" | "ui-kit.wizard-navigation"
-        | "ui-kit.command-palette-component" | "ui-kit.drag-list-component"
-        | "ui-kit.notification-component" | "ui-kit.tag-component" | "ui-kit.toolbar-component"
-        | "ui-kit.tree-view-component" | "ui-kit.table-component" | "ui-kit.workflow-node"
-        | "ui-kit.focus-group" | "ui-kit.workflow-port" | "ui-kit.workflow-canvas"
+        "ui-kit.button-set"
+        | "ui-kit.icon-button"
+        | "ui-kit.alert"
+        | "ui-kit.inline-alert"
+        | "ui-kit.toast"
+        | "ui-kit.toast-container" => ExportedStoryFamily::Feedback,
+        "ui-kit.checkbox"
+        | "ui-kit.color-picker"
+        | "ui-kit.input"
+        | "ui-kit.number-input"
+        | "ui-kit.select"
+        | "ui-kit.slider"
+        | "ui-kit.toggle" => ExportedStoryFamily::Input,
+        "ui-kit.avatar"
+        | "ui-kit.avatar-group"
+        | "ui-kit.badge"
+        | "ui-kit.badge-dot"
+        | "ui-kit.empty-state-component"
+        | "ui-kit.image-view-component"
+        | "ui-kit.keyboard-shortcut-label"
+        | "ui-kit.progress-bar"
+        | "ui-kit.circular-progress"
+        | "ui-kit.qr-code-component"
+        | "ui-kit.animated-qr-code"
+        | "ui-kit.spinner"
+        | "ui-kit.loading-dots"
+        | "ui-kit.step-indicator-component"
+        | "ui-kit.text-component"
+        | "ui-kit.heading"
+        | "ui-kit.code"
+        | "ui-kit.link"
+        | "ui-kit.search-bar-component"
+        | "ui-kit.tooltip-component"
+        | "ui-kit.with-tooltip"
+        | "ui-kit.loading-overlay-component"
+        | "ui-kit.pane-divider"
+        | "ui-kit.settings-row"
+        | "ui-kit.settings-form-component"
+        | "ui-kit.sidebar-component"
+        | "ui-kit.split-pane-component"
+        | "ui-kit.vstack"
+        | "ui-kit.hstack"
+        | "ui-kit.spacer"
+        | "ui-kit.divider"
+        | "ui-kit.status-bar-component" => ExportedStoryFamily::Display,
+        "ui-kit.accordion-component"
+        | "ui-kit.breadcrumbs-component"
+        | "ui-kit.menu-component"
+        | "ui-kit.menu-bar"
+        | "ui-kit.dialog-component"
+        | "ui-kit.confirm-dialog-component"
+        | "ui-kit.popover-component"
+        | "ui-kit.context-menu-component"
+        | "ui-kit.tabs-component"
+        | "ui-kit.wizard-component"
+        | "ui-kit.wizard-header"
+        | "ui-kit.wizard-navigation"
+        | "ui-kit.command-palette-component"
+        | "ui-kit.drag-list-component"
+        | "ui-kit.notification-component"
+        | "ui-kit.tag-component"
+        | "ui-kit.toolbar-component"
+        | "ui-kit.tree-view-component"
+        | "ui-kit.table-component"
+        | "ui-kit.workflow-node"
+        | "ui-kit.focus-group"
+        | "ui-kit.workflow-port"
+        | "ui-kit.workflow-canvas"
         | "ui-kit.showcase-component" => ExportedStoryFamily::Navigation,
         _ => ExportedStoryFamily::Unknown,
+    }
+}
+
+/// Registry-static strings for one story prop, cached so prop editors do not
+/// rebuild `SharedString`s on every frame. The key is
+/// `(story_id, prop_name)`.
+#[derive(Clone, Default)]
+pub(super) struct CachedPropStrings {
+    pub(super) story_id: SharedString,
+    pub(super) name: SharedString,
+    pub(super) label: SharedString,
+    options: Vec<(String, SharedString)>,
+}
+
+impl CachedPropStrings {
+    pub(super) fn option_label(&self, option: &str) -> SharedString {
+        self.options
+            .iter()
+            .find(|(value, _)| value == option)
+            .map(|(_, label)| label.clone())
+            .unwrap_or_else(|| option.into())
     }
 }
 
@@ -498,6 +565,7 @@ impl ComponentLab {
         let cached_matrix =
             ResponsivePreviewMatrix::for_story(&documents.get(&selected_story_id).unwrap().story);
         let sidebar_labels = Self::build_sidebar_labels(&documents, &story_ids);
+        let prop_strings = Self::build_prop_strings(&documents);
 
         let entity = cx.entity().clone();
         let parent = entity.downgrade();
@@ -530,6 +598,7 @@ impl ComponentLab {
             cached_matrix,
             story_revision: 0,
             sidebar_labels,
+            prop_strings,
             sidebar_entity,
             toolbar_entity,
             controls_panel_entity,
@@ -562,6 +631,32 @@ impl ComponentLab {
         lab
     }
 
+    pub(super) fn build_prop_strings(
+        documents: &BTreeMap<String, StoryDocument>,
+    ) -> BTreeMap<(String, String), CachedPropStrings> {
+        let mut map = BTreeMap::new();
+        for doc in documents.values() {
+            for prop in &doc.story.props {
+                map.insert(
+                    (doc.story.id.clone(), prop.name.clone()),
+                    CachedPropStrings {
+                        story_id: SharedString::new(doc.story.id.clone()),
+                        name: SharedString::new(prop.name.clone()),
+                        label: SharedString::new(prop.label.clone()),
+                        options: prop
+                            .options
+                            .iter()
+                            .map(|option| {
+                                (option.clone(), SharedString::new(option.clone()))
+                            })
+                            .collect(),
+                    },
+                );
+            }
+        }
+        map
+    }
+
     pub(super) fn build_sidebar_labels(
         documents: &BTreeMap<String, StoryDocument>,
         story_ids: &[String],
@@ -588,6 +683,7 @@ impl ComponentLab {
 
     fn rebuild_sidebar_labels(&mut self) {
         self.sidebar_labels = Self::build_sidebar_labels(&self.documents, &self.story_ids);
+        self.prop_strings = Self::build_prop_strings(&self.documents);
     }
 
     pub(super) fn start_live_preview(&mut self, cx: &mut Context<Self>) {
@@ -1134,11 +1230,8 @@ impl ComponentLab {
             .iter()
             .position(|story_id| *story_id == self.selected_story_id)
             .unwrap_or(0);
-        let (window_start, window_end) = sidebar_window(
-            selected_index,
-            self.story_ids.len(),
-            SIDEBAR_RENDER_WINDOW,
-        );
+        let (window_start, window_end) =
+            sidebar_window(selected_index, self.story_ids.len(), SIDEBAR_RENDER_WINDOW);
 
         for story_id in &self.story_ids[window_start..window_end] {
             let selected = *story_id == self.selected_story_id;
@@ -1477,9 +1570,23 @@ impl ComponentLab {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
-        let story_id = SharedString::new(story.id.clone());
-        let prop_name = SharedString::new(prop.name.clone());
-        let prop_label = SharedString::new(prop.label.clone());
+        let cached = self
+            .prop_strings
+            .get(&(story.id.clone(), prop.name.clone()))
+            .cloned()
+            .unwrap_or_else(|| CachedPropStrings {
+                story_id: SharedString::new(story.id.clone()),
+                name: SharedString::new(prop.name.clone()),
+                label: SharedString::new(prop.label.clone()),
+                options: prop
+                    .options
+                    .iter()
+                    .map(|option| (option.clone(), SharedString::new(option.clone())))
+                    .collect(),
+            });
+        let story_id = cached.story_id.clone();
+        let prop_name = cached.name.clone();
+        let prop_label = cached.label.clone();
         let entity = self.entity.clone();
 
         let control = match &prop.value {
@@ -1548,7 +1655,7 @@ impl ComponentLab {
             StoryPropValue::Choice(value) => {
                 let mut row = div().flex().flex_wrap().gap_1();
                 for option in &prop.options {
-                    let option_label = SharedString::new(option.clone());
+                    let option_label = cached.option_label(option);
                     let story_id = story_id.clone();
                     let prop_name = prop_name.clone();
                     let entity = self.entity.clone();
@@ -2118,13 +2225,9 @@ impl ComponentLab {
             StoryPreviewKind::Button => {
                 self.render_button_story(story, scope, interactive, design, cx)
             }
-            StoryPreviewKind::Form => {
-                self.render_form_story(story, scope, interactive, design, cx)
-            }
+            StoryPreviewKind::Form => self.render_form_story(story, scope, interactive, design, cx),
             StoryPreviewKind::Status => self.render_status_story(story, scope, design, cx),
-            StoryPreviewKind::Navigation => {
-                self.render_navigation_story(story, scope, design, cx)
-            }
+            StoryPreviewKind::Navigation => self.render_navigation_story(story, scope, design, cx),
             StoryPreviewKind::Feedback => self.render_feedback_story(story, scope, design, cx),
             StoryPreviewKind::Card => self.render_card_story(story, scope, design, cx),
             StoryPreviewKind::ExportedUiKit => {
@@ -2150,33 +2253,19 @@ impl ComponentLab {
             }
             StoryPreviewKind::Line => self.render_line_chart_story(story, scope, design, cx),
             StoryPreviewKind::Bar => self.render_bar_chart_story(story, scope, design, cx),
-            StoryPreviewKind::Scatter => {
-                self.render_scatter_chart_story(story, scope, design, cx)
-            }
+            StoryPreviewKind::Scatter => self.render_scatter_chart_story(story, scope, design, cx),
             StoryPreviewKind::Area => self.render_area_chart_story(story, scope, design, cx),
-            StoryPreviewKind::Heatmap => {
-                self.render_heatmap_chart_story(story, scope, design, cx)
-            }
-            StoryPreviewKind::Contour => {
-                self.render_contour_chart_story(story, scope, design, cx)
-            }
-            StoryPreviewKind::Isoline => {
-                self.render_isoline_chart_story(story, scope, design, cx)
-            }
+            StoryPreviewKind::Heatmap => self.render_heatmap_chart_story(story, scope, design, cx),
+            StoryPreviewKind::Contour => self.render_contour_chart_story(story, scope, design, cx),
+            StoryPreviewKind::Isoline => self.render_isoline_chart_story(story, scope, design, cx),
             StoryPreviewKind::Pie => self.render_pie_chart_story(story, scope, design, cx),
             StoryPreviewKind::Donut => self.render_donut_chart_story(story, scope, design, cx),
-            StoryPreviewKind::Boxplot => {
-                self.render_boxplot_chart_story(story, scope, design, cx)
-            }
-            StoryPreviewKind::Treemap => {
-                self.render_treemap_chart_story(story, scope, design, cx)
-            }
+            StoryPreviewKind::Boxplot => self.render_boxplot_chart_story(story, scope, design, cx),
+            StoryPreviewKind::Treemap => self.render_treemap_chart_story(story, scope, design, cx),
             StoryPreviewKind::Surface3d => {
                 self.render_surface3d_chart_story(story, scope, design, cx)
             }
-            StoryPreviewKind::MeshPlot => {
-                self.render_mesh_plot_story(story, scope, design, cx)
-            }
+            StoryPreviewKind::MeshPlot => self.render_mesh_plot_story(story, scope, design, cx),
             StoryPreviewKind::RendererFallback => div()
                 .child(
                     Text::new("Renderer metadata exists, but no preview handler is wired")
@@ -2227,7 +2316,12 @@ impl ComponentLab {
                 cx,
             ),
             ExportedStoryFamily::Navigation => self.render_exported_navigation_story(
-                story_id, &props, scope, design, interactive, cx,
+                story_id,
+                &props,
+                scope,
+                design,
+                interactive,
+                cx,
             ),
             ExportedStoryFamily::Unknown => div()
                 .child(Text::new("No exported component renderer registered").muted(true))

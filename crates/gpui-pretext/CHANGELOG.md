@@ -5,6 +5,11 @@
 - Reworked text measurement caching and the line-break walk, and added
   allocation-contract tests, fuzz targets, and a temporaries bench.
 
+## Refactored
+
+- Normalized formatting in the line-break walk and exports; no behavior
+  change.
+
 ## 0.9.9 - 2026-08-23
 
 ### Performance

@@ -8,9 +8,7 @@
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};
 use gpui_ui_kit::Text;
-use gpui_ui_kit::radio_group::{
-    RadioGroup, RadioGroupOrientation, RadioGroupSize, RadioOption,
-};
+use gpui_ui_kit::radio_group::{RadioGroup, RadioGroupOrientation, RadioGroupSize, RadioOption};
 use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::*;
 

@@ -6,6 +6,15 @@
   mesh-plot state transitions.
 - Fixed heatmap, line, and scatter chart edge cases with new chart tests.
 
+## Refactored
+
+- Extracted the revolve-preparation stage out of `build_frame` into
+  `begin_revolve_preparation` with no behavior change.
+- Split `build_frame` into staged helpers (`prepare_frame`,
+  `prepare_frame_revolve`, `prepare_frame_contours`,
+  `prepare_frame_series_2d`, plus interaction, style, navigation, and
+  element builders) with no behavior change.
+
 ## 0.9.11 - 2026-08-23
 
 ### Performance

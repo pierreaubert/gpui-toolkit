@@ -555,11 +555,7 @@ pub extern "C" fn gpui_au_parameter_count(context: *mut AuContext) -> usize {
 /// Current value of a parameter; `ok` (when non-null) reports id lookup.
 /// Unknown ids (or a null context) yield `0.0` with `ok` set to false.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_parameter_value(
-    context: *mut AuContext,
-    id: u32,
-    ok: *mut bool,
-) -> f32 {
+pub extern "C" fn gpui_au_parameter_value(context: *mut AuContext, id: u32, ok: *mut bool) -> f32 {
     let value = if context.is_null() {
         None
     } else {

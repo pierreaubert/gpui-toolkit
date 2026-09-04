@@ -2545,7 +2545,61 @@ pub struct PxChartV2Node {
 }
 
 impl PxChartV2Node {
+    /// Validate every chart kind. Each check below delegates to a focused
+    /// per-chart-kind helper; the call order is the error-precedence
+    /// contract, so helpers must stay in this sequence.
     pub fn validate(&self) -> Result<(), UiIrError> {
+        self.validate_chart_identity()?;
+        self.validate_chart_actions()?;
+        let source = self.chart_data_source()?;
+        self.validate_grid_source(source)?;
+        self.validate_role_binding(source)?;
+        self.validate_legend_position()?;
+        self.validate_treemap_layout()?;
+        self.validate_legend_annotation_support()?;
+        self.validate_color_scale()?;
+        self.validate_scatter_point_radius()?;
+        self.validate_line_legend_interaction()?;
+        self.validate_graph_ratio()?;
+        self.validate_sizing()?;
+        self.validate_axis_ranges()?;
+        self.validate_line_y2()?;
+        self.validate_axis_support()?;
+        self.validate_surface_axes()?;
+        self.validate_style_ranges()?;
+        self.validate_bar_layout()?;
+        self.validate_box_plot()?;
+        self.validate_style_support()?;
+        self.validate_area_fill()?;
+        self.validate_primary_series_color()?;
+        self.validate_isoline_stroke()?;
+        self.validate_pie_presentation()?;
+        self.validate_treemap_hover()?;
+        self.validate_renderer_config()?;
+        self.validate_line_style()?;
+        self.validate_contour_sampling()?;
+        self.validate_annotations()?;
+        self.validate_action_labels()?;
+        self.validate_selection_dataset(source)?;
+        validate_resource_source(source)?;
+        validate_dataset_view_operations(
+            source,
+            true,
+            matches!(self.chart.as_str(), "scatter" | "line"),
+        )?;
+        self.validate_dataset_view_sort(source)?;
+        validate_dataset_view_projection(
+            source,
+            self.data
+                .get("roles")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flat_map(|roles| roles.values())
+                .filter_map(Value::as_str),
+        )
+    }
+
+    fn validate_chart_identity(&self) -> Result<(), UiIrError> {
         if self.id.trim().is_empty()
             || !matches!(
                 self.chart.as_str(),
@@ -2568,6 +2622,10 @@ impl PxChartV2Node {
                 message: "resource chart requires ID, supported chart kind, and LOD policy".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_chart_actions(&self) -> Result<(), UiIrError> {
         if (self.viewport_action.is_some()
             && !matches!(self.chart.as_str(), "scatter" | "line" | "surface"))
             || (self.selection_action.is_some()
@@ -2579,12 +2637,18 @@ impl PxChartV2Node {
                         .into(),
             });
         }
-        let source = self
-            .data
+        Ok(())
+    }
+
+    fn chart_data_source(&self) -> Result<&Value, UiIrError> {
+        self.data
             .get("source")
             .ok_or_else(|| UiIrError::InvalidPatch {
                 message: "resource chart requires data binding source".into(),
-            })?;
+            })
+    }
+
+    fn validate_grid_source(&self, source: &Value) -> Result<(), UiIrError> {
         if matches!(
             self.chart.as_str(),
             "heatmap" | "contour" | "isoline" | "surface"
@@ -2594,6 +2658,10 @@ impl PxChartV2Node {
                 message: "resource grid charts require ArrayData".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_role_binding(&self, source: &Value) -> Result<(), UiIrError> {
         if source.get("kind").and_then(Value::as_str) != Some("array_data")
             && !matches!(
                 self.chart.as_str(),
@@ -2636,30 +2704,53 @@ impl PxChartV2Node {
                 });
             }
             if self.chart == "treemap" {
-                if !has_role("row_id") || !has_role("parent") || !has_role("size") {
-                    return Err(UiIrError::InvalidPatch {
-                        message: "treemap resource chart requires row_id, parent, and size fields"
-                            .into(),
-                    });
-                }
-                if source.get("kind").and_then(Value::as_str) != Some("dataset") {
-                    return Err(UiIrError::InvalidPatch {
-                        message: "treemap resource chart currently requires Dataset".into(),
-                    });
-                }
+                self.validate_treemap_roles(source, &has_role)?;
             } else if matches!(self.chart.as_str(), "bar" | "pie" | "donut") {
-                if !(has_role("label") || has_role("x")) || !has_role("y") {
-                    return Err(UiIrError::InvalidPatch {
-                        message: "categorical resource chart requires label (or x) and y fields"
-                            .into(),
-                    });
-                }
-            } else if !has_role("x") || !has_role("y") {
-                return Err(UiIrError::InvalidPatch {
-                    message: "resource chart requires x and y fields".into(),
-                });
+                Self::validate_categorical_roles(&has_role)?;
+            } else {
+                Self::validate_cartesian_roles(&has_role)?;
             }
         }
+        Ok(())
+    }
+
+    fn validate_treemap_roles(
+        &self,
+        source: &Value,
+        has_role: &dyn Fn(&str) -> bool,
+    ) -> Result<(), UiIrError> {
+        if !has_role("row_id") || !has_role("parent") || !has_role("size") {
+            return Err(UiIrError::InvalidPatch {
+                message: "treemap resource chart requires row_id, parent, and size fields".into(),
+            });
+        }
+        if source.get("kind").and_then(Value::as_str) != Some("dataset") {
+            return Err(UiIrError::InvalidPatch {
+                message: "treemap resource chart currently requires Dataset".into(),
+            });
+        }
+        Ok(())
+    }
+
+    fn validate_categorical_roles(has_role: &dyn Fn(&str) -> bool) -> Result<(), UiIrError> {
+        if !(has_role("label") || has_role("x")) || !has_role("y") {
+            return Err(UiIrError::InvalidPatch {
+                message: "categorical resource chart requires label (or x) and y fields".into(),
+            });
+        }
+        Ok(())
+    }
+
+    fn validate_cartesian_roles(has_role: &dyn Fn(&str) -> bool) -> Result<(), UiIrError> {
+        if !has_role("x") || !has_role("y") {
+            return Err(UiIrError::InvalidPatch {
+                message: "resource chart requires x and y fields".into(),
+            });
+        }
+        Ok(())
+    }
+
+    fn validate_legend_position(&self) -> Result<(), UiIrError> {
         if self.legend_position.as_deref().is_some_and(|position| {
             !matches!(position, "right" | "left" | "top" | "bottom" | "hidden")
         }) {
@@ -2667,6 +2758,10 @@ impl PxChartV2Node {
                 message: "resource chart has invalid legend position".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_treemap_layout(&self) -> Result<(), UiIrError> {
         if self.tiling_method.as_deref().is_some_and(|method| {
             !matches!(
                 method,
@@ -2681,6 +2776,10 @@ impl PxChartV2Node {
                 message: "resource chart has invalid treemap configuration".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_legend_annotation_support(&self) -> Result<(), UiIrError> {
         if (self.legend_position.is_some() || !self.annotations.is_empty())
             && !matches!(self.chart.as_str(), "scatter" | "line" | "bar")
         {
@@ -2688,6 +2787,10 @@ impl PxChartV2Node {
                 message: "resource chart kind does not support legends or annotations".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_color_scale(&self) -> Result<(), UiIrError> {
         if let Some(scale) = self.color_scale.as_deref() {
             let supported = matches!(
                 scale,
@@ -2702,6 +2805,10 @@ impl PxChartV2Node {
                 });
             }
         }
+        Ok(())
+    }
+
+    fn validate_scatter_point_radius(&self) -> Result<(), UiIrError> {
         if self
             .point_radius
             .is_some_and(|radius| !radius.is_finite() || radius <= 0.0)
@@ -2711,6 +2818,10 @@ impl PxChartV2Node {
                 message: "resource chart invalid scatter point radius".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_line_legend_interaction(&self) -> Result<(), UiIrError> {
         if self.hidden_series.as_ref().is_some_and(|indices| {
             let mut unique = std::collections::HashSet::new();
             indices.iter().any(|index| !unique.insert(*index))
@@ -2722,6 +2833,10 @@ impl PxChartV2Node {
                 message: "resource chart has invalid line legend interaction configuration".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_graph_ratio(&self) -> Result<(), UiIrError> {
         if self
             .graph_ratio
             .is_some_and(|ratio| !ratio.is_finite() || ratio <= 0.0)
@@ -2732,8 +2847,10 @@ impl PxChartV2Node {
                 message: "resource chart has invalid graph ratio".into(),
             });
         }
-        let valid_range =
-            |range: [f64; 2]| range[0].is_finite() && range[1].is_finite() && range[0] < range[1];
+        Ok(())
+    }
+
+    fn validate_sizing(&self) -> Result<(), UiIrError> {
         let valid_dimension = |value: f32| value.is_finite() && value > 0.0;
         if self.width.is_some() != self.height.is_some()
             || self.min_width.is_some() != self.min_height.is_some()
@@ -2747,6 +2864,12 @@ impl PxChartV2Node {
                 message: "resource chart sizing must use paired positive dimensions and cannot combine fixed size with fill".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_axis_ranges(&self) -> Result<(), UiIrError> {
+        let valid_range =
+            |range: [f64; 2]| range[0].is_finite() && range[1].is_finite() && range[0] < range[1];
         if self.x_range.is_some_and(|range| !valid_range(range))
             || self.y_range.is_some_and(|range| !valid_range(range))
             || self.y2_range.is_some_and(|range| !valid_range(range))
@@ -2758,11 +2881,19 @@ impl PxChartV2Node {
                     .into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_line_y2(&self) -> Result<(), UiIrError> {
         if (self.y2_label.is_some() || self.y2_range.is_some()) && self.chart != "line" {
             return Err(UiIrError::InvalidPatch {
                 message: "resource chart y2 presentation requires line chart".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_axis_support(&self) -> Result<(), UiIrError> {
         if (self.x_log.is_some() || self.x_label.is_some() || self.x_range.is_some())
             && !matches!(
                 self.chart.as_str(),
@@ -2787,6 +2918,10 @@ impl PxChartV2Node {
                 message: "resource chart kind does not support requested axis configuration".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_surface_axes(&self) -> Result<(), UiIrError> {
         if self.z_range.is_some_and(|range| {
             !range[0].is_finite() || !range[1].is_finite() || range[0] >= range[1]
         }) || ((self.z_label.is_some() || self.z_range.is_some() || self.wireframe.is_some())
@@ -2796,6 +2931,10 @@ impl PxChartV2Node {
                 message: "resource chart has invalid surface axis configuration".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_style_ranges(&self) -> Result<(), UiIrError> {
         if self
             .stroke_width
             .is_some_and(|width| !width.is_finite() || width <= 0.0)
@@ -2813,6 +2952,10 @@ impl PxChartV2Node {
                 message: "resource chart has invalid style configuration".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_bar_layout(&self) -> Result<(), UiIrError> {
         if self
             .bar_gap
             .is_some_and(|gap| !gap.is_finite() || gap < 0.0)
@@ -2825,6 +2968,10 @@ impl PxChartV2Node {
                 message: "resource chart has invalid bar layout configuration".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_box_plot(&self) -> Result<(), UiIrError> {
         let invalid_box_color = [
             self.box_color.as_deref(),
             self.median_color.as_deref(),
@@ -2862,6 +3009,10 @@ impl PxChartV2Node {
                 message: "resource chart has invalid box plot configuration".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_style_support(&self) -> Result<(), UiIrError> {
         if self.stroke_width.is_some()
             && !matches!(self.chart.as_str(), "line" | "isoline" | "box_plot")
             || self.opacity.is_some()
@@ -2878,24 +3029,28 @@ impl PxChartV2Node {
                     .into(),
             });
         }
-        let valid_hex = |color: &str| {
-            let digits = color.strip_prefix('#').unwrap_or(color);
-            digits.len() == 6 && digits.bytes().all(|byte| byte.is_ascii_hexdigit())
-        };
+        Ok(())
+    }
+
+    fn validate_area_fill(&self) -> Result<(), UiIrError> {
         if self
             .fill_color
             .as_deref()
-            .is_some_and(|color| !valid_hex(color))
+            .is_some_and(|color| !valid_chart_hex(color))
             || (self.fill_color.is_some() && self.chart != "area")
         {
             return Err(UiIrError::InvalidPatch {
                 message: "resource chart has invalid area fill color".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_primary_series_color(&self) -> Result<(), UiIrError> {
         if self
             .primary_color
             .as_deref()
-            .is_some_and(|color| !valid_hex(color))
+            .is_some_and(|color| !valid_chart_hex(color))
             || (self.primary_color.is_some()
                 && !matches!(self.chart.as_str(), "scatter" | "line" | "bar"))
         {
@@ -2903,24 +3058,30 @@ impl PxChartV2Node {
                 message: "resource chart has invalid primary series color".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_isoline_stroke(&self) -> Result<(), UiIrError> {
         if self
             .stroke_color
             .as_deref()
-            .is_some_and(|color| !valid_hex(color))
+            .is_some_and(|color| !valid_chart_hex(color))
             || (self.stroke_color.is_some() && self.chart != "isoline")
         {
             return Err(UiIrError::InvalidPatch {
                 message: "resource chart has invalid isoline stroke color".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_pie_presentation(&self) -> Result<(), UiIrError> {
         let has_pie_configuration =
             self.pad_angle.is_some() || self.corner_radius.is_some() || self.sort.is_some();
-        if self
-            .colors
-            .as_ref()
-            .is_some_and(|colors| colors.is_empty() || colors.iter().any(|color| !valid_hex(color)))
-            || (self.colors.is_some()
-                && !matches!(self.chart.as_str(), "pie" | "donut" | "treemap"))
+        if self.colors.as_ref().is_some_and(|colors| {
+            colors.is_empty() || colors.iter().any(|color| !valid_chart_hex(color))
+        }) || (self.colors.is_some()
+            && !matches!(self.chart.as_str(), "pie" | "donut" | "treemap"))
             || self
                 .pad_angle
                 .is_some_and(|angle| !angle.is_finite() || angle < 0.0)
@@ -2933,11 +3094,19 @@ impl PxChartV2Node {
                 message: "resource chart has invalid pie presentation configuration".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_treemap_hover(&self) -> Result<(), UiIrError> {
         if self.hover.is_some() && self.chart != "treemap" {
             return Err(UiIrError::InvalidPatch {
                 message: "resource chart hover configuration requires treemap".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_renderer_config(&self) -> Result<(), UiIrError> {
         if self
             .renderer_2d
             .as_deref()
@@ -2953,6 +3122,10 @@ impl PxChartV2Node {
                 message: "resource chart has invalid 2D renderer configuration".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_line_style(&self) -> Result<(), UiIrError> {
         if self.curve.as_deref().is_some_and(|curve| {
             !matches!(
                 curve,
@@ -2977,6 +3150,10 @@ impl PxChartV2Node {
                 message: "resource chart invalid line style configuration".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_contour_sampling(&self) -> Result<(), UiIrError> {
         if self
             .contour_upsample_factor
             .is_some_and(|factor| !(1..=8).contains(&factor))
@@ -3017,6 +3194,10 @@ impl PxChartV2Node {
                     .into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_annotations(&self) -> Result<(), UiIrError> {
         for annotation in &self.annotations {
             let target_valid = match annotation.target.as_str() {
                 "point" => annotation.x.is_some() && annotation.y.is_some(),
@@ -3039,6 +3220,10 @@ impl PxChartV2Node {
                 });
             }
         }
+        Ok(())
+    }
+
+    fn validate_action_labels(&self) -> Result<(), UiIrError> {
         if self.selection_action.as_deref().is_some_and(str::is_empty) {
             return Err(UiIrError::InvalidPatch {
                 message: "resource chart selection action cannot be empty".into(),
@@ -3049,6 +3234,10 @@ impl PxChartV2Node {
                 message: "resource chart viewport action cannot be empty".into(),
             });
         }
+        Ok(())
+    }
+
+    fn validate_selection_dataset(&self, source: &Value) -> Result<(), UiIrError> {
         if self.selection_action.is_some() {
             let dataset = match source.get("kind").and_then(Value::as_str) {
                 Some("dataset") => source,
@@ -3096,12 +3285,10 @@ impl PxChartV2Node {
                 }
             }
         }
-        validate_resource_source(source)?;
-        validate_dataset_view_operations(
-            source,
-            true,
-            matches!(self.chart.as_str(), "scatter" | "line"),
-        )?;
+        Ok(())
+    }
+
+    fn validate_dataset_view_sort(&self, source: &Value) -> Result<(), UiIrError> {
         if let Some(sort_field) = source
             .get("operations")
             .and_then(Value::as_array)
@@ -3134,16 +3321,14 @@ impl PxChartV2Node {
                 });
             }
         }
-        validate_dataset_view_projection(
-            source,
-            self.data
-                .get("roles")
-                .and_then(Value::as_object)
-                .into_iter()
-                .flat_map(|roles| roles.values())
-                .filter_map(Value::as_str),
-        )
+        Ok(())
     }
+}
+
+/// Shared `#rrggbb` gate for the per-chart-kind style validators below.
+fn valid_chart_hex(color: &str) -> bool {
+    let digits = color.strip_prefix('#').unwrap_or(color);
+    digits.len() == 6 && digits.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn validate_resource_source(value: &Value) -> Result<(), UiIrError> {

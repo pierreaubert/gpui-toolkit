@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- `?view=quad|text|both` query-param selection and a page-lifetime
+  `ResizeObserver` example that logs body size changes to the console,
+  both in the defensive boot-error fallback style.
+
 ### Fixed
 
 - Boot `expect`s now render a `console_error` fallback instead of

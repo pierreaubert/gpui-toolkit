@@ -1,9 +1,7 @@
 //! RadioGroup component tests
 
 use gpui_ui_kit::ComponentSize;
-use gpui_ui_kit::radio_group::{
-    RadioGroup, RadioGroupOrientation, RadioGroupSize, RadioOption,
-};
+use gpui_ui_kit::radio_group::{RadioGroup, RadioGroupOrientation, RadioGroupSize, RadioOption};
 
 fn options() -> Vec<RadioOption> {
     vec![
@@ -58,11 +56,7 @@ fn test_radio_group_orientation() {
 
 #[test]
 fn test_radio_group_all_sizes() {
-    for size in [
-        RadioGroupSize::Sm,
-        RadioGroupSize::Md,
-        RadioGroupSize::Lg,
-    ] {
+    for size in [RadioGroupSize::Sm, RadioGroupSize::Md, RadioGroupSize::Lg] {
         let group = RadioGroup::new("test").options(options()).size(size);
         drop(group);
     }
@@ -97,10 +91,7 @@ fn test_radio_group_variant_matchers() {
     use std::str::FromStr;
 
     assert_eq!(RadioGroupOrientation::all().len(), 2);
-    assert_eq!(
-        RadioGroupOrientation::Vertical.as_str(),
-        "vertical"
-    );
+    assert_eq!(RadioGroupOrientation::Vertical.as_str(), "vertical");
     assert_eq!(
         RadioGroupOrientation::from_str("horizontal"),
         Ok(RadioGroupOrientation::Horizontal)
