@@ -48,11 +48,18 @@ mod tests {
 /// Vello raster path selected after [`Renderer2D::Vello`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VelloBackend {
-    /// Probe custom-draw support and fall back to CPU if unavailable.
+    /// Probe GPU custom-draw support (Metal on macOS, WGPU elsewhere) and
+    /// fall back to CPU if unavailable.
     #[default]
     Auto,
-    /// Force the zero-copy WGPU custom-draw path.
+    /// Force the zero-copy WGPU custom-draw path. Never dispatches on the
+    /// Metal renderer (elements paint nothing there); prefer [`Self::Metal`]
+    /// or [`Self::Auto`] on macOS.
     Wgpu,
+    /// Force the Metal custom-draw path: GPU rasterization via a headless
+    /// wgpu device, blitted into the Metal drawable. macOS only; resolves
+    /// to CPU anywhere else.
+    Metal,
     /// Force deterministic `vello_cpu` rasterization.
     Cpu,
 }

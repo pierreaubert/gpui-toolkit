@@ -4,7 +4,8 @@ use super::consts::DEFAULT_WIDTH;
 /// Public sizing policy for GPUI chart builders.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ChartSize {
-    /// Fill the parent while keeping stable minimum dimensions for plot layout.
+    /// Hug the baked plot layout: the canvas keeps the stable layout
+    /// dimensions instead of stretching past the fixed-geometry graph.
     Fill {
         min_width: f32,
         min_height: f32,
@@ -108,10 +109,11 @@ pub(crate) fn apply_chart_size(mut el: gpui::Div, size: ChartSize) -> gpui::Div 
 
     match size {
         ChartSize::Fill { .. } => {
+            // Hug the baked plot geometry: plot paths are computed from the
+            // layout dimensions at build time, so stretching the canvas past
+            // them only adds empty canvas around a small graph.
             let (layout_width, layout_height) = size.layout_dimensions();
             el = el
-                .w_full()
-                .h_full()
                 .min_w(gpui::px(layout_width))
                 .min_h(gpui::px(layout_height));
         }

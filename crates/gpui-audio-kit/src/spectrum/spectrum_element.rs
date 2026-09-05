@@ -272,7 +272,7 @@ impl Element for SpectrumElement {
                         continue;
                     }
                     let bottom = match band {
-                        0 => 1.0,
+                        0 => 0.0,
                         1 => yellow_threshold,
                         _ => red_threshold,
                     };

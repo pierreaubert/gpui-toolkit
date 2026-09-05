@@ -422,6 +422,18 @@ fn mesh_plot_story(id: &str, title: &str, description: &str, expose_mode: bool) 
     story
 }
 
+/// Shared vello raster-backend selector for audio stories: `auto` probes
+/// custom-draw support, `cpu` forces `vello_cpu`, `gpu` forces the wgpu
+/// custom draw (live output only where wgpu draws dispatch).
+fn backend_prop() -> StoryProp {
+    StoryProp::new(
+        "backend",
+        "Backend",
+        StoryPropValue::Choice("auto".into()),
+    )
+    .options(["auto", "cpu", "gpu"])
+}
+
 pub fn register_audio_kit_stories(registry: &mut StoryRegistry) -> Result<()> {
     registry.register(
         ComponentStory::new(
@@ -439,6 +451,7 @@ pub fn register_audio_kit_stories(registry: &mut StoryRegistry) -> Result<()> {
                 StoryPropValue::Choice("logarithmic".into()),
             )
             .options(["linear", "logarithmic"]),
+            backend_prop(),
         ]),
     )?;
     registry.register(
@@ -470,6 +483,7 @@ pub fn register_audio_kit_stories(registry: &mut StoryRegistry) -> Result<()> {
             StoryProp::new("label", "Label", StoryPropValue::Text("Output".into())),
             StoryProp::new("value", "Value", StoryPropValue::Number(0.72)),
             StoryProp::new("muted", "Muted", StoryPropValue::Bool(false)),
+            backend_prop(),
         ]),
     )?;
     registry.register(
@@ -482,6 +496,7 @@ pub fn register_audio_kit_stories(registry: &mut StoryRegistry) -> Result<()> {
         .props([
             StoryProp::new("level_db", "Level", StoryPropValue::Number(-12.0)),
             StoryProp::new("peak_db", "Peak", StoryPropValue::Number(-3.0)),
+            backend_prop(),
         ]),
     )?;
     registry.register(
@@ -509,7 +524,28 @@ pub fn register_audio_kit_stories(registry: &mut StoryRegistry) -> Result<()> {
             "Spectrum",
             "Spectrum analyzer element",
         )
-        .props([StoryProp::new("bins", "Bins", StoryPropValue::Number(64.0))]),
+        .props([
+            StoryProp::new("bins", "Bins", StoryPropValue::Number(64.0)),
+            backend_prop(),
+        ]),
+    )?;
+    registry.register(
+        ComponentStory::new(
+            "audio-kit.backend-compare",
+            "gpui-audio-kit",
+            "Backend Compare",
+            "CPU vs GPU vello rasterization snapshots with pixel diff",
+        )
+        .props([
+            StoryProp::new(
+                "preset",
+                "Scene",
+                StoryPropValue::Choice("knob".into()),
+            )
+            .options(["knob", "spectrum", "strokes"]),
+            StoryProp::new("scale", "Scale", StoryPropValue::Choice("2x".into()))
+                .options(["1x", "2x"]),
+        ]),
     )?;
     registry.register(
         ComponentStory::new(

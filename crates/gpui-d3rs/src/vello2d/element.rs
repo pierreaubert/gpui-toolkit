@@ -313,7 +313,10 @@ impl VelloScenePainter {
                     }
                     return;
                 }
-                let mut pixels = state.rasterizer.rasterize(scene.as_scene(), w, h);
+                let mut pixels =
+                    state
+                        .rasterizer
+                        .rasterize(scene.as_scene(), w, h, scale_factor);
                 #[cfg(test)]
                 {
                     self.test_stats.cpu_rasterizations += 1;
@@ -876,7 +879,8 @@ impl Element for VelloChartElement {
                         }
                         break 'paint;
                     }
-                    let mut pixels = state.rasterizer.rasterize(&self.scene, w, h);
+                    let mut pixels =
+                        state.rasterizer.rasterize(&self.scene, w, h, scale_factor);
                     if !swizzle_rgba_to_bgra(&mut pixels) {
                         VelloScenePainter::clear_cpu_image(state, window);
                         return;

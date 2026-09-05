@@ -436,6 +436,45 @@ pub fn render_horizontal_meter_bar_with_renderer(
         )
 }
 
+/// dB values labeled beside a vertical level meter, highest first.
+///
+/// Spacing follows [`db_to_position`], so marks sit on the same segmented
+/// scale as the bar fill. `-12` is omitted: at typical bar heights it would
+/// collide with the `-6` label, the same overlap the spectrum axis had with
+/// `+3` over `0`.
+pub const LEVEL_METER_DB_TICKS: [f64; 5] = [0.0, -6.0, -20.0, -40.0, -60.0];
+
+/// Render a vertical dB tick column aligned with a `LevelMeterElement` bar.
+///
+/// The column stretches to its parent's height, so place it in a fixed-height
+/// row next to the bar. Mirrors [`render_tick_row`] for horizontal meters.
+pub fn render_level_meter_ticks(tick_color: Rgba, text_color: Rgba) -> impl IntoElement {
+    div()
+        .w(px(30.0))
+        .h_full()
+        .relative()
+        .children(LEVEL_METER_DB_TICKS.iter().map(move |db| {
+            let top = relative(1.0 - db_to_position(*db));
+            div()
+                .absolute()
+                .top(top)
+                .right_0()
+                .w(px(6.0))
+                .h(px(1.0))
+                .bg(tick_color)
+        }))
+        .children(LEVEL_METER_DB_TICKS.iter().map(move |db| {
+            let top = relative(1.0 - db_to_position(*db));
+            div()
+                .absolute()
+                .top(top)
+                .right(px(8.0))
+                .text_xs()
+                .text_color(text_color)
+                .child(div().mt(px(-5.0)).child(format!("{db:.0}")))
+        }))
+}
+
 /// GPU-accelerated vertical level meter element.
 pub struct LevelMeterElement {
     id: ElementId,

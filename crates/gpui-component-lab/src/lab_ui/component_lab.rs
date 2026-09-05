@@ -1,3 +1,6 @@
+use super::backend_compare::{
+    BackendCompareResult, COMPARE_LOGICAL_H, COMPARE_LOGICAL_W, run_backend_compare,
+};
 use super::deep_link::coerce_prop_value;
 use super::deep_link::encode_lab_deep_link;
 use super::deep_link::parse_lab_deep_link;
@@ -43,7 +46,10 @@ use super::preview_overflow::PreviewOverflow;
 use super::preview_sizing::PreviewSizing;
 use super::preview_surface::PreviewSurface;
 use super::render::render_chart_error;
-use super::render::render_chart_result;
+use super::render::{
+    px_bar_theme, px_category_palette, px_line_theme, px_primary_hex, px_scatter_theme,
+    px_secondary_hex, render_chart_result, theme_chart_hex,
+};
 use super::sample::sample_wizard_steps;
 use super::sample::sample_workflow_graph;
 use super::story::bool_prop;
@@ -63,16 +69,17 @@ use anyhow::{Context as AnyhowContext, Result};
 use d3rs::mesh::{
     ContourLevels, CoordinateAxis, RevolveSpec, ScalarAssociation, ScalarField, TriangleMesh,
 };
+use d3rs::render2d::VelloBackend;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Entity, IntoElement, MouseButton, Pixels, Render, SharedString, Size,
-    WeakEntity, Window, div, px, relative,
+    AnyElement, Context, Entity, IntoElement, MouseButton, Pixels, Render, RenderImage,
+    SharedString, Size, WeakEntity, Window, div, img, px, relative, wgpu_custom_draw_available,
 };
 use gpui_audio_kit::{
-    AudioScale, HorizontalMeterTheme, LevelMeterElement, Potentiometer, PotentiometerSize,
-    SpectrumAxisTheme, SpectrumElement, TickConfig, VerticalSlider, VerticalSliderSize, VolumeKnob,
-    render_horizontal_meter_bar, render_spectrum_db_axis, render_spectrum_frequency_axis,
-    render_tick_row,
+    AudioScale, HorizontalMeterTheme, LevelMeterElement, MeterColors, Potentiometer,
+    PotentiometerSize, SpectrumAxisTheme, SpectrumElement, TickConfig, VerticalSlider,
+    VerticalSliderSize, VolumeKnob, render_horizontal_meter_bar, render_level_meter_ticks,
+    render_spectrum_db_axis, render_spectrum_frequency_axis, render_tick_row,
 };
 use gpui_miniapp::{MiniApp, MiniAppConfig};
 use gpui_px::{
@@ -101,6 +108,7 @@ use gpui_ui_kit::{
     WizardHeader, WizardNavigation, WizardVariant, WorkflowCanvas, WorkflowNode, WorkflowNodeData,
 };
 use serde_json::json;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
@@ -406,6 +414,10 @@ pub struct ComponentLab {
     last_sample: Option<(&'static str, gpui_profiler::AllocSnapshot)>,
     last_window_size: Option<Size<Pixels>>,
     visual_capture_mode: bool,
+    // Mutated inline during render (see render_backend_compare_story):
+    // render may not reentrantly update its own entity, so the keyed
+    // snapshot cache uses interior mutability instead of entity.update.
+    backend_compare: RefCell<BackendCompareCache>,
 }
 
 /// Shared prop snapshot for one `render_exported_ui_kit_component_story` call,
@@ -527,6 +539,37 @@ impl CachedPropStrings {
     }
 }
 
+/// Map the shared `backend` story choice onto a vello raster backend.
+fn vello_backend_prop(choice: &str) -> VelloBackend {
+    match choice {
+        "cpu" => VelloBackend::Cpu,
+        "gpu" => VelloBackend::Wgpu,
+        _ => VelloBackend::Auto,
+    }
+}
+
+/// One-line caption naming the effective raster backend, so forced-GPU
+/// stories explain a blank card on renderers (Metal) where wgpu custom draws
+/// never dispatch.
+fn backend_caption(choice: &str) -> String {
+    match choice {
+        "cpu" => "backend: CPU (forced vello_cpu rasterization)".to_string(),
+        "gpu" => "backend: GPU forced — live output only where wgpu custom draws dispatch (blank on Metal)".to_string(),
+        _ if wgpu_custom_draw_available() => {
+            "backend: auto → GPU (wgpu custom draws available)".to_string()
+        }
+        _ => "backend: auto → CPU (no custom-draw support on this renderer)".to_string(),
+    }
+}
+
+/// Keyed CPU-vs-GPU snapshot for the backend-compare story. Recomputed only
+/// when the preset/scale key changes; images are `Arc`s shared across frames.
+#[derive(Clone, Default)]
+pub(super) struct BackendCompareCache {
+    key: Option<(String, u32)>,
+    result: Option<BackendCompareResult>,
+}
+
 impl ComponentLab {
     pub(super) fn new(config: LabAppConfig, cx: &mut Context<Self>) -> Self {
         let registry = builtin_story_registry().expect("builtin story registry");
@@ -609,6 +652,7 @@ impl ComponentLab {
             last_sample: None,
             last_window_size: None,
             visual_capture_mode: visual_capture.is_some(),
+            backend_compare: RefCell::new(BackendCompareCache::default()),
         };
         lab.refresh_stateful_preview(cx);
         if let Some(capture) = visual_capture {
@@ -2251,6 +2295,9 @@ impl ComponentLab {
             StoryPreviewKind::SpectrumAxis => {
                 self.render_spectrum_axis_story(story, scope, design, cx)
             }
+            StoryPreviewKind::BackendCompare => {
+                self.render_backend_compare_story(story, scope, design, cx)
+            }
             StoryPreviewKind::Line => self.render_line_chart_story(story, scope, design, cx),
             StoryPreviewKind::Bar => self.render_bar_chart_story(story, scope, design, cx),
             StoryPreviewKind::Scatter => self.render_scatter_chart_story(story, scope, design, cx),
@@ -3183,6 +3230,7 @@ impl ComponentLab {
         };
         let story_id = story.id.clone();
         let entity = self.entity.clone();
+        let backend_choice = choice_prop(story, "backend", "auto");
 
         let mut knob = Potentiometer::new(lab_id(&["preview-pot", scope]))
             .label(label)
@@ -3192,6 +3240,7 @@ impl ComponentLab {
             .unit("Hz")
             .scale(scale)
             .design(design)
+            .vello_backend(vello_backend_prop(backend_choice.as_str()))
             .size(PotentiometerSize::Lg);
         if interactive {
             knob = knob.on_change(move |new_value, _window, cx| {
@@ -3208,6 +3257,11 @@ impl ComponentLab {
             .border_color(theme.border)
             .rounded_md()
             .child(knob)
+            .child(
+                Text::new(backend_caption(backend_choice.as_str()))
+                    .size(TextSize::Xs)
+                    .color(theme.text_muted),
+            )
             .into_any_element()
     }
 
@@ -3289,12 +3343,14 @@ impl ComponentLab {
         let mute_story_id = story.id.clone();
         let entity = self.entity.clone();
         let mute_entity = self.entity.clone();
+        let backend_choice = choice_prop(story, "backend", "auto");
 
         let mut knob = VolumeKnob::new()
             .id(lab_id(&["preview-volume-knob", scope]))
             .label(label)
             .value(value)
             .muted(muted)
+            .vello_backend(vello_backend_prop(backend_choice.as_str()))
             .size(px(if scope.starts_with("matrix-") {
                 52.0
             } else {
@@ -3336,6 +3392,11 @@ impl ComponentLab {
             .border_color(theme.border)
             .rounded_md()
             .child(knob)
+            .child(
+                Text::new(backend_caption(backend_choice.as_str()))
+                    .size(TextSize::Xs)
+                    .color(theme.text_muted),
+            )
             .into_any_element()
     }
 
@@ -3349,27 +3410,72 @@ impl ComponentLab {
         let theme = cx.theme();
         let level_db = number_prop(story, "level_db", -12.0);
         let peak_db = number_prop(story, "peak_db", -3.0);
+        let backend_choice = choice_prop(story, "backend", "auto");
+        let backend = vello_backend_prop(backend_choice.as_str());
+        // Same card language as the vertical slider story: title, value
+        // badge, and a dB tick column beside the bar. Bar colors follow the
+        // active theme instead of the hardcoded meter defaults.
+        let meter_colors = MeterColors {
+            background: theme.background,
+            green: theme.success,
+            yellow: theme.warning,
+            red: theme.error,
+            peak: theme.text_primary,
+            text: theme.text_secondary,
+            ..MeterColors::default()
+        };
 
         div()
-            .w(px(140.0))
-            .h(px(180.0))
+            .min_w(px(140.0))
+            .h(px(260.0))
             .flex()
             .flex_col()
             .items_center()
-            .gap_3()
-            .p_4()
+            .justify_center()
+            .gap_2()
+            .p_5()
             .bg(theme.surface)
             .border_1()
             .border_color(theme.border)
             .rounded_md()
+            .child(Text::new("Level").size(TextSize::Sm))
             .child(
-                div().h(px(120.0)).flex().items_stretch().child(
-                    LevelMeterElement::new(level_db, "L")
-                        .peak(peak_db)
-                        .width(px(24.0)),
-                ),
+                div()
+                    .rounded_sm()
+                    .px_2()
+                    .py(px(2.0))
+                    .bg(theme.background)
+                    .border_1()
+                    .border_color(theme.border)
+                    .child(
+                        Text::new(format!("{level_db:.1} dB"))
+                            .size(TextSize::Sm)
+                            .color(theme.text_primary),
+                    ),
             )
-            .child(Text::new(format!("{level_db:.1} dB")).size(TextSize::Sm))
+            .child(
+                div()
+                    .h(px(150.0))
+                    .flex()
+                    .items_stretch()
+                    .gap_1()
+                    .child(
+                        LevelMeterElement::new(level_db, "L")
+                            .peak(peak_db)
+                            .width(px(24.0))
+                            .colors(meter_colors)
+                            .vello_backend(backend),
+                    )
+                    .child(render_level_meter_ticks(
+                        theme.border,
+                        theme.text_muted,
+                    )),
+            )
+            .child(
+                Text::new(backend_caption(backend_choice.as_str()))
+                    .size(TextSize::Xs)
+                    .color(theme.text_muted),
+            )
             .into_any_element()
     }
 
@@ -3437,6 +3543,7 @@ impl ComponentLab {
         let theme = cx.theme();
         let bins = number_prop(story, "bins", 64.0).clamp(8.0, 128.0).round() as usize;
         let magnitudes = spectrum_magnitudes(bins);
+        let backend_choice = choice_prop(story, "backend", "auto");
 
         div()
             .w(px(360.0))
@@ -3445,7 +3552,135 @@ impl ComponentLab {
             .border_1()
             .border_color(theme.border)
             .rounded_md()
-            .child(SpectrumElement::new(magnitudes).height(px(150.0)))
+            .child(
+                SpectrumElement::new(magnitudes)
+                    .height(px(150.0))
+                    .vello_backend(vello_backend_prop(backend_choice.as_str())),
+            )
+            .child(
+                Text::new(backend_caption(backend_choice.as_str()))
+                    .size(TextSize::Xs)
+                    .color(theme.text_muted),
+            )
+            .into_any_element()
+    }
+
+    pub(super) fn render_backend_compare_story(
+        &self,
+        story: &ComponentStory,
+        _scope: &str,
+        _design: Arc<DesignSystem>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = cx.theme();
+        let preset = choice_prop(story, "preset", "knob");
+        let scale: f32 = if choice_prop(story, "scale", "2x") == "1x" {
+            1.0
+        } else {
+            2.0
+        };
+        // Snapshots are expensive (GPU device init on first use), so capture
+        // once per preset/scale key and reuse the Arcs across frames.
+        // Captured inline via the RefCell cache: render may not reentrantly
+        // update its own entity, and no extra frame is needed since the
+        // fresh result displays immediately.
+        let key = (preset.to_string(), scale.to_bits());
+        let mut cache = self.backend_compare.borrow_mut();
+        if cache.key != Some(key.clone()) {
+            cache.key = Some(key);
+            cache.result = Some(run_backend_compare(&preset, scale));
+        }
+        let cached = cache.result.clone();
+
+        let surface = theme.surface;
+        let background = theme.background;
+        let border = theme.border;
+        let primary = theme.text_primary;
+        let muted = theme.text_muted;
+        let cell = |label: &'static str, image: Option<Arc<RenderImage>>| {
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(Text::new(label).size(TextSize::Xs).color(muted))
+                .child(
+                    div()
+                        .w(px(COMPARE_LOGICAL_W))
+                        .h(px(COMPARE_LOGICAL_H))
+                        .overflow_hidden()
+                        .bg(background)
+                        .border_1()
+                        .border_color(border)
+                        .rounded_sm()
+                        .children(image.map(img)),
+                )
+                .into_any_element()
+        };
+        let status: AnyElement = match cached.as_ref() {
+            Some(result) => match (&result.stats, &result.gpu_error) {
+                (Some(stats), _) => Text::new(format!(
+                    "mean|Δ| {:.2} · max|Δ| {} · over tol 8: {:.2}% · cpu {:.1} ms · gpu {:.1} ms",
+                    stats.mean_abs,
+                    stats.max_abs,
+                    stats.frac_over_tol * 100.0,
+                    result.cpu_ms,
+                    result.gpu_ms,
+                ))
+                .size(TextSize::Sm)
+                .color(primary)
+                .into_any_element(),
+                (None, Some(err)) => Text::new(format!("GPU snapshot failed: {err}"))
+                    .size(TextSize::Sm)
+                    .color(primary)
+                    .into_any_element(),
+                (None, None) => Text::new("capturing CPU/GPU snapshots…")
+                    .size(TextSize::Sm)
+                    .color(muted)
+                    .into_any_element(),
+            },
+            None => Text::new("capturing CPU/GPU snapshots…")
+                .size(TextSize::Sm)
+                .color(muted)
+                .into_any_element(),
+        };
+        let (cpu_image, gpu_image, diff_image) = match cached {
+            Some(result) => (Some(result.cpu), result.gpu, result.diff),
+            None => (None, None, None),
+        };
+        let phys_w = (COMPARE_LOGICAL_W * scale).ceil();
+        let phys_h = (COMPARE_LOGICAL_H * scale).ceil();
+
+        div()
+            .w(px(640.0))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_4()
+            .bg(surface)
+            .border_1()
+            .border_color(border)
+            .rounded_md()
+            .child(
+                Text::new("Backend compare")
+                    .size(TextSize::Sm)
+                    .color(primary),
+            )
+            .child(
+                Text::new(format!(
+                    "scene {preset} · logical {COMPARE_LOGICAL_W:.0}x{COMPARE_LOGICAL_H:.0} · physical {phys_w:.0}x{phys_h:.0} @ {scale:.0}x"
+                ))
+                .size(TextSize::Xs)
+                .color(muted),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(cell("CPU (vello_cpu)", cpu_image))
+                    .child(cell("GPU (offscreen vello)", gpu_image))
+                    .child(cell("Diff ×4 (tol 8)", diff_image)),
+            )
+            .child(status)
             .into_any_element()
     }
 
@@ -3462,6 +3697,7 @@ impl ComponentLab {
             number_prop(story, "max_freq", 20_000.0).clamp(min_freq as f64 + 1.0, 192_000.0) as f32;
         let axis_theme = SpectrumAxisTheme {
             text_color: theme.text_secondary,
+            tick_color: theme.border,
             ..SpectrumAxisTheme::default()
         };
         let db_axis_width = axis_theme.db_axis_width;
@@ -3530,10 +3766,11 @@ impl ComponentLab {
             .x_label(data.x_label)
             .y_label(data.y_label)
             .label(data.primary_label)
-            .color(0x2563eb)
+            .color(px_primary_hex(&theme))
             .stroke_width(if compact { 2.0 } else { 2.5 })
             .show_points(!compact)
             .x_scale(data.x_scale)
+            .theme(px_line_theme(&theme))
             .design(design)
             .legend_position(if compact {
                 LegendPosition::Hidden
@@ -3547,7 +3784,13 @@ impl ComponentLab {
 
         if let Some(extra) = data.comparison_y {
             chart = chart
-                .add_series(&extra, Some(data.comparison_label), 0xf97316, 1.75, 0.9)
+                .add_series(
+                    &extra,
+                    Some(data.comparison_label),
+                    px_secondary_hex(&theme),
+                    1.75,
+                    0.9,
+                )
                 .series_dash_array(StrokeDashArray::Dashed);
         }
 
@@ -3566,6 +3809,9 @@ impl ComponentLab {
                 .h_full()
                 .min_w_0()
                 .min_h_0()
+                .flex()
+                .items_center()
+                .justify_center()
                 .child(chart)
                 .into_any_element(),
             Err(err) => render_chart_error(err, theme),
@@ -3589,10 +3835,16 @@ impl ComponentLab {
         let mut chart = bar(&data.categories, &data.values)
             .title("Category Mix")
             .label("Current")
-            .color(0x2563eb)
+            .color(px_primary_hex(&theme))
             .bar_gap(if compact { 2.0 } else { 4.0 })
             .border_radius(if compact { 2.0 } else { 4.0 })
-            .add_series(&data.comparison_values, Some("Target"), 0xf97316, 0.76)
+            .add_series(
+                &data.comparison_values,
+                Some("Target"),
+                px_secondary_hex(&theme),
+                0.76,
+            )
+            .theme(px_bar_theme(&theme))
             .design(design)
             .legend_position(if compact {
                 LegendPosition::Hidden
@@ -3615,6 +3867,9 @@ impl ComponentLab {
                 .h_full()
                 .min_w_0()
                 .min_h_0()
+                .flex()
+                .items_center()
+                .justify_center()
                 .child(chart)
                 .into_any_element(),
             Err(err) => render_chart_error(err, theme),
@@ -3637,9 +3892,10 @@ impl ComponentLab {
 
         let mut chart = scatter(&x, &y)
             .title("Correlation")
-            .color(0x2563eb)
+            .color(px_primary_hex(&theme))
             .point_radius(if compact { 3.0 } else { 4.5 })
             .opacity(0.78)
+            .theme(px_scatter_theme(&theme))
             .design(design);
 
         chart = if fill {
@@ -3668,7 +3924,7 @@ impl ComponentLab {
 
         let mut chart = area(&data.x, &data.y)
             .title(data.title)
-            .color(0x14b8a6)
+            .color(theme_chart_hex(theme.success))
             .opacity(0.58)
             .design(design);
         if let Some(y0) = data.y0 {
@@ -3996,7 +4252,7 @@ impl ComponentLab {
         let mut chart = isoline(&z, size, size)
             .title("Level Curves")
             .levels(vec![-0.6, -0.2, 0.2, 0.6])
-            .color(0x334155)
+            .color(theme_chart_hex(theme.text_secondary))
             .stroke_width(1.5)
             .design(design);
         chart = if fill {
@@ -4056,6 +4312,7 @@ impl ComponentLab {
         }
         .labels(&labels)
         .title(if donut_chart { "Share" } else { "Mix" })
+        .colors(&px_category_palette(&theme))
         .design(design);
 
         chart = if fill {
@@ -4085,8 +4342,8 @@ impl ComponentLab {
         let mut chart = boxplot(&x, &y)
             .title("Distribution")
             .bins(groups)
-            .box_color(0x2563eb)
-            .median_color(0xf97316)
+            .box_color(px_primary_hex(&theme))
+            .median_color(px_secondary_hex(&theme))
             .design(design);
 
         chart = if fill {

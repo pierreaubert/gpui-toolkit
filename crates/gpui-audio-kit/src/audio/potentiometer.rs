@@ -1527,6 +1527,54 @@ mod tests {
     }
 
     #[test]
+    fn knob_shell_arc_and_ticks_share_one_center() {
+        // Regression guard for the component-lab story (Frequency, 1000 Hz,
+        // log scale, Lg): the knob face, value arc, and tick ring must stay
+        // concentric in the graphic container.
+        let pot = Potentiometer::new("test")
+            .value(1000.0)
+            .min(20.0)
+            .max(20_000.0)
+            .unit("Hz")
+            .scale(Scale::Logarithmic)
+            .size(crate::PotentiometerSize::Lg);
+        let normalized = pot.value_to_normalized(1000.0) as f32;
+        let metrics = pot.dial_metrics(normalized, false);
+        let geometry = pot.tick_geometry(&metrics);
+
+        // Knob shell center within the container.
+        let shell_cx = geometry.knob_offset_x + metrics.center;
+        let shell_cy = geometry.knob_offset_y + metrics.center;
+        // Value-arc center uses the same offsets by construction.
+        let arc_cx = geometry.knob_offset_x + metrics.knob_size / 2.0;
+        let arc_cy = geometry.knob_offset_y + metrics.knob_size / 2.0;
+        assert!((shell_cx - arc_cx).abs() < 1e-6);
+        assert!((shell_cy - arc_cy).abs() < 1e-6);
+        // Shell is centered in the container.
+        assert!((shell_cx - metrics.container_width / 2.0).abs() < 1e-6);
+        assert!((shell_cy - metrics.container_height / 2.0).abs() < 1e-6);
+        // Tick ring is centered on the shell: every tick endpoint lies on
+        // its ring circle about the shell center (a 270-degree sweep has a
+        // dead zone, so ticks have no exact opposites to pair up).
+        assert!(!geometry.ticks.is_empty());
+        for tick in geometry.ticks.iter() {
+            let inner_dist = ((tick.inner_x - shell_cx).powi(2)
+                + (tick.inner_y - shell_cy).powi(2))
+            .sqrt();
+            let outer_dist = ((tick.outer_x - shell_cx).powi(2)
+                + (tick.outer_y - shell_cy).powi(2))
+            .sqrt();
+            assert!((inner_dist - metrics.knob_size / 2.0).abs() < 1e-3);
+            let expected_outer = if tick.is_major {
+                metrics.knob_size / 2.0 + 8.0
+            } else {
+                metrics.knob_size / 2.0 + 5.0
+            };
+            assert!((outer_dist - expected_outer).abs() < 1e-3);
+        }
+    }
+
+    #[test]
     fn builder_setters_chain() {
         let _pot = Potentiometer::new("test")
             .value(50.0)

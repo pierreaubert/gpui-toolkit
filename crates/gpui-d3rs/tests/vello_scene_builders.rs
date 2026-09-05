@@ -32,7 +32,7 @@ fn line_and_bar_scene_builders_have_deterministic_cpu_output() {
     assert_eq!(bars.len(), 2, "one rounded fill command per bar");
 
     let mut rasterizer = CpuRasterizer::new(80, 40);
-    let pixels = rasterizer.rasterize(&line, 80, 40);
+    let pixels = rasterizer.rasterize(&line, 80, 40, 1.0);
     assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] != 0));
 }
 
@@ -76,7 +76,7 @@ fn heatmap_scene_ignores_nan_cells_and_rasterizes_valid_cells() {
     let mut rasterizer = CpuRasterizer::new(32, 32);
     assert!(
         rasterizer
-            .rasterize(&scene, 32, 32)
+            .rasterize(&scene, 32, 32, 1.0)
             .chunks_exact(4)
             .any(|pixel| pixel[3] != 0)
     );

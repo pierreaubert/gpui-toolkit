@@ -69,13 +69,20 @@ fn frequency_axis_label_cache_is_bounded() {
 #[::core::prelude::v1::test]
 fn db_axis_labels_are_stable() {
     let labels = spectrum_db_axis_labels();
-    assert_eq!(labels[0].label, "+3");
-    assert_eq!(labels[1].label, "0");
-    assert_eq!(labels[4].label, "-60");
+    assert_eq!(labels[0].label, "0");
+    assert_eq!(labels[3].label, "-60");
     assert!(
         labels
             .windows(2)
             .all(|pair| pair[0].position < pair[1].position)
+    );
+    // Adjacent labels must stay far enough apart (in axis-relative units)
+    // that their text cannot overlap: the old "+3"/"0" pair was only 0.029
+    // apart and rendered on top of each other.
+    assert!(
+        labels
+            .windows(2)
+            .all(|pair| pair[1].position - pair[0].position > 0.08)
     );
 }
 

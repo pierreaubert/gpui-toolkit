@@ -124,6 +124,7 @@ pub const BUILTIN_RENDERER_STORY_IDS: &[&str] = &[
     "audio-kit.horizontal-meter",
     "audio-kit.spectrum",
     "audio-kit.spectrum-axis",
+    "audio-kit.backend-compare",
     "px.line",
     "px.bar",
     "px.scatter",

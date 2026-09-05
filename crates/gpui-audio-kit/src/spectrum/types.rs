@@ -12,11 +12,7 @@ pub struct SpectrumDbAxisLabel {
     pub position: f32,
 }
 
-pub(super) const SPECTRUM_DB_AXIS_LABELS: [SpectrumDbAxisLabel; 5] = [
-    SpectrumDbAxisLabel {
-        label: "+3",
-        position: 0.0,
-    },
+pub(super) const SPECTRUM_DB_AXIS_LABELS: [SpectrumDbAxisLabel; 4] = [
     SpectrumDbAxisLabel {
         label: "0",
         position: 0.029,

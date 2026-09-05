@@ -29,7 +29,7 @@ fn bench_vello2d_scatter(c: &mut Criterion) {
         let scene = scatter_chart_scene(&x_scale, &y_scale, &data, &config, 800.0, 600.0);
         let mut rast = CpuRasterizer::new(800, 600);
         group.bench_with_input(BenchmarkId::new("cpu_raster", n), &scene, |b, scene| {
-            b.iter(|| rast.rasterize(scene, 800, 600))
+            b.iter(|| rast.rasterize(scene, 800, 600, 1.0))
         });
     }
     group.finish();

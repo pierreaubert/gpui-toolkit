@@ -387,7 +387,8 @@ impl WgpuCustomDraw for WgpuVelloDraw {
 }
 
 // ---------------------------------------------------------------------------
-// Composite: draw the premultiplied-RGBA offscreen texture over the frame.
+// Composite: draw the straight-alpha offscreen texture over the frame. The
+// fragment shader premultiplies on sample to match the blend state below.
 
 pub(crate) struct CompositePipeline {
     pub(crate) target_format: wgpu::TextureFormat,
@@ -444,7 +445,10 @@ fn vs(@builtin(vertex_index) i: u32) -> VsOut {
 
 @fragment
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
-    return textureSample(src_tex, src_sampler, in.uv);
+    let sample = textureSample(src_tex, src_sampler, in.uv);
+    // vello stores straight alpha; the pipeline blends premultiplied, so
+    // convert here. Without this, translucent content composites over-bright.
+    return vec4(sample.rgb * sample.a, sample.a);
 }
 "#;
 
@@ -506,7 +510,8 @@ impl CompositeResources {
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: target_format,
-                    // vello output is premultiplied.
+                    // vello stores straight alpha; `fs` premultiplies on
+                    // sample so this premultiplied blend is correct.
                     blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],

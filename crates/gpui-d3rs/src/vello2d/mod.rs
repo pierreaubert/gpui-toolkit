@@ -9,6 +9,9 @@ mod cpu;
 mod gpu_scene;
 mod scene;
 
+#[cfg(all(feature = "vello", feature = "gpu-2d", not(target_family = "wasm")))]
+mod gpu_snapshot;
+
 #[cfg(feature = "vello-gpui")]
 mod element;
 #[cfg(feature = "vello-gpui")]
@@ -21,6 +24,11 @@ pub use kurbo;
 pub use peniko;
 
 pub use cpu::CpuRasterizer;
+#[cfg(all(feature = "vello", feature = "gpu-2d", not(target_family = "wasm")))]
+pub use gpu_snapshot::{
+    PixelDiff, SnapshotError, compare_rgba, compare_rgba_downsampled2, diff_image_rgba,
+    snapshot_scene_gpu,
+};
 pub use gpu_scene::to_vello_scene;
 pub use scene::{ChartCmd, ChartScene};
 

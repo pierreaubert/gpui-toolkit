@@ -16,10 +16,20 @@ pub fn render_spectrum_frequency_axis(
     let axis_height = theme.frequency_axis_height;
     let label_offset_x = theme.frequency_label_offset_x;
 
+    let tick_color = theme.tick_color;
     div()
         .w_full()
         .h(px(axis_height))
         .relative()
+        .children(freq_labels.iter().map(move |label| {
+            div()
+                .absolute()
+                .left(relative(label.position))
+                .top_0()
+                .w(px(1.0))
+                .h(px(6.0))
+                .bg(tick_color)
+        }))
         .children(freq_labels.iter().map(move |label| {
             div()
                 .absolute()
@@ -34,6 +44,7 @@ pub fn render_spectrum_frequency_axis(
 /// Render a vertical dB axis for spectrum displays.
 pub fn render_spectrum_db_axis(theme: SpectrumAxisTheme) -> impl IntoElement {
     let text_color = theme.text_color;
+    let tick_color = theme.tick_color;
     let text_size = theme.text_size;
     let axis_width = theme.db_axis_width;
     let padding_right = theme.db_axis_padding_right;
@@ -45,6 +56,15 @@ pub fn render_spectrum_db_axis(theme: SpectrumAxisTheme) -> impl IntoElement {
         .flex()
         .flex_col()
         .relative()
+        .children(spectrum_db_axis_labels().iter().map(move |label| {
+            div()
+                .absolute()
+                .top(relative(label.position))
+                .right_0()
+                .w(px(6.0))
+                .h(px(1.0))
+                .bg(tick_color)
+        }))
         .children(spectrum_db_axis_labels().iter().map(move |label| {
             div()
                 .absolute()

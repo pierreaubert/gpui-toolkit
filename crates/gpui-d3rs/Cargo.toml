@@ -14,7 +14,7 @@ exclude = ["bin/"]
 name = "d3rs"
 
 [features]
-default = ["gpui", "gpu-2d", "gpu-3d", "vello-gpui"]
+default = ["gpui", "gpu-2d", "gpu-3d", "vello-gpui", "vello-metal"]
 autoeq = ["dep:autoeq"]
 gpui = ["dep:gpui", "dep:gpui-design", "gpui-design/gpui", "dep:smol", "dep:fontdue", "dep:image"]
 profiler = ["gpui-profiler/global-allocator"]
@@ -27,6 +27,10 @@ gpu-2d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "dep:gpui_wgpu
 vello = ["dep:vello", "dep:vello_cpu", "dep:peniko", "dep:kurbo", "dep:bytemuck", "dep:log"]
 vello-gpui = ["vello", "gpui", "dep:wgpu", "dep:gpui_wgpu"]
 gpu-metal = ["gpu-2d", "gpu-3d", "gpui", "dep:metal", "dep:objc", "dep:gpui_macos"]
+# Vello scenes on the Metal renderer: headless-wgpu raster + drawable blit.
+# The metal/gpui_macos deps are target-gated to macOS, so enabling this
+# elsewhere is a no-op (module code is cfg'd out with them).
+vello-metal = ["vello-gpui", "gpu-2d", "dep:metal", "dep:gpui_macos"]
 metal-qa = ["gpu-metal", "gpui/test-support", "gpui_macos/test-support"]
 gpu-compute = ["gpu-2d"]
 # Real GPUI scene readback for adapter-backed product visual QA.
@@ -290,6 +294,11 @@ required-features = ["vello"]
 name = "vello2d_element_tests"
 path = "tests/vello2d_element_tests.rs"
 required-features = ["vello-gpui"]
+
+[[test]]
+name = "vello2d_gpu_snapshot"
+path = "tests/vello2d_gpu_snapshot.rs"
+required-features = ["vello", "gpu-2d"]
 
 [[bench]]
 name = "vello2d_bench"

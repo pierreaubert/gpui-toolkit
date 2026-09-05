@@ -11,7 +11,7 @@ repository.workspace = true
 
 [features]
 default = ["vello"]
-vello = ["gpui-d3rs/vello-gpui"]
+vello = ["gpui-d3rs/vello-gpui", "gpui-d3rs/vello-metal"]
 autoeq = []
 gpu-2d = []
 gpu-3d = []

@@ -5,6 +5,7 @@ use gpui::*;
 #[derive(Clone)]
 pub struct SpectrumAxisTheme {
     pub text_color: Rgba,
+    pub tick_color: Rgba,
     pub text_size: Rems,
     pub db_axis_width: f32,
     pub db_axis_padding_right: Rems,
@@ -17,6 +18,7 @@ impl Default for SpectrumAxisTheme {
     fn default() -> Self {
         Self {
             text_color: rgba(0xa1a1aaff),
+            tick_color: rgba(0x737373ff),
             text_size: rems(0.75),
             db_axis_width: 32.0,
             db_axis_padding_right: rems(0.25),

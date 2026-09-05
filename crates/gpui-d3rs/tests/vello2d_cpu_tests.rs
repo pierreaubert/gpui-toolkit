@@ -10,8 +10,8 @@ fn px(buf: &[u8], w: usize, x: usize, y: usize) -> [u8; 4] {
 fn assert_deterministic_ink(scene: &ChartScene, width: u16, height: u16, label: &str) {
     let mut first = CpuRasterizer::new(width, height);
     let mut second = CpuRasterizer::new(width, height);
-    let first_pixels = first.rasterize(scene, width, height);
-    let second_pixels = second.rasterize(scene, width, height);
+    let first_pixels = first.rasterize(scene, width, height, 1.0);
+    let second_pixels = second.rasterize(scene, width, height, 1.0);
     assert_eq!(first_pixels, second_pixels, "{label} must be deterministic");
     assert!(
         first_pixels.chunks_exact(4).any(|pixel| pixel[3] > 0),
@@ -27,7 +27,7 @@ fn filled_rect_paints_interior_and_leaves_exterior_transparent() {
         Brush::Solid(Color::from_rgb8(255, 0, 0)),
     );
     let mut rast = CpuRasterizer::new(100, 100);
-    let buf = rast.rasterize(&scene, 100, 100);
+    let buf = rast.rasterize(&scene, 100, 100, 1.0);
     assert_eq!(buf.len(), 100 * 100 * 4);
     let [r, g, b, a] = px(&buf, 100, 30, 30);
     assert!(
@@ -46,7 +46,7 @@ fn stroked_circle_paints_ring() {
         Brush::Solid(Color::from_rgb8(0, 0, 255)),
     );
     let mut rast = CpuRasterizer::new(100, 100);
-    let buf = rast.rasterize(&scene, 100, 100);
+    let buf = rast.rasterize(&scene, 100, 100, 1.0);
     // Point on the ring (rightmost): opaque blue.
     let ring = px(&buf, 100, 70, 50);
     assert!(ring[2] > 150 && ring[3] > 150, "ring: {ring:?}");
@@ -62,8 +62,8 @@ fn resize_reallocates_and_clears() {
         Brush::Solid(Color::from_rgb8(0, 255, 0)),
     );
     let mut rast = CpuRasterizer::new(32, 32);
-    let _ = rast.rasterize(&scene, 32, 32);
-    let buf = rast.rasterize(&ChartScene::new(), 64, 48);
+    let _ = rast.rasterize(&scene, 32, 32, 1.0);
+    let buf = rast.rasterize(&ChartScene::new(), 64, 48, 1.0);
     assert_eq!(buf.len(), 64 * 48 * 4);
     assert!(
         buf.iter().all(|&b| b == 0),
@@ -95,7 +95,7 @@ fn scatter_scene_golden_pixels() {
     assert_eq!(scene.len(), 1, "all points batched into one fill command");
 
     let mut rast = CpuRasterizer::new(100, 80);
-    let buf = rast.rasterize(&scene, 100, 80);
+    let buf = rast.rasterize(&scene, 100, 80, 1.0);
     // (50,40) is the center point: opaque red within the radius.
     let i = (40 * 100 + 50) * 4;
     assert!(
@@ -118,7 +118,7 @@ fn scatter_scene_respects_opacity() {
         .opacity(0.5);
     let scene = scatter_chart_scene(&x_scale, &y_scale, &data, &config, 20.0, 20.0);
     let mut rast = CpuRasterizer::new(20, 20);
-    let buf = rast.rasterize(&scene, 20, 20);
+    let buf = rast.rasterize(&scene, 20, 20, 1.0);
     let alpha = buf[(10 * 20 + 10) * 4 + 3];
     assert!(
         (100..=160).contains(&alpha),
@@ -156,7 +156,7 @@ fn scatter_scene_stroke_ring_paints_before_fill() {
     );
 
     let mut rast = CpuRasterizer::new(40, 40);
-    let buf = rast.rasterize(&scene, 40, 40);
+    let buf = rast.rasterize(&scene, 40, 40, 1.0);
     // Center: red fill wins over the ring.
     let center = px(&buf, 40, 20, 20);
     assert!(center[0] > 200 && center[2] < 60, "center: {center:?}");
@@ -183,7 +183,7 @@ fn scatter_scene_overlapping_translucent_points_blend_once() {
     assert_eq!(scene.len(), 1, "both circles batched into one fill command");
 
     let mut rast = CpuRasterizer::new(40, 32);
-    let buf = rast.rasterize(&scene, 40, 32);
+    let buf = rast.rasterize(&scene, 40, 32, 1.0);
     // (12,16): inside only the first circle (center 16, r 8).
     let single = px(&buf, 40, 12, 16);
     // (20,16): inside BOTH circles (4px from each center).
@@ -219,7 +219,10 @@ fn deterministic_for_fixed_input() {
     );
     let mut a = CpuRasterizer::new(50, 50);
     let mut b = CpuRasterizer::new(50, 50);
-    assert_eq!(a.rasterize(&scene, 50, 50), b.rasterize(&scene, 50, 50));
+    assert_eq!(
+        a.rasterize(&scene, 50, 50, 1.0),
+        b.rasterize(&scene, 50, 50, 1.0)
+    );
 }
 
 #[test]
@@ -360,6 +363,59 @@ fn cpu_fixture_covers_heatmap_contours_and_isolines() {
         Brush::Solid(Color::from_rgba8(30, 200, 100, 100)),
     );
     assert_deterministic_ink(&isolines, 32, 32, "contours and isolines");
+}
+
+#[test]
+fn scaled_stroke_width_matches_physical_scale() {
+    // A horizontal 6px logical stroke must cover ~12 physical rows at
+    // scale 2, matching the GPU path (which scales widths via the scene
+    // transform). Core coverage (alpha > 128) avoids AA-fringe ambiguity.
+    let mut scene = ChartScene::new();
+    scene.stroke_polyline(
+        &[(10.0, 50.0), (90.0, 50.0)],
+        Stroke::new(6.0),
+        Brush::Solid(Color::from_rgb8(255, 0, 0)),
+    );
+    let core_rows = |buf: &[u8], w: usize, x: usize, h: usize| {
+        (0..h).filter(|&y| px(buf, w, x, y)[3] > 128).count()
+    };
+    let one = CpuRasterizer::new(100, 100).rasterize(&scene, 100, 100, 1.0);
+    let two = CpuRasterizer::new(200, 200).rasterize(&scene, 200, 200, 2.0);
+    let w1 = core_rows(&one, 100, 50, 100);
+    let w2 = core_rows(&two, 200, 100, 200);
+    assert!(
+        (5..=7).contains(&w1),
+        "scale-1 core width ~6, got {w1}"
+    );
+    assert!(
+        (10..=14).contains(&w2),
+        "scale-2 core width ~12, got {w2} (stroke width not scaled?)"
+    );
+}
+
+#[test]
+fn scale_maps_logical_scene_onto_physical_pixmap() {
+    // Retina regression: a logical scene rasterized into a physical pixmap
+    // must fill it (scale 2 into 200x200), not huddle at 1:1 in the
+    // top-left. Logical rect (10,10)-(50,50) maps to physical (20..100).
+    let mut scene = ChartScene::new();
+    scene.fill_rect(
+        Rect::new(10.0, 10.0, 50.0, 50.0),
+        Brush::Solid(Color::from_rgb8(255, 0, 0)),
+    );
+    let mut rast = CpuRasterizer::new(200, 200);
+    let buf = rast.rasterize(&scene, 200, 200, 2.0);
+    assert_eq!(buf.len(), 200 * 200 * 4);
+    // Physical (90,90) is inside the scaled rect but outside the unscaled
+    // one: transparent before the scale fix, opaque after.
+    let [r, g, b, a] = px(&buf, 200, 90, 90);
+    assert!(
+        r > 200 && g < 40 && b < 40 && a > 200,
+        "scaled interior: {r},{g},{b},{a}"
+    );
+    // Physical (30,30) is painted either way; corner stays transparent.
+    assert!(px(&buf, 200, 30, 30)[3] > 200);
+    assert_eq!(px(&buf, 200, 2, 2)[3], 0);
 }
 
 #[test]

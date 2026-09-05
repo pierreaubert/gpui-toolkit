@@ -236,7 +236,7 @@ fn spectrum_magnitudes_inner(bins: usize) -> Vec<f32> {
     (0..bins)
         .map(|index| {
             let t = index as f32 / bins.max(1) as f32;
-            -80.0 + (t * std::f32::consts::TAU).sin().abs() * 60.0
+            -80.0 + (t * std::f32::consts::TAU).sin().abs() * 78.0
         })
         .collect()
 }
@@ -258,7 +258,7 @@ pub(super) fn spectrum_axis_magnitudes() -> Arc<[f32]> {
             (0..72)
                 .map(|index| {
                     let t = index as f32 / 71.0;
-                    -86.0 + (t * std::f32::consts::TAU * 1.5).sin().abs() * 54.0
+                    -86.0 + (t * std::f32::consts::TAU * 1.5).sin().abs() * 84.0
                 })
                 .collect::<Vec<_>>()
                 .into()
@@ -462,6 +462,7 @@ pub(super) enum StoryPreviewKind {
     HorizontalMeter,
     Spectrum,
     SpectrumAxis,
+    BackendCompare,
     Line,
     Bar,
     Scatter,
@@ -501,6 +502,7 @@ pub(super) fn story_preview_kind(
         "audio-kit.horizontal-meter" => StoryPreviewKind::HorizontalMeter,
         "audio-kit.spectrum" => StoryPreviewKind::Spectrum,
         "audio-kit.spectrum-axis" => StoryPreviewKind::SpectrumAxis,
+        "audio-kit.backend-compare" => StoryPreviewKind::BackendCompare,
         "px.line" => StoryPreviewKind::Line,
         "px.bar" => StoryPreviewKind::Bar,
         "px.scatter" => StoryPreviewKind::Scatter,

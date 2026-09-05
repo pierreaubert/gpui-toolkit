@@ -3,6 +3,7 @@
 #[cfg(feature = "profiler")]
 #[doc(hidden)]
 pub mod allocation_contracts;
+mod backend_compare;
 mod component_lab;
 pub mod deep_link;
 mod first;

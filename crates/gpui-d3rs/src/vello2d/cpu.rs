@@ -5,6 +5,7 @@
 //! matching what `gpu2d/element.rs` hands to `window.paint_image`.
 
 use crate::vello2d::{ChartCmd, ChartScene};
+use vello_cpu::peniko::kurbo::Affine;
 use vello_cpu::peniko::Brush;
 use vello_cpu::{Pixmap, RenderContext, Resources};
 
@@ -24,14 +25,27 @@ impl CpuRasterizer {
         }
     }
 
-    /// Rasterize `scene` at `width`x`height`; returns premultiplied RGBA8
-    /// bytes (`width*4` row stride). An empty scene yields a cleared buffer.
-    pub fn rasterize(&mut self, scene: &ChartScene, width: u16, height: u16) -> Vec<u8> {
+    /// Rasterize `scene` at `width`x`height` physical pixels; returns
+    /// premultiplied RGBA8 bytes (`width*4` row stride). Scene commands are
+    /// encoded in logical coordinates, so `scale` (physical per logical
+    /// pixel) must be applied or output renders at 1/scale size anchored
+    /// into the top-left of the image. An empty scene yields cleared output.
+    pub fn rasterize(
+        &mut self,
+        scene: &ChartScene,
+        width: u16,
+        height: u16,
+        scale: f32,
+    ) -> Vec<u8> {
         if self.size != (width, height) {
             *self = Self::new(width, height);
         } else {
             self.ctx.reset();
         }
+        // Map logical scene coordinates onto the physical pixmap. Set after
+        // every reset/new: neither preserves a previous transform.
+        self.ctx
+            .set_transform(Affine::scale(scale.max(0.01) as f64));
         for cmd in scene.commands() {
             match cmd {
                 ChartCmd::Fill { path, brush, .. } => {

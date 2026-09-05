@@ -42,9 +42,9 @@ pub use audio_visual_regression::{
     AudioVisualViewport, audio_visual_regression_manifest,
 };
 pub use meter::{
-    HorizontalMeterTheme, LevelMeterElement, MeterColors, db_to_position,
+    HorizontalMeterTheme, LEVEL_METER_DB_TICKS, LevelMeterElement, MeterColors, db_to_position,
     horizontal_meter_accessibility_summary, render_horizontal_meter_bar,
-    render_horizontal_meter_bar_with,
+    render_horizontal_meter_bar_with, render_level_meter_ticks,
 };
 pub use scale::Scale as AudioScale;
 pub use spectrum::{
