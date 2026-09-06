@@ -63,6 +63,6 @@ wayland-protocols = { version = "0.32.9", features = ["client", "staging", "unst
 wayland-protocols-plasma = { version = "0.3.9", features = ["client"], optional = true }
 wayland-protocols-wlr = { version = "0.3.9", features = ["client"], optional = true }
 as-raw-xcb-connection = { version = "1", optional = true }
-x11rb = { version = "0.13.1", features = ["allow-unsafe-code", "xkb", "randr", "xinput", "cursor", "resource_manager", "sync", "dri3"], optional = true }
+x11rb = { version = "0.14.0", features = ["allow-unsafe-code", "xkb", "randr", "xinput", "cursor", "resource_manager", "sync", "dri3"], optional = true }
 xim = { package = "zed-xim", version = "0.4.0-zed", git = "https://github.com/zed-industries/xim-rs.git", rev = "16f35a2c881b815a2b6cdfd6687988e84f8447d8", features = ["x11rb-xcb", "x11rb-client"], optional = true }
 x11-clipboard = { version = "0.9.3", optional = true }
