@@ -102,14 +102,26 @@ impl<T> TreeLayout<T> {
         HierarchyNode::count(root.clone());
         self.position_tidy(root.clone());
 
+        // Second walk matches d3-hierarchy's tree extent normalization
+        // (<https://github.com/d3/d3-hierarchy/blob/main/src/tree.js>):
+        // breadth is mapped to [0, size.1] through the extreme nodes padded
+        // by half a separation unit, so the outermost nodes do not collapse
+        // onto the range edges; depth maps proportionally to [0, size.0].
         let mut max_depth = 0usize;
-        let mut min_breadth = f64::INFINITY;
-        let mut max_breadth = f64::NEG_INFINITY;
+        let mut min: Option<(Rc<RefCell<HierarchyNode<T>>>, f64)> = None;
+        let mut max: Option<(Rc<RefCell<HierarchyNode<T>>>, f64)> = None;
         HierarchyNode::each(root.clone(), |node| {
-            let n = node.borrow();
-            max_depth = max_depth.max(n.depth);
-            min_breadth = min_breadth.min(n.y);
-            max_breadth = max_breadth.max(n.y);
+            let (breadth, depth) = {
+                let n = node.borrow();
+                (n.y, n.depth)
+            };
+            max_depth = max_depth.max(depth);
+            if min.as_ref().is_none_or(|(_, b)| breadth < *b) {
+                min = Some((node.clone(), breadth));
+            }
+            if max.as_ref().is_none_or(|(_, b)| breadth > *b) {
+                max = Some((node.clone(), breadth));
+            }
         });
 
         if let Some((node_width, node_height)) = self.node_size {
@@ -122,13 +134,24 @@ impl<T> TreeLayout<T> {
         }
 
         let (width, height) = self.size;
-        let breadth_scale = height / (max_breadth - min_breadth).max(1.0);
+        let ((min_node, min_breadth), (max_node, max_breadth)) = min
+            .zip(max)
+            .expect("layout root always visits at least one node");
+        let same_extreme = Rc::ptr_eq(&min_node, &max_node);
+        let padding = if same_extreme {
+            1.0
+        } else {
+            let (left, right) = (min_node.borrow(), max_node.borrow());
+            (self.separation)(&left, &right) / 2.0
+        };
+        let translate = padding - min_breadth;
+        let breadth_scale = height / (max_breadth - min_breadth + 2.0 * padding);
         let depth_scale = width / (max_depth as f64).max(1.0);
 
         HierarchyNode::each(root, |node| {
             let mut n = node.borrow_mut();
             n.x = n.depth as f64 * depth_scale;
-            n.y = (n.y - min_breadth) * breadth_scale;
+            n.y = (n.y + translate) * breadth_scale;
         });
     }
 
@@ -292,6 +315,8 @@ mod tests {
 
     #[test]
     fn layout_applies_custom_leaf_separation() {
+        // Tidy breadths are (0, 1, 1.5); d3 extent padding (s = 0.5) maps
+        // them through (b + 0.5) * (120 / 2.5).
         let (root, first_leaf, second_leaf, third_leaf) = sample_tree();
 
         TreeLayout::new()
@@ -300,9 +325,9 @@ mod tests {
             .try_layout(root)
             .unwrap();
 
-        assert_eq!(first_leaf.borrow().y, 0.0);
-        assert_eq!(second_leaf.borrow().y, 80.0);
-        assert_eq!(third_leaf.borrow().y, 120.0);
+        assert_eq!(first_leaf.borrow().y, 24.0);
+        assert_eq!(second_leaf.borrow().y, 72.0);
+        assert_eq!(third_leaf.borrow().y, 96.0);
     }
 
     #[test]
@@ -326,10 +351,12 @@ mod tests {
             .try_layout(root)
             .unwrap();
 
-        assert_eq!(first_leaf.borrow().y, 0.0);
-        assert_eq!(second_leaf.borrow().y, 30.0);
-        assert_eq!(third_leaf.borrow().y, 90.0);
-        assert_eq!(fourth_leaf.borrow().y, 120.0);
+        // Tidy breadths are (0, 1, 3, 4); d3 extent padding (s = 1) maps them
+        // through (b + 1) * (120 / 6).
+        assert_eq!(first_leaf.borrow().y, 20.0);
+        assert_eq!(second_leaf.borrow().y, 40.0);
+        assert_eq!(third_leaf.borrow().y, 80.0);
+        assert_eq!(fourth_leaf.borrow().y, 100.0);
     }
 
     #[test]
@@ -352,8 +379,10 @@ mod tests {
             .try_layout(root)
             .unwrap();
 
-        assert_eq!(first.borrow().y, 0.0);
-        assert_eq!(second.borrow().y, 100.0);
+        // Tidy breadths are (0, 4); d3 extent padding (s = 2) maps them
+        // through (b + 2) * (100 / 8).
+        assert_eq!(first.borrow().y, 25.0);
+        assert_eq!(second.borrow().y, 75.0);
     }
 
     #[test]

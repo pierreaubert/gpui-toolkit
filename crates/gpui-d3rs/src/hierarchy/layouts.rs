@@ -432,34 +432,77 @@ impl<T> ClusterLayout<T> {
     where
         T: Clone + 'static,
     {
-        let leaves = leaves(root.clone());
-        let max_depth = max_depth(root.clone(), 0);
-        self.position_leaves(&leaves);
-        position_internal_cluster(root.clone());
+        // Matches d3-hierarchy's cluster second walk
+        // (<https://github.com/d3/d3-hierarchy/blob/main/src/cluster.js>).
+        // Layout convention here is transposed relative to d3: `size.0` spans
+        // the depth (radius) axis written to `x`, `size.1` spans the breadth
+        // (angle) axis written to `y`.
+        let leaf_nodes = leaves(root.clone());
+        self.position_leaves(&leaf_nodes);
+        // First walk: internal breadth = mean child breadth; `y` is reused as
+        // scratch height (0 for leaves, 1 + max child height otherwise), so
+        // the radius inversion needs no auxiliary map.
+        let (root_breadth, root_height) = first_walk_cluster(root.clone());
 
         if let Some((node_width, node_height)) = self.node_size {
+            // d3 nodeSize mode: breadth relative to the root, depth measured
+            // back from the deepest leaf.
             HierarchyNode::each(root, |node| {
+                let (breadth, height) = {
+                    let n = node.borrow();
+                    (n.x, n.y)
+                };
                 let mut n = node.borrow_mut();
-                let breadth = n.x;
-                n.x = n.depth as f64 * node_width;
-                n.y = breadth * node_height;
+                n.x = (root_height - height) * node_width;
+                n.y = (breadth - root_breadth) * node_height;
             });
             return;
         }
 
-        let span = leaves
-            .last()
-            .map(|leaf| leaf.borrow().x)
-            .unwrap_or_default()
-            .max(1.0);
-        let x_scale = self.size.1 / span;
-        let y_scale = self.size.0 / (max_depth as f64).max(1.0);
+        // Leaf extent padded by half a separation unit on each side, so the
+        // first and last leaves do not collapse onto the same angle.
+        let (extent_min, extent_max) = match (leaf_nodes.first(), leaf_nodes.last()) {
+            (Some(first), Some(last)) => {
+                let first_x = first.borrow().x;
+                let last_x = last.borrow().x;
+                let pad_before = {
+                    let (f, l) = (first.borrow(), last.borrow());
+                    (self.separation)(&f, &l) / 2.0
+                };
+                let pad_after = {
+                    let (f, l) = (first.borrow(), last.borrow());
+                    (self.separation)(&l, &f) / 2.0
+                };
+                (first_x - pad_before, last_x + pad_after)
+            }
+            _ => (0.0, 1.0),
+        };
+        let span = extent_max - extent_min;
+        // Degenerate (non-positive or non-finite) spans only arise from
+        // custom zero/negative separations; center the breadth instead of
+        // emitting NaN. d3 itself produces NaN there.
+        let breadth_scale = if span.is_finite() && span > 0.0 {
+            Some(self.size.1 / span)
+        } else {
+            None
+        };
 
         HierarchyNode::each(root, |node| {
+            let (breadth, height) = {
+                let n = node.borrow();
+                (n.x, n.y)
+            };
             let mut n = node.borrow_mut();
-            let breadth = n.x;
-            n.x = n.depth as f64 * y_scale;
-            n.y = breadth * x_scale;
+            n.y = match breadth_scale {
+                Some(scale) => (breadth - extent_min) * scale,
+                None => self.size.1 / 2.0,
+            };
+            // Leaves (height 0) sit at the maximum radius, the root at zero.
+            n.x = if root_height > 0.0 {
+                (1.0 - height / root_height) * self.size.0
+            } else {
+                0.0
+            };
         });
     }
 
@@ -485,12 +528,14 @@ impl<T> ClusterLayout<T> {
         };
 
         first.borrow_mut().x = 0.0;
+        // d3-hierarchy calls separation(node, previousNode): the current leaf
+        // comes first, so depth-relative separations use the current depth.
         for pair in leaves.windows(2) {
             let previous_x = pair[0].borrow().x;
             let separation = {
                 let previous = pair[0].borrow();
                 let current = pair[1].borrow();
-                (self.separation)(&previous, &current)
+                (self.separation)(&current, &previous)
             };
             pair[1].borrow_mut().x = previous_x + separation;
         }
@@ -633,19 +678,32 @@ where
     result
 }
 
-fn position_internal_cluster<T>(node: NodeRef<T>) -> f64 {
+/// d3-hierarchy cluster first walk: returns `(breadth, height)` of `node`.
+///
+/// Leaves keep the breadth assigned by [`ClusterLayout::position_leaves`] and
+/// take height 0. Internal nodes center over their children and take height
+/// `1 + max child height`, staging the radius inversion in `y` for the second
+/// walk (exactly like d3, which reuses `node.y` as scratch).
+fn first_walk_cluster<T>(node: NodeRef<T>) -> (f64, f64) {
     let node_children = children(&node);
-    if !node_children.is_empty() {
-        let sum = node_children
-            .iter()
-            .map(|child| position_internal_cluster(child.clone()))
-            .sum::<f64>();
-        let x = sum / node_children.len() as f64;
-        node.borrow_mut().x = x;
-        return x;
+    if node_children.is_empty() {
+        node.borrow_mut().y = 0.0;
+        return (node.borrow().x, 0.0);
     }
 
-    node.borrow().x
+    let mut sum_x = 0.0;
+    let mut max_height = 0.0f64;
+    for child in &node_children {
+        let (child_x, child_height) = first_walk_cluster(child.clone());
+        sum_x += child_x;
+        max_height = max_height.max(child_height);
+    }
+    let mean_x = sum_x / node_children.len() as f64;
+    let height = max_height + 1.0;
+    let mut n = node.borrow_mut();
+    n.x = mean_x;
+    n.y = height;
+    (mean_x, height)
 }
 
 #[cfg(test)]
@@ -748,6 +806,10 @@ mod tests {
 
     #[test]
     fn cluster_is_a_public_coordinate_layout() {
+        // d3-hierarchy cluster second walk: breadth is normalized by the leaf
+        // extent padded with half a separation unit per side
+        // (x0 = -0.5, x1 = 2.5, span 3), and every leaf sits at the maximum
+        // radius regardless of depth.
         let (root, first_leaf, second_leaf, third_leaf) = cluster_tree();
 
         ClusterLayout::<()>::new()
@@ -757,9 +819,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(root.borrow().x, 0.0);
-        assert_eq!(first_leaf.borrow().y, 0.0);
+        assert_eq!(first_leaf.borrow().y, 20.0);
         assert_eq!(second_leaf.borrow().y, 60.0);
-        assert_eq!(third_leaf.borrow().y, 120.0);
+        assert_eq!(third_leaf.borrow().y, 100.0);
+        for leaf in [&first_leaf, &second_leaf, &third_leaf] {
+            assert_eq!(leaf.borrow().x, 200.0);
+        }
     }
 
     #[test]
@@ -802,6 +867,55 @@ mod tests {
     }
 
     type UnitNode = Rc<RefCell<HierarchyNode<()>>>;
+
+    #[test]
+    fn cluster_aligns_leaves_of_varying_depth_at_max_radius() {
+        // root -> [A -> [a1, a2], B -> [b1], C -> [c -> [c1]]], sep 1.0.
+        // d3 first walk: leaves x = 0,1,2,3; heights 0; A,B,c height 1;
+        // C height 2; root height 3. Extent (-0.5, 3.5), span 4.
+        let root = HierarchyNode::new(());
+        let a = HierarchyNode::new(());
+        let b = HierarchyNode::new(());
+        let c_branch = HierarchyNode::new(());
+        let c = HierarchyNode::new(());
+        let a1 = HierarchyNode::new(());
+        let a2 = HierarchyNode::new(());
+        let b1 = HierarchyNode::new(());
+        let c1 = HierarchyNode::new(());
+        a.borrow_mut()
+            .set_children(&a, vec![a1.clone(), a2.clone()]);
+        b.borrow_mut().set_children(&b, vec![b1.clone()]);
+        c.borrow_mut().set_children(&c, vec![c1.clone()]);
+        c_branch
+            .borrow_mut()
+            .set_children(&c_branch, vec![c.clone()]);
+        root.borrow_mut()
+            .set_children(&root, vec![a.clone(), b.clone(), c_branch.clone()]);
+
+        ClusterLayout::<()>::new()
+            .size((300.0, 12.0))
+            .separation(|_, _| 1.0)
+            .try_layout(root.clone())
+            .unwrap();
+
+        // Every leaf shares the maximum radius despite depths 2,2,2,3.
+        for leaf in [&a1, &a2, &b1, &c1] {
+            assert_eq!(leaf.borrow().x, 300.0);
+        }
+        assert_eq!(root.borrow().x, 0.0);
+        // Radius follows height: A,B,c near (1-1/3)*300, C near (1-2/3)*300
+        // (thirds are not f64-exact).
+        for node in [&a, &b, &c] {
+            assert!((node.borrow().x - 200.0).abs() < 1e-9);
+        }
+        assert!((c_branch.borrow().x - 100.0).abs() < 1e-9);
+        // Breadth through (x + 0.5) * 3.
+        assert_eq!(a1.borrow().y, 1.5);
+        assert_eq!(a2.borrow().y, 4.5);
+        assert_eq!(b1.borrow().y, 7.5);
+        assert_eq!(c1.borrow().y, 10.5);
+        assert!((root.borrow().y - 7.0).abs() < 1e-9);
+    }
 
     fn cluster_tree() -> (UnitNode, UnitNode, UnitNode, UnitNode) {
         let root = HierarchyNode::new(());

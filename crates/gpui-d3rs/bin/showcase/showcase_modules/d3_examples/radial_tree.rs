@@ -1,14 +1,43 @@
-//! Radial Tree — Observable example using d3rs::examples::radial_tree
+//! Radial Tree / Radial Cluster — Observable examples
 //!
-//! Renders a tree hierarchy in radial (polar) layout.
-//! Source: <https://observablehq.com/@d3/radial-tree/2>
+//! Renders the full Flare hierarchy with `d3rs::examples::radial_tree`,
+//! mirroring the official layouts:
+//! tree <https://observablehq.com/@d3/radial-tree/2>,
+//! cluster <https://observablehq.com/@d3/radial-cluster/2>.
+//!
+//! Labels follow the official placement rule for every node (offset 6px,
+//! leaves outward, internal nodes inward, baseline flipped on the left
+//! half), painted with the repo's rotatable Hershey vector font since filled
+//! GPUI text cannot rotate.
 
+use super::flare_data;
 use crate::ShowcaseApp;
 use crate::showcase_modules::chart_colors;
+use d3rs::examples::radial_tree::{
+    FlareNode, RadialTreeResult, compute_with_root, labels as radial_labels,
+};
+use d3rs::hierarchy::HierarchyNode as D3HierarchyNode;
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
+use d3rs::text::vector_font::{measure_text_width, paint_vector_text_at};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+fn convert(
+    node: &flare_data::HierarchyNode,
+) -> Rc<RefCell<D3HierarchyNode<FlareNode>>> {
+    let d3 = D3HierarchyNode::new(FlareNode {
+        name: node.name.clone(),
+        value: node.value.unwrap_or(0) as f64,
+    });
+    if !node.children.is_empty() {
+        let kids = node.children.iter().map(convert).collect();
+        d3.borrow_mut().set_children(&d3, kids);
+    }
+    d3
+}
 
 pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let ui_theme = cx.theme();
@@ -21,7 +50,9 @@ pub fn render_cluster(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div 
 }
 
 fn render_radial(cluster: bool, ui_theme: &gpui_ui_kit::theme::Theme) -> Div {
-    let result = d3rs::examples::radial_tree::compute(cluster);
+    let flare = flare_data::flare_hierarchy();
+    let root = convert(&flare);
+    let result: RadialTreeResult = compute_with_root(root, cluster);
 
     let width = result.width;
     let height = result.height;
@@ -29,7 +60,7 @@ fn render_radial(cluster: bool, ui_theme: &gpui_ui_kit::theme::Theme) -> Div {
     let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
     let mut all_colors: Vec<Hsla> = Vec::new();
 
-    // Links (official: #555 at 0.4 opacity)
+    // Links (official: #555 at 0.4 opacity, 1.5px)
     for path in &result.link_paths {
         d3_paths.push(path.clone());
         all_colors.push(chart_colors::ink(ui_theme, hsla(0.0, 0.0, 0.33, 0.4)));
@@ -56,37 +87,31 @@ fn render_radial(cluster: bool, ui_theme: &gpui_ui_kit::theme::Theme) -> Div {
         all_colors.push(chart_colors::ink(ui_theme, hsla(0.0, 0.0, shade, 1.0)));
     }
 
-    // Internal node labels are horizontal in the official example, offset 6px
-    // and anchored by side — not rotated.
-    let label_items: Vec<Div> = result
-        .nodes
+    // Labels for every node, painted as rotated Hershey vector text along the
+    // spokes (the repo's rotatable-text primitive; filled GPUI text cannot
+    // rotate). Placement follows the official rule: the text center sits half
+    // a measured width plus 6px from the node, outward for leaves and inward
+    // for internal nodes, with the baseline flipped on the left half.
+    let font_size = 10.0f32;
+    let label_specs: Vec<(String, f32, f32, f32)> = radial_labels(&result)
         .iter()
-        .filter(|n| !n.is_leaf)
-        .map(|n| {
-            let on_left = n.angle > std::f64::consts::PI;
-            if on_left {
-                div()
-                    .absolute()
-                    .left(px((n.x - 106.0) as f32))
-                    .top(px((n.y - 7.0) as f32))
-                    .w(px(100.0))
-                    .flex()
-                    .justify_end()
-                    .text_size(px(10.0))
-                    .text_color(ui_theme.text_primary)
-                    .child(n.name.clone())
-            } else {
-                div()
-                    .absolute()
-                    .left(px((n.x + 6.0) as f32))
-                    .top(px((n.y - 7.0) as f32))
-                    .flex()
-                    .text_size(px(10.0))
-                    .text_color(ui_theme.text_primary)
-                    .child(n.name.clone())
-            }
+        .map(|label| {
+            let width = measure_text_width(&label.name, font_size);
+            let spoke = label.angle - std::f64::consts::FRAC_PI_2;
+            let (ux, uy) = (spoke.cos(), spoke.sin());
+            let side = if label.outward { 1.0 } else { -1.0 };
+            let dist = width as f64 / 2.0 + 6.0;
+            let cx = label.x + side * ux * dist;
+            let cy = label.y + side * uy * dist;
+            (
+                label.name.clone(),
+                cx as f32,
+                cy as f32,
+                label.rotation as f32,
+            )
         })
         .collect();
+    let label_color = ui_theme.text_primary;
 
     let title = if cluster {
         "Radial Cluster — Flare Hierarchy"
@@ -124,7 +149,6 @@ fn render_radial(cluster: bool, ui_theme: &gpui_ui_kit::theme::Theme) -> Div {
                 .bg(ui_theme.surface)
                 .border_1()
                 .border_color(ui_theme.border)
-                .relative()
                 .child(
                     canvas(
                         move |bounds, _, _| {
@@ -135,17 +159,29 @@ fn render_radial(cluster: bool, ui_theme: &gpui_ui_kit::theme::Theme) -> Div {
                                 })
                                 .collect::<Vec<_>>()
                         },
-                        move |_bounds, paths, window, _| {
+                        move |bounds, paths, window, _| {
                             for (i, path_opt) in paths.into_iter().enumerate() {
                                 if let Some(path) = path_opt {
                                     window.paint_path(path, all_colors[i]);
                                 }
                             }
+                            let ox: f32 = bounds.origin.x.into();
+                            let oy: f32 = bounds.origin.y.into();
+                            for (name, cx, cy, rotation) in &label_specs {
+                                paint_vector_text_at(
+                                    window,
+                                    name,
+                                    ox + cx,
+                                    oy + cy,
+                                    font_size,
+                                    1.0,
+                                    label_color,
+                                    *rotation,
+                                );
+                            }
                         },
                     )
                     .size_full(),
-                )
-                // Internal node labels
-                .children(label_items),
+                ),
         )
 }

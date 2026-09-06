@@ -1,5 +1,27 @@
 # Unreleased
 
+## Fixed
+
+- Matched `ClusterLayout` to d3-hierarchy's cluster: leaves share the maximum
+  radius regardless of depth (height `1 + max child`, inverted), the angular
+  extent keeps d3's half-separation padding, and leaf separation is queried as
+  `separation(node, previous)` so depth-relative separations use the current
+  depth. Verified bit-exact against an independent d3.cluster transcription
+  on the full 252-node Flare hierarchy (max angle drift 1.8e-15).
+- Matched `TreeLayout` breadth normalization to d3-hierarchy's tree second
+  walk (extreme nodes padded by half a separation unit), so radial tidy trees
+  no longer stack the first/last leaf at the wrap angle.
+- Rebuilt the radial tree/cluster showcase on the full Flare dataset with the
+  official `@d3/radial-tree/2` / `@d3/radial-cluster/2` pipeline (ascending
+  sort, `size([2π, radius])`, radial separation, exact `linkRadial`
+  bumpRadial cubics, official canvas dimensions) with spoke-oriented labels
+  for every node (leaves outward, internal nodes inward, baseline flipped on
+  the left half).
+- Wired the previously orphaned Hershey vector-font module into
+  `d3rs::text::vector_font` and used its arbitrary-rotation stroke text for
+  the radial labels (filled GPUI text cannot rotate); added a tested
+  `examples::radial_tree::labels` mapping for the official placement rule.
+
 ## Added
 
 - Split the `surface3d` paint path into camera/cull/tessellate/submit stages
