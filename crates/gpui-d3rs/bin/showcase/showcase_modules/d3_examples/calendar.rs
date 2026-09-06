@@ -7,7 +7,8 @@
 //! Source: <https://observablehq.com/@d3/calendar>
 
 use crate::ShowcaseApp;
-use d3rs::color::SequentialScheme as SeqScheme;
+use crate::showcase_modules::chart_colors;
+use d3rs::color::DivergingScheme;
 use d3rs::scale::{LinearScale, Scale};
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
@@ -76,9 +77,14 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .fold(0.0f64, f64::max)
         .min(5.0); // Cap at 5% for better color contrast
 
-    // Diverging: t=0 → red (negative), t=0.5 → white (zero), t=1 → green (positive)
+    // Official colors are RdYlGn diverging (red = negative, green = positive),
+    // quantized to 9 steps (`schemeRdYlGn[9]`).
     let color_scale = LinearScale::new().domain(-max_abs, max_abs).range(0.0, 1.0);
-    let scheme = SeqScheme::turbo();
+    let scheme = DivergingScheme::rd_yl_gn();
+    /// Quantize a t in [0, 1] to 9 discrete scheme steps.
+    fn quantize9(t: f64) -> f64 {
+        ((t * 9.0).floor().clamp(0.0, 8.0) + 0.5) / 9.0
+    }
 
     // Day-of-year → (week, dow) computation
     let month_days: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -139,8 +145,8 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             d3_paths.push(path);
 
             let t = color_scale.scale(day_data.pct_change.clamp(-max_abs, max_abs));
-            let d3_color = scheme.get(t);
-            all_colors.push(d3_color.to_rgba().into());
+            let d3_color = scheme.get(quantize9(t));
+            all_colors.push(chart_colors::ink_rgba(&ui_theme, d3_color.to_rgba()));
         }
     }
 
@@ -180,10 +186,10 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .w(px(200.0))
                         .rounded_sm()
                         .overflow_hidden()
-                        .children((0..20).map(|i| {
-                            let t = i as f64 / 19.0;
+                        .children((0..9).map(|i| {
+                            let t = (i as f64 + 0.5) / 9.0;
                             let c = scheme.get(t);
-                            div().flex_1().h_full().bg(c.to_rgba())
+                            div().flex_1().h_full().bg(chart_colors::ink_rgba(&ui_theme, c.to_rgba()))
                         })),
                 )
                 .child(div().text_xs().child(format!("+{max_abs:.0}%"))),

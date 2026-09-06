@@ -1653,6 +1653,11 @@ fn dispatch_custom_draw(
     );
 }
 
+/// Convert dispatch bounds back to the logical pixels the draw was painted
+/// with. `snap_bounds` stores integer physical pixels as [`ScaledPixels`];
+/// draws scale back up by `scale_factor` themselves (see the mesh Metal
+/// backend's viewport math), so the draw receives logical bounds plus the
+/// scale factor and owns the entire logical-to-physical mapping.
 fn scaled_bounds_to_pixels(bounds: Bounds<ScaledPixels>, scale_factor: f32) -> Bounds<Pixels> {
     let scale_factor = normalized_scale_factor(scale_factor);
     let inverse_scale = scale_factor.recip();
@@ -1913,5 +1918,28 @@ impl gpui::PlatformHeadlessRenderer for MetalHeadlessRenderer {
 
     fn sprite_atlas(&self) -> Arc<dyn gpui::PlatformAtlas> {
         self.renderer.sprite_atlas().clone()
+    }
+}
+
+#[cfg(test)]
+mod custom_draw_bounds_tests {
+    use super::*;
+
+    /// `snap_bounds` emits integer physical pixels as `ScaledPixels`; the
+    /// dispatch converts them back to the logical pixels the draw was
+    /// painted with. Draws own the logical-to-physical mapping from there
+    /// (the mesh Metal backend multiplies by the scale factor for its
+    /// viewport), so this must stay the exact inverse of `snap_bounds`.
+    #[test]
+    fn custom_draw_bounds_arrive_logical() {
+        let scaled = Bounds {
+            origin: point(ScaledPixels(578.0), ScaledPixels(285.0)),
+            size: size(ScaledPixels(1010.0), ScaledPixels(503.0)),
+        };
+        let out = scaled_bounds_to_pixels(scaled, 2.0);
+        assert_eq!(out.origin.x.as_f32(), 289.0);
+        assert_eq!(out.origin.y.as_f32(), 142.5);
+        assert_eq!(out.size.width.as_f32(), 505.0);
+        assert_eq!(out.size.height.as_f32(), 251.5);
     }
 }

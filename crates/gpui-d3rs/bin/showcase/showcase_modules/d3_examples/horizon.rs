@@ -6,6 +6,7 @@
 //! Source: <https://observablehq.com/@d3/horizon-chart>
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::color::SequentialScheme;
 use d3rs::scale::{LinearScale, Scale};
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
@@ -35,36 +36,54 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     let y_scale = LinearScale::new().domain(0.0, step).range(height, 0.0);
 
-    // Use d3rs sequential color scheme (blues)
-    let scheme = SequentialScheme::blues();
+    // Official horizon semantics: positive bands are blues, negative bands
+    // are reds mirrored below the baseline (darker = higher magnitude).
+    let blues = SequentialScheme::blues();
+    let reds = SequentialScheme::reds();
 
     // Generate paths using d3rs PathBuilder
     let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
     let mut all_colors: Vec<Hsla> = Vec::new();
 
     let y0 = y_scale.scale(0.0);
+    let last_x = x_scale.scale((data.len() - 1) as f64);
+
+    // Magnitude in the current band, in [0, step].
+    let band_mag = |v: f64, b: usize| (v.abs() - b as f64 * step).clamp(0.0, step);
 
     for b in 0..bands {
-        let mut builder = D3PathBuilder::new().move_to(x_scale.scale(0.0), y0);
-
-        for (i, &v) in data.iter().enumerate() {
-            let val_abs = v.abs();
-            let remainder = val_abs - (b as f64 * step);
-            let y = if remainder < 0.0 {
-                0.0
-            } else {
-                remainder.min(step)
-            };
-            builder = builder.line_to(x_scale.scale(i as f64), y_scale.scale(y));
-        }
-
-        builder = builder.line_to(x_scale.scale((data.len() - 1) as f64), y0);
-        builder = builder.close_path();
-        d3_paths.push(builder.build());
-
         // Color: darker for higher bands (t from 0.3 to 0.9)
         let t = 0.3 + (b as f64 + 1.0) / bands as f64 * 0.6;
-        all_colors.push(scheme.get(t).to_rgba().into());
+
+        // Positive band above the baseline
+        let mut builder = D3PathBuilder::new().move_to(x_scale.scale(0.0), y0);
+        for (i, &v) in data.iter().enumerate() {
+            let y = if v > 0.0 {
+                y_scale.scale(band_mag(v, b))
+            } else {
+                y0
+            };
+            builder = builder.line_to(x_scale.scale(i as f64), y);
+        }
+        builder = builder.line_to(last_x, y0);
+        builder = builder.close_path();
+        d3_paths.push(builder.build());
+        all_colors.push(chart_colors::ink_rgba(&ui_theme, blues.get(t).to_rgba()));
+
+        // Negative band mirrored below the baseline
+        let mut builder = D3PathBuilder::new().move_to(x_scale.scale(0.0), y0);
+        for (i, &v) in data.iter().enumerate() {
+            let y = if v < 0.0 {
+                2.0 * y0 - y_scale.scale(band_mag(v, b))
+            } else {
+                y0
+            };
+            builder = builder.line_to(x_scale.scale(i as f64), y);
+        }
+        builder = builder.line_to(last_x, y0);
+        builder = builder.close_path();
+        d3_paths.push(builder.build());
+        all_colors.push(chart_colors::ink_rgba(&ui_theme, reds.get(t).to_rgba()));
     }
 
     div()

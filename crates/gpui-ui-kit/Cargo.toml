@@ -53,6 +53,12 @@ default = ["vello"]
 vello = ["gpui-d3rs/vello-gpui"]
 bench = []
 autoeq = []
+# Empty pass-throughs so the shared workspace flag set
+# (autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding) is accepted
+# everywhere; gpui-ui-kit consumes no GPU-gated d3rs API. Same convention
+# as gpui-builder, gpui-themes, and gpui-audio-kit.
+gpu-2d = []
+gpu-3d = []
 reqwest = []
 spinorama = []
 tokio = []

@@ -5,11 +5,32 @@
 - Split the `surface3d` paint path into camera/cull/tessellate/submit stages
   with pure helpers and cache tests.
 - Added clone-free quadtree accessors and NaN-safe `total_cmp` sorts.
+- Made the d3rs-showcase follow UI themes: new `chart_colors` helper reads
+  chart chrome from the active theme and lightness-adapts data ink while
+  keeping d3 hues (dark default passes through unchanged), `render_axis`
+  is wired via `UiAxisTheme`, turbo/viridis/heat ramps adapt with
+  `ink_scale`, and the sidebar gained a visible theme toggle cycling all
+  variants.
 
 ## Fixed
 
+- Fixed empty vello charts on Retina Macs: the Metal backend now composites
+  its GPU raster through the sprite atlas (same delivery as the CPU
+  backend) instead of a mid-frame drawable upload that never survived to
+  presentation; retired the `vello2d::metal_draw` module.
 - Replaced panic-prone `partial_cmp().unwrap()` sorts across array/scale
   modules.
+- Matched transverse Mercator to d3-geo's recenter composition (user
+  `rotate([λ, φ, γ])` acts as internal `[λ, φ, γ + 90]`, `center([lon, lat])`
+  as internal `[-lat, lon]`), fixing projection, inversion, clipping, and
+  `fitSize`/`fitExtent` for rotated/transverse maps.
+- Fixed circle-clip bounds for complement (counterclockwise) polygons to
+  emit the clip-circle outline like d3, and fixed `polygon_contains`
+  winding for near-degenerate antimeridian slivers (unguarded cartesian
+  normalization, matching d3).
+- Set resample precision to d3's default (`delta2 = 0.5`, as documented)
+  and corrected the `cos(30°)` transcription by 1 ulp; all per-projection
+  `fitSize`/`fitExtent` cases now match d3-geo 3.1.1 to 1e-9.
 
 ## Performance
 

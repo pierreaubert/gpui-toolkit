@@ -4,31 +4,13 @@
 //! Source: <https://observablehq.com/@d3/world-airports-voronoi>
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 
 const AIRPORTS_CSV: &str = include_str!("../../data/airports.csv");
-
-/// Build a thin closed ribbon from (x0,y0) to (x1,y1) with given half-width.
-fn ribbon(x0: f64, y0: f64, x1: f64, y1: f64, hw: f64) -> d3rs::shape::path::Path {
-    let dx = x1 - x0;
-    let dy = y1 - y0;
-    let len = (dx * dx + dy * dy).sqrt();
-    if len < 0.01 {
-        return D3PathBuilder::new().build();
-    }
-    let nx = -dy / len * hw;
-    let ny = dx / len * hw;
-    D3PathBuilder::new()
-        .move_to(x0 + nx, y0 + ny)
-        .line_to(x1 + nx, y1 + ny)
-        .line_to(x1 - nx, y1 - ny)
-        .line_to(x0 - nx, y0 - ny)
-        .close_path()
-        .build()
-}
 
 pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let ui_theme = cx.theme();
@@ -45,61 +27,13 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     // 1. Ocean disc (filled circle — light blue)
     d3_paths.push(result.globe_outline.clone());
-    all_colors.push(hsla(0.56, 0.3, 0.9, 1.0));
+    all_colors.push(Hsla::from(ui_theme.background));
 
-    // 2. Graticule ribbons
-    {
-        use d3rs::shape::path::PathCommand;
-        let cmds = result.graticule_path.commands();
-        let mut prev: Option<(f64, f64)> = None;
-        for cmd in cmds {
-            match cmd {
-                PathCommand::MoveTo { x, y } => {
-                    prev = Some((*x, *y));
-                }
-                PathCommand::LineTo { x, y } => {
-                    if let Some((px, py)) = prev {
-                        let r = ribbon(px, py, *x, *y, 0.4);
-                        if !r.commands().is_empty() {
-                            d3_paths.push(r);
-                            all_colors.push(hsla(0.56, 0.2, 0.8, 0.4));
-                        }
-                    }
-                    prev = Some((*x, *y));
-                }
-                _ => {
-                    prev = None;
-                }
-            }
-        }
-    }
-
-    // 3. Voronoi mesh ribbons
-    {
-        use d3rs::shape::path::PathCommand;
-        let cmds = result.voronoi_mesh_path.commands();
-        let mut prev: Option<(f64, f64)> = None;
-        for cmd in cmds {
-            match cmd {
-                PathCommand::MoveTo { x, y } => {
-                    prev = Some((*x, *y));
-                }
-                PathCommand::LineTo { x, y } => {
-                    if let Some((px, py)) = prev {
-                        let r = ribbon(px, py, *x, *y, 0.4);
-                        if !r.commands().is_empty() {
-                            d3_paths.push(r);
-                            all_colors.push(hsla(0.0, 0.0, 0.2, 0.5));
-                        }
-                    }
-                    prev = Some((*x, *y));
-                }
-                _ => {
-                    prev = None;
-                }
-            }
-        }
-    }
+    // 2-3. Graticule and voronoi mesh as true strokes (not ribbon fills).
+    let graticule_path = result.graticule_path.clone();
+    let mesh_path = result.voronoi_mesh_path.clone();
+    let graticule_color: Hsla = chart_colors::grid(&ui_theme);
+    let mesh_color: Hsla = chart_colors::axis_line(&ui_theme).opacity(0.5);
 
     // 4. Airport dots
     let n_sides = 10;
@@ -118,7 +52,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         }
         builder = builder.close_path();
         d3_paths.push(builder.build());
-        all_colors.push(hsla(0.0, 0.85, 0.5, 0.9));
+        all_colors.push(chart_colors::ink(&ui_theme, hsla(0.0, 0.85, 0.5, 0.9)));
     }
 
     let visible_count = result
@@ -196,18 +130,35 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .child(
                     canvas(
                         move |bounds, _, _| {
-                            d3_paths
+                            let fills: Vec<_> = d3_paths
                                 .iter()
                                 .map(|p| {
                                     super::path_utils::d3rs_path_to_gpui_simple(p, bounds, 0.0, 0.0)
                                 })
-                                .collect::<Vec<_>>()
+                                .collect();
+                            let grat = super::path_utils::d3rs_path_to_gpui_stroke(
+                                &graticule_path,
+                                bounds,
+                                0.8,
+                            );
+                            let mesh = super::path_utils::d3rs_path_to_gpui_stroke(
+                                &mesh_path,
+                                bounds,
+                                0.8,
+                            );
+                            (fills, grat, mesh)
                         },
-                        move |_bounds, paths, window, _| {
-                            for (i, path_opt) in paths.into_iter().enumerate() {
+                        move |_bounds, (fills, grat, mesh), window, _| {
+                            for (i, path_opt) in fills.into_iter().enumerate() {
                                 if let Some(path) = path_opt {
                                     window.paint_path(path, all_colors[i]);
                                 }
+                            }
+                            if let Some(path) = grat {
+                                window.paint_path(path, graticule_color);
+                            }
+                            if let Some(path) = mesh {
+                                window.paint_path(path, mesh_color);
                             }
                         },
                     )

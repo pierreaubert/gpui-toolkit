@@ -9,6 +9,7 @@
 
 use super::volcano_data::{VOLCANO_HEIGHT, VOLCANO_WIDTH, generate_volcano_data};
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::contour::ContourGenerator;
 use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::scale::LinearScale;
@@ -91,12 +92,12 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             .fill(true)
             .fill_opacity(1.0)
             .stroke_opacity(0.0)
-            .color_scale(turbo_color_scale()),
+            .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), turbo_color_scale())),
         VolcanoColorScale::Viridis => ContourConfig::new()
             .fill(true)
             .fill_opacity(1.0)
             .stroke_opacity(0.0)
-            .color_scale(viridis_color_scale()),
+            .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), viridis_color_scale())),
     };
 
     // Color configuration for contour lines
@@ -105,12 +106,12 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             .fill(false)
             .stroke_width(if show_stroke { 0.5 } else { 0.0 })
             .stroke_opacity(if show_stroke { 0.3 } else { 0.0 })
-            .color_scale(turbo_color_scale()),
+            .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), turbo_color_scale())),
         VolcanoColorScale::Viridis => ContourConfig::new()
             .fill(false)
             .stroke_width(if show_stroke { 0.5 } else { 0.0 })
             .stroke_opacity(if show_stroke { 0.3 } else { 0.0 })
-            .color_scale(viridis_color_scale()),
+            .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), viridis_color_scale())),
     };
 
     // Heatmap data for high-level API demo
@@ -423,7 +424,7 @@ let x_scale = LinearScale::new()
 // 4. Configure rendering
 let config = ContourConfig::new()
     .fill(true)
-    .color_scale(turbo_color_scale());
+    .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), turbo_color_scale()));
 
 // 5. Render
 render_contour_bands(bands, &x_scale, &y_scale, &config)"#,
@@ -432,11 +433,16 @@ render_contour_bands(bands, &x_scale, &y_scale, &config)"#,
                 ),
         )
         // Color scale legend
-        .child(render_color_legend(color_scale_type, min_elev, max_elev))
+        .child(render_color_legend(color_scale_type, min_elev, max_elev, chart_colors::background_lightness(&ui_theme)))
 }
 
 /// Render a color scale legend
-fn render_color_legend(scale_type: VolcanoColorScale, min_val: f64, max_val: f64) -> Div {
+fn render_color_legend(
+    scale_type: VolcanoColorScale,
+    min_val: f64,
+    max_val: f64,
+    bg: f32,
+) -> Div {
     let num_steps = 20;
     let step_width = 20.0;
 
@@ -466,10 +472,10 @@ fn render_color_legend(scale_type: VolcanoColorScale, min_val: f64, max_val: f64
                             let t = i as f64 / (num_steps - 1) as f64;
                             let color = match scale_type {
                                 VolcanoColorScale::Turbo => {
-                                    d3rs::shape::contour::turbo_color_scale()(t)
+                                    chart_colors::ink_scale(bg, turbo_color_scale())(t)
                                 }
                                 VolcanoColorScale::Viridis => {
-                                    d3rs::shape::contour::viridis_color_scale()(t)
+                                    chart_colors::ink_scale(bg, viridis_color_scale())(t)
                                 }
                             };
                             div().w(px(step_width as f32)).h_full().bg(gpui::rgba(

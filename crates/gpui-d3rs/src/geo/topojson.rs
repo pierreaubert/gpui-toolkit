@@ -78,6 +78,7 @@ pub enum TopoJsonError {
         actual: usize,
     },
     EmptyLand,
+    EmptyCollection,
 }
 
 impl std::fmt::Display for TopoJsonError {
@@ -90,6 +91,7 @@ impl std::fmt::Display for TopoJsonError {
                 actual,
             } => write!(f, "TopoJSON {resource} budget exceeded: {actual} > {limit}"),
             Self::EmptyLand => write!(f, "TopoJSON land object is empty"),
+            Self::EmptyCollection => write!(f, "TopoJSON collection object is empty"),
         }
     }
 }
@@ -172,18 +174,14 @@ fn count_geometries(geom: &TopologyGeometry) -> usize {
     }
 }
 
-fn decode_land(
-    topology: &Topology,
-    budget: &TopoJsonBudget,
-) -> Result<GeoJsonGeometry, TopoJsonError> {
-    let decoded_arcs: Vec<Vec<(f64, f64)>> = topology
-        .arcs
-        .iter()
+/// Delta-decode quantized topology arcs into absolute positions.
+fn decode_arcs(arcs: &[Vec<[i32; 2]>], transform: &Transform) -> Vec<Vec<(f64, f64)>> {
+    arcs.iter()
         .map(|arc| {
             let mut x = 0i32;
             let mut y = 0i32;
-            let scale = topology.transform.scale;
-            let translate = topology.transform.translate;
+            let scale = transform.scale;
+            let translate = transform.translate;
             arc.iter()
                 .map(|point| {
                     x += point[0];
@@ -195,7 +193,14 @@ fn decode_land(
                 })
                 .collect()
         })
-        .collect();
+        .collect()
+}
+
+fn decode_land(
+    topology: &Topology,
+    budget: &TopoJsonBudget,
+) -> Result<GeoJsonGeometry, TopoJsonError> {
+    let decoded_arcs = decode_arcs(&topology.arcs, &topology.transform);
 
     let mut multi_polygon: Vec<Vec<Vec<(f64, f64)>>> = Vec::new();
 
@@ -302,6 +307,185 @@ fn decode_polygon(
     Ok(polygon)
 }
 
+/// A TopoJSON polygon geometry carrying a feature id (e.g. a county FIPS
+/// code), as found in `us-atlas` county topologies.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+pub enum IdGeometry {
+    Polygon {
+        arcs: Vec<Vec<i32>>,
+        #[serde(default)]
+        id: Option<serde_json::Value>,
+    },
+    MultiPolygon {
+        arcs: Vec<Vec<Vec<i32>>>,
+        #[serde(default)]
+        id: Option<serde_json::Value>,
+    },
+    GeometryCollection {
+        geometries: Vec<IdGeometry>,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CountyObjects {
+    pub counties: IdGeometry,
+    #[serde(default)]
+    pub states: Option<IdGeometry>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CountyTopology {
+    pub objects: CountyObjects,
+    pub arcs: Vec<Vec<[i32; 2]>>,
+    pub transform: Transform,
+}
+
+/// A decoded county polygon with its feature id.
+#[derive(Debug, Clone)]
+pub struct CountyFeature {
+    /// Feature id as a string (numeric FIPS ids are zero-padded to 5 digits).
+    pub id: String,
+    pub geometry: GeoJsonGeometry,
+}
+
+fn feature_id(value: &Option<serde_json::Value>) -> String {
+    match value {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Number(n)) => {
+            if let Some(u) = n.as_u64() {
+                format!("{u:05}")
+            } else {
+                n.to_string()
+            }
+        }
+        _ => String::new(),
+    }
+}
+
+fn collect_id_geometries(
+    geom: &IdGeometry,
+    out: &mut Vec<(String, Vec<Vec<(f64, f64)>>)>,
+    decoded_arcs: &[Vec<(f64, f64)>],
+    budget: &TopoJsonBudget,
+    output_points: &mut usize,
+) -> Result<(), TopoJsonError> {
+    match geom {
+        IdGeometry::Polygon { arcs, id } => {
+            out.push((
+                feature_id(id),
+                decode_polygon(arcs, decoded_arcs, budget, output_points)?,
+            ));
+        }
+        IdGeometry::MultiPolygon { arcs, id } => {
+            let id = feature_id(id);
+            for polygon_arcs in arcs {
+                out.push((
+                    id.clone(),
+                    decode_polygon(polygon_arcs, decoded_arcs, budget, output_points)?,
+                ));
+            }
+        }
+        IdGeometry::GeometryCollection { geometries } => {
+            for g in geometries {
+                collect_id_geometries(g, out, decoded_arcs, budget, output_points)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn count_id_geometries(geom: &IdGeometry) -> usize {
+    match geom {
+        IdGeometry::Polygon { .. } => 1,
+        IdGeometry::MultiPolygon { arcs, .. } => arcs.len(),
+        IdGeometry::GeometryCollection { geometries } => {
+            geometries.iter().map(count_id_geometries).sum()
+        }
+    }
+}
+
+/// Parse a `us-atlas`-style counties topology into one feature per polygon.
+///
+/// Geometries keep their `id` (FIPS code); multi-polygon counties yield one
+/// feature per polygon part sharing the id.
+pub fn parse_counties(json: &str) -> Result<Vec<CountyFeature>, TopoJsonError> {
+    parse_counties_with_budget(json, &TopoJsonBudget::default())
+}
+
+/// Parse counties under explicit input and output limits.
+pub fn parse_counties_with_budget(
+    json: &str,
+    budget: &TopoJsonBudget,
+) -> Result<Vec<CountyFeature>, TopoJsonError> {
+    if json.len() > budget.max_input_bytes {
+        return Err(TopoJsonError::BudgetExceeded {
+            resource: "input bytes",
+            limit: budget.max_input_bytes,
+            actual: json.len(),
+        });
+    }
+
+    let topology: CountyTopology = serde_json::from_str(json)
+        .map_err(|error| TopoJsonError::InvalidJson(error.to_string()))?;
+    if topology.arcs.len() > budget.max_arcs {
+        return Err(TopoJsonError::BudgetExceeded {
+            resource: "arcs",
+            limit: budget.max_arcs,
+            actual: topology.arcs.len(),
+        });
+    }
+    if count_id_geometries(&topology.objects.counties) > budget.max_geometries {
+        return Err(TopoJsonError::BudgetExceeded {
+            resource: "geometries",
+            limit: budget.max_geometries,
+            actual: count_id_geometries(&topology.objects.counties),
+        });
+    }
+
+    let decoded_arcs = decode_arcs(&topology.arcs, &topology.transform);
+    let mut raw: Vec<(String, Vec<Vec<(f64, f64)>>)> = Vec::new();
+    let mut output_points = 0usize;
+    collect_id_geometries(
+        &topology.objects.counties,
+        &mut raw,
+        &decoded_arcs,
+        budget,
+        &mut output_points,
+    )?;
+
+    if raw.is_empty() {
+        return Err(TopoJsonError::EmptyCollection);
+    }
+    Ok(raw
+        .into_iter()
+        .map(|(id, rings)| CountyFeature {
+            id,
+            geometry: GeoJsonGeometry::Polygon(rings),
+        })
+        .collect())
+}
+
+/// Parse the `states` object of a counties topology into a single
+/// multipolygon for state border overlays. Returns `None` when the topology
+/// carries no states object.
+pub fn parse_county_states(json: &str) -> Result<Option<GeoJsonGeometry>, TopoJsonError> {
+    let topology: CountyTopology = serde_json::from_str(json)
+        .map_err(|error| TopoJsonError::InvalidJson(error.to_string()))?;
+    let states = match &topology.objects.states {
+        Some(states) => states,
+        None => return Ok(None),
+    };
+    let decoded_arcs = decode_arcs(&topology.arcs, &topology.transform);
+    let mut raw: Vec<(String, Vec<Vec<(f64, f64)>>)> = Vec::new();
+    let mut output_points = 0usize;
+    let budget = TopoJsonBudget::default();
+    collect_id_geometries(states, &mut raw, &decoded_arcs, &budget, &mut output_points)?;
+    Ok(Some(GeoJsonGeometry::MultiPolygon(
+        raw.into_iter().map(|(_, rings)| rings).collect(),
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,6 +499,56 @@ mod tests {
                 assert!(!mp.is_empty(), "land should contain at least one polygon");
             }
             _ => panic!("expected MultiPolygon"),
+        }
+    }
+
+    #[test]
+    fn test_parse_counties_albers() {
+        let json = include_str!("../../bin/showcase/data/counties-albers-10m.json");
+        let counties = parse_counties(json).expect("failed to parse counties-albers-10m.json");
+        // ~3.1k county geometries, each with a 5-digit FIPS id.
+        assert!(counties.len() > 3000, "got {} counties", counties.len());
+        assert!(
+            counties.iter().all(|c| c.id.len() == 5),
+            "all county ids are zero-padded FIPS codes"
+        );
+        // Spot-check a known FIPS code keeps its geometry.
+        assert!(counties.iter().any(|c| c.id == "04015"));
+        let states =
+            parse_county_states(json).expect("failed to parse states object");
+        assert!(states.is_some(), "states object should decode");
+    }
+
+    #[test]
+    fn test_parse_counties_ids_and_reversed_arcs() {
+        // Minimal topology: one polygon with a numeric id and a reversed arc.
+        let json = r#"{
+            "type": "Topology",
+            "transform": {"scale": [1.0, 1.0], "translate": [0.0, 0.0]},
+            "objects": {
+                "counties": {
+                    "type": "GeometryCollection",
+                    "geometries": [
+                        {"type": "Polygon", "arcs": [[0]], "id": 1001},
+                        {"type": "Polygon", "arcs": [[-1]], "id": "01003"}
+                    ]
+                }
+            },
+            "arcs": [[[0, 0], [1, 0], [1, 1], [-1, 0], [-1, -1]]]
+        }"#;
+        let counties = parse_counties(json).expect("fixture should parse");
+        assert_eq!(counties.len(), 2);
+        assert_eq!(counties[0].id, "01001");
+        assert_eq!(counties[1].id, "01003");
+        for county in &counties {
+            match &county.geometry {
+                GeoJsonGeometry::Polygon(rings) => {
+                    assert_eq!(rings.len(), 1);
+                    // Closed square, forward or reversed.
+                    assert_eq!(rings[0].len(), 5);
+                }
+                _ => panic!("expected Polygon"),
+            }
         }
     }
 

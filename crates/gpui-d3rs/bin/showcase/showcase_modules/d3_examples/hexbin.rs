@@ -3,6 +3,7 @@
 //! Demonstrates idiomatic d3rs usage: `LogScale` for axes, `Hexbin` for binning,
 //! `PathBuilder` for hex polygons, `d3rs_path_to_gpui_simple` for rendering.
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::color::SequentialScheme;
 use d3rs::hexbin::Hexbin;
 use d3rs::scale::{LogScale, Scale};
@@ -153,6 +154,11 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     // The canvas closures need their own cheap clone of the shared cache.
     let cache_for_paths = cache.clone();
     let cache_for_paint = cache.clone();
+    let hex_colors: Rc<[Hsla]> = cache_for_paint
+        .hex_colors
+        .iter()
+        .map(|c| chart_colors::ink(&ui_theme, *c))
+        .collect();
 
     div()
         .flex()
@@ -324,7 +330,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 move |_bounds, paths, window, _| {
                                     for (i, path_opt) in paths.into_iter().enumerate() {
                                         if let Some(path) = path_opt {
-                                            window.paint_path(path, cache_for_paint.hex_colors[i]);
+                                            window.paint_path(path, hex_colors[i]);
                                         }
                                     }
                                 },

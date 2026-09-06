@@ -670,13 +670,6 @@ fn test_pie_shape_golden() {
         let name = case["name"].as_str().unwrap();
         let data: Vec<f64> = serde_json::from_value(case["data"].clone()).unwrap();
 
-        // Skip padding test - D3.js stores padAngle in arc but doesn't affect angle computation,
-        // while our implementation actually adjusts angles to create gaps. Both approaches are valid
-        // for rendering, just different in how the arc renderer interprets the data.
-        if name == "with_padding" {
-            continue;
-        }
-
         // Create pie generator with optional configuration
         let mut pie = Pie::new();
 
@@ -1593,7 +1586,7 @@ fn test_geo_path_cylindrical_golden() {
         fs::read_to_string("golden/geo/path_cylindrical.json").expect("golden file not found");
     let golden: GoldenFile = serde_json::from_str(&content).unwrap();
 
-    assert_eq!(golden.module, "d3rs");
+    assert_eq!(golden.module, "d3-geo");
     assert_eq!(golden.function, "path_cylindrical");
 
     for case in &golden.test_cases {
@@ -1621,11 +1614,130 @@ fn test_geo_path_cylindrical_golden() {
             other => panic!("unsupported projection: {other}"),
         };
 
-        assert_eq!(
-            actual, expected,
-            "case '{name}': rendered path does not match golden"
-        );
+        assert_path_close(name, &actual, expected, golden.tolerance);
     }
+}
+
+/// Parse an SVG path string into a soup of segments.
+///
+/// Only the `M`/`L`/`Z` commands produced by `GeoPath::render` (and d3's
+/// `geoPath`) are supported; coordinates may use decimal or scientific
+/// notation.
+fn parse_path_segments(d: &str) -> Vec<((f64, f64), (f64, f64))> {
+    let mut segs = Vec::new();
+    let mut cur: Option<(f64, f64)> = None;
+    let mut start: Option<(f64, f64)> = None;
+    let bytes = d.as_bytes();
+    let mut i = 0;
+    let num = |i: &mut usize| {
+        while *i < bytes.len() && (bytes[*i] == b',' || bytes[*i] == b' ') {
+            *i += 1;
+        }
+        let j = *i;
+        while *i < bytes.len()
+            && !matches!(bytes[*i], b'M' | b'L' | b'Z' | b'm' | b'l' | b'z' | b',')
+        {
+            *i += 1;
+        }
+        d[j..*i].parse::<f64>().expect("path coordinate parses")
+    };
+    while i < bytes.len() {
+        match bytes[i] {
+            b'M' | b'm' => {
+                i += 1;
+                let x = num(&mut i);
+                let y = num(&mut i);
+                cur = Some((x, y));
+                start = Some((x, y));
+            }
+            b'L' | b'l' => {
+                i += 1;
+                let x = num(&mut i);
+                let y = num(&mut i);
+                let p = (x, y);
+                if let Some(c) = cur {
+                    segs.push((c, p));
+                }
+                cur = Some(p);
+            }
+            b'Z' | b'z' => {
+                i += 1;
+                if let (Some(c), Some(s)) = (cur, start) {
+                    segs.push((c, s));
+                }
+                cur = start;
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+    segs
+}
+
+fn point_segment_distance_sq(p: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
+    let dx = b.0 - a.0;
+    let dy = b.1 - a.1;
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 == 0.0 {
+        0.0
+    } else {
+        (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2).clamp(0.0, 1.0)
+    };
+    let qx = a.0 + t * dx - p.0;
+    let qy = a.1 + t * dy - p.1;
+    qx * qx + qy * qy
+}
+
+/// Symmetric Hausdorff distance between two segment soups.
+///
+/// Extra resample midpoints, duplicate closure points, and decimal formatting
+/// all lie on (or within ulps of) the same curves, so this stays near zero
+/// while genuine shape divergences (missing outlines, wrong cuts) stand out.
+fn path_hausdorff(a: &str, b: &str) -> f64 {
+    let sa = parse_path_segments(a);
+    let sb = parse_path_segments(b);
+    assert!(
+        !sa.is_empty() && !sb.is_empty(),
+        "both paths must contain segments"
+    );
+    let mut worst: f64 = 0.0;
+    // Directed distances both ways over segment endpoints.
+    for segs in [&sa, &sb] {
+        let other = if std::ptr::eq(segs as *const _, &sa as *const _) {
+            &sb
+        } else {
+            &sa
+        };
+        for &(p, q) in segs {
+            for r in [p, q] {
+                let mut best = f64::INFINITY;
+                for &(a, b) in other {
+                    let d = point_segment_distance_sq(r, a, b);
+                    if d < best {
+                        best = d;
+                    }
+                }
+                if best > worst {
+                    worst = best;
+                }
+            }
+        }
+    }
+    worst.sqrt()
+}
+
+/// Compare a rendered path against its d3 golden by shape.
+///
+/// Exact string equality cannot hold across implementations (decimal
+/// formatting, duplicate closure points, and ulp-level resample decisions
+/// all differ legitimately), so this asserts Hausdorff closeness instead.
+fn assert_path_close(name: &str, actual: &str, expected: &str, tolerance: f64) {
+    let h = path_hausdorff(actual, expected);
+    assert!(
+        h <= tolerance,
+        "case '{name}': rendered path differs from d3 golden (hausdorff={h:.6} > {tolerance})"
+    );
 }
 
 fn parse_geojson_geometry(value: &serde_json::Value) -> GeoJsonGeometry {

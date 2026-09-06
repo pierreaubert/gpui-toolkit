@@ -1,4 +1,5 @@
-use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
+use crate::showcase_modules::chart_colors;
+use d3rs::axis::{AxisConfig, render_axis};
 use d3rs::color::{ColorScheme, D3Color};
 use d3rs::gpu2d::{LodScatterConfig, render_lod_scatter};
 use d3rs::grid::{GridConfig, render_grid};
@@ -12,7 +13,7 @@ use gpui_ui_kit::theme::ThemeExt;
 
 pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let ui_theme = cx.theme();
-    let theme = DefaultAxisTheme;
+    let theme = chart_colors::UiAxisTheme(&ui_theme);
     let width = app.content_width * 0.7;
     let height = (width * 0.5).min(app.content_height * 0.4);
     let x_scale = LinearScale::new()
@@ -260,7 +261,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 /// Dedicated navigation target for the screen-bounded rendering examples.
 pub fn render_lod(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let ui_theme = cx.theme();
-    let theme = DefaultAxisTheme;
+    let theme = chart_colors::UiAxisTheme(&ui_theme);
     let width = app.content_width * 0.7;
     let height = (width * 0.5).min(app.content_height * 0.55);
     let (x0, x1) = app.lod_zoom.x_domain();

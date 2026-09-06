@@ -1,6 +1,7 @@
 use crate::ShowcaseApp;
 use d3rs::hierarchy::{HierarchyNode, TreeLayout};
 use gpui::*;
+use crate::showcase_modules::chart_colors;
 use gpui_ui_kit::theme::ThemeExt;
 
 pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
@@ -103,7 +104,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             let x2 = p.x as f32 + offset_x;
             let y2 = p.y as f32 + offset_y;
 
-            let stroke_color = rgb(0x666666);
+            let stroke_color = chart_colors::grid(&ui_theme);
             let thickness = px(2.0);
 
             // Manhattan connector: Child (x1, y1) -> intermediate (x1, y2) -> Parent (x2, y2)
@@ -153,7 +154,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .left(px(n.x as f32 + offset_x - 20.0))
                 .top(px(n.y as f32 + offset_y - 20.0))
                 .size(px(40.0))
-                .bg(rgb(0x4a90e2))
+                .bg(chart_colors::ink_hex(&ui_theme, 0x4a90e2))
                 .rounded_full()
                 .flex()
                 .items_center()

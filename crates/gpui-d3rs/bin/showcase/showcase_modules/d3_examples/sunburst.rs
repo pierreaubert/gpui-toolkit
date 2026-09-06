@@ -3,7 +3,8 @@
 //! Source: <https://observablehq.com/@d3/sunburst/2>
 
 use crate::ShowcaseApp;
-use d3rs::color::ColorScheme;
+use crate::showcase_modules::chart_colors;
+use d3rs::color::SequentialScheme;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
@@ -12,7 +13,14 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let ui_theme = cx.theme();
     let result = d3rs::examples::sunburst::compute();
 
-    let scheme = ColorScheme::tableau10();
+    // Official coloring: quantized rainbow by top-level group
+    // (`scaleOrdinal(quantize(interpolateRainbow, children.length + 1))`),
+    // inherited by all descendants.
+    let rainbow = SequentialScheme::rainbow();
+    let mut groups: Vec<&str> = result.slices.iter().map(|s| s.group.as_str()).collect();
+    groups.sort();
+    groups.dedup();
+    let n_groups = groups.len().max(1);
     let width = result.width;
     let height = result.height;
 
@@ -21,9 +29,9 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     for slice in &result.slices {
         d3_paths.push(slice.arc_path.clone());
-        let color = scheme.color(slice.depth);
-        let alpha = if slice.depth == 1 { 0.9 } else { 0.6 };
-        all_colors.push(Hsla::from(color.to_rgba()).opacity(alpha));
+        let idx = groups.iter().position(|g| *g == slice.group).unwrap_or(0);
+        let t = (idx as f64 + 0.5) / n_groups as f64;
+        all_colors.push(chart_colors::ink_rgba(&ui_theme, rainbow.get(t).to_rgba()));
     }
 
     // Labels for slices with enough angular extent
@@ -89,13 +97,14 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     )
                     .size_full(),
                 )
-                // Slice labels
+                // Slice labels (white like the official example)
                 .children(labels.into_iter().map(|(name, x, y)| {
                     div()
                         .absolute()
                         .left(px((x - 15.0) as f32))
                         .top(px((y - 5.0) as f32))
                         .text_size(px(8.0))
+                        .text_color(white())
                         .child(name)
                 })),
         )

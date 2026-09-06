@@ -1,5 +1,7 @@
 //! GPUI element that paints a [`ChartScene`] via vello (GPU) or vello_cpu.
 
+#[cfg(all(target_os = "macos", feature = "vello-metal"))]
+use crate::vello2d::snapshot_scene_gpu;
 use crate::vello2d::wgpu_draw::{SharedScene, WgpuVelloDraw};
 use crate::vello2d::{ChartScene, CpuRasterizer};
 use gpui::{
@@ -78,7 +80,61 @@ enum BackendState {
         /// Set by the draw when GPU init fails; triggers the CPU fallback.
         failed: Rc<Cell<bool>>,
     },
+    /// macOS Metal: rasterize on the GPU ([`snapshot_scene_gpu`]) but deliver
+    /// through the sprite atlas like the CPU backend. (A previous revision
+    /// uploaded the raster straight into the drawable mid-frame; the bytes
+    /// never survived to presentation, leaving every vello chart empty on
+    /// Retina Macs, so the custom-draw blit path is retired.)
+    #[cfg(all(target_os = "macos", feature = "vello-metal"))]
+    Metal {
+        /// Atlas entry painted last frame (GPU-rasterized); dropped via
+        /// `Window::drop_image` before replacement, like the CPU backend.
+        image: Option<Arc<RenderImage>>,
+        /// Last scene revision and physical raster dimensions represented by
+        /// `image`. Scale-factor bits are part of the key so a display/zoom
+        /// change cannot reuse a low-resolution image from the previous scale.
+        rendered: Option<(u64, u16, u16, u32)>,
+    },
     Cpu(CpuState),
+}
+
+/// Registered GPU dispatch: custom-draw id, shared scene, failure flag.
+/// (WGPU only; the Metal backend composites through the sprite atlas and
+/// never registers a custom draw.)
+type GpuDrawParts = (CustomDrawId, Rc<RefCell<SharedScene>>, Rc<Cell<bool>>);
+
+impl BackendState {
+    /// Custom-draw id for the WGPU dispatch, if resolved to one. The Metal
+    /// backend never registers a custom draw.
+    fn gpu_custom_id(&self) -> Option<CustomDrawId> {
+        match self {
+            BackendState::Wgpu { custom_id, .. } => Some(*custom_id),
+            #[cfg(all(target_os = "macos", feature = "vello-metal"))]
+            BackendState::Metal { .. } => None,
+            BackendState::Cpu(_) => None,
+        }
+    }
+
+    /// Shared scene plus failure flag for the WGPU dispatch. The Metal
+    /// backend composites through the sprite atlas and never registers a
+    /// custom draw, so it reports no GPU parts.
+    fn gpu_parts(&mut self) -> Option<GpuDrawParts> {
+        match self {
+            BackendState::Wgpu {
+                custom_id,
+                shared,
+                failed,
+            } => Some((*custom_id, Rc::clone(shared), Rc::clone(failed))),
+            #[cfg(all(target_os = "macos", feature = "vello-metal"))]
+            BackendState::Metal { .. } => None,
+            BackendState::Cpu(_) => None,
+        }
+    }
+}
+
+/// True where the Metal vello dispatch can run (this process, this build).
+fn metal_available() -> bool {
+    cfg!(all(target_os = "macos", feature = "vello-metal"))
 }
 
 enum SceneInput<'a> {
@@ -171,7 +227,11 @@ impl VelloScenePainter {
         if self.backend_pref == backend {
             return;
         }
-        if let Some(BackendState::Wgpu { custom_id, .. }) = self.state.take() {
+        // The resolved backend is discarded so the next paint resolves the
+        // new preference; a registered GPU draw is unregistered first.
+        if let Some(state) = self.state.take()
+            && let Some(custom_id) = state.gpu_custom_id()
+        {
             gpui::unregister_custom_draw(custom_id);
             #[cfg(test)]
             {
@@ -190,7 +250,11 @@ impl VelloScenePainter {
         if self.state.is_some() {
             return;
         }
-        let backend = resolve_backend(self.backend_pref, gpui::wgpu_custom_draw_available());
+        let backend = resolve_backend(
+            self.backend_pref,
+            gpui::wgpu_custom_draw_available(),
+            metal_available(),
+        );
         self.state = Some(match backend {
             RasterBackend::Wgpu => {
                 let shared = Rc::new(RefCell::new(SharedScene {
@@ -215,27 +279,47 @@ impl VelloScenePainter {
                     failed,
                 }
             }
+            #[cfg(all(target_os = "macos", feature = "vello-metal"))]
+            RasterBackend::Metal => BackendState::Metal {
+                image: None,
+                rendered: None,
+            },
             RasterBackend::Cpu | RasterBackend::Auto => BackendState::Cpu(CpuState {
                 rasterizer: Box::new(CpuRasterizer::new(1, 1)),
                 image: None,
                 rendered: None,
             }),
+            #[cfg(not(all(target_os = "macos", feature = "vello-metal")))]
+            RasterBackend::Metal => {
+                log::warn!("vello2d: Metal backend unavailable on this target; using CPU");
+                BackendState::Cpu(CpuState {
+                    rasterizer: Box::new(CpuRasterizer::new(1, 1)),
+                    image: None,
+                    rendered: None,
+                })
+            }
         });
     }
 
     fn fall_back_to_cpu_if_failed(&mut self) {
-        let failed = matches!(&self.state, Some(BackendState::Wgpu { failed, .. }) if failed.get());
+        let failed = self
+            .state
+            .as_mut()
+            .and_then(BackendState::gpu_parts)
+            .is_some_and(|(_, _, failed)| failed.get());
         if !failed {
             return;
         }
-        if let Some(BackendState::Wgpu { custom_id, .. }) = self.state.take() {
+        if let Some(state) = self.state.take()
+            && let Some(custom_id) = state.gpu_custom_id()
+        {
             gpui::unregister_custom_draw(custom_id);
             #[cfg(test)]
             {
                 self.test_stats.custom_unregistrations += 1;
             }
         }
-        log::warn!("vello2d: wgpu vello init failed; falling back to CPU rasterizer");
+        log::warn!("vello2d: GPU vello init failed; falling back to CPU rasterizer");
         self.state = Some(BackendState::Cpu(CpuState {
             rasterizer: Box::new(CpuRasterizer::new(1, 1)),
             image: None,
@@ -278,68 +362,69 @@ impl VelloScenePainter {
 
         self.resolve();
         self.fall_back_to_cpu_if_failed();
-        match self.state.as_mut() {
-            Some(BackendState::Wgpu {
-                custom_id, shared, ..
-            }) => {
-                let mut shared = shared.borrow_mut();
-                let revision = scene.as_scene().revision();
-                if shared.revision != revision {
-                    shared.scene = match scene {
-                        SceneInput::Borrowed(scene) => scene.clone(),
-                        SceneInput::Owned(scene) => scene,
-                    };
-                    shared.revision = revision;
-                }
-                shared.logical_size = (width, height);
-                window.paint_custom(*custom_id, bounds);
-                #[cfg(test)]
-                {
-                    self.test_stats.wgpu_submissions += 1;
-                }
+        // Metal composites its GPU raster through the sprite atlas (see
+        // `paint_metal_snapshot`); only the WGPU backend uses custom draws.
+        #[cfg(all(target_os = "macos", feature = "vello-metal"))]
+        {
+            let mut fallback = false;
+            if let Some(BackendState::Metal { image, rendered }) = self.state.as_mut() {
+                fallback =
+                    !paint_metal_snapshot(image, rendered, scene.as_scene(), bounds, window);
             }
-            Some(BackendState::Cpu(state)) => {
-                let (w, h) = physical_raster_size(width, height, scale_factor);
-                let scale_bits = scale_factor.to_bits();
-                if state.rendered == Some((scene.as_scene().revision(), w, h, scale_bits)) {
-                    if let Some(image) = state.image.as_ref() {
-                        let _ = window.paint_image(
-                            bounds,
-                            Corners::default(),
-                            Arc::clone(image),
-                            0,
-                            false,
-                        );
-                    }
-                    return;
-                }
-                let mut pixels =
-                    state
-                        .rasterizer
-                        .rasterize(scene.as_scene(), w, h, scale_factor);
-                #[cfg(test)]
-                {
-                    self.test_stats.cpu_rasterizations += 1;
-                }
-                if !swizzle_rgba_to_bgra(&mut pixels) {
-                    Self::clear_cpu_image(state, window);
-                    return;
-                }
-                if let Some(rgba) = RgbaImage::from_raw(w as u32, h as u32, pixels) {
-                    Self::clear_cpu_image(state, window);
-                    let image = Arc::new(RenderImage::new(vec![Frame::new(rgba)]));
-                    let _ = window.paint_image(
-                        bounds,
-                        Corners::default(),
-                        Arc::clone(&image),
-                        0,
-                        false,
-                    );
-                    state.image = Some(image);
-                    state.rendered = Some((scene.as_scene().revision(), w, h, scale_bits));
-                }
+            if fallback {
+                self.state = Some(BackendState::Cpu(CpuState {
+                    rasterizer: Box::new(CpuRasterizer::new(1, 1)),
+                    image: None,
+                    rendered: None,
+                }));
             }
-            None => {}
+        }
+        if let Some((custom_id, shared, _)) = self.state.as_mut().and_then(BackendState::gpu_parts)
+        {
+            let mut shared = shared.borrow_mut();
+            let revision = scene.as_scene().revision();
+            if shared.revision != revision {
+                shared.scene = match scene {
+                    SceneInput::Borrowed(scene) => scene.clone(),
+                    SceneInput::Owned(scene) => scene,
+                };
+                shared.revision = revision;
+            }
+            shared.logical_size = (width, height);
+            window.paint_custom(custom_id, bounds);
+            #[cfg(test)]
+            {
+                self.test_stats.wgpu_submissions += 1;
+            }
+        } else if let Some(BackendState::Cpu(state)) = self.state.as_mut() {
+            let (w, h) = physical_raster_size(width, height, scale_factor);
+            let scale_bits = scale_factor.to_bits();
+            if state.rendered == Some((scene.as_scene().revision(), w, h, scale_bits)) {
+                if let Some(image) = state.image.as_ref() {
+                    let _ =
+                        window.paint_image(bounds, Corners::default(), Arc::clone(image), 0, false);
+                }
+                return;
+            }
+            let mut pixels = state
+                .rasterizer
+                .rasterize(scene.as_scene(), w, h, scale_factor);
+            #[cfg(test)]
+            {
+                self.test_stats.cpu_rasterizations += 1;
+            }
+            if !swizzle_rgba_to_bgra(&mut pixels) {
+                Self::clear_cpu_image(state, window);
+                return;
+            }
+            if let Some(rgba) = RgbaImage::from_raw(w as u32, h as u32, pixels) {
+                Self::clear_cpu_image(state, window);
+                let image = Arc::new(RenderImage::new(vec![Frame::new(rgba)]));
+                let _ =
+                    window.paint_image(bounds, Corners::default(), Arc::clone(&image), 0, false);
+                state.image = Some(image);
+                state.rendered = Some((scene.as_scene().revision(), w, h, scale_bits));
+            }
         }
     }
 }
@@ -355,13 +440,81 @@ impl VelloScenePainter {
 ///
 /// Keeping this decision pure makes the Auto fallback contract testable on
 /// every target, including feature-off and browser builds where a custom draw
-/// adapter may not be available at all.
-fn resolve_backend(preference: RasterBackend, custom_draw_available: bool) -> RasterBackend {
+/// adapter may not be available at all. Metal (macOS headless-wgpu raster)
+/// wins over the zero-copy WGPU path where both could run because the Metal
+/// renderer never dispatches WGPU adapters. Delivery still goes through the
+/// sprite atlas like the CPU backend; only rasterization differs.
+fn resolve_backend(
+    preference: RasterBackend,
+    custom_draw_available: bool,
+    metal_available: bool,
+) -> RasterBackend {
     match preference {
+        RasterBackend::Auto if metal_available => RasterBackend::Metal,
         RasterBackend::Auto if custom_draw_available => RasterBackend::Wgpu,
         RasterBackend::Auto => RasterBackend::Cpu,
+        RasterBackend::Metal if metal_available => RasterBackend::Metal,
+        RasterBackend::Metal => RasterBackend::Cpu,
         explicit => explicit,
     }
+}
+
+/// Paint `scene` for the Metal backend: rasterize on the GPU, composite the
+/// bytes through the sprite atlas exactly like the CPU backend. Returns false
+/// when the GPU snapshot fails so the caller can fall back to CPU raster.
+/// (Uploading the raster straight into the drawable mid-frame never survived
+/// to presentation, so Metal no longer registers a custom draw.)
+#[cfg(all(target_os = "macos", feature = "vello-metal"))]
+fn paint_metal_snapshot(
+    image: &mut Option<Arc<RenderImage>>,
+    rendered: &mut Option<(u64, u16, u16, u32)>,
+    scene: &ChartScene,
+    bounds: Bounds<Pixels>,
+    window: &mut Window,
+) -> bool {
+    let width: f32 = bounds.size.width.into();
+    let height: f32 = bounds.size.height.into();
+    let scale_factor = window.scale_factor().max(0.01);
+    if width < 1.0 || height < 1.0 || scene.is_empty() {
+        if let Some(old) = image.take() {
+            let _ = window.drop_image(old);
+        }
+        *rendered = None;
+        return true;
+    }
+    let (w, h) = physical_raster_size(width, height, scale_factor);
+    let scale_bits = scale_factor.to_bits();
+    if *rendered == Some((scene.revision(), w, h, scale_bits)) {
+        if let Some(img) = image.as_ref() {
+            let _ =
+                window.paint_image(bounds, Corners::default(), Arc::clone(img), 0, false);
+        }
+        return true;
+    }
+    let mut pixels = match snapshot_scene_gpu(scene, u32::from(w), u32::from(h), scale_factor) {
+        Ok(pixels) => pixels,
+        Err(err) => {
+            log::warn!("vello2d: GPU snapshot failed ({err}); falling back to CPU");
+            return false;
+        }
+    };
+    if !swizzle_rgba_to_bgra(&mut pixels) {
+        if let Some(old) = image.take() {
+            let _ = window.drop_image(old);
+        }
+        *rendered = None;
+        return true;
+    }
+    if let Some(rgba) = RgbaImage::from_raw(u32::from(w), u32::from(h), pixels) {
+        if let Some(old) = image.take() {
+            let _ = window.drop_image(old);
+        }
+        let img = Arc::new(RenderImage::new(vec![Frame::new(rgba)]));
+        let _ = window.paint_image(bounds, Corners::default(), Arc::clone(&img), 0, false);
+        *image = Some(img);
+        *rendered = Some((scene.revision(), w, h, scale_bits));
+    }
+    true
 }
 
 fn physical_raster_size(width: f32, height: f32, scale_factor: f32) -> (u16, u16) {
@@ -374,8 +527,8 @@ fn physical_raster_size(width: f32, height: f32, scale_factor: f32) -> (u16, u16
 
 impl Drop for VelloScenePainter {
     fn drop(&mut self) {
-        if let Some(BackendState::Wgpu { custom_id, .. }) = &self.state {
-            gpui::unregister_custom_draw(*custom_id);
+        if let Some(custom_id) = self.state.as_ref().and_then(BackendState::gpu_custom_id) {
+            gpui::unregister_custom_draw(custom_id);
         }
     }
 }
@@ -565,6 +718,8 @@ impl std::fmt::Debug for VelloChartElement {
                 &match &self.state {
                     None => "no",
                     Some(BackendState::Wgpu { .. }) => "Wgpu",
+                    #[cfg(all(target_os = "macos", feature = "vello-metal"))]
+                    Some(BackendState::Metal { .. }) => "Metal",
                     Some(BackendState::Cpu(_)) => "Cpu",
                 },
             );
@@ -637,21 +792,17 @@ impl VelloChartElement {
         self
     }
 
-    /// Resolve the backend on first paint and, for wgpu, register the draw.
+    /// Resolve the backend on first paint and, for GPU backends, register
+    /// the draw.
     fn resolve(&mut self) {
         if self.state.is_some() {
             return;
         }
-        let backend = match self.backend_pref {
-            RasterBackend::Auto => {
-                if gpui::wgpu_custom_draw_available() {
-                    RasterBackend::Wgpu
-                } else {
-                    RasterBackend::Cpu
-                }
-            }
-            explicit => explicit,
-        };
+        let backend = resolve_backend(
+            self.backend_pref,
+            gpui::wgpu_custom_draw_available(),
+            metal_available(),
+        );
         self.state = Some(match backend {
             RasterBackend::Wgpu => {
                 let shared = Rc::new(RefCell::new(SharedScene {
@@ -668,25 +819,45 @@ impl VelloChartElement {
                     failed,
                 }
             }
+            #[cfg(all(target_os = "macos", feature = "vello-metal"))]
+            RasterBackend::Metal => BackendState::Metal {
+                image: None,
+                rendered: None,
+            },
             RasterBackend::Cpu | RasterBackend::Auto => BackendState::Cpu(CpuState {
                 rasterizer: Box::new(CpuRasterizer::new(1, 1)),
                 image: None,
                 rendered: None,
             }),
+            #[cfg(not(all(target_os = "macos", feature = "vello-metal")))]
+            RasterBackend::Metal => {
+                log::warn!("vello2d: Metal backend unavailable on this target; using CPU");
+                BackendState::Cpu(CpuState {
+                    rasterizer: Box::new(CpuRasterizer::new(1, 1)),
+                    image: None,
+                    rendered: None,
+                })
+            }
         });
     }
 
-    /// If the wgpu draw reported an init failure, unregister it and switch to
+    /// If the GPU draw reported an init failure, unregister it and switch to
     /// the CPU rasterizer. Returns true when a fallback happened.
     fn fall_back_to_cpu_if_failed(&mut self) -> bool {
-        let failed = matches!(&self.state, Some(BackendState::Wgpu { failed, .. }) if failed.get());
+        let failed = self
+            .state
+            .as_mut()
+            .and_then(BackendState::gpu_parts)
+            .is_some_and(|(_, _, failed)| failed.get());
         if !failed {
             return false;
         }
-        if let Some(BackendState::Wgpu { custom_id, .. }) = self.state.take() {
+        if let Some(state) = self.state.take()
+            && let Some(custom_id) = state.gpu_custom_id()
+        {
             gpui::unregister_custom_draw(custom_id);
         }
-        log::warn!("vello2d: wgpu vello init failed; falling back to CPU rasterizer");
+        log::warn!("vello2d: GPU vello init failed; falling back to CPU rasterizer");
         self.state = Some(BackendState::Cpu(CpuState {
             rasterizer: Box::new(CpuRasterizer::new(1, 1)),
             image: None,
@@ -698,8 +869,8 @@ impl VelloChartElement {
 
 impl Drop for VelloChartElement {
     fn drop(&mut self) {
-        if let Some(BackendState::Wgpu { custom_id, .. }) = &self.state {
-            gpui::unregister_custom_draw(*custom_id);
+        if let Some(custom_id) = self.state.as_ref().and_then(BackendState::gpu_custom_id) {
+            gpui::unregister_custom_draw(custom_id);
         }
     }
 }
@@ -714,7 +885,9 @@ struct RetainedVelloBackend {
 
 impl Drop for RetainedVelloBackend {
     fn drop(&mut self) {
-        if let Some(BackendState::Wgpu { custom_id, .. }) = self.backend.take() {
+        if let Some(state) = self.backend.take()
+            && let Some(custom_id) = state.gpu_custom_id()
+        {
             gpui::unregister_custom_draw(custom_id);
         }
     }
@@ -848,67 +1021,80 @@ impl Element for VelloChartElement {
             self.resolve();
             self.fall_back_to_cpu_if_failed();
 
-            match self.state.as_mut() {
-                Some(BackendState::Wgpu {
-                    custom_id, shared, ..
-                }) => {
-                    // The scene is logical; the draw receives physical bounds.
-                    // Keep the logical size alongside so it can derive the scale.
-                    {
-                        let mut shared = shared.borrow_mut();
-                        if scene_rebuilt || shared.revision != self.scene.revision() {
-                            shared.scene = self.scene.clone();
-                            shared.revision = self.scene.revision();
-                        }
-                        shared.logical_size = (width, height);
-                    }
-                    window.paint_custom(*custom_id, bounds);
+            // Metal composites its GPU raster through the sprite atlas (see
+            // `paint_metal_snapshot`); only the WGPU backend uses custom draws.
+            #[cfg(all(target_os = "macos", feature = "vello-metal"))]
+            {
+                let mut fallback = false;
+                if let Some(BackendState::Metal { image, rendered }) = self.state.as_mut() {
+                    fallback =
+                        !paint_metal_snapshot(image, rendered, &self.scene, bounds, window);
                 }
-                Some(BackendState::Cpu(state)) => {
-                    let (w, h) = physical_raster_size(width, height, scale_factor);
-                    let scale_bits = scale_factor.to_bits();
-                    if state.rendered == Some((self.scene.revision(), w, h, scale_bits)) {
-                        if let Some(image) = state.image.as_ref() {
-                            let _ = window.paint_image(
-                                bounds,
-                                Corners::default(),
-                                Arc::clone(image),
-                                0,
-                                false,
-                            );
-                        }
-                        break 'paint;
+                if fallback {
+                    self.state = Some(BackendState::Cpu(CpuState {
+                        rasterizer: Box::new(CpuRasterizer::new(1, 1)),
+                        image: None,
+                        rendered: None,
+                    }));
+                }
+            }
+
+            if let Some((custom_id, shared, _)) =
+                self.state.as_mut().and_then(BackendState::gpu_parts)
+            {
+                // The scene is logical; the draw receives physical bounds.
+                // Keep the logical size alongside so it can derive the scale.
+                {
+                    let mut shared = shared.borrow_mut();
+                    if scene_rebuilt || shared.revision != self.scene.revision() {
+                        shared.scene = self.scene.clone();
+                        shared.revision = self.scene.revision();
                     }
-                    let mut pixels =
-                        state.rasterizer.rasterize(&self.scene, w, h, scale_factor);
-                    if !swizzle_rgba_to_bgra(&mut pixels) {
-                        VelloScenePainter::clear_cpu_image(state, window);
-                        return;
-                    }
-                    // GPUI image atlases expect premultiplied BGRA (Metal uses
-                    // BGRA8Unorm; the wgpu atlas prefers Bgra8Unorm and only
-                    // swizzles when it falls back to Rgba8Unorm — see
-                    // gpui::swap_rgba_pa_to_bgra and gpui_wgpu's
-                    // swizzle_upload_data). vello_cpu yields premultiplied RGBA,
-                    // so swap R<->B before handing the pixmap to paint_image.
-                    if let Some(rgba) = RgbaImage::from_raw(w as u32, h as u32, pixels) {
-                        // RenderImage ids are unique and paint_image caches each
-                        // one in the sprite atlas; release the previous entry
-                        // before inserting its replacement.
-                        VelloScenePainter::clear_cpu_image(state, window);
-                        let image = Arc::new(RenderImage::new(vec![Frame::new(rgba)]));
+                    shared.logical_size = (width, height);
+                }
+                window.paint_custom(custom_id, bounds);
+            } else if let Some(BackendState::Cpu(state)) = self.state.as_mut() {
+                let (w, h) = physical_raster_size(width, height, scale_factor);
+                let scale_bits = scale_factor.to_bits();
+                if state.rendered == Some((self.scene.revision(), w, h, scale_bits)) {
+                    if let Some(image) = state.image.as_ref() {
                         let _ = window.paint_image(
                             bounds,
                             Corners::default(),
-                            Arc::clone(&image),
+                            Arc::clone(image),
                             0,
                             false,
                         );
-                        state.image = Some(image);
-                        state.rendered = Some((self.scene.revision(), w, h, scale_bits));
                     }
+                    break 'paint;
                 }
-                None => {}
+                let mut pixels = state.rasterizer.rasterize(&self.scene, w, h, scale_factor);
+                if !swizzle_rgba_to_bgra(&mut pixels) {
+                    VelloScenePainter::clear_cpu_image(state, window);
+                    return;
+                }
+                // GPUI image atlases expect premultiplied BGRA (Metal uses
+                // BGRA8Unorm; the wgpu atlas prefers Bgra8Unorm and only
+                // swizzles when it falls back to Rgba8Unorm — see
+                // gpui::swap_rgba_pa_to_bgra and gpui_wgpu's
+                // swizzle_upload_data). vello_cpu yields premultiplied RGBA,
+                // so swap R<->B before handing the pixmap to paint_image.
+                if let Some(rgba) = RgbaImage::from_raw(w as u32, h as u32, pixels) {
+                    // RenderImage ids are unique and paint_image caches each
+                    // one in the sprite atlas; release the previous entry
+                    // before inserting its replacement.
+                    VelloScenePainter::clear_cpu_image(state, window);
+                    let image = Arc::new(RenderImage::new(vec![Frame::new(rgba)]));
+                    let _ = window.paint_image(
+                        bounds,
+                        Corners::default(),
+                        Arc::clone(&image),
+                        0,
+                        false,
+                    );
+                    state.image = Some(image);
+                    state.rendered = Some((self.scene.revision(), w, h, scale_bits));
+                }
             }
         }
 
@@ -984,6 +1170,15 @@ mod tests {
         assert!(matches!(element.state, Some(BackendState::Wgpu { .. })));
     }
 
+    #[cfg(all(target_os = "macos", feature = "vello-metal"))]
+    #[test]
+    fn explicit_metal_registers_metal_state() {
+        let mut element = VelloChartElement::new(sample_scene()).backend(RasterBackend::Metal);
+        element.resolve();
+        assert!(!element.fall_back_to_cpu_if_failed());
+        assert!(matches!(element.state, Some(BackendState::Metal { .. })));
+    }
+
     #[test]
     fn painter_defaults_to_auto_and_can_switch_before_resolution() {
         let mut painter = VelloScenePainter::new();
@@ -1036,27 +1231,53 @@ mod tests {
     }
 
     #[test]
-    fn auto_resolution_is_cpu_without_custom_draw_support() {
+    fn auto_resolution_is_cpu_without_gpu_support() {
         assert_eq!(
-            resolve_backend(RasterBackend::Auto, false),
+            resolve_backend(RasterBackend::Auto, false, false),
             RasterBackend::Cpu
+        );
+    }
+
+    #[test]
+    fn auto_resolution_prefers_metal_over_wgpu() {
+        // Metal wins where both could run: the Metal renderer never
+        // dispatches WGPU adapters.
+        assert_eq!(
+            resolve_backend(RasterBackend::Auto, true, true),
+            RasterBackend::Metal
+        );
+        assert_eq!(
+            resolve_backend(RasterBackend::Auto, false, true),
+            RasterBackend::Metal
         );
     }
 
     #[test]
     fn auto_resolution_is_wgpu_when_custom_draw_is_available() {
         assert_eq!(
-            resolve_backend(RasterBackend::Auto, true),
+            resolve_backend(RasterBackend::Auto, true, false),
             RasterBackend::Wgpu
         );
     }
 
     #[test]
-    fn explicit_backend_resolution_ignores_custom_draw_probe() {
+    fn explicit_backend_resolution_ignores_probes() {
         for preference in [RasterBackend::Cpu, RasterBackend::Wgpu] {
-            assert_eq!(resolve_backend(preference, false), preference);
-            assert_eq!(resolve_backend(preference, true), preference);
+            assert_eq!(resolve_backend(preference, false, false), preference);
+            assert_eq!(resolve_backend(preference, true, true), preference);
         }
+    }
+
+    #[test]
+    fn explicit_metal_downgrades_to_cpu_without_metal() {
+        assert_eq!(
+            resolve_backend(RasterBackend::Metal, true, false),
+            RasterBackend::Cpu
+        );
+        assert_eq!(
+            resolve_backend(RasterBackend::Metal, false, true),
+            RasterBackend::Metal
+        );
     }
 
     #[test]

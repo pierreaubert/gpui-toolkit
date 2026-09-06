@@ -23,8 +23,6 @@ pub struct ForceDirectedCache {
     pub link_count: usize,
     pub d3_paths: Rc<[d3rs::shape::path::Path]>,
     pub all_colors: Rc<[Hsla]>,
-    pub groups: Rc<[usize]>,
-    pub scheme: ColorScheme,
 }
 
 fn build_cache() -> Rc<ForceDirectedCache> {
@@ -122,18 +120,11 @@ fn build_cache() -> Rc<ForceDirectedCache> {
         all_colors.push(scheme.color(*group).to_rgba().into());
     }
 
-    // Legend: unique groups
-    let mut groups: Vec<usize> = result.nodes.iter().map(|n| n.group).collect();
-    groups.sort();
-    groups.dedup();
-
     Rc::new(ForceDirectedCache {
         node_count: result.nodes.len(),
         link_count: result.links.len(),
         d3_paths: d3_paths.into(),
         all_colors: all_colors.into(),
-        groups: groups.into(),
-        scheme,
     })
 }
 
@@ -153,20 +144,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let width = 640.0_f64;
     let height = 400.0_f64;
 
-    let scheme = cache.scheme.clone();
-    let legend_items = cache
-        .groups
-        .iter()
-        .map(|&g| {
-            div()
-                .flex()
-                .items_center()
-                .gap_1()
-                .child(div().size_3().bg(scheme.color(g).to_rgba()))
-                .child(div().text_xs().child(format!("Group {}", g)))
-        })
-        .collect::<Vec<_>>();
-
+    // The official example has no legend: nodes are colored by group in place.
     let cache_for_paths = cache.clone();
     let cache_for_paint = cache.clone();
 
@@ -186,14 +164,6 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             "Source: observablehq.com/@d3/force-directed-graph — {} nodes, {} links",
             cache.node_count, cache.link_count
         )))
-        .child(
-            div()
-                .flex()
-                .gap_2()
-                .mb_2()
-                .flex_wrap()
-                .children(legend_items),
-        )
         .child(
             div()
                 .w(px(width as f32))

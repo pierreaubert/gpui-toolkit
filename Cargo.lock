@@ -2976,7 +2976,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-d3rs"
-version = "0.9.17"
+version = "0.9.18"
 dependencies = [
  "approx",
  "autoeq",
@@ -3449,7 +3449,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit-gpui-macos"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "accesskit",
  "accesskit_macos",

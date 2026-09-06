@@ -147,7 +147,7 @@ async fn extract_to_staging(
                 .with_context(|| {
                     format!("saving archive contents into the temporary file for {url}")
                 })?;
-            let asset_sha_256 = format!("{:x}", writer.hasher.finalize());
+            let asset_sha_256 = sha256_hex(writer.hasher);
 
             anyhow::ensure!(
                 asset_sha_256 == expected_sha_256,
@@ -321,6 +321,26 @@ struct HashingWriter<W: AsyncWrite + Unpin> {
     hasher: Sha256,
 }
 
+fn hex_nibble(nibble: u8) -> char {
+    (match nibble {
+        0..=9 => b'0' + nibble,
+        _ => b'a' + (nibble - 10),
+    }) as char
+}
+
+/// Hex SHA-256 digest of a finished hasher. sha2 0.11 no longer formats
+/// digests as hex, so this encodes the finalized bytes manually.
+fn sha256_hex(hasher: Sha256) -> String {
+    hasher.finalize().iter().fold(
+        String::with_capacity(64),
+        |mut hex, byte| {
+            hex.push(hex_nibble(byte >> 4));
+            hex.push(hex_nibble(byte & 0x0f));
+            hex
+        },
+    )
+}
+
 impl<W: AsyncWrite + Unpin> HashingWriter<W> {
     /// Closes and drops the inner writer, returning the hex SHA-256 digest of
     /// everything written.
@@ -333,7 +353,7 @@ impl<W: AsyncWrite + Unpin> HashingWriter<W> {
     async fn finish(mut self) -> std::io::Result<String> {
         self.writer.close().await?;
         drop(self.writer);
-        Ok(format!("{:x}", self.hasher.finalize()))
+        Ok(sha256_hex(self.hasher))
     }
 }
 
@@ -408,7 +428,7 @@ mod tests {
             let temp_dir = tempfile::tempdir().unwrap();
             let destination_path = temp_dir.path().join("v_1");
             let contents = b"#!/bin/sh\necho hello\n".to_vec();
-            let expected_sha_256 = format!("{:x}", Sha256::digest(&contents));
+            let expected_sha_256 = sha256_hex(Sha256::new_with_prefix(&contents));
             let client = StaticResponseClient { body: contents };
 
             download_server_raw_binary(

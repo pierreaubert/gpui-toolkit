@@ -217,6 +217,69 @@ fn test_transverse_mercator_longitude_unwrap_center() {
 }
 
 #[test]
+fn test_transverse_mercator_recenter_matches_d3() {
+    use super::transverse_mercator::TransverseMercator;
+
+    // Values verified against d3-geo 3.1.1 (scale 200, translate [100, 50]).
+    // Like d3's recenter composition, user rotate([λ, φ, γ]) behaves as an
+    // internal rotation of [λ, φ, γ + 90], and center([lon, lat]) as an
+    // internal center of [-lat, lon].
+    let proj = TransverseMercator::new()
+        .scale(200.0)
+        .translate(100.0, 50.0)
+        .rotate(30.0, -20.0, 0.0);
+    let (x, y) = proj.project(30.0, 20.0);
+    assert!((x - 327.634427543).abs() < 1e-6);
+    assert!((y - -6.033407238).abs() < 1e-6);
+
+    let proj = TransverseMercator::new()
+        .scale(200.0)
+        .translate(100.0, 50.0)
+        .rotate(30.0, -20.0, 45.0);
+    let (x, y) = proj.project(30.0, 20.0);
+    assert!((x - 199.922407308).abs() < 1e-6);
+    assert!((y - -127.937787828).abs() < 1e-6);
+
+    let proj = TransverseMercator::new()
+        .scale(200.0)
+        .translate(100.0, 50.0)
+        .center(10.0, 20.0);
+    let (x, y) = proj.project(30.0, 20.0);
+    assert!((x - 166.889451935).abs() < 1e-6);
+    assert!((y - 40.24054727).abs() < 1e-6);
+}
+
+#[test]
+fn test_transverse_mercator_stream_rotation() {
+    use super::transverse_mercator::TransverseMercator;
+
+    // The public getter returns user angles; the stream pipeline (clipping
+    // and project_rotated) uses the internal +90° gamma offset like d3.
+    let proj = TransverseMercator::new();
+    assert_eq!(Projection::rotate(&proj), (0.0, 0.0, 0.0));
+    assert_eq!(proj.stream_rotation(), (0.0, 0.0, 90.0));
+
+    let proj = TransverseMercator::new().rotate(30.0, -20.0, 45.0);
+    assert_eq!(Projection::rotate(&proj), (30.0, -20.0, 45.0));
+    assert_eq!(proj.stream_rotation(), (30.0, -20.0, 135.0));
+}
+
+#[test]
+fn test_transverse_mercator_raw_clamps_pole() {
+    use super::transverse_mercator::TransverseMercator;
+    use std::f64::consts::{FRAC_PI_2, PI};
+
+    // Mirrors Mercator::MAX_PHI: d3 cuts transverse output to a ±π·scale
+    // square via its default post-clip extent, so the raw x must stay
+    // bounded at the poles instead of diving into the singularity.
+    let (x, _) = TransverseMercator::project_raw(0.0, FRAC_PI_2);
+    assert!(x.is_finite());
+    assert!((x - PI).abs() < 1e-12);
+    let (x, _) = TransverseMercator::project_raw(0.0, -FRAC_PI_2);
+    assert!((x + PI).abs() < 1e-12);
+}
+
+#[test]
 fn test_sphere_rotation_identity() {
     use super::sphere_rotation::SphereRotation;
 

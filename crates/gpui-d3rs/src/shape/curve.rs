@@ -8,6 +8,7 @@ mod interpolate;
 mod misc;
 
 use interpolate::interpolate_basis;
+use interpolate::interpolate_bump;
 use interpolate::interpolate_bundle;
 use interpolate::interpolate_cardinal;
 use interpolate::interpolate_catmull_rom;
@@ -71,6 +72,10 @@ pub enum Curve {
     MonotoneY,
     /// Natural cubic spline
     Natural,
+    /// Bump in X (horizontal S-curves, like sankey links)
+    BumpX,
+    /// Bump in Y (vertical S-curves)
+    BumpY,
 }
 
 impl Curve {
@@ -114,6 +119,16 @@ impl Curve {
         Curve::Natural
     }
 
+    /// Create a bump-X curve (horizontal S-curves, like sankey links).
+    pub fn bump_x() -> Self {
+        Curve::BumpX
+    }
+
+    /// Create a bump-Y curve (vertical S-curves).
+    pub fn bump_y() -> Self {
+        Curve::BumpY
+    }
+
     /// Interpolate points using this curve type.
     ///
     /// Returns a new set of points that follow the curve.
@@ -153,6 +168,8 @@ impl Curve {
             Curve::MonotoneX => interpolate_monotone_x(points),
             Curve::MonotoneY => interpolate_monotone_y(points),
             Curve::Natural => interpolate_natural(points),
+            Curve::BumpX => interpolate_bump(points, true),
+            Curve::BumpY => interpolate_bump(points, false),
         };
         out.extend_from_slice(&pts);
     }
@@ -243,6 +260,30 @@ mod tests {
     }
 
     #[test]
+    fn test_bump_curves() {
+        let points = vec![
+            Point::new(0.0, 0.0),
+            Point::new(10.0, 50.0),
+            Point::new(20.0, 30.0),
+        ];
+        let result = Curve::bump_x().interpolate(&points);
+        assert!(result.len() > points.len());
+        // BumpX pins both control points to the segment mid-x: the midpoint
+        // of the first segment sits exactly at x = 5.
+        let mid = &result[8];
+        assert!((mid.x - 5.0).abs() < 1e-9);
+        let result = Curve::bump_y().interpolate(&points);
+        assert!(result.len() > points.len());
+        // BumpY pins control points to the segment mid-y: first-segment
+        // midpoint sits at y = 25.
+        let mid = &result[8];
+        assert!((mid.y - 25.0).abs() < 1e-9);
+        // Endpoints are preserved exactly.
+        assert_eq!(result[0], points[0]);
+        assert_eq!(*result.last().unwrap(), *points.last().unwrap());
+    }
+
+    #[test]
     fn test_interpolate_into_matches_interpolate() {
         let points = vec![
             Point::new(0.0, 0.0),
@@ -259,6 +300,8 @@ mod tests {
             Curve::catmull_rom(0.5),
             Curve::MonotoneX,
             Curve::Natural,
+            Curve::BumpX,
+            Curve::BumpY,
         ] {
             let expected = curve.interpolate(&points);
             let mut out = Vec::new();

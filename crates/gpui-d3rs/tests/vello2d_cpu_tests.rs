@@ -383,10 +383,7 @@ fn scaled_stroke_width_matches_physical_scale() {
     let two = CpuRasterizer::new(200, 200).rasterize(&scene, 200, 200, 2.0);
     let w1 = core_rows(&one, 100, 50, 100);
     let w2 = core_rows(&two, 200, 100, 200);
-    assert!(
-        (5..=7).contains(&w1),
-        "scale-1 core width ~6, got {w1}"
-    );
+    assert!((5..=7).contains(&w1), "scale-1 core width ~6, got {w1}");
     assert!(
         (10..=14).contains(&w2),
         "scale-2 core width ~12, got {w2} (stroke width not scaled?)"

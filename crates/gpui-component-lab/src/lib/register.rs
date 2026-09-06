@@ -422,16 +422,14 @@ fn mesh_plot_story(id: &str, title: &str, description: &str, expose_mode: bool) 
     story
 }
 
-/// Shared vello raster-backend selector for audio stories: `auto` probes
-/// custom-draw support, `cpu` forces `vello_cpu`, `gpu` forces the wgpu
-/// custom draw (live output only where wgpu draws dispatch).
+/// Shared vello raster-backend selector for audio stories: `auto` probes GPU
+/// custom-draw support (Metal on macOS, WGPU elsewhere), `cpu` forces
+/// `vello_cpu`, `gpu` forces the wgpu custom draw (live output only where
+/// wgpu draws dispatch — blank on Metal), `metal` forces the macOS Metal
+/// drawable path (CPU fallback elsewhere).
 fn backend_prop() -> StoryProp {
-    StoryProp::new(
-        "backend",
-        "Backend",
-        StoryPropValue::Choice("auto".into()),
-    )
-    .options(["auto", "cpu", "gpu"])
+    StoryProp::new("backend", "Backend", StoryPropValue::Choice("auto".into()))
+        .options(["auto", "cpu", "gpu", "metal"])
 }
 
 pub fn register_audio_kit_stories(registry: &mut StoryRegistry) -> Result<()> {
@@ -537,12 +535,8 @@ pub fn register_audio_kit_stories(registry: &mut StoryRegistry) -> Result<()> {
             "CPU vs GPU vello rasterization snapshots with pixel diff",
         )
         .props([
-            StoryProp::new(
-                "preset",
-                "Scene",
-                StoryPropValue::Choice("knob".into()),
-            )
-            .options(["knob", "spectrum", "strokes"]),
+            StoryProp::new("preset", "Scene", StoryPropValue::Choice("knob".into()))
+                .options(["knob", "spectrum", "strokes"]),
             StoryProp::new("scale", "Scale", StoryPropValue::Choice("2x".into()))
                 .options(["1x", "2x"]),
         ]),

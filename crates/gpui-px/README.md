@@ -10,7 +10,7 @@ Built on top of [gpui-d3rs](https://crates.io/crates/gpui-d3rs) primitives.
 
 ## Features
 
-- **11 chart families**: Scatter, Line, Area, Bar, Heatmap, Contour, Isoline, Pie/Donut, Box Plot, Treemap, and optional Surface 3D
+- **11 chart families**: Scatter, Line, Area, Bar, Heatmap, Contour, Isoline, Pie/Donut, Box Plot, Treemap, and Surface 3D
 - **Fluent builder API**: Chain methods for easy configuration
 - **Color scales**: Viridis, Plasma, Inferno, Magma, Heat, Coolwarm, Greys, or custom
 - **Logarithmic scales**: Both axes support log scaling for multi-magnitude data
@@ -461,6 +461,14 @@ match scatter(&x, &y).build() {
 ## License
 
 - [ISC License](https://en.wikipedia.org/wiki/ISC_license)
+## Cargo features
+
+Default features mirror `gpui-d3rs` defaults: `gpui`, `gpu-2d`, `gpu-3d`
+(`Surface3DChart` and the `MeshPlot` 3D views), `vello`, and `vello-metal`
+(Vello scenes on the Metal renderer on macOS; a no-op elsewhere).
+`gpu-metal` adds the full Metal/WGPU device path. A no-default-features
+build keeps the Legacy escape hatch and does not require Vello.
+
 ## 2D renderer selection
 
 All ordinary chart builders (line, area, bar, scatter, boxplot, pie/donut, treemap, heatmap, contour, and isoline) select Vello by default through `gpui-d3rs` when the `vello` feature is enabled. Use `.renderer_2d(Renderer2D::Legacy)` for the original `gpu2d` path, or select `VelloBackend::Cpu`, `Wgpu`, or `Auto` for Vello backend QA. A no-default-features build keeps the Legacy escape hatch and does not require Vello.

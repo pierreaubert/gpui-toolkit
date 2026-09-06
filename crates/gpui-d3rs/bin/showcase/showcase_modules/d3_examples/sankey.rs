@@ -7,6 +7,7 @@
 //! Source: <https://observablehq.com/@d3/sankey>
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::color::ColorScheme;
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
@@ -50,9 +51,10 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             .close_path()
             .build();
         d3_paths.push(path);
-        // Color based on source node layer
-        let color = scheme.color(source.layer).to_rgba();
-        all_colors.push(Hsla::from(color).opacity(0.4));
+        // Source-colored ribbons (the official example fades source to
+        // target with per-link gradients; flat fills can't do that, so use
+        // a higher opacity to stay close in saturation).
+        all_colors.push(chart_colors::categorical(&ui_theme, &scheme, source.layer).opacity(0.5));
     }
 
     // Node rectangles
@@ -81,19 +83,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         })
         .collect();
 
-    // Legend: unique layers
-    let max_layer = result.nodes.iter().map(|n| n.layer).max().unwrap_or(0);
-    let legend_items: Vec<Div> = (0..=max_layer)
-        .map(|layer| {
-            div()
-                .flex()
-                .items_center()
-                .gap_1()
-                .child(div().size_3().bg(scheme.color(layer).to_rgba()))
-                .child(div().text_xs().child(format!("Layer {layer}")))
-        })
-        .collect();
-
+    // The official example has no legend: nodes are labeled in place.
     div()
         .flex()
         .flex_col()
@@ -111,14 +101,6 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             result.nodes.len(),
             result.links.len()
         )))
-        .child(
-            div()
-                .flex()
-                .gap_2()
-                .mb_2()
-                .flex_wrap()
-                .children(legend_items),
-        )
         .child(
             div()
                 .w(px(width as f32))

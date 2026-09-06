@@ -2,6 +2,7 @@
 //!
 //! Demonstrates idiomatic d3rs usage: `Pie` layout + `Arc` generator + `d3rs_path_to_gpui_simple`.
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::color::ColorScheme;
 use d3rs::shape::arc::Arc as D3Arc;
 use d3rs::shape::pie::Pie;
@@ -21,9 +22,13 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let cy_center = height / 2.0;
     let radius = width.min(height) / 2.0 - 20.0;
 
-    // Use d3rs Pie layout to compute slices, then Arc generator to build d3rs Paths
+    // Use d3rs Pie layout to compute slices, then Arc generator to build d3rs Paths.
+    // padAngle(1 / radius) matches the official example's slice separation.
     let values: Vec<f64> = result.slices.iter().map(|s| s.value).collect();
-    let pie = Pie::new().outer_radius(radius).sort(false);
+    let pie = Pie::new()
+        .outer_radius(radius)
+        .pad_angle(1.0 / radius)
+        .sort(false);
     let slices = pie.generate(&values, |v| *v);
 
     let arc_gen = D3Arc::new().center(cx_center, cy_center);
@@ -31,12 +36,23 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
     let mut slice_names: Vec<String> = Vec::new();
     let mut slice_pcts: Vec<f64> = Vec::new();
+    // In-slice labels at arc centroids, like the official example (only for
+    // slices wide enough to fit their name).
+    let mut slice_labels: Vec<(f64, f64, String)> = Vec::new();
     for (i, s) in slices.iter().enumerate() {
         let path = arc_gen.generate(&s.arc);
         d3_paths.push(path);
         slice_names.push(result.slices[i].name.clone());
         let pct = (s.arc.end_angle - s.arc.start_angle) / std::f64::consts::TAU * 100.0;
         slice_pcts.push(pct);
+        if s.arc.end_angle - s.arc.start_angle > 0.35 {
+            let c = s.arc.centroid();
+            slice_labels.push((
+                cx_center + c.x,
+                cy_center + c.y,
+                result.slices[i].name.clone(),
+            ));
+        }
     }
 
     let legend_items: Vec<Div> = slice_names
@@ -47,7 +63,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .flex()
                 .items_center()
                 .gap_1()
-                .child(div().size_3().bg(scheme.color(i).to_rgba()))
+                .child(div().size_3().bg(chart_colors::categorical(&ui_theme, &scheme, i)))
                 .child(
                     div()
                         .text_xs()
@@ -56,8 +72,8 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         })
         .collect();
 
-    let colors: Vec<Rgba> = (0..scheme.len())
-        .map(|i| scheme.color(i).to_rgba())
+    let colors: Vec<Hsla> = (0..scheme.len())
+        .map(|i| chart_colors::categorical(&ui_theme, &scheme, i))
         .collect();
     div()
         .flex()
@@ -92,6 +108,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .bg(ui_theme.surface)
                 .border_1()
                 .border_color(ui_theme.border)
+                .relative()
                 .child(
                     canvas(
                         move |bounds, _, _| {
@@ -111,6 +128,18 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         },
                     )
                     .size_full(),
-                ),
+                )
+                // In-slice labels anchored at arc centroids
+                .children(slice_labels.iter().map(|(x, y, name)| {
+                    div()
+                        .absolute()
+                        .left(px((*x - 40.0) as f32))
+                        .top(px((*y - 8.0) as f32))
+                        .w(px(80.0))
+                        .flex()
+                        .justify_center()
+                        .text_color(white())
+                        .child(div().text_xs().child(name.clone()))
+                })),
         )
 }

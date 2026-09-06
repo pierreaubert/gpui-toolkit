@@ -3,15 +3,29 @@
 //! Demonstrates idiomatic d3rs usage: `Stack` with `InsideOut` order + `Wiggle` offset,
 //! `LinearScale` for axes, `PathBuilder` for area paths, `d3rs_path_to_gpui_simple` for rendering.
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::color::ColorScheme;
 use d3rs::scale::{LinearScale, Scale};
-use d3rs::shape::path::PathBuilder as D3PathBuilder;
+use d3rs::shape::area::Area;
+use d3rs::shape::curve::Curve;
 use d3rs::shape::stack::{Stack, StackOffset, StackOrder};
+use d3rs::time::TimeScale;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
 
 const UNEMPLOYMENT_CSV: &str = include_str!("../../data/unemployment.csv");
+
+/// Format an epoch timestamp as a calendar year (official x-axis shows years).
+fn format_epoch_year(epoch: i64) -> String {
+    // Days since Unix epoch -> civil year (Howard Hinnant's algorithm).
+    let days = epoch.div_euclid(86_400);
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    (yoe + era * 400).to_string()
+}
 
 pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let ui_theme = cx.theme();
@@ -21,8 +35,8 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let matrix: Vec<Vec<f64>> = rows.iter().map(|r| r.values.clone()).collect();
 
     let scheme = ColorScheme::tableau10();
-    let colors: Vec<Rgba> = (0..scheme.len())
-        .map(|i| scheme.color(i).to_rgba())
+    let colors: Vec<Hsla> = (0..scheme.len())
+        .map(|i| chart_colors::categorical(&ui_theme, &scheme, i))
         .collect();
 
     let width = 700.0_f64;
@@ -52,33 +66,26 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         }
     }
 
-    let x_scale = LinearScale::new()
-        .domain(0.0, (n - 1) as f64)
+    // X: TimeScale over the real row dates like the official example.
+    let dates: Vec<i64> = rows.iter().map(|r| r.date).collect();
+    let x_time = TimeScale::new()
+        .domain(dates[0], dates[n - 1])
         .range(0.0, plot_w);
+    let x_ticks = x_time.time_ticks(6);
     let y_scale = LinearScale::new().domain(y_min, y_max).range(plot_h, 0.0);
 
-    // Build area paths using D3PathBuilder: top line forward + bottom line reversed + close
+    // Build smooth area paths with the d3rs Area generator and a basis
+    // curve, matching the official streamgraph's rounded shapes.
     let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
     for s in &series {
-        let mut builder = D3PathBuilder::new();
-        // Top line (y1 values)
-        for i in 0..n {
-            let x = x_scale.scale(i as f64);
-            let y = y_scale.scale(s.values[i][1]);
-            if i == 0 {
-                builder = builder.move_to(x, y);
-            } else {
-                builder = builder.line_to(x, y);
-            }
-        }
-        // Bottom line reversed (y0 values)
-        for i in (0..n).rev() {
-            let x = x_scale.scale(i as f64);
-            let y = y_scale.scale(s.values[i][0]);
-            builder = builder.line_to(x, y);
-        }
-        builder = builder.close_path();
-        d3_paths.push(builder.build());
+        let data: Vec<(usize, [f64; 2])> = (0..n).map(|i| (i, s.values[i])).collect();
+        let dates_clone = dates.clone();
+        let area = Area::new()
+            .x(move |d: &(usize, [f64; 2])| x_time.scale(dates_clone[d.0]))
+            .y0(move |d: &(usize, [f64; 2])| y_scale.scale(d.1[0]))
+            .y1(move |d: &(usize, [f64; 2])| y_scale.scale(d.1[1]))
+            .curve(Curve::basis());
+        d3_paths.push(area.generate(&data));
     }
 
     let legend_items: Vec<Div> = categories
@@ -93,30 +100,6 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .child(div().text_xs().child(name.clone()))
         })
         .collect();
-
-    // X-axis ticks (every 4 time steps to avoid label overlap)
-    let x_step = if n > 30 {
-        5
-    } else if n > 15 {
-        4
-    } else {
-        2
-    };
-    let x_ticks: Vec<f64> = (0..n).step_by(x_step).map(|v| v as f64).collect();
-
-    // Y-axis ticks: 1000-unit grid lines spanning the full y range
-    let y_tick_step = 1000.0;
-    let y_min_tick = (y_min / y_tick_step).floor() * y_tick_step;
-    let y_max_tick = (y_max / y_tick_step).ceil() * y_tick_step;
-    let y_ticks: Vec<f64> = {
-        let mut ticks = Vec::new();
-        let mut v = y_min_tick;
-        while v <= y_max_tick + 0.1 {
-            ticks.push(v);
-            v += y_tick_step;
-        }
-        ticks
-    };
 
     div()
         .flex()
@@ -152,17 +135,8 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .border_1()
                 .border_color(ui_theme.border)
                 .relative()
-                // Y-axis line
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(margin_left as f32))
-                        .top(px(margin_top as f32))
-                        .w(px(1.0))
-                        .h(px(plot_h as f32))
-                        .bg(ui_theme.border),
-                )
-                // X-axis line
+                // X-axis line (the official example shows only the year axis;
+                // wiggle offsets are relative, so there is no y-axis)
                 .child(
                     div()
                         .absolute()
@@ -172,45 +146,18 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .h(px(1.0))
                         .bg(ui_theme.border),
                 )
-                // Y-axis tick labels
-                .children(y_ticks.iter().map(|&val| {
-                    let y = y_scale.scale(val);
+                // X-axis tick labels from the actual tick dates (years)
+                .children(x_ticks.iter().map(|&epoch| {
+                    let x = x_time.scale(epoch);
+                    let label = format_epoch_year(epoch);
                     div()
                         .absolute()
-                        .left(px(0.0))
-                        .top(px((margin_top + y - 6.0) as f32))
-                        .w(px(margin_left as f32))
-                        .flex()
-                        .justify_end()
-                        .pr_1()
-                        .child(div().text_xs().child(if val.abs() >= 1000.0 {
-                            format!("{:.0}k", val / 1000.0)
-                        } else {
-                            format!("{:.0}", val)
-                        }))
-                }))
-                // Y grid lines
-                .children(y_ticks.iter().map(|&val| {
-                    let y = y_scale.scale(val);
-                    div()
-                        .absolute()
-                        .left(px(margin_left as f32))
-                        .top(px((margin_top + y) as f32))
-                        .w(px(plot_w as f32))
-                        .h(px(1.0))
-                        .bg(ui_theme.surface)
-                }))
-                // X-axis tick labels
-                .children(x_ticks.iter().map(|&val| {
-                    let x = x_scale.scale(val);
-                    div()
-                        .absolute()
-                        .left(px((margin_left + x - 10.0) as f32))
+                        .left(px((margin_left + x - 20.0) as f32))
                         .top(px((margin_top + plot_h + 4.0) as f32))
-                        .w(px(20.0))
+                        .w(px(40.0))
                         .flex()
                         .justify_center()
-                        .child(div().text_xs().child(format!("{:.0}", val)))
+                        .child(div().text_xs().child(label))
                 }))
                 // Plot area with streamgraph
                 .child(

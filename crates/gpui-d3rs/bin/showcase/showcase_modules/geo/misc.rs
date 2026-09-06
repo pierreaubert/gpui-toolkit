@@ -6,7 +6,8 @@ use d3rs::geo::{
     Stereographic,
 };
 use gpui::*;
-use gpui_ui_kit::theme::ThemeExt;
+use crate::showcase_modules::chart_colors;
+use gpui_ui_kit::theme::{Theme, ThemeExt};
 
 /// Famous cities with their coordinates
 const CITIES: &[(&str, f64, f64)] = &[
@@ -29,6 +30,8 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let zoom = app.geo_zoom;
     let use_large_data = app.use_large_data;
     let theme = cx.theme();
+    let land_color = chart_colors::ink_hex(&theme, 0xd6e4ff);
+    let grat_color = chart_colors::ink_rgba(&theme, rgba(0x00000033));
 
     // Map dimensions
     let map_width = 800.0_f64;
@@ -234,7 +237,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                              // Looking at the error: unexpected argument #3 of type `gpui::Rgba`
                                              // It seems paint_path expects 2 arguments: self and path? No, method signature is `paint_path(&mut self, path, color)`.
                                              // Let's try passing just the path and color (fill color).
-                                             window.paint_path(path, rgb(0xd6e4ff));
+                                             window.paint_path(path, land_color);
                                          }
                                      }
 
@@ -285,7 +288,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                          }
                                          // Don't close grid lines
                                          if let Ok(path) = builder.build() {
-                                            window.paint_path(path, rgba(0x00000033));
+                                            window.paint_path(path, grat_color);
                                          }
                                     }
                                 }
@@ -293,6 +296,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         )
                         // Render city markers (kept as overlay divs for easy text handling)
                         .children(render_cities(
+                            &theme,
                             current_projection,
                             map_width,
                             map_height,
@@ -443,7 +447,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .flex()
                                 .items_center()
                                 .gap_2()
-                                .child(div().w(px(16.0)).h(px(2.0)).bg(rgba(0x00000033))) // Updated color to match
+                                .child(div().w(px(16.0)).h(px(2.0)).bg(chart_colors::ink_rgba(&theme, rgba(0x00000033)))) // Updated color to match
                                 .child(div().text_sm().child("Graticule (30° grid)")),
                         )
                          .child(
@@ -451,7 +455,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .flex()
                                 .items_center()
                                 .gap_2()
-                                .child(div().w(px(16.0)).h(px(16.0)).bg(rgb(0xd6e4ff)).border_1().border_color(rgb(0x3399ff)))
+                                .child(div().w(px(16.0)).h(px(16.0)).bg(chart_colors::ink_hex(&theme, 0xd6e4ff)).border_1().border_color(chart_colors::ink_hex(&theme, 0x3399ff)))
                                 .child(div().text_sm().child("Continents")),
                         )
                         .child(
@@ -459,7 +463,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .flex()
                                 .items_center()
                                 .gap_2()
-                                .child(div().w(px(8.0)).h(px(8.0)).rounded_full().bg(rgb(0xd62728)))
+                                .child(div().w(px(8.0)).h(px(8.0)).rounded_full().bg(chart_colors::ink_hex(&theme, 0xd62728)))
                                 .child(div().text_sm().child("Cities")),
                         ),
                 ),
@@ -584,6 +588,7 @@ fn projection_scale(proj_type: GeoProjectionType, map_height: f64) -> f64 {
 
 /// Render city markers
 fn render_cities(
+    ui_theme: &Theme,
     proj_type: GeoProjectionType,
     map_width: f64,
     map_height: f64,
@@ -629,9 +634,9 @@ fn render_cities(
                     .w(px(8.0))
                     .h(px(8.0))
                     .rounded_full()
-                    .bg(rgb(0xd62728))
+                    .bg(chart_colors::ink_hex(ui_theme, 0xd62728))
                     .border_1()
-                    .border_color(rgb(0xffffff)),
+                    .border_color(chart_colors::ink_hex(ui_theme, 0xffffff)),
             );
             // City label
             elements.push(
@@ -640,7 +645,8 @@ fn render_cities(
                     .left(px(x as f32 + 6.0))
                     .top(px(y as f32 - 6.0))
                     .text_xs()
-                    .bg(rgba(0xffffffcc))
+                    .bg(ui_theme.surface)
+                    .text_color(ui_theme.text_primary)
                     .px_1()
                     .rounded(px(2.0))
                     .child(name),

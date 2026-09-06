@@ -17,7 +17,6 @@ import 'builds/wasm.just'
 # ----------------------------------------------------------------------
 
 features := "--features autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding"
-ui_kit_features := "--features autoeq,reqwest,spinorama,tokio,urlencoding"
 cross_packages := "-p gpui-audio-kit -p gpui-builder -p gpui-component-lab -p gpui-d3rs -p gpui-design -p gpui-design-tools -p gpui-keybinding -p gpui-miniapp -p gpui-pretext -p gpui-px -p gpui-python-runtime -p gpui-scaffolder -p gpui-themes -p gpui-ui-kit -p gpui-ui-kit-macros"
 public_core_packages := "-p gpui-audio-kit -p gpui-builder -p gpui-d3rs -p gpui-design -p gpui-keybinding -p gpui-pretext -p gpui-px -p gpui-themes -p gpui-ui-kit -p gpui-ui-kit-macros"
 
@@ -48,7 +47,7 @@ perf_noise_floor_ns := "150"
 
 [group('check')]
 check:
-	cargo check --workspace --all-targets {{features}}
+	cargo check --workspace --all-targets --all-features --tests
 
 [group('lint')]
 lint: lint-host
@@ -109,9 +108,9 @@ qa-gpui-obvious: qa-gpui-conformance
 	cargo check -p gpui-builder
 	cargo test -p gpui-audio-kit {{features}} -- --test-threads=1
 	# gpui-ui-kit has no gpu-2d/gpu-3d feature; exercise those via gpui-d3rs.
-	cargo test -p gpui-ui-kit {{ui_kit_features}}
-	cargo test -p gpui-ui-kit {{ui_kit_features}} --features bench --test allocation_contracts -- --test-threads=1
-	cargo test -p gpui-ui-kit {{ui_kit_features}} --features bench --test text_input_corpus
+	cargo test -p gpui-ui-kit {{features}}
+	cargo test -p gpui-ui-kit {{features}} --features bench --test allocation_contracts -- --test-threads=1
+	cargo test -p gpui-ui-kit {{features}} --features bench --test text_input_corpus
 	cargo test -p gpui-d3rs {{features}}
 	# MeshPlot allocation contracts use a process-global allocator; keep this
 	# package serial so unrelated test-thread startup allocations cannot pollute
@@ -828,6 +827,7 @@ xcode:
 [group('download')]
 download-once:
 	wget -q -O crates/gpui-d3rs/bin/showcase/data/land-50m.json https://cdn.jsdelivr.net/npm/world-atlas@2/land-50m.json
+	wget -q -O crates/gpui-d3rs/bin/showcase/data/counties-albers-10m.json https://cdn.jsdelivr.net/npm/us-atlas@3/counties-albers-10m.json
 # Deterministic named color-scale CVD regression screen. Manual rendered CVD
 # review remains a separate reference-host/product gate.
 [group('qa')]

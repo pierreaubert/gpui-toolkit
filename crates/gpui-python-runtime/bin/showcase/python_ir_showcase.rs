@@ -463,36 +463,56 @@ mod native_mesh_plot_tests {
                 *payload.borrow_mut() = mesh_selection_event_payload(pick.as_ref());
                 *selection.borrow_mut() = pick;
             });
-            let (plot, state) = PythonIrShowcase::build_native_mesh_plot(
+            // Match the showcase host's last-valid-frame policy: a
+            // resource decode/build failure must keep the prior native
+            // plot rather than replacing it with an error card.
+            let current = gpui_python_runtime::native_mesh_plot::prepare(
                 &self.spec,
                 &self.frames.borrow(),
-                Some(self.state.clone()),
-                Some(callback.clone()),
             )
-            .map(|result| {
-                self.last_valid_spec = Some(self.spec.clone());
-                result
-            })
-            .unwrap_or_else(|error| {
-                // Match the showcase host's last-valid-frame policy: a
-                // resource decode/build failure must keep the prior native
-                // plot rather than replacing it with an error card.
-                let previous = self
-                    .last_valid_spec
-                    .as_ref()
-                    .expect("invalid patch requires an earlier valid native MeshPlot");
+            .and_then(|prepared| {
                 PythonIrShowcase::build_native_mesh_plot(
-                    previous,
-                    &self.frames.borrow(),
+                    &self.spec,
+                    &prepared,
                     Some(self.state.clone()),
-                    Some(callback),
+                    Some(callback.clone()),
+                    None,
                 )
-                .unwrap_or_else(|fallback_error| {
-                    panic!(
-                        "invalid resource patch ({error}) must retain a buildable last-valid MeshPlot: {fallback_error}"
-                    )
-                })
             });
+            let (plot, state) = match current {
+                Ok((plot, state)) => {
+                    self.last_valid_spec = Some(self.spec.clone());
+                    (plot, state)
+                }
+                Err(error) => {
+                    let previous = self
+                        .last_valid_spec
+                        .as_ref()
+                        .expect("invalid patch requires an earlier valid native MeshPlot")
+                        .clone();
+                    let prepared = gpui_python_runtime::native_mesh_plot::prepare(
+                        &previous,
+                        &self.frames.borrow(),
+                    )
+                    .unwrap_or_else(|fallback_error| {
+                        panic!(
+                            "invalid resource patch ({error}) must retain a buildable last-valid MeshPlot: {fallback_error}"
+                        )
+                    });
+                    PythonIrShowcase::build_native_mesh_plot(
+                        &previous,
+                        &prepared,
+                        Some(self.state.clone()),
+                        Some(callback),
+                        None,
+                    )
+                    .unwrap_or_else(|fallback_error| {
+                        panic!(
+                            "invalid resource patch ({error}) must retain a buildable last-valid MeshPlot: {fallback_error}"
+                        )
+                    })
+                }
+            };
             self.state = state;
             let mut view = div()
                 .id("python-resource-mesh-plot")
@@ -1530,7 +1550,7 @@ mod native_mesh_plot_tests {
             }],
         };
 
-        showcase.record_mesh_patch_error(&patch, "invalid mesh field");
+        showcase.record_mesh_patch_error(&patch, None, "invalid mesh field");
 
         assert_eq!(showcase.load_error, None);
         assert_eq!(

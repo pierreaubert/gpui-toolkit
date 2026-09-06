@@ -228,6 +228,29 @@ impl SequentialScheme {
         )
     }
 
+    /// Cyclic rainbow approximating `d3.interpolateRainbow` (hue sweep at
+    /// fixed chroma/lightness; endpoints meet so sampling wraps cleanly).
+    pub fn rainbow() -> SequentialScale {
+        SequentialScale::new(
+            vec![
+                Hcl::new(0.0, 70.0, 55.0),
+                Hcl::new(30.0, 70.0, 55.0),
+                Hcl::new(60.0, 70.0, 55.0),
+                Hcl::new(90.0, 70.0, 55.0),
+                Hcl::new(120.0, 70.0, 55.0),
+                Hcl::new(150.0, 70.0, 55.0),
+                Hcl::new(180.0, 70.0, 55.0),
+                Hcl::new(210.0, 70.0, 55.0),
+                Hcl::new(240.0, 70.0, 55.0),
+                Hcl::new(270.0, 70.0, 55.0),
+                Hcl::new(300.0, 70.0, 55.0),
+                Hcl::new(330.0, 70.0, 55.0),
+                Hcl::new(360.0, 70.0, 55.0),
+            ],
+            "Rainbow",
+        )
+    }
+
     pub fn get(name: &str) -> Option<SequentialScale> {
         match name {
             "Blues" => Some(Self::blues()),
@@ -242,6 +265,7 @@ impl SequentialScheme {
             "Turbo" => Some(Self::turbo()),
             "BuPu" => Some(Self::bu_pu()),
             "Cubehelix" => Some(Self::cubehelix()),
+            "Rainbow" => Some(Self::rainbow()),
             _ => None,
         }
     }

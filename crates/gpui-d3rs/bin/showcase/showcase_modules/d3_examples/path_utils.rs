@@ -1,12 +1,7 @@
 use gpui::*;
 
-/// SVG Path parser to GPUI Path
-///
-/// Supports: M, L, H, V, C, Z (absolute) and m, l, h, v, c, z (relative)
-pub fn parse_svg_path(d: &str, bounds: Bounds<Pixels>) -> Option<Path<Pixels>> {
-    let mut builder = PathBuilder::fill();
-    let origin = bounds.origin;
-
+/// Insert spaces around SVG commands so the path splits into tokens.
+fn tokenize_svg_path(d: &str) -> String {
     // Tokenize: insert spaces around command letters, then split
     let mut spaced = String::with_capacity(d.len() * 2);
     for ch in d.chars() {
@@ -29,6 +24,17 @@ pub fn parse_svg_path(d: &str, bounds: Bounds<Pixels>) -> Option<Path<Pixels>> {
         }
     }
 
+    spaced
+}
+
+/// SVG Path parser to GPUI Path
+///
+/// Supports: M, L, H, V, C, Z (absolute) and m, l, h, v, c, z (relative)
+pub fn parse_svg_path(d: &str, bounds: Bounds<Pixels>) -> Option<Path<Pixels>> {
+    let mut builder = PathBuilder::fill();
+    let origin = bounds.origin;
+
+    let spaced = tokenize_svg_path(d);
     let tokens: Vec<&str> = spaced.split_whitespace().collect();
     let mut idx = 0;
     let mut cx = 0.0f32;
@@ -363,4 +369,201 @@ fn parse_f32(tokens: &[&str], idx: usize) -> Option<f32> {
         return Some(v);
     }
     None
+}
+
+/// SVG path parser to a GPUI *stroke* path (1px-class outlines).
+///
+/// Same command coverage as [`parse_svg_path`]; cubic segments are
+/// linearized identically so fills and strokes overlay exactly.
+pub fn parse_svg_path_stroke(d: &str, bounds: Bounds<Pixels>, width: f32) -> Option<Path<Pixels>> {
+    let mut builder = PathBuilder::stroke(px(width));
+    let origin = bounds.origin;
+
+    let spaced = tokenize_svg_path(d);
+    let tokens: Vec<&str> = spaced.split_whitespace().collect();
+    let mut idx = 0;
+    let mut cx = 0.0f32;
+    let mut cy = 0.0f32;
+    // Start of the current subpath, for Z closes.
+    let mut sx = 0.0f32;
+    let mut sy = 0.0f32;
+
+    // Subdivide one absolute cubic Bézier into line segments.
+    let cubic = |builder: &mut PathBuilder,
+                     cx: f32,
+                     cy: f32,
+                     x1: f32,
+                     y1: f32,
+                     x2: f32,
+                     y2: f32,
+                     x: f32,
+                     y: f32| {
+        let steps = 16;
+        for i in 1..=steps {
+            let t = i as f32 / steps as f32;
+            let u = 1.0 - t;
+            let px_val = u * u * u * cx
+                + 3.0 * u * u * t * x1
+                + 3.0 * u * t * t * x2
+                + t * t * t * x;
+            let py_val = u * u * u * cy
+                + 3.0 * u * u * t * y1
+                + 3.0 * u * t * t * y2
+                + t * t * t * y;
+            builder.line_to(origin + point(gpui::px(px_val), gpui::px(py_val)));
+        }
+    };
+
+    while idx < tokens.len() {
+        match tokens[idx] {
+            "M" => {
+                if let Some((x, y)) = parse_xy(&tokens, idx + 1) {
+                    cx = x;
+                    cy = y;
+                    sx = x;
+                    sy = y;
+                    builder.move_to(origin + point(px(x), px(y)));
+                    idx += 3;
+                } else {
+                    idx += 1;
+                }
+            }
+            "m" => {
+                if let Some((dx, dy)) = parse_xy(&tokens, idx + 1) {
+                    cx += dx;
+                    cy += dy;
+                    sx = cx;
+                    sy = cy;
+                    builder.move_to(origin + point(px(cx), px(cy)));
+                    idx += 3;
+                } else {
+                    idx += 1;
+                }
+            }
+            "L" => {
+                if let Some((x, y)) = parse_xy(&tokens, idx + 1) {
+                    cx = x;
+                    cy = y;
+                    builder.line_to(origin + point(px(x), px(y)));
+                    idx += 3;
+                } else {
+                    idx += 1;
+                }
+            }
+            "l" => {
+                if let Some((dx, dy)) = parse_xy(&tokens, idx + 1) {
+                    cx += dx;
+                    cy += dy;
+                    builder.line_to(origin + point(px(cx), px(cy)));
+                    idx += 3;
+                } else {
+                    idx += 1;
+                }
+            }
+            "H" => {
+                if let Some(x) = parse_f32(&tokens, idx + 1) {
+                    cx = x;
+                    builder.line_to(origin + point(px(cx), px(cy)));
+                    idx += 2;
+                } else {
+                    idx += 1;
+                }
+            }
+            "h" => {
+                if let Some(dx) = parse_f32(&tokens, idx + 1) {
+                    cx += dx;
+                    builder.line_to(origin + point(px(cx), px(cy)));
+                    idx += 2;
+                } else {
+                    idx += 1;
+                }
+            }
+            "V" => {
+                if let Some(y) = parse_f32(&tokens, idx + 1) {
+                    cy = y;
+                    builder.line_to(origin + point(px(cx), px(cy)));
+                    idx += 2;
+                } else {
+                    idx += 1;
+                }
+            }
+            "v" => {
+                if let Some(dy) = parse_f32(&tokens, idx + 1) {
+                    cy += dy;
+                    builder.line_to(origin + point(px(cx), px(cy)));
+                    idx += 2;
+                } else {
+                    idx += 1;
+                }
+            }
+            "C" => {
+                if idx + 6 < tokens.len() {
+                    if let (Some(x1), Some(y1), Some(x2), Some(y2), Some(x), Some(y)) = (
+                        parse_f32(&tokens, idx + 1),
+                        parse_f32(&tokens, idx + 2),
+                        parse_f32(&tokens, idx + 3),
+                        parse_f32(&tokens, idx + 4),
+                        parse_f32(&tokens, idx + 5),
+                        parse_f32(&tokens, idx + 6),
+                    ) {
+                        cubic(&mut builder, cx, cy, x1, y1, x2, y2, x, y);
+                        cx = x;
+                        cy = y;
+                        idx += 7;
+                    } else {
+                        idx += 1;
+                    }
+                } else {
+                    idx += 1;
+                }
+            }
+            "c" => {
+                if idx + 6 < tokens.len() {
+                    if let (Some(dx1), Some(dy1), Some(dx2), Some(dy2), Some(dx), Some(dy)) = (
+                        parse_f32(&tokens, idx + 1),
+                        parse_f32(&tokens, idx + 2),
+                        parse_f32(&tokens, idx + 3),
+                        parse_f32(&tokens, idx + 4),
+                        parse_f32(&tokens, idx + 5),
+                        parse_f32(&tokens, idx + 6),
+                    ) {
+                        let x1 = cx + dx1;
+                        let y1 = cy + dy1;
+                        let x2 = cx + dx2;
+                        let y2 = cy + dy2;
+                        let x = cx + dx;
+                        let y = cy + dy;
+                        cubic(&mut builder, cx, cy, x1, y1, x2, y2, x, y);
+                        cx = x;
+                        cy = y;
+                        idx += 7;
+                    } else {
+                        idx += 1;
+                    }
+                } else {
+                    idx += 1;
+                }
+            }
+            "Z" | "z" => {
+                builder.line_to(origin + point(px(sx), px(sy)));
+                cx = sx;
+                cy = sy;
+                idx += 1;
+            }
+            _ => idx += 1,
+        }
+    }
+
+    builder.build().ok()
+}
+
+/// Convert a d3rs path's SVG string to a GPUI stroke path.
+///
+/// Lets filled area/line geometry be outlined with true strokes.
+pub fn d3rs_path_to_gpui_stroke(
+    path: &d3rs::shape::path::Path,
+    bounds: Bounds<Pixels>,
+    width: f32,
+) -> Option<Path<Pixels>> {
+    parse_svg_path_stroke(&path.to_svg_string(), bounds, width)
 }

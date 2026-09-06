@@ -5,6 +5,7 @@ use super::misc::interpolate_layouts;
 use super::misc::series_color;
 use super::misc::start_animation_loop;
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
@@ -211,9 +212,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .px_4()
                                         .py_2()
                                         .bg(if disabled {
-                                            rgb(0xcccccc)
+                                            chart_colors::grid(&theme)
                                         } else {
-                                            rgb(0x007acc)
+                                            chart_colors::ink_hex(&theme, 0x007acc)
                                         })
                                         .when(!disabled, |this| {
                                             this.hover(|s| s.bg(theme.accent_hover))
@@ -473,9 +474,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .flex_col()
                                 .gap_2()
                                 .p_4()
-                                .bg(rgb(0x1e1e1e))
+                                .bg(theme.background)
                                 .border_1()
-                                .border_color(rgb(0x333333))
+                                .border_color(theme.border)
                                 .rounded_lg()
                                 .child(
                                     div()

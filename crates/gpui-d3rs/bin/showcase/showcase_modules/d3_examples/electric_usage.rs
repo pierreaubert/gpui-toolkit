@@ -2,6 +2,7 @@
 //! Source: <https://observablehq.com/@mbostock/electric-usage-2019>
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::color::SequentialScheme;
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
@@ -39,7 +40,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             .build();
         d3_paths.push(path);
         let t = (cell.usage / result.usage_max).clamp(0.0, 1.0);
-        all_colors.push(scheme.get(t).to_rgba().into());
+        all_colors.push(chart_colors::ink_rgba(&ui_theme, scheme.get(t).to_rgba()));
     }
 
     div()
@@ -135,7 +136,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .overflow_hidden()
                                 .children((0..10).map(|i| {
                                     let t = i as f64 / 9.0;
-                                    div().flex_1().h_full().bg(scheme.get(t).to_rgba())
+                                    div().flex_1().h_full().bg(chart_colors::ink_rgba(&ui_theme, scheme.get(t).to_rgba()))
                                 })),
                         )
                         .child(div().text_size(px(7.0)).child("High")),

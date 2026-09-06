@@ -4,11 +4,8 @@
 //! Source: <https://observablehq.com/@d3/radial-tree/2>
 
 use crate::ShowcaseApp;
-use d3rs::color::ColorScheme;
+use crate::showcase_modules::chart_colors;
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
-use d3rs::text::{
-    GlyphTextConfig, HorizontalTextAnchor, VerticalTextAnchor, render_glyph_text_anchored,
-};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
@@ -26,23 +23,22 @@ pub fn render_cluster(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div 
 fn render_radial(cluster: bool, ui_theme: &gpui_ui_kit::theme::Theme) -> Div {
     let result = d3rs::examples::radial_tree::compute(cluster);
 
-    let scheme = ColorScheme::tableau10();
     let width = result.width;
     let height = result.height;
 
     let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
     let mut all_colors: Vec<Hsla> = Vec::new();
 
-    // Links
+    // Links (official: #555 at 0.4 opacity)
     for path in &result.link_paths {
         d3_paths.push(path.clone());
-        all_colors.push(hsla(0.0, 0.0, 0.75, 0.5));
+        all_colors.push(chart_colors::ink(ui_theme, hsla(0.0, 0.0, 0.33, 0.4)));
     }
 
-    // Nodes as small circles
+    // Nodes as small circles (official: #555 internal, #999 leaves, r=2.5)
     let n_sides = 12;
     for node in &result.nodes {
-        let r = if node.is_leaf { 2.5 } else { 4.0 };
+        let r = 2.5;
         let mut builder = D3PathBuilder::new();
         for v in 0..n_sides {
             let angle = std::f64::consts::TAU * v as f64 / n_sides as f64;
@@ -56,36 +52,39 @@ fn render_radial(cluster: bool, ui_theme: &gpui_ui_kit::theme::Theme) -> Div {
         }
         builder = builder.close_path();
         d3_paths.push(builder.build());
-        all_colors.push(scheme.color(node.depth).to_rgba().into());
+        let shade = if node.is_leaf { 0.6 } else { 0.33 };
+        all_colors.push(chart_colors::ink(ui_theme, hsla(0.0, 0.0, shade, 1.0)));
     }
 
-    // Node labels for internal nodes, rotated tangent to the circle.
+    // Internal node labels are horizontal in the official example, offset 6px
+    // and anchored by side — not rotated.
     let label_items: Vec<Div> = result
         .nodes
         .iter()
         .filter(|n| !n.is_leaf)
         .map(|n| {
             let on_left = n.angle > std::f64::consts::PI;
-            let std_angle = n.angle - std::f64::consts::FRAC_PI_2;
-            let rotation = std_angle as f32 + if on_left { std::f32::consts::PI } else { 0.0 };
-            let h_anchor = if on_left {
-                HorizontalTextAnchor::Start
+            if on_left {
+                div()
+                    .absolute()
+                    .left(px((n.x - 106.0) as f32))
+                    .top(px((n.y - 7.0) as f32))
+                    .w(px(100.0))
+                    .flex()
+                    .justify_end()
+                    .text_size(px(10.0))
+                    .text_color(ui_theme.text_primary)
+                    .child(n.name.clone())
             } else {
-                HorizontalTextAnchor::End
-            };
-
-            let config = GlyphTextConfig::rotated(8.0, ui_theme.text_primary, rotation);
-
-            div()
-                .absolute()
-                .left(px(n.x as f32))
-                .top(px(n.y as f32))
-                .child(render_glyph_text_anchored(
-                    &n.name,
-                    &config,
-                    h_anchor,
-                    VerticalTextAnchor::Middle,
-                ))
+                div()
+                    .absolute()
+                    .left(px((n.x + 6.0) as f32))
+                    .top(px((n.y - 7.0) as f32))
+                    .flex()
+                    .text_size(px(10.0))
+                    .text_color(ui_theme.text_primary)
+                    .child(n.name.clone())
+            }
         })
         .collect();
 

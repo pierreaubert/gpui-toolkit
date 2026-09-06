@@ -14,6 +14,8 @@ use std::rc::Rc;
 pub struct SunburstSlice {
     pub name: String,
     pub depth: usize,
+    /// Top-level (depth 1) ancestor name, for official rainbow coloring.
+    pub group: String,
     pub x0: f64, // start angle
     pub x1: f64, // end angle
     pub y0: f64, // inner radius
@@ -196,6 +198,7 @@ pub fn compute() -> SunburstResult {
         max_depth,
         padding,
         &arc_gen,
+        String::new(),
         &mut slices,
     );
 
@@ -219,6 +222,7 @@ fn partition_node(
     max_depth: usize,
     padding: f64,
     arc_gen: &Arc,
+    ancestor: String,
     result: &mut Vec<SunburstSlice>,
 ) {
     let (depth, value, name, children_data) = {
@@ -260,9 +264,12 @@ fn partition_node(
         };
         let arc_path = arc_gen.generate(&datum);
 
+        // Depth-1 nodes found their group; deeper nodes inherit it.
+        let group = if depth == 1 { name.clone() } else { ancestor.clone() };
         result.push(SunburstSlice {
             name,
             depth,
+            group,
             x0: start_angle,
             x1: end_angle,
             y0,
@@ -272,13 +279,19 @@ fn partition_node(
         });
     }
 
-    // Recurse into children
+    // Recurse into children. The root itself is not a group; each depth-1
+    // child seeds the group with its own name, deeper nodes inherit it.
     let mut angle = start_angle;
     for (child, child_val) in &children_data {
         let child_extent = if parent_value > 0.0 {
             (end_angle - start_angle) * (child_val / parent_value)
         } else {
             0.0
+        };
+        let next_ancestor = if depth == 0 {
+            child.borrow().data.name.clone()
+        } else {
+            ancestor.clone()
         };
         partition_node(
             child,
@@ -289,8 +302,31 @@ fn partition_node(
             max_depth,
             padding,
             arc_gen,
+            next_ancestor,
             result,
         );
         angle += child_extent;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn slices_carry_top_level_group() {
+        let result = compute();
+        assert!(!result.slices.is_empty());
+        // Every slice names a depth-1 ancestor; depth-1 slices name themselves.
+        let groups: BTreeSet<&str> = result.slices.iter().map(|s| s.group.as_str()).collect();
+        assert!(!groups.contains(""));
+        assert!(!groups.contains("root"));
+        for s in &result.slices {
+            assert!(groups.contains(s.group.as_str()));
+            if s.depth == 1 {
+                assert_eq!(s.group, s.name);
+            }
+        }
     }
 }

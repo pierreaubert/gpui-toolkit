@@ -6,6 +6,7 @@
 //! Source: <https://observablehq.com/@d3/ridgeline-plot>
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::color::SequentialScheme;
 use d3rs::scale::{LinearScale, Scale};
 use gpui::prelude::*;
@@ -32,8 +33,10 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         d3_paths.push(path.clone());
         let t = 0.3 + 0.5 * (i as f64 / n.max(1) as f64);
         let color = scheme.get(t);
-        all_colors.push(Hsla::from(color.to_rgba()).opacity(0.7));
+        all_colors.push(chart_colors::ink_rgba(&ui_theme, color.to_rgba()).opacity(0.7));
     }
+    // Dark ridge outlines like the official example.
+    let outline_color: Hsla = chart_colors::ink_hex(&ui_theme, 0x2c5f8a);
 
     // X-axis ticks
     let margin_left = 60.0;
@@ -87,18 +90,28 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .child(
                     canvas(
                         move |bounds, _, _| {
-                            d3_paths
+                            let fills: Vec<_> = d3_paths
                                 .iter()
                                 .map(|p| {
                                     super::path_utils::d3rs_path_to_gpui_simple(p, bounds, 0.0, 0.0)
                                 })
-                                .collect::<Vec<_>>()
+                                .collect();
+                            let strokes: Vec<_> = d3_paths
+                                .iter()
+                                .map(|p| {
+                                    super::path_utils::d3rs_path_to_gpui_stroke(p, bounds, 1.0)
+                                })
+                                .collect();
+                            (fills, strokes)
                         },
-                        move |_bounds, paths, window, _| {
-                            for (i, path_opt) in paths.into_iter().enumerate() {
+                        move |_bounds, (fills, strokes), window, _| {
+                            for (i, path_opt) in fills.into_iter().enumerate() {
                                 if let Some(path) = path_opt {
                                     window.paint_path(path, all_colors[i]);
                                 }
+                            }
+                            for path_opt in strokes.into_iter().flatten() {
+                                window.paint_path(path_opt, outline_color);
                             }
                         },
                     )

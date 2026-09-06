@@ -186,11 +186,19 @@ impl Arc {
         let mut start = datum.start_angle - PI / 2.0; // Convert to math coordinates
         let mut end = datum.end_angle - PI / 2.0;
 
-        // Apply padding
-        if datum.pad_angle > 0.0 && inner > 0.0 {
-            let pad = datum.pad_angle / 2.0;
-            start += pad;
-            end -= pad;
+        // Apply padding like d3-shape `arc()`: the pad is carved out of the
+        // slice on both sides, including solid pie slices (`inner == 0.0`).
+        // Tiny slices collapse to their mid angle instead of inverting.
+        if datum.pad_angle > 0.0 {
+            if end - start > datum.pad_angle {
+                let pad = datum.pad_angle / 2.0;
+                start += pad;
+                end -= pad;
+            } else {
+                let mid = (start + end) / 2.0;
+                start = mid;
+                end = mid;
+            }
         }
 
         let cx = self.center_x;

@@ -36,7 +36,10 @@ pub mod stream;
 pub mod topojson;
 pub mod versor;
 
-pub use topojson::{TopoJsonBudget, TopoJsonError, parse_land, parse_land_with_budget};
+pub use topojson::{
+    CountyFeature, TopoJsonBudget, TopoJsonError, parse_counties, parse_counties_with_budget,
+    parse_county_states, parse_land, parse_land_with_budget,
+};
 
 mod consts;
 mod misc;

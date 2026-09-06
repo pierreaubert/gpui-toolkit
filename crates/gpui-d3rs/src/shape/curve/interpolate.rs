@@ -268,6 +268,45 @@ pub(super) fn interpolate_natural(points: &[Point]) -> Vec<Point> {
     result
 }
 
+/// Evaluate one cubic Bézier segment.
+fn cubic_point(p0: &Point, p1: &Point, p2: &Point, p3: &Point, t: f64) -> Point {
+    let u = 1.0 - t;
+    Point::new(
+        u * u * u * p0.x + 3.0 * u * u * t * p1.x + 3.0 * u * t * t * p2.x + t * t * t * p3.x,
+        u * u * u * p0.y + 3.0 * u * u * t * p1.y + 3.0 * u * t * t * p2.y + t * t * t * p3.y,
+    )
+}
+
+/// Interpolate with bump curves (`d3.curveBumpX` / `d3.curveBumpY`).
+///
+/// Each segment is a cubic with both control points pinned to the segment
+/// midpoint along the dominant axis, giving the characteristic S-shape.
+pub(super) fn interpolate_bump(points: &[Point], horizontal: bool) -> Vec<Point> {
+    if points.len() < 2 {
+        return points.to_vec();
+    }
+
+    let subdivisions = 16;
+    let mut result = Vec::with_capacity((points.len() - 1) * subdivisions + 1);
+    result.push(points[0]);
+
+    for pair in points.windows(2) {
+        let (p0, p1) = (pair[0], pair[1]);
+        let (c0, c1) = if horizontal {
+            let mx = (p0.x + p1.x) / 2.0;
+            (Point::new(mx, p0.y), Point::new(mx, p1.y))
+        } else {
+            let my = (p0.y + p1.y) / 2.0;
+            (Point::new(p0.x, my), Point::new(p1.x, my))
+        };
+        for j in 1..=subdivisions {
+            result.push(cubic_point(&p0, &c0, &c1, &p1, j as f64 / subdivisions as f64));
+        }
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -2376,7 +2376,7 @@ impl MeshPlot {
     /// Series stage of `build_frame`: custom-draw id for the retained 3D
     /// scene (Metal on macOS, WGPU elsewhere). Moved verbatim from
     /// `build_frame`.
-    #[cfg(all(feature = "gpu-3d", any(not(test), feature = "native-qa")))]
+    #[cfg(all(feature = "gpu-3d", not(test)))]
     fn frame_3d_custom_id(
         &mut self,
         _retained_3d_state: &Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>>,
@@ -2387,7 +2387,7 @@ impl MeshPlot {
             feature = "gpu-3d",
             feature = "gpu-metal",
             target_os = "macos",
-            any(not(test), feature = "native-qa")
+            not(test)
         ))]
         let retained_3d_custom_id = {
             if !matches!(
@@ -2426,10 +2426,10 @@ impl MeshPlot {
         #[cfg(all(
             feature = "gpu-3d",
             not(all(feature = "gpu-metal", target_os = "macos")),
-            any(not(test), feature = "native-qa")
+            not(test)
         ))]
         let retained_3d_custom_id = retained_3d_renderer.custom_id();
-        #[cfg(all(feature = "gpu-3d", any(not(test), feature = "native-qa")))]
+        #[cfg(all(feature = "gpu-3d", not(test)))]
         retained_3d_custom_id
     }
 
@@ -3027,7 +3027,7 @@ impl MeshPlot {
         retained_state: &Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>>,
         contours: (Rc<Vec<ContourBand>>, Rc<Vec<IsolineSegment>>),
         #[cfg(feature = "gpu-3d")] retained_3d_state: &Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>>,
-        #[cfg(all(feature = "gpu-3d", any(not(test), feature = "native-qa")))]
+        #[cfg(all(feature = "gpu-3d", not(test)))]
         retained_3d_custom_id: gpui::CustomDrawId,
     ) -> AnyElement {
         if matches!(
@@ -3037,7 +3037,7 @@ impl MeshPlot {
             #[cfg(feature = "gpu-3d")]
             {
                 let scene = d3rs::mesh::gpu::MeshSceneElement::new(retained_3d_state.clone());
-                #[cfg(any(not(test), feature = "native-qa"))]
+                #[cfg(not(test))]
                 let scene = if mesh_custom_draw_supported(std::env::consts::OS) {
                     scene.with_custom_id(retained_3d_custom_id)
                 } else {
@@ -3065,13 +3065,13 @@ impl MeshPlot {
     fn fallback_plot_element(
         &self,
         #[cfg(feature = "gpu-3d")] retained_3d_state: &Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>>,
-        #[cfg(all(feature = "gpu-3d", any(not(test), feature = "native-qa")))]
+        #[cfg(all(feature = "gpu-3d", not(test)))]
         retained_3d_custom_id: gpui::CustomDrawId,
     ) -> AnyElement {
         #[cfg(feature = "gpu-3d")]
         if matches!(self.view, MeshPlotView::Surface3d) {
             let scene = d3rs::mesh::gpu::MeshSceneElement::new(retained_3d_state.clone());
-            #[cfg(any(not(test), feature = "native-qa"))]
+            #[cfg(not(test))]
             let scene = if mesh_custom_draw_supported(std::env::consts::OS) {
                 scene.with_custom_id(retained_3d_custom_id)
             } else {
@@ -3191,7 +3191,7 @@ impl MeshPlot {
         #[cfg(all(feature = "gpu-3d", not(test)))]
         let retained_3d_camera = Some(retained_3d_renderer.camera_handle());
 
-        #[cfg(all(feature = "gpu-3d", any(not(test), feature = "native-qa")))]
+        #[cfg(all(feature = "gpu-3d", not(test)))]
         let retained_3d_custom_id = self.frame_3d_custom_id(
             &retained_3d_state,
             &retained_3d_renderer,
@@ -3211,7 +3211,7 @@ impl MeshPlot {
             (contour_bands, isolines),
             #[cfg(feature = "gpu-3d")]
             &retained_3d_state,
-            #[cfg(all(feature = "gpu-3d", any(not(test), feature = "native-qa")))]
+            #[cfg(all(feature = "gpu-3d", not(test)))]
             retained_3d_custom_id,
         );
 
@@ -3219,7 +3219,7 @@ impl MeshPlot {
         let plot_element = self.fallback_plot_element(
             #[cfg(feature = "gpu-3d")]
             &retained_3d_state,
-            #[cfg(all(feature = "gpu-3d", any(not(test), feature = "native-qa")))]
+            #[cfg(all(feature = "gpu-3d", not(test)))]
             retained_3d_custom_id,
         );
 

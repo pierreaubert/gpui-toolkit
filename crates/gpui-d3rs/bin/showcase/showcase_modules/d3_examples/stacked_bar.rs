@@ -3,6 +3,7 @@
 //! Demonstrates idiomatic d3rs usage: `Stack` with `Diverging` offset, `BandScale` for x-axis,
 //! `LinearScale` for y-axis, `PathBuilder` for rectangle paths, `d3rs_path_to_gpui_simple`.
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::color::ColorScheme;
 use d3rs::scale::{BandScale, LinearScale, Scale};
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
@@ -16,8 +17,8 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let (states, ages, matrix) = d3rs::examples::stacked_bar::default_data();
 
     let scheme = ColorScheme::tableau10();
-    let colors: Vec<Rgba> = (0..scheme.len())
-        .map(|i| scheme.color(i).to_rgba())
+    let colors: Vec<Hsla> = (0..scheme.len())
+        .map(|i| chart_colors::ink_rgba(&ui_theme, scheme.color(i).to_rgba()))
         .collect();
 
     let width = 700.0_f64;
@@ -79,7 +80,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     .close_path()
                     .build();
                 d3_paths.push(path);
-                rect_colors.push(colors[si % colors.len()].into());
+                rect_colors.push(colors[si % colors.len()]);
             }
         }
     }
@@ -199,7 +200,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .pr_1()
                         .child(div().text_xs().child(format!("{:.0}", val)))
                 }))
-                // Y grid lines
+                // Y grid lines cloned from y ticks at low opacity
                 .children(y_ticks.iter().map(|&val| {
                     let y = y_scale.scale(val);
                     div()
@@ -208,7 +209,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px((margin_top + y) as f32))
                         .w(px(chart_width as f32))
                         .h(px(1.0))
-                        .bg(ui_theme.surface)
+                        .bg(Hsla::from(ui_theme.border).opacity(0.25))
                 }))
                 // X-axis line
                 .child(
@@ -228,7 +229,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px(margin_top as f32))
                         .w(px(1.0))
                         .h(px(chart_height as f32))
-                        .bg(rgb(0x000000)),
+                        .bg(ui_theme.border),
                 ),
         )
 }

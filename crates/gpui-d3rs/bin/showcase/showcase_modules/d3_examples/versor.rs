@@ -1,4 +1,5 @@
 use super::super::world_data::get_world_data;
+use crate::showcase_modules::chart_colors;
 use crate::{GeoProjectionType, ShowcaseApp};
 use d3rs::geo::{
     GeoPath,
@@ -18,6 +19,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let use_large_data = app.use_large_data;
     let current_projection = app.geo_projection_type;
     let theme = cx.theme();
+    // Globe ink follows the theme; captured by the paint closure below.
+    let land_ink = chart_colors::ink_hex(&theme, 0x228822);
+    let sphere_bg: Hsla = Hsla::from(theme.background);
+    let sphere_border: Hsla = Hsla::from(theme.border);
 
     div()
         .flex()
@@ -175,7 +180,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                     let path = GeoPath::new($projection.clone());
                                     let d = path.render(&geometry);
                                     if let Some(p) = super::path_utils::parse_svg_path(&d, bounds) {
-                                        window.paint_path(p, rgb(0x228822));
+                                        window.paint_path(p, land_ink);
                                     }
                                 }};
                             }
@@ -195,9 +200,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 window.paint_quad(PaintQuad {
                                     bounds: sphere_bounds,
                                     corner_radii: Corners::all(radius),
-                                    background: rgb(0xe0e0ff).into(),
+                                    background: sphere_bg.into(),
                                     border_widths: Edges::all(px(1.0)),
-                                    border_color: rgb(0x000000).into(),
+                                    border_color: sphere_border,
                                     border_style: BorderStyle::default(),
                                 });
                             }

@@ -89,6 +89,17 @@ pub trait Projection: Clone {
     /// Set the rotation angles.
     fn set_rotate(&mut self, lambda: f64, phi: f64, gamma: f64);
 
+    /// Rotation applied by the stream pipeline before clipping and raw
+    /// projection, i.e. the input frame `project_rotated` expects.
+    ///
+    /// This equals `rotate()` except for composed projections: transverse
+    /// Mercator is a Mercator core with an internal +90° gamma offset (like
+    /// d3's `recenter` composition), so its stream rotation differs from the
+    /// user-facing angles.
+    fn stream_rotation(&self) -> (f64, f64, f64) {
+        self.rotate()
+    }
+
     /// Check whether a point is visible (not clipped) for this projection.
     ///
     /// Returns `true` for projections without a clip angle. For azimuthal

@@ -166,7 +166,7 @@ impl<P: Projection> GeoPath<P> {
         }
 
         let d = self.config.digits;
-        let rotate = self.projection.rotate();
+        let rotate = self.projection.stream_rotation();
         let rotation = clip_rotation(rotate);
 
         match self.projection.clip_angle() {
@@ -245,7 +245,7 @@ impl<P: Projection> GeoPath<P> {
         }
 
         let d = self.config.digits;
-        let rotate = self.projection.rotate();
+        let rotate = self.projection.stream_rotation();
         let rotation = clip_rotation(rotate);
 
         // Filter out degenerate near-full interior rings that collapse to a line
@@ -359,7 +359,7 @@ impl<P: Projection> GeoPath<P> {
         let mut min_y = f64::MAX;
         let mut max_y = f64::MIN;
 
-        let rotate = self.projection.rotate();
+        let rotate = self.projection.stream_rotation();
         let rotation = clip_rotation(rotate);
         let clip_angle = self.projection.clip_angle().map(radians);
 
@@ -468,6 +468,69 @@ impl<P: Projection> GeoPath<P> {
         } else {
             ((min_x, min_y), (max_x, max_y))
         }
+    }
+
+    /// Reference scale used while measuring bounds for fitting, like d3.
+    const FIT_BASE_SCALE: f64 = 150.0;
+
+    /// Measure bounds at the reference scale with zero translation.
+    fn fit_measure(&mut self, object: &GeoJsonGeometry) -> Option<((f64, f64), (f64, f64))> {
+        self.projection.set_scale(Self::FIT_BASE_SCALE);
+        self.projection.set_translate(0.0, 0.0);
+        let ((bx0, by0), (bx1, by1)) = self.bounds(object);
+        if !bx0.is_finite() || !by0.is_finite() || !bx1.is_finite() || !by1.is_finite() {
+            return None;
+        }
+        Some(((bx0, by0), (bx1, by1)))
+    }
+
+    /// Set the projection scale and translate to fit `object` in the center
+    /// of `extent`, mirroring `d3.geoPath` projection `fitExtent`.
+    ///
+    /// Does nothing when the object has no measurable bounds.
+    pub fn fit_extent(&mut self, extent: [[f64; 2]; 2], object: &GeoJsonGeometry) {
+        let Some(((bx0, by0), (bx1, by1))) = self.fit_measure(object) else {
+            return;
+        };
+        let w = extent[1][0] - extent[0][0];
+        let h = extent[1][1] - extent[0][1];
+        let bw = (bx1 - bx0).max(f64::EPSILON);
+        let bh = (by1 - by0).max(f64::EPSILON);
+        let k = (w / bw).min(h / bh);
+        let x = extent[0][0] + (w - k * (bx1 + bx0)) / 2.0;
+        let y = extent[0][1] + (h - k * (by1 + by0)) / 2.0;
+        self.projection.set_scale(k * Self::FIT_BASE_SCALE);
+        self.projection.set_translate(x, y);
+    }
+
+    /// Set scale and translate to fit `object` in a `width` x `height`
+    /// viewport, mirroring d3 `fitSize`.
+    pub fn fit_size(&mut self, width: f64, height: f64, object: &GeoJsonGeometry) {
+        self.fit_extent([[0.0, 0.0], [width, height]], object);
+    }
+
+    /// Set scale and translate to fit the width of `object`, pinning its
+    /// top-left corner at the origin, mirroring d3 `fitWidth`.
+    pub fn fit_width(&mut self, width: f64, object: &GeoJsonGeometry) {
+        let Some(((bx0, by0), (bx1, _))) = self.fit_measure(object) else {
+            return;
+        };
+        let bw = (bx1 - bx0).max(f64::EPSILON);
+        let k = width / bw;
+        self.projection.set_scale(k * Self::FIT_BASE_SCALE);
+        self.projection.set_translate(-k * bx0, -k * by0);
+    }
+
+    /// Set scale and translate to fit the height of `object`, pinning its
+    /// top-left corner at the origin, mirroring d3 `fitHeight`.
+    pub fn fit_height(&mut self, height: f64, object: &GeoJsonGeometry) {
+        let Some(((bx0, by0), (_, by1))) = self.fit_measure(object) else {
+            return;
+        };
+        let bh = (by1 - by0).max(f64::EPSILON);
+        let k = height / bh;
+        self.projection.set_scale(k * Self::FIT_BASE_SCALE);
+        self.projection.set_translate(-k * bx0, -k * by0);
     }
 
     /// Calculate the centroid of a geometry after projection.
@@ -1324,7 +1387,7 @@ fn planar_clip_circle<P: Projection>(
     projection: &P,
     clip_angle_deg: f64,
 ) -> Option<((f64, f64), f64)> {
-    let rotate = projection.rotate();
+    let rotate = projection.stream_rotation();
     let rotation = SphereRotation::from_degrees(rotate.0, rotate.1, rotate.2);
 
     let (cl, cp) = rotation.invert(0.0, 0.0);
@@ -1801,5 +1864,45 @@ mod tests {
             let r = (x * x + y * y).sqrt();
             assert!(approx_eq(r, 1.0));
         }
+    }
+
+    #[test]
+    fn fit_size_transverse_mercator_matches_d3_world_fit() {
+        use crate::geo::projection::TransverseMercator;
+
+        // d3-geo fitSize([300, 200], ccw-box) = 31.83098861837907: the
+        // counterclockwise ring reads as sphere-minus-box, so the whole
+        // world is fitted. Exercises the stream-rotation (+90° gamma) and
+        // pole-clamp fixes together.
+        let poly = GeoJsonGeometry::Polygon(vec![vec![
+            (-10.0, -10.0),
+            (10.0, -10.0),
+            (10.0, 10.0),
+            (-10.0, 10.0),
+            (-10.0, -10.0),
+        ]]);
+        let mut path = GeoPath::new(TransverseMercator::new());
+        path.fit_size(300.0, 200.0, &poly);
+        assert!((path.projection().scale() - 31.83098861837907).abs() < 1e-6);
+        let (tx, ty) = path.projection().translate();
+        assert!((tx - 150.0).abs() < 1e-6 && (ty - 100.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn fit_size_orthographic_complement_covers_disc() {
+        use crate::geo::projection::Orthographic;
+
+        // d3-geo fitSize([300, 200], ccw-box) = 100: the complement polygon
+        // emits the clip-circle outline, so bounds cover the visible disc.
+        let poly = GeoJsonGeometry::Polygon(vec![vec![
+            (-10.0, -10.0),
+            (10.0, -10.0),
+            (10.0, 10.0),
+            (-10.0, 10.0),
+            (-10.0, -10.0),
+        ]]);
+        let mut path = GeoPath::new(Orthographic::new());
+        path.fit_size(300.0, 200.0, &poly);
+        assert!((path.projection().scale() - 100.0).abs() < 1e-6);
     }
 }

@@ -2,13 +2,16 @@
 //! Source: <https://observablehq.com/@d3/hertzsprung-russell-diagram>
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
 use gpui::*;
+use gpui_ui_kit::theme::ThemeExt;
 
 const CATALOG_CSV: &str = include_str!("../../data/catalog.csv");
 
-pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
+pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
     let data = d3rs::examples::hertzsprung_russell::load_csv(CATALOG_CSV);
     let result = d3rs::examples::hertzsprung_russell::compute(&data);
 
@@ -30,7 +33,7 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
             .close_path()
             .build(),
     );
-    all_colors.push(hsla(0.0, 0.0, 0.05, 1.0));
+    all_colors.push(Hsla::from(ui_theme.background));
 
     for star in &result.stars {
         let path = D3PathBuilder::new()
@@ -41,12 +44,15 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
             .close_path()
             .build();
         d3_paths.push(path);
-        all_colors.push(Hsla::from(Rgba {
-            r: star.r as f32 / 255.0,
-            g: star.g as f32 / 255.0,
-            b: star.b as f32 / 255.0,
-            a: 0.8,
-        }));
+        all_colors.push(chart_colors::ink_rgba(
+            &ui_theme,
+            Rgba {
+                r: star.r as f32 / 255.0,
+                g: star.g as f32 / 255.0,
+                b: star.b as f32 / 255.0,
+                a: 0.8,
+            },
+        ));
     }
 
     div()
@@ -69,9 +75,9 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
             div()
                 .w(px(width as f32))
                 .h(px(height as f32))
-                .bg(rgb(0x111111))
+                .bg(ui_theme.background)
                 .border_1()
-                .border_color(rgb(0x333333))
+                .border_color(ui_theme.border)
                 .relative()
                 .child(
                     canvas(

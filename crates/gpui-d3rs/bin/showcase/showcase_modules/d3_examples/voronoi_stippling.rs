@@ -2,6 +2,7 @@
 //! Source: <https://observablehq.com/@mbostock/voronoi-stippling>
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::examples::voronoi_stippling::StipplingState;
 use gpui::prelude::*;
 use gpui::*;
@@ -72,7 +73,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     let width = img_w as f64;
     let height = img_h as f64;
-    let dot_color = hsla(0.0, 0.0, 1.0, 1.0);
+    let dot_color = chart_colors::ink(&theme, hsla(0.0, 0.0, 1.0, 1.0));
     let all_colors: Vec<Hsla> = vec![dot_color; d3_paths.len()];
 
     let presets: Vec<usize> = vec![1, 5, 10, 20, 40, 60, 80, 120];
@@ -167,7 +168,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .px_2()
                         .py(px(2.0))
                         .rounded_md()
-                        .bg(rgb(0xffcccc))
+                        .bg(theme.surface_hover)
                         .text_xs()
                         .cursor_pointer()
                         .ml_2()
@@ -184,9 +185,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             div()
                 .w(px(width as f32))
                 .h(px(height as f32))
-                .bg(rgb(0x111111))
+                .bg(theme.background)
                 .border_1()
-                .border_color(rgb(0x333333))
+                .border_color(theme.border)
                 .child(
                     canvas(
                         move |bounds, _, _| {

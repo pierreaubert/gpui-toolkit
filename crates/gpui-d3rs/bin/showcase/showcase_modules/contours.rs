@@ -1,3 +1,4 @@
+use crate::showcase_modules::chart_colors;
 use d3rs::contour::{ContourGenerator, DensityEstimator};
 use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::scale::LinearScale;
@@ -69,23 +70,23 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         ContourRenderMode::Isoline => ContourConfig::new()
             .stroke_width(2.0)
             .fill(false)
-            .color_scale(viridis_color_scale()),
+            .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), viridis_color_scale())),
         ContourRenderMode::Surface => ContourConfig::new()
             .stroke_width(1.5)
             .fill(true)
             .fill_opacity(0.6)
-            .color_scale(viridis_color_scale()),
+            .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), viridis_color_scale())),
         ContourRenderMode::Heatmap => ContourConfig::new()
             .stroke_width(1.5)
             .fill(true)
             .fill_opacity(0.4)
-            .color_scale(viridis_color_scale()),
+            .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), viridis_color_scale())),
     };
     let gaussian_line_config = ContourConfig::new()
         .stroke_width(0.75)
         .fill(false)
         .stroke_opacity(0.35)
-        .color_scale(viridis_color_scale());
+        .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), viridis_color_scale()));
 
     // Generate heatmap data for the Gaussian surface
     let heatmap_x_values: Vec<f64> = (0..grid_size).map(|i| i as f64).collect();
@@ -131,12 +132,12 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .stroke_width(1.5)
         .fill(true)
         .fill_opacity(0.5)
-        .color_scale(heat_color_scale());
+        .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), heat_color_scale()));
     let density_line_config = ContourConfig::new()
         .stroke_width(0.75)
         .fill(false)
         .stroke_opacity(0.45)
-        .color_scale(heat_color_scale());
+        .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), heat_color_scale()));
 
     div()
         .flex()
@@ -231,7 +232,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 })
                                 .when(render_mode == ContourRenderMode::Heatmap, |this| {
                                     let heatmap_config =
-                                        ContourConfig::new().color_scale(viridis_color_scale());
+                                        ContourConfig::new().color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), viridis_color_scale()));
                                     this.child(render_heatmap_selected(
                                         gaussian_heatmap.clone(),
                                         &x_scale_gaussian,

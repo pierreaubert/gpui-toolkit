@@ -10,6 +10,14 @@
 //! - [`PowScale`]: Power/exponential mapping (includes sqrt)
 //! - [`SymlogScale`]: Symmetric log that handles negative values and zero
 //!
+//! ## Sequential and Diverging Color Scales
+//!
+//! - [`SequentialScale`]: Map continuous domain to colors via an interpolator
+//! - [`DivergingScale`]: Map a three-point domain to colors, midpoint pinned
+//! - [`SequentialLogScale`]: Sequential scale with logarithmic normalization
+//! - [`SequentialPowScale`]: Sequential scale with power normalization
+//! - [`SequentialSymlogScale`]: Sequential scale with symmetric-log normalization
+//!
 //! ## Quantizing Scales
 //!
 //! - [`QuantizeScale`]: Map continuous domain to discrete range (uniform segments)
@@ -28,6 +36,7 @@ mod ordinal;
 mod pow;
 mod quantile;
 mod quantize;
+mod sequential;
 mod symlog;
 mod threshold;
 mod ticks;
@@ -39,6 +48,9 @@ pub use ordinal::{BandScale, OrdinalScale, PointScale};
 pub use pow::{PowScale, SqrtScale, sqrt_scale};
 pub use quantile::QuantileScale;
 pub use quantize::QuantizeScale;
+pub use sequential::{
+    DivergingScale, SequentialLogScale, SequentialPowScale, SequentialScale, SequentialSymlogScale,
+};
 pub use symlog::SymlogScale;
 pub use threshold::ThresholdScale;
 pub use ticks::{generate_linear_ticks, generate_log_ticks, nice_number};

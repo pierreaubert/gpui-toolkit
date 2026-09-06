@@ -121,14 +121,9 @@ fn compare_shape(name: &str, scene: &ChartScene) -> Option<ShapeStats> {
         Err(err) => panic!("GPU snapshot failed: {err}"),
     };
     let std = compare_rgba(&cpu_pixels, &gpu_pixels, 8).expect("same-shape buffers compare");
-    let down = compare_rgba_downsampled2(
-        &cpu_pixels,
-        &gpu_pixels,
-        PHYS as usize,
-        PHYS as usize,
-        8.0,
-    )
-    .expect("even dims compare");
+    let down =
+        compare_rgba_downsampled2(&cpu_pixels, &gpu_pixels, PHYS as usize, PHYS as usize, 8.0)
+            .expect("even dims compare");
     eprintln!(
         "  {name:8} std(mean={:6.3} max={:3} frac={:.4}) down(mean={:6.3} frac={:.4})",
         std.mean_abs, std.max_abs, std.frac_over_tol, down.mean_abs, down.frac_over_tol

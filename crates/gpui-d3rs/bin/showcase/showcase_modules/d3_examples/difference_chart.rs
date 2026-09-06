@@ -6,6 +6,7 @@
 //! Source: <https://observablehq.com/@d3/difference-chart/2>
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::scale::{LinearScale, Scale};
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
@@ -31,10 +32,10 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     ];
 
     // D3 schemeRdYlBu[3]: orange (#fc8d59) where SF warmer, blue (#91bfdb) where NY warmer
-    let above_color = Hsla::from(rgb(0xfc8d59)).opacity(0.7); // SF warmer = orange
-    let below_color = Hsla::from(rgb(0x91bfdb)).opacity(0.7); // NY warmer = blue
-    let line0_color = hsla(0.0, 0.0, 0.15, 1.0); // black line for SF
-    let line1_color = hsla(0.0, 0.0, 0.15, 0.0); // invisible (Observable only shows value0 line)
+    let above_color = chart_colors::ink_hex(&ui_theme, 0xfc8d59).opacity(0.7); // SF warmer = orange
+    let below_color = chart_colors::ink_hex(&ui_theme, 0x91bfdb).opacity(0.7); // NY warmer = blue
+    let line0_color = chart_colors::axis_line(&ui_theme); // dark line for SF
+    let line1_color = chart_colors::axis_line(&ui_theme).opacity(0.0); // invisible (Observable only shows value0 line)
     let all_colors = vec![above_color, below_color, line0_color, line1_color];
 
     // Y-axis ticks
@@ -71,7 +72,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     // Order: grid lines first (background), then areas, then lines
     let mut all_paths = grid_paths;
     let mut all_c: Vec<Hsla> =
-        std::iter::repeat_n(hsla(0.0, 0.0, 0.9, 1.0), y_ticks.len()).collect();
+        std::iter::repeat_n(chart_colors::grid(&ui_theme), y_ticks.len()).collect();
     all_paths.extend(d3_paths);
     all_c.extend(all_colors);
 
@@ -102,7 +103,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().size_3().bg(rgb(0xfc8d59)).rounded_sm())
+                        .child(div().size_3().bg(chart_colors::ink_hex(&ui_theme, 0xfc8d59)).rounded_sm())
                         .child(div().text_xs().child("San Francisco warmer")),
                 )
                 .child(
@@ -110,7 +111,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().size_3().bg(rgb(0x91bfdb)).rounded_sm())
+                        .child(div().size_3().bg(chart_colors::ink_hex(&ui_theme, 0x91bfdb)).rounded_sm())
                         .child(div().text_xs().child("New York warmer")),
                 ),
         )

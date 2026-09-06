@@ -509,3 +509,487 @@ mod tests {
         }
     }
 }
+
+/// Standard normal draw from a raw RNG (Box-Muller), shared by samplers.
+fn standard_normal_sample(rng: &LcgRng) -> f64 {
+    let u1 = rng.next_f64();
+    let u2 = rng.next_f64();
+    (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+}
+
+/// Integer distribution random generator (d3 `randomInt`).
+///
+/// Generates integers `n` with `min <= n < max`.
+#[derive(Debug, Clone)]
+pub struct RandomInt {
+    rng: LcgRng,
+    min: i64,
+    max: i64,
+}
+
+impl RandomInt {
+    /// Create an integer generator for `[min, max)`.
+    pub fn new(min: i64, max: i64) -> Self {
+        Self {
+            rng: LcgRng::default_seed(),
+            min,
+            max,
+        }
+    }
+
+    /// Create with a specific seed.
+    pub fn with_seed(min: i64, max: i64, seed: u64) -> Self {
+        Self {
+            rng: LcgRng::new(seed),
+            min,
+            max,
+        }
+    }
+
+    /// Sample a random integer.
+    pub fn sample(&self) -> i64 {
+        let span = (self.max - self.min).max(1) as f64;
+        self.min + (self.rng.next_f64() * span).floor() as i64
+    }
+}
+
+/// Pareto distribution random generator (d3 `randomPareto`).
+///
+/// Samples are `>= 1` with shape parameter `alpha`.
+#[derive(Debug, Clone)]
+pub struct RandomPareto {
+    rng: LcgRng,
+    alpha: f64,
+}
+
+impl RandomPareto {
+    /// Create a Pareto generator with shape `alpha`.
+    pub fn new(alpha: f64) -> Self {
+        Self {
+            rng: LcgRng::default_seed(),
+            alpha,
+        }
+    }
+
+    /// Create with a specific seed.
+    pub fn with_seed(alpha: f64, seed: u64) -> Self {
+        Self {
+            rng: LcgRng::new(seed),
+            alpha,
+        }
+    }
+
+    /// Sample a random value.
+    pub fn sample(&self) -> f64 {
+        (1.0 - self.rng.next_f64()).powf(-1.0 / self.alpha)
+    }
+}
+
+/// Geometric distribution random generator (d3 `randomGeometric`).
+///
+/// Counts failures before the first success; samples are `>= 0`.
+#[derive(Debug, Clone)]
+pub struct RandomGeometric {
+    rng: LcgRng,
+    p: f64,
+}
+
+impl RandomGeometric {
+    /// Create a geometric generator with success probability `p`.
+    pub fn new(p: f64) -> Self {
+        Self {
+            rng: LcgRng::default_seed(),
+            p: p.clamp(0.0, 1.0),
+        }
+    }
+
+    /// Create with a specific seed.
+    pub fn with_seed(p: f64, seed: u64) -> Self {
+        Self {
+            rng: LcgRng::new(seed),
+            p: p.clamp(0.0, 1.0),
+        }
+    }
+
+    /// Sample a random value.
+    pub fn sample(&self) -> u64 {
+        if self.p >= 1.0 {
+            return 0;
+        }
+        if self.p <= 0.0 {
+            return u64::MAX;
+        }
+        (self.rng.next_f64().ln() / (1.0 - self.p).ln()).floor() as u64
+    }
+}
+
+/// Gamma distribution sampler core (Marsaglia-Tsang), `k > 0`.
+fn sample_gamma_shape(rng: &LcgRng, k: f64, theta: f64) -> f64 {
+    // Boost k < 1 up: Gamma(k) = Gamma(k+1) * U^(1/k).
+    if k < 1.0 {
+        return sample_gamma_shape(rng, k + 1.0, theta) * rng.next_f64().powf(1.0 / k);
+    }
+    if k == 1.0 {
+        return -rng.next_f64().ln() * theta;
+    }
+    let d = k - 1.0 / 3.0;
+    let c = 1.0 / (3.0 * d.sqrt());
+    loop {
+        let x = standard_normal_sample(rng);
+        let v = 1.0 + c * x;
+        if v <= 0.0 {
+            continue;
+        }
+        let v = v * v * v;
+        let u = rng.next_f64();
+        if u < 1.0 - 0.0331 * (x * x) * (x * x) {
+            return d * v * theta;
+        }
+        if u.ln() < 0.5 * x * x + d * (1.0 - v + v.ln()) {
+            return d * v * theta;
+        }
+    }
+}
+
+/// Gamma distribution random generator (d3 `randomGamma`).
+#[derive(Debug, Clone)]
+pub struct RandomGamma {
+    rng: LcgRng,
+    k: f64,
+    theta: f64,
+}
+
+impl RandomGamma {
+    /// Create a gamma generator with shape `k` and scale `theta`.
+    pub fn new(k: f64, theta: f64) -> Self {
+        Self {
+            rng: LcgRng::default_seed(),
+            k,
+            theta,
+        }
+    }
+
+    /// Create with a specific seed.
+    pub fn with_seed(k: f64, theta: f64, seed: u64) -> Self {
+        Self {
+            rng: LcgRng::new(seed),
+            k,
+            theta,
+        }
+    }
+
+    /// Sample a random value (non-positive shapes yield 0).
+    pub fn sample(&self) -> f64 {
+        if self.k <= 0.0 || self.theta <= 0.0 {
+            return 0.0;
+        }
+        sample_gamma_shape(&self.rng, self.k, self.theta)
+    }
+}
+
+/// Beta distribution random generator (d3 `randomBeta`).
+///
+/// Samples lie in [0, 1].
+#[derive(Debug, Clone)]
+pub struct RandomBeta {
+    x_gamma: RandomGamma,
+    y_gamma: RandomGamma,
+}
+
+impl RandomBeta {
+    /// Create a beta generator with shape parameters `alpha` and `beta`.
+    pub fn new(alpha: f64, beta: f64) -> Self {
+        Self {
+            x_gamma: RandomGamma::new(alpha, 1.0),
+            y_gamma: RandomGamma::new(beta, 1.0),
+        }
+    }
+
+    /// Create with a specific seed.
+    pub fn with_seed(alpha: f64, beta: f64, seed: u64) -> Self {
+        Self {
+            x_gamma: RandomGamma::with_seed(alpha, 1.0, seed),
+            y_gamma: RandomGamma::with_seed(beta, 1.0, seed.wrapping_add(1)),
+        }
+    }
+
+    /// Sample a random value.
+    pub fn sample(&self) -> f64 {
+        let x = self.x_gamma.sample();
+        if x == 0.0 {
+            return 0.0;
+        }
+        x / (x + self.y_gamma.sample())
+    }
+}
+
+/// Weibull distribution random generator (d3 `randomWeibull`).
+#[derive(Debug, Clone)]
+pub struct RandomWeibull {
+    rng: LcgRng,
+    k: f64,
+    a: f64,
+    b: f64,
+}
+
+impl RandomWeibull {
+    /// Create a Weibull generator with shape `k`, scale `a`, location `b`.
+    pub fn new(k: f64, a: f64, b: f64) -> Self {
+        Self {
+            rng: LcgRng::default_seed(),
+            k,
+            a,
+            b,
+        }
+    }
+
+    /// Create a standard Weibull generator (`a = 1`, `b = 0`).
+    pub fn standard(k: f64) -> Self {
+        Self::new(k, 1.0, 0.0)
+    }
+
+    /// Create with a specific seed.
+    pub fn with_seed(k: f64, a: f64, b: f64, seed: u64) -> Self {
+        Self {
+            rng: LcgRng::new(seed),
+            k,
+            a,
+            b,
+        }
+    }
+
+    /// Sample a random value.
+    pub fn sample(&self) -> f64 {
+        self.a * (-self.rng.next_f64().ln()).powf(1.0 / self.k) + self.b
+    }
+}
+
+/// Cauchy distribution random generator (d3 `randomCauchy`).
+#[derive(Debug, Clone)]
+pub struct RandomCauchy {
+    rng: LcgRng,
+    a: f64,
+    b: f64,
+}
+
+impl RandomCauchy {
+    /// Create a Cauchy generator with location `a` and scale `b`.
+    pub fn new(a: f64, b: f64) -> Self {
+        Self {
+            rng: LcgRng::default_seed(),
+            a,
+            b,
+        }
+    }
+
+    /// Create a standard Cauchy generator (`a = 0`, `b = 1`).
+    pub fn standard() -> Self {
+        Self::new(0.0, 1.0)
+    }
+
+    /// Create with a specific seed.
+    pub fn with_seed(a: f64, b: f64, seed: u64) -> Self {
+        Self {
+            rng: LcgRng::new(seed),
+            a,
+            b,
+        }
+    }
+
+    /// Sample a random value.
+    pub fn sample(&self) -> f64 {
+        self.a + self.b * (std::f64::consts::PI * self.rng.next_f64()).tan()
+    }
+}
+
+/// Logistic distribution random generator (d3 `randomLogistic`).
+#[derive(Debug, Clone)]
+pub struct RandomLogistic {
+    rng: LcgRng,
+    a: f64,
+    b: f64,
+}
+
+impl RandomLogistic {
+    /// Create a logistic generator with location `a` and scale `b`.
+    pub fn new(a: f64, b: f64) -> Self {
+        Self {
+            rng: LcgRng::default_seed(),
+            a,
+            b,
+        }
+    }
+
+    /// Create a standard logistic generator (`a = 0`, `b = 1`).
+    pub fn standard() -> Self {
+        Self::new(0.0, 1.0)
+    }
+
+    /// Create with a specific seed.
+    pub fn with_seed(a: f64, b: f64, seed: u64) -> Self {
+        Self {
+            rng: LcgRng::new(seed),
+            a,
+            b,
+        }
+    }
+
+    /// Sample a random value.
+    pub fn sample(&self) -> f64 {
+        let u = self.rng.next_f64().clamp(f64::EPSILON, 1.0 - f64::EPSILON);
+        self.a + self.b * (u / (1.0 - u)).ln()
+    }
+}
+
+/// Binomial distribution random generator (d3 `randomBinomial`).
+///
+/// Counts successes over `n` trials with probability `p`.
+#[derive(Debug, Clone)]
+pub struct RandomBinomial {
+    trials: RandomBernoulli,
+    n: u64,
+}
+
+impl RandomBinomial {
+    /// Create a binomial generator with `n` trials and probability `p`.
+    pub fn new(n: u64, p: f64) -> Self {
+        Self {
+            trials: RandomBernoulli::new(p),
+            n,
+        }
+    }
+
+    /// Create with a specific seed.
+    pub fn with_seed(n: u64, p: f64, seed: u64) -> Self {
+        Self {
+            trials: RandomBernoulli::with_seed(p, seed),
+            n,
+        }
+    }
+
+    /// Sample a random value.
+    pub fn sample(&self) -> u64 {
+        (0..self.n).filter(|_| self.trials.sample()).count() as u64
+    }
+}
+
+#[cfg(test)]
+mod distribution_tests {
+    use super::{
+        RandomBates, RandomBernoulli, RandomBeta, RandomBinomial, RandomCauchy, RandomExponential,
+        RandomGamma, RandomGeometric, RandomInt, RandomIrwinHall, RandomLogistic, RandomLogNormal,
+        RandomNormal, RandomPareto, RandomPoisson, RandomUniform, RandomWeibull,
+    };
+
+    fn mean_f64(n: usize, mut f: impl FnMut() -> f64) -> f64 {
+        (0..n).map(|_| f()).sum::<f64>() / n as f64
+    }
+
+    #[test]
+    fn int_stays_in_range_and_reproduces() {
+        let a = RandomInt::with_seed(1, 6, 11);
+        let b = RandomInt::with_seed(1, 6, 11);
+        for _ in 0..50 {
+            let (x, y) = (a.sample(), b.sample());
+            assert_eq!(x, y);
+            assert!((1..6).contains(&x));
+        }
+    }
+
+    #[test]
+    fn pareto_shape_and_tail() {
+        let g = RandomPareto::with_seed(2.0, 7);
+        for _ in 0..100 {
+            assert!(g.sample() >= 1.0);
+        }
+        // Mean of Pareto(1, 3) is 1.5.
+        let pareto = RandomPareto::with_seed(3.0, 99);
+        let m = mean_f64(2000, || pareto.sample());
+        assert!((m - 1.5).abs() < 0.2, "mean {m}");
+    }
+
+    #[test]
+    fn geometric_counts_failures() {
+        assert_eq!(RandomGeometric::with_seed(1.0, 3).sample(), 0);
+        let g = RandomGeometric::with_seed(0.5, 5);
+        for _ in 0..100 {
+            let _ = g.sample();
+        }
+        // Mean of Geometric(0.5) failures is (1-p)/p = 1.
+        let geo = RandomGeometric::with_seed(0.5, 21);
+        let m = mean_f64(2000, || geo.sample() as f64);
+        assert!((m - 1.0).abs() < 0.2, "mean {m}");
+    }
+
+    #[test]
+    fn gamma_beta_shapes() {
+        let g = RandomGamma::with_seed(2.0, 3.0, 13);
+        for _ in 0..50 {
+            assert!(g.sample() > 0.0);
+        }
+        // Mean of Gamma(2, 3) is 6.
+        let gamma = RandomGamma::with_seed(2.0, 3.0, 17);
+        let m = mean_f64(2000, || gamma.sample());
+        assert!((m - 6.0).abs() < 0.6, "mean {m}");
+        assert_eq!(RandomGamma::with_seed(0.0, 1.0, 1).sample(), 0.0);
+
+        let b = RandomBeta::with_seed(2.0, 5.0, 23);
+        for _ in 0..100 {
+            let v = b.sample();
+            assert!((0.0..=1.0).contains(&v));
+        }
+        // Mean of Beta(2, 5) is 2/7.
+        let beta = RandomBeta::with_seed(2.0, 5.0, 29);
+        let m = mean_f64(2000, || beta.sample());
+        assert!((m - 2.0 / 7.0).abs() < 0.05, "mean {m}");
+    }
+
+    #[test]
+    fn weibull_cauchy_logistic_ranges() {
+        let w = RandomWeibull::with_seed(1.5, 2.0, 1.0, 31);
+        for _ in 0..100 {
+            assert!(w.sample() >= 1.0);
+        }
+        let c = RandomCauchy::with_seed(0.0, 1.0, 37);
+        assert!(c.sample().is_finite());
+        let l = RandomLogistic::with_seed(0.0, 1.0, 41);
+        for _ in 0..50 {
+            assert!(l.sample().is_finite());
+        }
+        // Symmetric logistic mean is ~location.
+        let logi = RandomLogistic::with_seed(5.0, 1.0, 43);
+        let m = mean_f64(2000, || logi.sample());
+        assert!((m - 5.0).abs() < 0.3, "mean {m}");
+    }
+
+    #[test]
+    fn binomial_counts_successes() {
+        let b = RandomBinomial::with_seed(10, 0.5, 47);
+        for _ in 0..50 {
+            assert!(b.sample() <= 10);
+        }
+        // Mean of Binomial(20, 0.25) is 5.
+        let bin = RandomBinomial::with_seed(20, 0.25, 53);
+        let m = mean_f64(500, || bin.sample() as f64);
+        assert!((m - 5.0).abs() < 0.8, "mean {m}");
+        assert_eq!(RandomBinomial::with_seed(10, 1.0, 1).sample(), 10);
+    }
+
+    #[test]
+    fn preexisting_distributions_still_reproduce() {
+        let a = RandomBernoulli::with_seed(0.3, 9);
+        let b = RandomBernoulli::with_seed(0.3, 9);
+        for _ in 0..20 {
+            assert_eq!(a.sample(), b.sample());
+        }
+        let _ = (
+            RandomUniform::unit(),
+            RandomNormal::standard(),
+            RandomLogNormal::new(0.0, 1.0),
+            RandomExponential::new(1.0),
+            RandomPoisson::new(1.0),
+            RandomIrwinHall::new(2),
+            RandomBates::new(2),
+        );
+    }
+}

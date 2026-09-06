@@ -3,7 +3,7 @@
 
 use crate::ShowcaseApp;
 use d3rs::color::DivergingScheme;
-use d3rs::scale::{LinearScale, Scale};
+use d3rs::scale::{DivergingScale, LinearScale, Scale};
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
 use gpui::*;
@@ -19,8 +19,12 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let width = result.width;
     let height = result.height;
 
-    // Diverging color: RdBu (red = warm, blue = cool)
-    let color_scale = DivergingScheme::rd_bu();
+    // Official diverging scale over [max, 0, min]: hot (max) -> red (t=0),
+    // zero -> light, cold (min) -> blue (t=1).
+    let rd_bu = DivergingScheme::rd_bu();
+    let color_scale = DivergingScale::new()
+        .domain(result.y_domain[1], 0.0, result.y_domain[0])
+        .interpolator(move |t| rd_bu.get(t));
 
     let n_sides = 8;
     let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
@@ -58,9 +62,8 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         builder = builder.close_path();
         d3_paths.push(builder.build());
 
-        // Map value to diverging color: 0.5 = zero anomaly
-        let t = 0.5 - pt.value / (2.0 * result.max_abs);
-        let c = color_scale.get(t.clamp(0.0, 1.0));
+        // Map value through the diverging scale (zero anomaly -> midpoint).
+        let c = color_scale.scale(pt.value);
         all_colors.push(c.to_rgba().into());
     }
 

@@ -6,6 +6,7 @@
 //! Source: <https://observablehq.com/@d3/parallel-sets>
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::color::ColorScheme;
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
@@ -45,8 +46,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             .build();
         d3_paths.push(path);
         // Color based on source node index for categorical distinction
-        let color = scheme.color(source.index).to_rgba();
-        all_colors.push(Hsla::from(color).opacity(0.5));
+        all_colors.push(chart_colors::categorical(&ui_theme, &scheme, source.index).opacity(0.5));
     }
 
     // Node rectangles
@@ -59,7 +59,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             .close_path()
             .build();
         d3_paths.push(path);
-        all_colors.push(hsla(0.0, 0.0, 0.2, 1.0));
+        all_colors.push(chart_colors::axis_line(&ui_theme));
     }
 
     // Node labels

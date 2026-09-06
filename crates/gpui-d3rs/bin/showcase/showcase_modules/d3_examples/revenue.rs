@@ -5,6 +5,7 @@
 //! and rendered with `d3rs::shape::area::Area` + `d3rs_path_to_gpui_simple`.
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::legend::{LegendConfig, LegendItem, render_legend};
 use d3rs::scale::{LinearScale, Scale};
 use d3rs::shape::area::Area;
@@ -18,6 +19,7 @@ use gpui_ui_kit::theme::ThemeExt;
 const MUSIC_CSV: &str = include_str!("../../data/music.csv");
 
 pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
     let width = app.content_width as f64;
     let height = (width * 0.56).min(app.content_height as f64 * 0.6);
     let margin_left = 70.0;
@@ -109,15 +111,15 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         ("Limited Tier Paid Subscription", 0xB4E0A7),
     ];
 
-    // Map each category to its color (fallback to grey)
-    let colors: Vec<Rgba> = categories
+    // Map each category to its color (fallback to grey), adapted to the theme.
+    let colors: Vec<Hsla> = categories
         .iter()
         .map(|cat| {
             color_map
                 .iter()
                 .find(|(name, _)| *name == cat.as_str())
-                .map(|(_, hex)| rgb(*hex))
-                .unwrap_or(rgb(0x999999))
+                .map(|(_, hex)| chart_colors::ink_hex(&ui_theme, *hex))
+                .unwrap_or(chart_colors::missing(&ui_theme))
         })
         .collect();
 
@@ -144,7 +146,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             cat_first_year
                 .iter()
                 .map(|&(ci, name, _)| {
-                    let c = colors[ci];
+                    let c = Rgba::from(colors[ci]);
                     LegendItem::color(
                         name,
                         d3rs::color::D3Color {

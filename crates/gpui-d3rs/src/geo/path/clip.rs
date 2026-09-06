@@ -100,6 +100,16 @@ fn cartesian_normalize_in_place(v: &mut [f64; 3]) {
     }
 }
 
+/// Normalize without a length guard, matching d3's cartesianNormalizeInPlace
+/// exactly (a zero vector yields NaN, which fails downstream comparisons and
+/// contributes no winding, just like d3).
+fn normalize_in_place_unguarded(v: &mut [f64; 3]) {
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    v[0] /= len;
+    v[1] /= len;
+    v[2] /= len;
+}
+
 fn point_equal(a: (f64, f64), b: (f64, f64)) -> bool {
     (a.0 - b.0).abs() < EPSILON && (a.1 - b.1).abs() < EPSILON
 }
@@ -109,8 +119,11 @@ fn point_equal(a: (f64, f64), b: (f64, f64)) -> bool {
 // -----------------------------------------------------------------------------
 
 const RESAMPLE_MAX_DEPTH: i32 = 16;
-const RESAMPLE_DELTA2: f64 = 0.05;
-const RESAMPLE_COS_MIN_DISTANCE: f64 = 0.8660254037844386; // cos(30°)
+const RESAMPLE_DELTA2: f64 = 0.5;
+// cos(30°) as computed by d3 (`cos(30 * radians)`); the previously
+// transcribed literal ended in ...386 instead of ...387, which flipped the
+// angular-distance subdivision test for edges spanning exactly 30°.
+const RESAMPLE_COS_MIN_DISTANCE: f64 = 0.8660254037844387;
 
 fn resample_line_to(
     x0: f64,
@@ -907,9 +920,13 @@ fn polygon_contains(polygon: &[Vec<(f64, f64)>], point: (f64, f64)) -> bool {
             if antimeridian ^ (lambda0 >= lambda) ^ (lambda1 >= lambda) {
                 let mut arc =
                     cartesian_cross(cartesian(point0.0, point0.1), cartesian(point1.0, point1.1));
-                cartesian_normalize_in_place(&mut arc);
+                // Normalize unconditionally like d3's cartesianNormalizeInPlace:
+                // a guarded normalize turns near-degenerate antimeridian
+                // slivers into a ~0 intersection latitude and flips the
+                // winding count (e.g. Fiji under stereographic).
+                normalize_in_place_unguarded(&mut arc);
                 let mut intersection = cartesian_cross(normal, arc);
-                cartesian_normalize_in_place(&mut intersection);
+                normalize_in_place_unguarded(&mut intersection);
                 let phi_arc = (if antimeridian ^ (delta >= 0.0) {
                     -1.0
                 } else {
@@ -1559,7 +1576,11 @@ pub fn clip_circle_polygon<R: AsRef<[(f64, f64)]>>(
             interpolate_circle(clip_angle_rad, from, to, dir, out)
         });
         output_rings.extend(pieces);
-    } else if start_inside && output_rings.is_empty() {
+    } else if start_inside {
+        // No ring crossed the clip circle but the polygon contains the clip
+        // start point (e.g. a counterclockwise ring is the sphere minus the
+        // box): like d3, emit the full clip-circle outline alongside any
+        // clean rings so bounds cover the visible disc.
         let direction = 1.0;
         let arc = circle_stream_full(clip_angle_rad, 2.0_f64.to_radians(), direction);
         output_rings.push(arc);
@@ -1626,6 +1647,28 @@ mod tests {
         let pieces = clip_circle_polygon(&[ring], &rotation, 10.0_f64.to_radians());
         assert_eq!(pieces.len(), 1);
         assert!(pieces[0].len() > 100);
+    }
+
+    #[test]
+    fn circle_polygon_antimeridian_sliver_excludes_clip_start() {
+        // Fiji sliver at the antimeridian (land-50m, degrees). Rotated into
+        // the stereographic clip frame it must NOT contain the clip start,
+        // matching d3-geo: near-degenerate meridian intersections normalize
+        // without a length guard, otherwise the winding count flips and the
+        // full clip circle is wrongly emitted (d3rs#geo-conformance).
+        let rotation = SphereRotation::from_degrees(0.0, 30.0, 0.0);
+        let ring = [
+            (-180.0, -16.48966975294752),
+            (180.0, -16.54001385310727),
+            (179.9855998559986, -16.541749856561054),
+            (179.9855998559986, -16.522653818569424),
+        ];
+        let rotated: Vec<(f64, f64)> = ring
+            .iter()
+            .map(|&(lon, lat)| rotate_point_rad(&rotation, lon, lat))
+            .collect();
+        let start = (-PI, 142.0_f64.to_radians() - PI);
+        assert!(!polygon_contains(&[rotated], start));
     }
 
     #[test]

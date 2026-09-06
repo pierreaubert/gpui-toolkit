@@ -94,6 +94,11 @@ impl Symbol {
         Self::new(SymbolType::Triangle, size)
     }
 
+    /// Create a wye (Y shape) symbol with the given area.
+    pub fn wye(size: f64) -> Self {
+        Self::new(SymbolType::Wye, size)
+    }
+
     /// Set the symbol type.
     pub fn symbol_type(mut self, t: SymbolType) -> Self {
         self.symbol_type = t;

@@ -4,6 +4,7 @@
 //! Ported from: <https://observablehq.com/@d3/parallel-coordinates>
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::color::ColorScheme;
 use d3rs::scale::{LinearScale, Scale};
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
@@ -115,7 +116,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             .close_path()
             .build();
         d3_paths.push(path);
-        all_colors.push(rgb(0x333333).into());
+        all_colors.push(chart_colors::axis_line(&ui_theme));
     }
 
     // 2. Tick marks on each axis (5 ticks per axis)
@@ -134,7 +135,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .close_path()
                 .build();
             d3_paths.push(path);
-            all_colors.push(rgb(0x666666).into());
+            all_colors.push(chart_colors::axis_line(&ui_theme));
         }
     }
     let _num_structural = d3_paths.len();

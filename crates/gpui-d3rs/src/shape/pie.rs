@@ -269,25 +269,28 @@ impl Pie {
                 .collect();
         }
 
-        // Calculate the available angle range
+        // Match d3-shape `pie()`: slices are contiguous and each slice's
+        // span includes its trailing pad (`a1 = a0 + v * k + pa` with
+        // `k = (da - n * pa) / sum`). The pad is carved out by the arc
+        // generator, not by the layout, so `start/end` angles agree with D3.
         let range = self.end_angle - self.start_angle;
         let n = entries.len();
-        let total_padding = self.pad_angle * n as f64;
-        let available_range = (range - total_padding).max(0.0);
+        let pa = if n > 0 && range != 0.0 {
+            self.pad_angle.min(range.abs() / n as f64).copysign(range)
+        } else {
+            0.0
+        };
+        let k = (range - n as f64 * pa) / total;
 
         // Generate slices
         let mut current_angle = self.start_angle;
         let mut slices = Vec::with_capacity(n);
 
         for (index, data, value) in entries {
-            let slice_angle = if value > 0.0 {
-                available_range * value / total
-            } else {
-                0.0
-            };
+            let slice_angle = if value > 0.0 { value * k } else { 0.0 };
 
             let start = current_angle;
-            let end = current_angle + slice_angle;
+            let end = current_angle + slice_angle + pa;
 
             slices.push(PieSlice {
                 data,
@@ -303,7 +306,7 @@ impl Pie {
                 value,
             });
 
-            current_angle = end + self.pad_angle;
+            current_angle = end;
         }
 
         slices
@@ -446,9 +449,15 @@ mod tests {
         let data = vec![1.0, 1.0];
         let slices = Pie::new().pad_angle(0.1).generate(&data, |d| *d);
 
-        // With padding, slices should be slightly smaller
-        let slice_angle = slices[0].arc.end_angle - slices[0].arc.start_angle;
-        assert!(slice_angle < PI); // Less than half without padding
+        // d3-shape semantics: layout slices stay contiguous (the pad lives
+        // inside each slice span) and the arc generator carves it out.
+        assert!((slices[0].arc.end_angle - slices[1].arc.start_angle).abs() < 1e-12);
+        assert!((slices[0].arc.start_angle - 0.0).abs() < 1e-12);
+        assert!((slices[1].arc.end_angle - 2.0 * PI).abs() < 1e-9);
+        // Rendered width excludes the pad on both sides.
+        let rendered = slices[0].arc.end_angle - slices[0].arc.start_angle - 0.1;
+        assert!(rendered < PI);
+        assert!((rendered - (PI - 0.1)).abs() < 1e-9);
     }
 
     #[test]

@@ -4,6 +4,7 @@ use d3rs::text::{
     GlyphTextConfig, HorizontalTextAnchor, VerticalTextAnchor, render_glyph_text_anchored,
 };
 use gpui::*;
+use crate::showcase_modules::chart_colors;
 use gpui_ui_kit::theme::ThemeExt;
 use std::f64::consts::PI;
 
@@ -32,7 +33,13 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     let ribbon = RibbonGenerator::new(inner_radius);
 
-    let colors = [rgb(0x000000), rgb(0xffdd89), rgb(0x957244), rgb(0xf26223)];
+    let tick_color = chart_colors::ink_hex(&ui_theme, 0x444444);
+    let colors = [
+        chart_colors::ink_hex(&ui_theme, 0x000000),
+        chart_colors::ink_hex(&ui_theme, 0xffdd89),
+        chart_colors::ink_hex(&ui_theme, 0x957244),
+        chart_colors::ink_hex(&ui_theme, 0xf26223),
+    ];
 
     use d3rs::shape::arc::{Arc, ArcDatum};
     let arc_gen = Arc::new();
@@ -142,7 +149,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
                                 let d3_path = arc_gen.generate(&datum);
                                 let color = colors[group.index % colors.len()];
-                                paint_d3_path(d3_path, color, 1.0, window);
+                                paint_d3_path(d3_path, Rgba::from(color), 1.0, window);
                             }
 
                             // Draw tick marks along each group arc
@@ -175,7 +182,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                     );
                                     builder.close();
                                     if let Ok(path) = builder.build() {
-                                        window.paint_path(path, rgb(0x444444));
+                                        window.paint_path(path, tick_color);
                                     }
                                 }
                             }
@@ -184,7 +191,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                             for chord in &chords.chords {
                                 let d3_path = ribbon.generate_path(chord);
                                 let color = colors[chord.target.index % colors.len()];
-                                paint_d3_path(d3_path, color, 0.67, window);
+                                paint_d3_path(d3_path, Rgba::from(color), 0.67, window);
                             }
                         },
                     )

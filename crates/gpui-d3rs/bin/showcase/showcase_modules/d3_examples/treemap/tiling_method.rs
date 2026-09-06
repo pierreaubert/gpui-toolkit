@@ -7,6 +7,7 @@ use super::tile::tile_slice_dice;
 use super::tile::tile_squarify;
 use super::treemap_rect::TreemapRect;
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
@@ -237,7 +238,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         return None;
                                     }
 
-                                    let color = category_color(rect.category_index);
+                                    let color = chart_colors::ink_d3(&theme, category_color(rect.category_index));
                                     let show_label = w > 30.0 && h > 14.0;
 
                                     Some(
@@ -247,10 +248,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                             .top(px(rect.y0 as f32))
                                             .w(px(w))
                                             .h(px(h))
-                                            .bg(color.to_rgba())
-                                            .opacity(0.7)
+                                            .bg(color)
                                             .border_1()
-                                            .border_color(rgba(0xffffff66))
+                                            .border_color(chart_colors::ink(&theme, Hsla::from(rgba(0xffffff66))))
                                             .overflow_hidden()
                                             .when(show_label, |this| {
                                                 this.child(
@@ -415,7 +415,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .child("CATEGORIES"),
                                 )
                                 .children(categories.iter().enumerate().map(|(i, &name)| {
-                                    let color = category_color(i);
+                                    let color = chart_colors::ink_d3(&theme, category_color(i));
                                     div()
                                         .flex()
                                         .items_center()
@@ -425,7 +425,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 .w(px(12.0))
                                                 .h(px(12.0))
                                                 .rounded_sm()
-                                                .bg(color.to_rgba()),
+                                                .bg(color),
                                         )
                                         .child(
                                             div()
@@ -474,9 +474,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .flex_col()
                                 .gap_2()
                                 .p_4()
-                                .bg(rgb(0x1e1e1e))
+                                .bg(theme.background)
                                 .border_1()
-                                .border_color(rgb(0x333333))
+                                .border_color(theme.border)
                                 .rounded_lg()
                                 .child(
                                     div()

@@ -7,6 +7,7 @@
 //! Source: <https://observablehq.com/@d3/realtime-horizon-chart>
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::color::SequentialScheme;
 use d3rs::scale::{LinearScale, Scale};
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
@@ -58,7 +59,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         builder = builder.close_path();
         d3_paths.push(builder.build());
         let t = 0.3 + (b as f64 + 1.0) / bands as f64 * 0.6;
-        all_colors.push(pos_scheme.get(t).to_rgba().into());
+        all_colors.push(chart_colors::ink_rgba(&ui_theme, pos_scheme.get(t).to_rgba()));
     }
 
     // Negative bands (mirror)
@@ -73,7 +74,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         builder = builder.close_path();
         d3_paths.push(builder.build());
         let t = 0.3 + (b as f64 + 1.0) / bands as f64 * 0.6;
-        all_colors.push(neg_scheme.get(t).to_rgba().into());
+        all_colors.push(chart_colors::ink_rgba(&ui_theme, neg_scheme.get(t).to_rgba()));
     }
 
     div()
@@ -108,7 +109,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().size_3().bg(pos_scheme.get(0.7).to_rgba()).rounded_sm())
+                        .child(div().size_3().bg(chart_colors::ink_rgba(&ui_theme, pos_scheme.get(0.7).to_rgba())).rounded_sm())
                         .child(div().text_xs().child("Positive")),
                 )
                 .child(
@@ -116,7 +117,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().size_3().bg(neg_scheme.get(0.7).to_rgba()).rounded_sm())
+                        .child(div().size_3().bg(chart_colors::ink_rgba(&ui_theme, neg_scheme.get(0.7).to_rgba())).rounded_sm())
                         .child(div().text_xs().child("Negative")),
                 ),
         )

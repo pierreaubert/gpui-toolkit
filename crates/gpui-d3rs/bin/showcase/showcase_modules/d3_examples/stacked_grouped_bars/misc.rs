@@ -1,5 +1,5 @@
 use crate::ShowcaseApp;
-use d3rs::color::D3Color;
+use d3rs::color::{D3Color, SequentialScheme};
 use d3rs::ease::ease_cubic_in_out;
 use gpui::*;
 use std::time::Duration;
@@ -26,14 +26,10 @@ pub fn generate_sample_data(n_series: usize, m_samples: usize) -> Vec<Vec<f64>> 
     data
 }
 
-/// Color for a series using a blue sequential scale
+/// Color for a series from the d3rs Blues sequential scale (light to dark).
 pub(super) fn series_color(index: usize, total: usize) -> D3Color {
     let t = (index as f64 + 1.0) / (total as f64 + 1.0);
-    // Interpolate blues from light to dark
-    let r = (255.0 * (1.0 - t * 0.7)) as u8;
-    let g = (255.0 * (1.0 - t * 0.5)) as u8;
-    let b = 255;
-    D3Color::rgb(r, g, b)
+    SequentialScheme::blues().get(t)
 }
 
 /// Interpolate between two layouts

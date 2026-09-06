@@ -6,6 +6,7 @@
 //! Angle = day of year, radius = temperature (°F).
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::scale::{LinearScale, Scale};
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
@@ -235,11 +236,11 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     }
 
     // Colors for layers
-    let grid_color: Hsla = rgb(0xdddddd).into();
-    let spoke_color: Hsla = rgb(0xcccccc).into();
-    let extreme_color: Hsla = rgb(0xb0c4de).into(); // lightsteelblue
-    let mean_color: Hsla = rgb(0x4682b4).into(); // steelblue
-    let avg_line_color: Hsla = rgb(0x2c5f8a).into(); // darker steelblue
+    let grid_color: Hsla = chart_colors::grid(&ui_theme);
+    let spoke_color: Hsla = chart_colors::grid(&ui_theme);
+    let extreme_color: Hsla = chart_colors::ink_hex(&ui_theme, 0xb0c4de); // lightsteelblue
+    let mean_color: Hsla = chart_colors::ink_hex(&ui_theme, 0x4682b4); // steelblue
+    let avg_line_color: Hsla = chart_colors::ink_hex(&ui_theme, 0x2c5f8a); // darker steelblue
 
     let num_layers = d3_paths.len();
     let layer_colors: Vec<Hsla> = (0..num_layers)
@@ -308,7 +309,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().w_4().h_4().bg(rgb(0xb0c4de)).rounded_sm())
+                        .child(div().w_4().h_4().bg(chart_colors::ink_hex(&ui_theme, 0xb0c4de)).rounded_sm())
                         .child(div().text_xs().child("Extreme range")),
                 )
                 .child(
@@ -316,7 +317,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().w_4().h_4().bg(rgb(0x4682b4)).rounded_sm())
+                        .child(div().w_4().h_4().bg(chart_colors::ink_hex(&ui_theme, 0x4682b4)).rounded_sm())
                         .child(div().text_xs().child("Mean range")),
                 )
                 .child(
@@ -324,7 +325,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().w_4().h_2().bg(rgb(0x2c5f8a)).rounded_sm())
+                        .child(div().w_4().h_2().bg(chart_colors::ink_hex(&ui_theme, 0x2c5f8a)).rounded_sm())
                         .child(div().text_xs().child("Average")),
                 ),
         )

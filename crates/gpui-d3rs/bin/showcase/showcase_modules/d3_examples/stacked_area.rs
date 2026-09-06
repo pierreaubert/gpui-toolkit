@@ -4,6 +4,7 @@
 //! `LinearScale` for y-axis, `Area` generator with `Curve::monotone_x`,
 //! `d3rs_path_to_gpui_simple` for rendering.
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::color::ColorScheme;
 use d3rs::scale::{LinearScale, Scale};
 use d3rs::shape::area::Area;
@@ -22,8 +23,8 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         d3rs::examples::stacked_area::load_csv(UNEMPLOYMENT_CSV, "date", "industry", "unemployed");
 
     let scheme = ColorScheme::tableau10();
-    let colors: Vec<Rgba> = (0..scheme.len())
-        .map(|i| scheme.color(i).to_rgba())
+    let colors: Vec<Hsla> = (0..scheme.len())
+        .map(|i| chart_colors::ink_rgba(&ui_theme, scheme.color(i).to_rgba()))
         .collect();
 
     let width = 700.0_f64;
@@ -86,9 +87,16 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .filter(|v| *v <= y_max + 0.1)
         .collect();
 
-    let month_names = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
+    /// Format an epoch timestamp as a calendar year (official x-axis shows years).
+    fn format_epoch_year(epoch: i64) -> String {
+        // Days since Unix epoch -> civil year (Howard Hinnant's algorithm).
+        let days = epoch.div_euclid(86_400);
+        let z = days + 719_468;
+        let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+        (yoe + era * 400).to_string()
+    }
 
     let legend_items: Vec<Div> = categories
         .iter()
@@ -169,7 +177,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .pr_1()
                         .child(div().text_xs().child(format!("{:.0}", val)))
                 }))
-                // Y grid lines
+                // Y grid lines cloned from y ticks at low opacity
                 .children(y_ticks.iter().map(|&val| {
                     let y = y_scale.scale(val);
                     div()
@@ -178,18 +186,17 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px((margin_top + y) as f32))
                         .w(px(plot_w as f32))
                         .h(px(1.0))
-                        .bg(ui_theme.surface)
+                        .bg(Hsla::from(ui_theme.border).opacity(0.25))
                 }))
-                // X-axis tick labels
-                .children(x_ticks.iter().enumerate().map(|(ti, &epoch)| {
+                // X-axis tick labels from the actual tick dates (years)
+                .children(x_ticks.iter().map(|&epoch| {
                     let x = x_time.scale(epoch);
-                    let month_idx = ti.min(11);
-                    let label = month_names[month_idx];
+                    let label = format_epoch_year(epoch);
                     div()
                         .absolute()
-                        .left(px((margin_left + x - 12.0) as f32))
+                        .left(px((margin_left + x - 20.0) as f32))
                         .top(px((margin_top + plot_h + 4.0) as f32))
-                        .w(px(24.0))
+                        .w(px(40.0))
                         .flex()
                         .justify_center()
                         .child(div().text_xs().child(label))

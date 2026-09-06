@@ -2,6 +2,7 @@
 //! Source: <https://observablehq.com/@d3/voronoi-labels>
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
 use gpui::*;
@@ -20,44 +21,9 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
     let mut all_colors: Vec<Hsla> = Vec::new();
 
-    // Voronoi mesh edges as thin ribbons
-    {
-        use d3rs::shape::path::PathCommand;
-        let cmds = result.voronoi_mesh.commands();
-        let mut prev: Option<(f64, f64)> = None;
-        for cmd in cmds {
-            match cmd {
-                PathCommand::MoveTo { x, y } => {
-                    prev = Some((*x, *y));
-                }
-                PathCommand::LineTo { x, y } => {
-                    if let Some((px, py)) = prev {
-                        let dx = x - px;
-                        let dy = y - py;
-                        let len = (dx * dx + dy * dy).sqrt();
-                        if len > 0.5 {
-                            let nx = -dy / len * 0.3;
-                            let ny = dx / len * 0.3;
-                            d3_paths.push(
-                                D3PathBuilder::new()
-                                    .move_to(px + nx, py + ny)
-                                    .line_to(x + nx, y + ny)
-                                    .line_to(x - nx, y - ny)
-                                    .line_to(px - nx, py - ny)
-                                    .close_path()
-                                    .build(),
-                            );
-                            all_colors.push(hsla(0.0, 0.0, 0.85, 0.5));
-                        }
-                    }
-                    prev = Some((*x, *y));
-                }
-                _ => {
-                    prev = None;
-                }
-            }
-        }
-    }
+    // Voronoi mesh as a true stroke (not ribbon fills).
+    let mesh_path = result.voronoi_mesh.clone();
+    let mesh_color: Hsla = chart_colors::ink(&ui_theme, hsla(0.0, 0.0, 0.85, 0.5));
 
     // Points as circles
     let n_sides = 10;
@@ -74,7 +40,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         }
         builder = builder.close_path();
         d3_paths.push(builder.build());
-        all_colors.push(hsla(0.0, 0.0, 0.2, 1.0));
+        all_colors.push(chart_colors::axis_line(&ui_theme));
     }
 
     // Labels for points with large Voronoi cells
@@ -117,18 +83,27 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .child(
                     canvas(
                         move |bounds, _, _| {
-                            d3_paths
+                            let fills: Vec<_> = d3_paths
                                 .iter()
                                 .map(|p| {
                                     super::path_utils::d3rs_path_to_gpui_simple(p, bounds, 0.0, 0.0)
                                 })
-                                .collect::<Vec<_>>()
+                                .collect();
+                            let mesh = super::path_utils::d3rs_path_to_gpui_stroke(
+                                &mesh_path,
+                                bounds,
+                                0.6,
+                            );
+                            (fills, mesh)
                         },
-                        move |_bounds, paths, window, _| {
-                            for (i, path_opt) in paths.into_iter().enumerate() {
+                        move |_bounds, (fills, mesh), window, _| {
+                            for (i, path_opt) in fills.into_iter().enumerate() {
                                 if let Some(path) = path_opt {
                                     window.paint_path(path, all_colors[i]);
                                 }
+                            }
+                            if let Some(path) = mesh {
+                                window.paint_path(path, mesh_color);
                             }
                         },
                     )

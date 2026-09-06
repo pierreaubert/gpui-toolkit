@@ -126,8 +126,14 @@ fn strokes_preset() -> ChartScene {
         Stroke::new(2.5),
         solid(40, 80, 220),
     );
-    scene.fill_rect(Rect::new(20.0, 30.0, 90.0, 90.0), translucent(220, 80, 40, 128));
-    scene.fill_rect(Rect::new(60.0, 50.0, 130.0, 110.0), translucent(40, 120, 220, 128));
+    scene.fill_rect(
+        Rect::new(20.0, 30.0, 90.0, 90.0),
+        translucent(220, 80, 40, 128),
+    );
+    scene.fill_rect(
+        Rect::new(60.0, 50.0, 130.0, 110.0),
+        translucent(40, 120, 220, 128),
+    );
     scene.stroke_arc(
         80.0,
         60.0,

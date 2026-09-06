@@ -24,12 +24,12 @@ pub use kurbo;
 pub use peniko;
 
 pub use cpu::CpuRasterizer;
+pub use gpu_scene::to_vello_scene;
 #[cfg(all(feature = "vello", feature = "gpu-2d", not(target_family = "wasm")))]
 pub use gpu_snapshot::{
     PixelDiff, SnapshotError, compare_rgba, compare_rgba_downsampled2, diff_image_rgba,
     snapshot_scene_gpu,
 };
-pub use gpu_scene::to_vello_scene;
 pub use scene::{ChartCmd, ChartScene};
 
 #[cfg(feature = "vello-gpui")]

@@ -2,13 +2,16 @@
 //! Source: <https://observablehq.com/@d3/star-map>
 
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
 use gpui::*;
+use gpui_ui_kit::theme::ThemeExt;
 
 const STARS_CSV: &str = include_str!("../../data/stars.csv");
 
-pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
+pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
+    let ui_theme = cx.theme();
     let stars_data = d3rs::examples::star_map::load_csv(STARS_CSV);
     let result = d3rs::examples::star_map::compute(&stars_data);
 
@@ -18,47 +21,13 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
     let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
     let mut all_colors: Vec<Hsla> = Vec::new();
 
-    // Dark background
+    // Background follows the theme; star ink adapts to stay visible on it.
     d3_paths.push(result.outline_path.clone());
-    all_colors.push(hsla(0.63, 0.2, 0.08, 1.0)); // dark navy
+    all_colors.push(Hsla::from(ui_theme.background));
 
-    // Graticule ribbons
-    {
-        use d3rs::shape::path::PathCommand;
-        let mut prev: Option<(f64, f64)> = None;
-        for cmd in result.graticule_path.commands() {
-            match cmd {
-                PathCommand::MoveTo { x, y } => {
-                    prev = Some((*x, *y));
-                }
-                PathCommand::LineTo { x, y } => {
-                    if let Some((px, py)) = prev {
-                        let dx = x - px;
-                        let dy = y - py;
-                        let len = (dx * dx + dy * dy).sqrt();
-                        if len > 0.5 {
-                            let nx = -dy / len * 0.3;
-                            let ny = dx / len * 0.3;
-                            d3_paths.push(
-                                D3PathBuilder::new()
-                                    .move_to(px + nx, py + ny)
-                                    .line_to(x + nx, y + ny)
-                                    .line_to(x - nx, y - ny)
-                                    .line_to(px - nx, py - ny)
-                                    .close_path()
-                                    .build(),
-                            );
-                            all_colors.push(hsla(0.63, 0.1, 0.25, 0.3));
-                        }
-                    }
-                    prev = Some((*x, *y));
-                }
-                _ => {
-                    prev = None;
-                }
-            }
-        }
-    }
+    // Graticule as a true stroke (not ribbon fills).
+    let graticule_path = result.graticule_path.clone();
+    let graticule_color: Hsla = chart_colors::grid(&ui_theme);
 
     // Stars as circles sized by magnitude
     let n_sides = 12;
@@ -81,11 +50,14 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
         d3_paths.push(builder.build());
         // Brighter stars are whiter, dimmer are more yellow
         let brightness = ((6.0 - star.magnitude) / 7.0).clamp(0.0, 1.0);
-        all_colors.push(hsla(
-            0.15,
-            0.2 * (1.0 - brightness) as f32,
-            (0.5 + 0.5 * brightness) as f32,
-            1.0,
+        all_colors.push(chart_colors::ink(
+            &ui_theme,
+            hsla(
+                0.15,
+                0.2 * (1.0 - brightness) as f32,
+                (0.5 + 0.5 * brightness) as f32,
+                1.0,
+            ),
         ));
     }
 
@@ -109,24 +81,33 @@ pub fn render(_app: &ShowcaseApp, _cx: &mut Context<ShowcaseApp>) -> Div {
             div()
                 .w(px(width as f32))
                 .h(px(height as f32))
-                .bg(rgb(0x0a0a1a))
+                .bg(ui_theme.background)
                 .border_1()
-                .border_color(rgb(0x333333))
+                .border_color(ui_theme.border)
                 .child(
                     canvas(
                         move |bounds, _, _| {
-                            d3_paths
+                            let fills: Vec<_> = d3_paths
                                 .iter()
                                 .map(|p| {
                                     super::path_utils::d3rs_path_to_gpui_simple(p, bounds, 0.0, 0.0)
                                 })
-                                .collect::<Vec<_>>()
+                                .collect();
+                            let grat = super::path_utils::d3rs_path_to_gpui_stroke(
+                                &graticule_path,
+                                bounds,
+                                0.6,
+                            );
+                            (fills, grat)
                         },
-                        move |_bounds, paths, window, _| {
-                            for (i, path_opt) in paths.into_iter().enumerate() {
+                        move |_bounds, (fills, grat), window, _| {
+                            for (i, path_opt) in fills.into_iter().enumerate() {
                                 if let Some(path) = path_opt {
                                     window.paint_path(path, all_colors[i]);
                                 }
+                            }
+                            if let Some(path) = grat {
+                                window.paint_path(path, graticule_color);
                             }
                         },
                     )

@@ -6,7 +6,7 @@
 //! Source: <https://observablehq.com/@d3/histogram>
 
 use crate::ShowcaseApp;
-use d3rs::color::ColorScheme;
+use crate::showcase_modules::chart_colors;
 use d3rs::scale::{LinearScale, Scale};
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
@@ -40,13 +40,24 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let min_val = carats.iter().fold(f64::INFINITY, |a, &b| a.min(b));
     let max_val = carats.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
 
-    // Bin the data
-    let bin_count = 40;
-    let step = ((max_val - min_val) / bin_count as f64).max(f64::EPSILON);
+    // d3.bin-style thresholds from scale ticks so bin edges align with ticks,
+    // like the official example (`bin.thresholds(40)` over the x domain).
+    let probe = LinearScale::new().domain(min_val, max_val);
+    let mut edges = probe.ticks(40);
+    if edges.len() < 2 {
+        edges = vec![min_val, max_val];
+    }
+    let bin_count = edges.len() - 1;
     let mut bins = vec![0usize; bin_count];
     for &c in &carats {
-        let idx = ((c - min_val) / step).floor() as usize;
-        let idx = idx.min(bin_count - 1);
+        // Bisect right: last bin is inclusive of the max edge.
+        let mut idx = bin_count - 1;
+        for i in 0..bin_count {
+            if c < edges[i + 1] || i == bin_count - 1 {
+                idx = i;
+                break;
+            }
+        }
         bins[idx] += 1;
     }
 
@@ -60,23 +71,23 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .domain(0.0, max_bin)
         .range(margin_top + chart_height, margin_top);
 
-    let scheme = ColorScheme::tableau10();
-    let bar_color: Hsla = scheme.color(0).to_rgba().into();
-    let bar_width = chart_width / bin_count as f64 - 1.0;
+    // Official bars are steelblue and contiguous (no gaps).
+    let bar_color: Hsla = chart_colors::ink_hex(&ui_theme, 0x4682b4);
 
     // Build bar paths
     let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
     let mut all_colors: Vec<Hsla> = Vec::new();
 
     for (i, &count) in bins.iter().enumerate() {
-        let x0 = x_scale.scale(min_val + i as f64 * step);
+        let x0 = x_scale.scale(edges[i]);
+        let x1 = x_scale.scale(edges[i + 1]);
         let y0 = y_scale.scale(count as f64);
         let y_base = y_scale.scale(0.0);
 
         let path = D3PathBuilder::new()
             .move_to(x0, y0)
-            .line_to(x0 + bar_width, y0)
-            .line_to(x0 + bar_width, y_base)
+            .line_to(x1, y0)
+            .line_to(x1, y_base)
             .line_to(x0, y_base)
             .close_path()
             .build();
@@ -84,20 +95,9 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         all_colors.push(bar_color);
     }
 
-    // Axis paths — use thin closed rectangles to avoid fill-triangle artifacts
-    let axis_w = 1.0; // axis line thickness
-    // Y-axis line (vertical)
-    d3_paths.push(
-        D3PathBuilder::new()
-            .move_to(margin_left, margin_top)
-            .line_to(margin_left + axis_w, margin_top)
-            .line_to(margin_left + axis_w, margin_top + chart_height)
-            .line_to(margin_left, margin_top + chart_height)
-            .close_path()
-            .build(),
-    );
-    all_colors.push(hsla(0.0, 0.0, 0.2, 1.0));
-    // X-axis line (horizontal)
+    // X-axis domain line only: the official example removes the y domain.
+    // (Thin closed rectangle to avoid fill-triangle artifacts.)
+    let axis_w = 1.0;
     d3_paths.push(
         D3PathBuilder::new()
             .move_to(margin_left, margin_top + chart_height)
@@ -110,9 +110,9 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             .close_path()
             .build(),
     );
-    all_colors.push(hsla(0.0, 0.0, 0.2, 1.0));
+    all_colors.push(chart_colors::axis_line(&ui_theme));
 
-    // Y grid lines
+    // Y grid lines cloned from y ticks at 0.1 opacity
     let y_tick_step = (max_bin / 5.0).ceil().max(1.0);
     let y_ticks: Vec<f64> = (0..)
         .map(|i| i as f64 * y_tick_step)
@@ -130,7 +130,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .close_path()
                 .build(),
         );
-        all_colors.push(hsla(0.0, 0.0, 0.85, 1.0));
+        all_colors.push(chart_colors::grid(&ui_theme));
     }
 
     // X tick values

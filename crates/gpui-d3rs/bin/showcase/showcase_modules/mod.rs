@@ -1,5 +1,6 @@
 pub mod axes;
 pub mod bar_charts;
+pub mod chart_colors;
 pub mod chord;
 pub mod colors;
 pub mod contours;

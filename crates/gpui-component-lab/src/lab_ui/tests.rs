@@ -464,11 +464,7 @@ fn sidebar_labels_are_built_from_documents() {
 #[test]
 fn prop_strings_are_cached_from_documents() {
     let mut story = ComponentStory::new("ui-kit.button", "gpui-ui-kit", "Button", "A button");
-    let mut variant = StoryProp::new(
-        "variant",
-        "Variant",
-        StoryPropValue::Text("Primary".into()),
-    );
+    let mut variant = StoryProp::new("variant", "Variant", StoryPropValue::Text("Primary".into()));
     variant.options = vec!["Primary".to_string(), "Ghost".to_string()];
     story.props.push(variant);
     let mut documents = BTreeMap::new();

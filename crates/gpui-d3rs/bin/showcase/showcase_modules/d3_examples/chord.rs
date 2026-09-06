@@ -4,6 +4,7 @@
 //! `Arc` for group arcs, `RibbonGenerator` for chord ribbons,
 //! `d3rs_path_to_gpui_simple` for rendering, with outer tick marks and labels.
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::chord::{ChordLayout, RibbonGenerator};
 use d3rs::color::ColorScheme;
 use d3rs::shape::arc::{Arc as D3Arc, ArcDatum};
@@ -14,6 +15,18 @@ use d3rs::text::{
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
+
+/// Nice data step giving roughly `target` ticks across `value` (1/2/5 x 10^n).
+fn nice_tick_step(value: f64, target: usize) -> f64 {
+    let raw = (value / target.max(1) as f64).max(f64::EPSILON);
+    let mag = 10f64.powf(raw.log10().floor());
+    for m in [1.0, 2.0, 5.0, 10.0] {
+        if m * mag >= raw {
+            return m * mag;
+        }
+    }
+    10.0 * mag
+}
 
 pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let ui_theme = cx.theme();
@@ -28,7 +41,8 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let outer_radius = height.min(width) / 2.0 - 50.0; // extra margin for labels
     let inner_radius = outer_radius - 20.0;
     let tick_radius = outer_radius + 3.0;
-    let label_radius = outer_radius + 14.0;
+    let tick_label_radius = outer_radius + 12.0;
+    let label_radius = outer_radius + 34.0;
 
     // Use d3rs ChordLayout to compute groups and chords
     let chord_layout = ChordLayout::new()
@@ -52,21 +66,25 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         all_colors.push(scheme.color(group.index).to_rgba().into());
     }
 
-    // 2. Draw tick marks around the outer edge of each group arc
-    // Small radial lines at regular intervals along each group's arc span
+    // 2. Group ticks at data intervals with value labels, like the official
+    // example (`groupTicks`: angle = value * span / group.value).
     let half_pi = std::f64::consts::FRAC_PI_2;
+    // (tick value label, x, y) in chart coordinates.
+    let mut tick_labels: Vec<(String, f64, f64)> = Vec::new();
     for group in &chord_result.groups {
+        if group.value <= 0.0 {
+            continue;
+        }
         let arc_span = group.end_angle - group.start_angle;
-        // ~5 ticks per group, at least 2
-        let n_ticks = ((arc_span * 40.0) as usize).max(2);
-        for t in 0..=n_ticks {
-            let frac = t as f64 / n_ticks as f64;
-            let angle = group.start_angle + arc_span * frac - half_pi;
+        let step = nice_tick_step(group.value, 4);
+        let mut v = 0.0;
+        while v < group.value {
+            let angle = group.start_angle + arc_span * (v / group.value) - half_pi;
             let x1 = cx_center + outer_radius * angle.cos();
             let y1 = cy_center + outer_radius * angle.sin();
             let x2 = cx_center + tick_radius * angle.cos();
             let y2 = cy_center + tick_radius * angle.sin();
-            // Tick as a thin line (2px wide rectangle)
+            // Tick as a thin line (1px wide rectangle)
             let nx = -angle.sin() * 0.5;
             let ny = angle.cos() * 0.5;
             let tick_path = D3PathBuilder::new()
@@ -77,18 +95,26 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .close_path()
                 .build();
             d3_paths.push(tick_path);
-            all_colors.push(hsla(0.0, 0.0, 0.3, 1.0));
+            all_colors.push(chart_colors::ink(&ui_theme, hsla(0.0, 0.0, 0.3, 1.0)));
+            let lx = cx_center + tick_label_radius * angle.cos();
+            let ly = cy_center + tick_label_radius * angle.sin();
+            let text = if v.abs() >= 1000.0 {
+                format!("{:.0}k", v / 1000.0)
+            } else {
+                format!("{v:.0}")
+            };
+            tick_labels.push((text, lx, ly));
+            v += step;
         }
     }
 
-    // 3. Draw chord ribbons using d3rs RibbonGenerator
+    // 3. Draw chord ribbons using d3rs RibbonGenerator (solid source colors
+    // like the official example).
     let ribbon_gen = RibbonGenerator::new(inner_radius).center(cx_center, cy_center);
     for chord in &chord_result.chords {
         let path = ribbon_gen.generate_path(chord);
         d3_paths.push(path);
-        let mut lighter: Hsla = scheme.color(chord.source.index).to_rgba().into();
-        lighter.a = 0.4;
-        all_colors.push(lighter);
+        all_colors.push(scheme.color(chord.source.index).to_rgba().into());
     }
 
     // Group name labels — positioned at the midpoint angle of each arc and
@@ -125,19 +151,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         })
         .collect();
 
-    let legend_items: Vec<Div> = names
-        .iter()
-        .enumerate()
-        .map(|(i, name)| {
-            div()
-                .flex()
-                .items_center()
-                .gap_1()
-                .child(div().size_3().bg(scheme.color(i).to_rgba()))
-                .child(div().text_xs().child(name.clone()))
-        })
-        .collect();
-
+    // The official example has no legend: groups are named around the circle.
     div()
         .flex()
         .flex_col()
@@ -155,14 +169,6 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .text_xs()
                 .mb_2()
                 .child("Source: observablehq.com/@d3/chord-diagram"),
-        )
-        .child(
-            div()
-                .flex()
-                .gap_3()
-                .mb_2()
-                .flex_wrap()
-                .children(legend_items),
         )
         .child(
             div()
@@ -194,6 +200,18 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     .size_full(),
                 )
                 // Group name labels as rotated glyph text
-                .children(label_items),
+                .children(label_items)
+                // Tick value labels
+                .children(tick_labels.iter().map(|(text, x, y)| {
+                    div()
+                        .absolute()
+                        .left(px((*x - 20.0) as f32))
+                        .top(px((*y - 6.0) as f32))
+                        .w(px(40.0))
+                        .flex()
+                        .justify_center()
+                        .text_size(px(8.0))
+                        .child(text.clone())
+                })),
         )
 }

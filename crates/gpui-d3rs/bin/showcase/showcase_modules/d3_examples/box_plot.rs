@@ -3,6 +3,7 @@
 //! Demonstrates idiomatic d3rs usage: `BandScale` for groups, `LinearScale` for y-axis,
 //! `PathBuilder` for box/whisker/outlier paths, `d3rs_path_to_gpui_simple` for rendering.
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::color::ColorScheme;
 use d3rs::scale::{BandScale, LinearScale, Scale};
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
@@ -44,10 +45,10 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let result = d3rs::examples::box_plot::compute(&data);
 
     let scheme = ColorScheme::tableau10();
-    let box_color = scheme.color(0).to_rgba(); // Blue
-    let median_color = scheme.color(2).to_rgba(); // Red
-    let whisker_color = rgb(0x333333);
-    let outlier_color = scheme.color(1).to_rgba(); // Orange
+    let box_color = chart_colors::categorical(&ui_theme, &scheme, 0); // Blue
+    let median_color = chart_colors::categorical(&ui_theme, &scheme, 2); // Red
+    let whisker_color = chart_colors::axis_line(&ui_theme);
+    let outlier_color = chart_colors::categorical(&ui_theme, &scheme, 1); // Orange
 
     let width = 700.0_f64;
     let height = 450.0_f64;
@@ -94,7 +95,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .close_path()
                 .build(),
         );
-        all_colors.push(box_color.into());
+        all_colors.push(box_color);
 
         // Median line
         let med_y = y_scale.scale(group.median);
@@ -108,7 +109,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .close_path()
                 .build(),
         );
-        all_colors.push(median_color.into());
+        all_colors.push(median_color);
 
         let whisker_x = band_x + bw * 0.5;
         let whisker_w = 1.5;
@@ -126,7 +127,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .close_path()
                 .build(),
         );
-        all_colors.push(whisker_color.into());
+        all_colors.push(whisker_color);
 
         // Whisker: high vertical line
         let wh_y = y_scale.scale(group.whisker_high);
@@ -141,7 +142,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .close_path()
                 .build(),
         );
-        all_colors.push(whisker_color.into());
+        all_colors.push(whisker_color);
 
         // Whisker caps (horizontal lines)
         let cap_w = bw * 0.3;
@@ -156,7 +157,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .close_path()
                 .build(),
         );
-        all_colors.push(whisker_color.into());
+        all_colors.push(whisker_color);
         // High cap
         d3_paths.push(
             D3PathBuilder::new()
@@ -167,7 +168,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .close_path()
                 .build(),
         );
-        all_colors.push(whisker_color.into());
+        all_colors.push(whisker_color);
 
         // Outlier dots (small diamonds)
         for &val in &group.outliers {
@@ -182,7 +183,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     .close_path()
                     .build(),
             );
-            all_colors.push(outlier_color.into());
+            all_colors.push(outlier_color);
         }
     }
 
@@ -301,7 +302,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px((margin_top + chart_height) as f32))
                         .w(px(chart_width as f32))
                         .h(px(1.0))
-                        .bg(rgb(0x000000)),
+                        .bg(chart_colors::axis_line(&ui_theme)),
                 )
                 // Y-axis line
                 .child(
@@ -311,7 +312,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px(margin_top as f32))
                         .w(px(1.0))
                         .h(px(chart_height as f32))
-                        .bg(rgb(0x000000)),
+                        .bg(chart_colors::axis_line(&ui_theme)),
                 )
                 // Y-axis tick labels
                 .children(y_ticks.iter().map(|&val| {
@@ -335,7 +336,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px((margin_top + y) as f32))
                         .w(px(chart_width as f32))
                         .h(px(1.0))
-                        .bg(ui_theme.surface)
+                        .bg(Hsla::from(ui_theme.border).opacity(0.25))
                 })),
         )
 }

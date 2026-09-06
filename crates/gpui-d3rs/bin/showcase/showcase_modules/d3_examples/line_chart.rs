@@ -1,11 +1,12 @@
-//! Line Chart -- Observable example using d3rs::examples::line_chart
+//! Line Chart -- <https://observablehq.com/@d3/line-chart>
 //!
-//! Demonstrates idiomatic d3rs usage: `LinearScale` for axes, `Curve::interpolate` for
-//! line interpolation, `PathBuilder` for ribbon paths, `d3rs_path_to_gpui_simple` for rendering.
+//! Faithful port of the official example: a single `steelblue` 1.5px line,
+//! `ticks(width / 80)` on x, `ticks(height / 40)` on y, horizontal gridlines
+//! at 0.1 opacity cloned from the y ticks, x domain line kept and y domain
+//! line removed.
 use crate::ShowcaseApp;
-use d3rs::color::ColorScheme;
+use crate::showcase_modules::chart_colors;
 use d3rs::scale::{LinearScale, Scale};
-use d3rs::shape::path::{PathBuilder as D3PathBuilder, Point as D3Point};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
@@ -15,14 +16,13 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let data = d3rs::examples::line_chart::default_data();
     let result = d3rs::examples::line_chart::compute(&data);
 
-    let scheme = ColorScheme::tableau10();
-
+    // Official D3 margin convention and steelblue line color.
     let chart_w = 700.0_f64;
     let chart_h = 400.0_f64;
-    let margin_left = 50.0;
-    let margin_right = 20.0;
+    let margin_left = 40.0;
+    let margin_right = 30.0;
     let margin_top = 20.0;
-    let margin_bottom = 50.0;
+    let margin_bottom = 30.0;
     let plot_w = chart_w - margin_left - margin_right;
     let plot_h = chart_h - margin_top - margin_bottom;
 
@@ -34,53 +34,19 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .domain(result.y_domain[0], result.y_domain[1])
         .range(plot_h, 0.0);
 
-    // Map raw data to scaled points using d3rs types
-    let points: Vec<D3Point> = data
+    // Single linear line through the data, in plot coordinates.
+    let line_points: Vec<(f32, f32)> = data
         .iter()
-        .map(|(x, y)| D3Point::new(x_scale.scale(*x), y_scale.scale(*y)))
+        .map(|(x, y)| (x_scale.scale(*x) as f32, y_scale.scale(*y) as f32))
         .collect();
 
-    // Use d3rs Curve interpolation for each curve type, then build ribbon paths via D3PathBuilder
-    let curves: Vec<(&str, d3rs::shape::curve::Curve)> = vec![
-        ("linear", d3rs::shape::curve::Curve::linear()),
-        ("step", d3rs::shape::curve::Curve::Step),
-        ("basis", d3rs::shape::curve::Curve::basis()),
-        ("cardinal", d3rs::shape::curve::Curve::cardinal(0.0)),
-        ("natural", d3rs::shape::curve::Curve::natural()),
-        ("monotoneX", d3rs::shape::curve::Curve::monotone_x()),
-        ("catmullRom", d3rs::shape::curve::Curve::catmull_rom(0.5)),
-    ];
+    // Official tick densities: ticks(width / 80), ticks(height / 40).
+    let x_ticks = x_scale.ticks((plot_w / 80.0).round().clamp(2.0, 12.0) as usize);
+    let y_ticks = y_scale.ticks((plot_h / 40.0).round().clamp(2.0, 12.0) as usize);
 
-    let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
-    let mut curve_names: Vec<String> = Vec::new();
-    for (name, curve) in &curves {
-        let interpolated = curve.interpolate(&points);
-        let path = points_to_ribbon_d3(&interpolated, 1.8);
-        d3_paths.push(path);
-        curve_names.push(name.to_string());
-    }
+    let line_color: Hsla = chart_colors::ink_hex(&ui_theme, 0x4682b4); // steelblue
+    let grid_color: Hsla = chart_colors::grid(&ui_theme);
 
-    // Legend
-    let legend_items: Vec<Div> = curve_names
-        .iter()
-        .enumerate()
-        .map(|(i, name)| {
-            div()
-                .flex()
-                .items_center()
-                .gap_1()
-                .child(div().size_3().bg(scheme.color(i).to_rgba()))
-                .child(div().text_xs().child(name.clone()))
-        })
-        .collect();
-
-    // Derive ticks from the scales so they match the domain
-    let x_ticks = x_scale.ticks(10);
-    let y_ticks = y_scale.ticks(8);
-
-    let colors: Vec<Rgba> = (0..scheme.len())
-        .map(|i| scheme.color(i).to_rgba())
-        .collect();
     div()
         .flex()
         .flex_col()
@@ -91,7 +57,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .text_lg()
                 .font_weight(FontWeight::BOLD)
                 .mb_2()
-                .child("Line Chart -- 7 Curve Types"),
+                .child("Line Chart"),
         )
         .child(
             div()
@@ -101,31 +67,13 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         )
         .child(
             div()
-                .flex()
-                .gap_3()
-                .mb_3()
-                .flex_wrap()
-                .children(legend_items),
-        )
-        .child(
-            div()
                 .w(px(chart_w as f32))
                 .h(px(chart_h as f32))
                 .bg(ui_theme.surface)
                 .border_1()
                 .border_color(ui_theme.border)
                 .relative()
-                // Y-axis line
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(margin_left as f32))
-                        .top(px(margin_top as f32))
-                        .w(px(2.0))
-                        .h(px(plot_h as f32))
-                        .bg(ui_theme.border),
-                )
-                // X-axis line
+                // X-axis domain line (official keeps the bottom domain)
                 .child(
                     div()
                         .absolute()
@@ -135,7 +83,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .h(px(1.0))
                         .bg(ui_theme.border),
                 )
-                // Y-axis ticks + labels + grid
+                // Y-axis tick labels (no y domain line: official removes it)
                 .children(y_ticks.iter().map(|&val| {
                     let y = y_scale.scale(val);
                     div()
@@ -148,7 +96,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .pr_1()
                         .child(div().text_xs().child(format!("{:.0}", val)))
                 }))
-                // Y grid lines
+                // Y grid lines cloned from y ticks at 0.1 opacity
                 .children(y_ticks.iter().map(|&val| {
                     let y = y_scale.scale(val);
                     div()
@@ -157,9 +105,9 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px((margin_top + y) as f32))
                         .w(px(plot_w as f32))
                         .h(px(1.0))
-                        .bg(Hsla::from(ui_theme.border).opacity(0.25))
+                        .bg(grid_color)
                 }))
-                // X-axis ticks + labels
+                // X-axis ticks + labels, tickSizeOuter(0): no end ticks
                 .children(x_ticks.iter().map(|&val| {
                     let x = x_scale.scale(val);
                     let label_w = 40.0;
@@ -173,18 +121,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .justify_center()
                         .child(div().text_xs().child(format!("{:.0}", val)))
                 }))
-                // X grid lines
-                .children(x_ticks.iter().map(|&val| {
-                    let x = x_scale.scale(val);
-                    div()
-                        .absolute()
-                        .left(px((margin_left + x) as f32))
-                        .top(px(margin_top as f32))
-                        .w(px(1.0))
-                        .h(px(plot_h as f32))
-                        .bg(Hsla::from(ui_theme.border).opacity(0.25))
-                }))
-                // Plot area with curves
+                // Plot area with the single stroked line
                 .child(
                     div()
                         .absolute()
@@ -194,21 +131,20 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .h(px(plot_h as f32))
                         .child(
                             canvas(
-                                move |bounds, _, _| {
-                                    d3_paths
-                                        .iter()
-                                        .map(|p| {
-                                            super::path_utils::d3rs_path_to_gpui_simple(
-                                                p, bounds, 0.0, 0.0,
-                                            )
-                                        })
-                                        .collect::<Vec<_>>()
-                                },
-                                move |_bounds, paths, window, _| {
-                                    for (i, path_opt) in paths.into_iter().enumerate() {
-                                        if let Some(path) = path_opt {
-                                            window.paint_path(path, colors[i % colors.len()]);
+                                move |_, _, _| (),
+                                move |bounds, _, window, _| {
+                                    let origin = bounds.origin;
+                                    let mut builder = gpui::PathBuilder::stroke(px(1.5));
+                                    for (i, &(x, y)) in line_points.iter().enumerate() {
+                                        let pt = origin + point(px(x), px(y));
+                                        if i == 0 {
+                                            builder.move_to(pt);
+                                        } else {
+                                            builder.line_to(pt);
                                         }
+                                    }
+                                    if let Ok(path) = builder.build() {
+                                        window.paint_path(path, line_color);
                                     }
                                 },
                             )
@@ -224,43 +160,4 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             result.y_domain[0],
             result.y_domain[1]
         )))
-}
-
-/// Convert interpolated points to a thin filled ribbon d3rs Path to simulate a stroke.
-fn points_to_ribbon_d3(points: &[D3Point], thickness: f64) -> d3rs::shape::path::Path {
-    if points.len() < 2 {
-        return D3PathBuilder::new().build();
-    }
-
-    let half = thickness / 2.0;
-    let mut upper = Vec::with_capacity(points.len());
-    let mut lower = Vec::with_capacity(points.len());
-    for i in 0..points.len() {
-        let (dx, dy) = if i == 0 {
-            (points[1].x - points[0].x, points[1].y - points[0].y)
-        } else if i == points.len() - 1 {
-            (points[i].x - points[i - 1].x, points[i].y - points[i - 1].y)
-        } else {
-            (
-                points[i + 1].x - points[i - 1].x,
-                points[i + 1].y - points[i - 1].y,
-            )
-        };
-        let len = (dx * dx + dy * dy).sqrt().max(1e-6);
-        let nx = -dy / len * half;
-        let ny = dx / len * half;
-        upper.push((points[i].x + nx, points[i].y + ny));
-        lower.push((points[i].x - nx, points[i].y - ny));
-    }
-
-    let mut builder = D3PathBuilder::new();
-    builder = builder.move_to(upper[0].0, upper[0].1);
-    for p in upper.iter().skip(1) {
-        builder = builder.line_to(p.0, p.1);
-    }
-    for p in lower.iter().rev() {
-        builder = builder.line_to(p.0, p.1);
-    }
-    builder = builder.close_path();
-    builder.build()
 }

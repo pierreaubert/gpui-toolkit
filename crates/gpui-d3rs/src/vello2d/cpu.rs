@@ -5,8 +5,8 @@
 //! matching what `gpu2d/element.rs` hands to `window.paint_image`.
 
 use crate::vello2d::{ChartCmd, ChartScene};
-use vello_cpu::peniko::kurbo::Affine;
 use vello_cpu::peniko::Brush;
+use vello_cpu::peniko::kurbo::Affine;
 use vello_cpu::{Pixmap, RenderContext, Resources};
 
 /// Reusable vello_cpu rasterizer; recreates its context only on resize.

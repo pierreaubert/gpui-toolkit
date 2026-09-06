@@ -544,17 +544,23 @@ fn vello_backend_prop(choice: &str) -> VelloBackend {
     match choice {
         "cpu" => VelloBackend::Cpu,
         "gpu" => VelloBackend::Wgpu,
+        "metal" => VelloBackend::Metal,
         _ => VelloBackend::Auto,
     }
 }
 
-/// One-line caption naming the effective raster backend, so forced-GPU
-/// stories explain a blank card on renderers (Metal) where wgpu custom draws
-/// never dispatch.
+/// One-line caption naming the effective raster backend.
 fn backend_caption(choice: &str) -> String {
+    let metal = cfg!(target_os = "macos");
     match choice {
         "cpu" => "backend: CPU (forced vello_cpu rasterization)".to_string(),
-        "gpu" => "backend: GPU forced — live output only where wgpu custom draws dispatch (blank on Metal)".to_string(),
+        "gpu" if metal => {
+            "backend: GPU forced — wgpu draws never dispatch on Metal (blank card)".to_string()
+        }
+        "gpu" => "backend: GPU forced (wgpu custom draw)".to_string(),
+        "metal" if metal => "backend: Metal (GPU raster, drawable blit)".to_string(),
+        "metal" => "backend: Metal forced — macOS only (CPU fallback here)".to_string(),
+        _ if metal => "backend: auto → Metal (GPU raster, drawable blit)".to_string(),
         _ if wgpu_custom_draw_available() => {
             "backend: auto → GPU (wgpu custom draws available)".to_string()
         }
@@ -690,9 +696,7 @@ impl ComponentLab {
                         options: prop
                             .options
                             .iter()
-                            .map(|option| {
-                                (option.clone(), SharedString::new(option.clone()))
-                            })
+                            .map(|option| (option.clone(), SharedString::new(option.clone())))
                             .collect(),
                     },
                 );
@@ -3466,10 +3470,7 @@ impl ComponentLab {
                             .colors(meter_colors)
                             .vello_backend(backend),
                     )
-                    .child(render_level_meter_ticks(
-                        theme.border,
-                        theme.text_muted,
-                    )),
+                    .child(render_level_meter_ticks(theme.border, theme.text_muted)),
             )
             .child(
                 Text::new(backend_caption(backend_choice.as_str()))

@@ -1,4 +1,5 @@
-use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
+use crate::showcase_modules::chart_colors;
+use d3rs::axis::{AxisConfig, render_axis};
 use d3rs::quadtree::{QuadNode, QuadTree};
 use d3rs::scale::{LinearScale, Scale};
 use gpui::prelude::FluentBuilder;
@@ -9,7 +10,7 @@ use gpui_ui_kit::theme::ThemeExt;
 pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let ui_theme = cx.theme();
     let entity = cx.entity().clone();
-    let theme = DefaultAxisTheme;
+    let theme = chart_colors::UiAxisTheme(&ui_theme);
 
     // Generate random points for demonstration
     let points: Vec<(f64, f64)> = (0..50)
@@ -139,7 +140,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 .w(px(px_w))
                                                 .h(px(px_h))
                                                 .border_1()
-                                                .border_color(rgba(0x0066cc40))
+                                                .border_color(chart_colors::ink_rgba(&ui_theme, rgba(0x0066cc40)))
                                         }))
                                         // Draw search radius circle
                                         .child(
@@ -150,15 +151,19 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 .w(px((2.0 * (x_scale.scale(search_radius) - x_scale.scale(0.0))) as f32))
                                                 .h(px((2.0 * (y_scale.scale(search_radius) - y_scale.scale(0.0))) as f32))
                                                 .rounded_full()
-                                                .bg(rgba(0x00aa0020))
+                                                .bg(chart_colors::ink_rgba(&ui_theme, rgba(0x00aa0020)))
                                                 .border_2()
-                                                .border_color(rgba(0x00aa0080))
+                                                .border_color(chart_colors::ink_rgba(&ui_theme, rgba(0x00aa0080)))
                                         )
                                         // Draw all points
                                         .children(points.iter().map(|&(pt_x, pt_y)| {
                                             let key = ((pt_x * 1000.0) as i64, (pt_y * 1000.0) as i64);
                                             let is_in_radius = within_radius_set.contains(&key);
-                                            let color = if is_in_radius { rgb(0x00aa00) } else { rgb(0x666666) };
+                                            let color = if is_in_radius {
+                                            chart_colors::ink_rgba(&ui_theme, rgb(0x00aa00))
+                                        } else {
+                                            chart_colors::ink_rgba(&ui_theme, rgb(0x666666))
+                                        };
                                             div()
                                                 .absolute()
                                                 .left(gpui::px((x_scale.scale(pt_x) - 4.0) as f32))
@@ -177,9 +182,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 .w(px(12.0))
                                                 .h(px(12.0))
                                                 .rounded_full()
-                                                .bg(rgb(0xff0000))
+                                                .bg(chart_colors::ink_hex(&ui_theme, 0xff0000))
                                                 .border_2()
-                                                .border_color(rgb(0xffffff))
+                                                .border_color(chart_colors::ink_hex(&ui_theme, 0xffffff))
                                         )
                                         // Draw nearest point highlight
                                         .when_some(nearest.cloned(), |this, (nx, ny)| {
@@ -192,7 +197,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                     .h(px(16.0))
                                                     .rounded_full()
                                                     .border_3()
-                                                    .border_color(rgb(0xff6600))
+                                                    .border_color(chart_colors::ink_hex(&ui_theme, 0xff6600))
                                             )
                                         }),
                                 ),
@@ -223,7 +228,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .flex()
                                 .gap_1()
                                 .items_center()
-                                .child(div().w(px(12.0)).h(px(12.0)).rounded_full().bg(rgb(0xff0000)))
+                                .child(div().w(px(12.0)).h(px(12.0)).rounded_full().bg(chart_colors::ink_hex(&ui_theme, 0xff0000)))
                                 .child("Query Point"),
                         )
                         .child(
@@ -231,7 +236,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .flex()
                                 .gap_1()
                                 .items_center()
-                                .child(div().w(px(12.0)).h(px(12.0)).rounded_full().border_2().border_color(rgb(0xff6600)))
+                                .child(div().w(px(12.0)).h(px(12.0)).rounded_full().border_2().border_color(chart_colors::ink_hex(&ui_theme, 0xff6600)))
                                 .child("Nearest"),
                         )
                         .child(
@@ -239,7 +244,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .flex()
                                 .gap_1()
                                 .items_center()
-                                .child(div().w(px(12.0)).h(px(12.0)).rounded_full().bg(rgb(0x00aa00)))
+                                .child(div().w(px(12.0)).h(px(12.0)).rounded_full().bg(chart_colors::ink_hex(&ui_theme, 0x00aa00)))
                                 .child("Within Radius"),
                         )
                         .child(
@@ -247,7 +252,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .flex()
                                 .gap_1()
                                 .items_center()
-                                .child(div().w(px(12.0)).h(px(12.0)).border_1().border_color(rgba(0x0066cc80)))
+                                .child(div().w(px(12.0)).h(px(12.0)).border_1().border_color(chart_colors::ink_rgba(&ui_theme, rgba(0x0066cc80))))
                                 .child("QuadTree Cell"),
                         ),
                 ),
@@ -397,7 +402,8 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .gap_1()
                         .mt_4()
                         .p_3()
-                        .bg(rgb(0x2d2d2d))
+                        .bg(ui_theme.surface)
+                        .text_color(ui_theme.text_primary)
                         .rounded_md()
                         .child(
                             div()

@@ -1558,12 +1558,10 @@ mod tests {
         // dead zone, so ticks have no exact opposites to pair up).
         assert!(!geometry.ticks.is_empty());
         for tick in geometry.ticks.iter() {
-            let inner_dist = ((tick.inner_x - shell_cx).powi(2)
-                + (tick.inner_y - shell_cy).powi(2))
-            .sqrt();
-            let outer_dist = ((tick.outer_x - shell_cx).powi(2)
-                + (tick.outer_y - shell_cy).powi(2))
-            .sqrt();
+            let inner_dist =
+                ((tick.inner_x - shell_cx).powi(2) + (tick.inner_y - shell_cy).powi(2)).sqrt();
+            let outer_dist =
+                ((tick.outer_x - shell_cx).powi(2) + (tick.outer_y - shell_cy).powi(2)).sqrt();
             assert!((inner_dist - metrics.knob_size / 2.0).abs() < 1e-3);
             let expected_outer = if tick.is_major {
                 metrics.knob_size / 2.0 + 8.0

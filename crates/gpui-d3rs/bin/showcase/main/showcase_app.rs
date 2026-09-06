@@ -8,7 +8,7 @@ use gpui_builder::{
     Axis, ContainerNode, LayoutNode, Sizing, SlotNode, solve, types::LayoutPreferences,
 };
 use gpui_design::DesignExt;
-use gpui_ui_kit::theme::ThemeExt;
+use gpui_ui_kit::theme::{ThemeExt, ThemeState};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -446,6 +446,24 @@ impl ShowcaseApp {
                             })
                             .on_click(cx.listener(|this, _, _, _| {
                                 this.use_large_data = !this.use_large_data;
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("theme-toggle")
+                            .px(px(ds.spacing.control_padding_x * 0.7))
+                            .py(px(ds.spacing.control_padding_y * 0.5))
+                            .rounded(px(ds.corners.sm))
+                            .cursor_pointer()
+                            .bg(theme.surface_hover)
+                            .text_color(theme.text_primary)
+                            .text_size(px(ds.typography.small_size * 0.85))
+                            .child(format!("Theme: {}", theme.variant.name()))
+                            .on_click(cx.listener(|_, _, _, cx| {
+                                cx.update_global::<ThemeState, _>(|state, _| {
+                                    state.toggle();
+                                });
+                                cx.refresh_windows();
                             })),
                     ),
             )

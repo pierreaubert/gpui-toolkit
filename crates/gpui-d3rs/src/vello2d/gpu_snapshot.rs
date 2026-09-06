@@ -485,8 +485,8 @@ mod compare_tests {
         let out = diff_image_rgba(&a, &b, 4.0).expect("same shape diffs");
         assert_eq!(out, vec![40u8, 0, 0, 255, 0, 0, 0, 0]);
         // Clamp: 200 * 4 saturates instead of wrapping.
-        let hot = diff_image_rgba(&[0u8, 0, 0, 255], &[200u8, 0, 0, 255], 4.0)
-            .expect("same shape diffs");
+        let hot =
+            diff_image_rgba(&[0u8, 0, 0, 255], &[200u8, 0, 0, 255], 4.0).expect("same shape diffs");
         assert_eq!(hot[0], 255);
     }
 }
