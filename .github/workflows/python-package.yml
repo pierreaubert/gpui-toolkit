@@ -42,7 +42,7 @@ jobs:
             build_fallback: false
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v6
         with:
@@ -97,7 +97,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Verify release tag matches package version
         run: python scripts/sync_versions.py --check --tag "${GITHUB_REF_NAME}"
       - uses: actions/download-artifact@v5
