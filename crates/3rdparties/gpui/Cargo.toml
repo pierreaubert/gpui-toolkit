@@ -112,7 +112,7 @@ wasm-bindgen = "0.2.120"
 block = "0.1"
 cocoa = "=0.26.0"
 cocoa-foundation = "=0.2.0"
-core-foundation = "=0.10.0"
+core-foundation = "=0.10.1"
 core-foundation-sys = "0.8.6"
 core-graphics = "0.24"
 core-video = { version = "0.5.2", features = ["metal"] }
