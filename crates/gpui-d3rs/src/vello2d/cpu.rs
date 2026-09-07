@@ -5,6 +5,7 @@
 //! matching what `gpu2d/element.rs` hands to `window.paint_image`.
 
 use crate::vello2d::{ChartCmd, ChartScene};
+use vello_cpu::Glyph as CpuGlyph;
 use vello_cpu::peniko::Brush;
 use vello_cpu::peniko::kurbo::Affine;
 use vello_cpu::{Pixmap, RenderContext, Resources};
@@ -43,9 +44,12 @@ impl CpuRasterizer {
             self.ctx.reset();
         }
         // Map logical scene coordinates onto the physical pixmap. Set after
-        // every reset/new: neither preserves a previous transform.
-        self.ctx
-            .set_transform(Affine::scale(scale.max(0.01) as f64));
+        // every reset/new: neither preserves a previous transform. Text runs
+        // temporarily replace it with their composed anchor (restored
+        // below), because the glyph builder's own transform only shapes
+        // outlines in place — it does not move run offsets.
+        let scene_scale = Affine::scale(scale.max(0.01) as f64);
+        self.ctx.set_transform(scene_scale);
         for cmd in scene.commands() {
             match cmd {
                 ChartCmd::Fill { path, brush, .. } => {
@@ -60,6 +64,33 @@ impl CpuRasterizer {
                     apply_paint(&mut self.ctx, brush);
                     self.ctx.set_stroke(stroke.clone());
                     self.ctx.stroke_path(path);
+                }
+                ChartCmd::Text { runs } => {
+                    for run in runs {
+                        // Mirror `apply_paint`: image brushes warn and skip
+                        // instead of painting with stale state.
+                        if matches!(run.brush, Brush::Image(_)) {
+                            log::warn!(
+                                "vello2d: image brush unsupported on CPU backend, skipped"
+                            );
+                            continue;
+                        }
+                        apply_paint(&mut self.ctx, &run.brush);
+                        // Compose the run anchor into the scene transform so
+                        // rotation moves glyph offsets exactly like the GPU
+                        // replay's `global × anchor`.
+                        self.ctx.set_transform(scene_scale * run.transform);
+                        self.ctx
+                            .glyph_run(&mut self.resources, &run.font)
+                            .font_size(run.size)
+                            .hint(is_axis_aligned(run.transform))
+                            .fill_glyphs(run.glyphs.iter().map(|glyph| CpuGlyph {
+                                id: glyph.id,
+                                x: glyph.x,
+                                y: glyph.y,
+                            }));
+                        self.ctx.set_transform(scene_scale);
+                    }
                 }
             }
         }
@@ -80,4 +111,12 @@ fn apply_paint(ctx: &mut RenderContext, brush: &Brush) {
         // Charts never paint images; vello_cpu image paints are out of scope.
         Brush::Image(_) => log::warn!("vello2d: image brush unsupported on CPU backend, skipped"),
     }
+}
+
+/// Whether `transform` has no rotation or shear. The scene scale applied by
+/// [`CpuRasterizer::rasterize`] is always axis-aligned, so checking the run
+/// anchor alone decides hinting — mirroring the GPU replay.
+fn is_axis_aligned(transform: Affine) -> bool {
+    let coeffs = transform.as_coeffs();
+    coeffs[1] == 0.0 && coeffs[2] == 0.0
 }

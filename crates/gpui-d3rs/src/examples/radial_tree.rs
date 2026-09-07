@@ -1,7 +1,6 @@
 //! Radial Tree / Radial Cluster — <https://observablehq.com/@d3/radial-tree/2>
 //!
-//! Demonstrates: [`TreeLayout`](crate::hierarchy::TreeLayout) and
-//! [`ClusterLayout`](crate::hierarchy::ClusterLayout) with radial projection.
+//! Demonstrates: [`TreeLayout`] and [`ClusterLayout`] with radial projection.
 //!
 //! The pipeline mirrors the official Observable examples
 //! (`@d3/radial-tree/2` and `@d3/radial-cluster/2`):
@@ -498,5 +497,54 @@ mod tests {
         let mut count = 0;
         crate::hierarchy::HierarchyNode::each(root, |_| count += 1);
         assert_eq!(count, 41);
+    }
+
+    /// Headless mirror of the showcase radial sections: every label shapes
+    /// at 10px, anchors stay finite, and the assembled scene holds exactly
+    /// one text run per label. Display QA (Retina eyeball) still belongs to
+    /// `cargo run -p gpui-d3rs --example d3rs-showcase`.
+    #[cfg(feature = "vello")]
+    #[test]
+    fn showcase_label_pipeline_shapes_every_label() {
+        use crate::gputext::{FAMILY_SANS, FontEngine, TextWeight};
+        use crate::vello2d::kurbo::Affine;
+        use crate::vello2d::peniko::{Brush, Color};
+        use crate::vello2d::{ChartCmd, ChartScene};
+
+        for cluster in [false, true] {
+            let result = compute(cluster);
+            let placed = super::labels(&result);
+            assert_eq!(placed.len(), result.nodes.len());
+            let mut engine = FontEngine::new();
+            let mut scene = ChartScene::new();
+            for label in &placed {
+                let size = 10.0f32;
+                let width =
+                    FontEngine::line_width(&engine.shape(&label.name, size, FAMILY_SANS, TextWeight::NORMAL));
+                assert!(width.is_finite() && width > 0.0, "shapable: {}", label.name);
+                // Same anchor math as the showcase section.
+                let spoke = label.angle - std::f64::consts::FRAC_PI_2;
+                let (ux, uy) = (spoke.cos(), spoke.sin());
+                let side = if label.outward { 1.0 } else { -1.0 };
+                let dist = width as f64 / 2.0 + 6.0;
+                let anchor = Affine::translate((
+                    label.x + side * ux * dist,
+                    label.y + side * uy * dist,
+                )) * Affine::rotate(label.rotation)
+                    * Affine::translate((-width as f64 / 2.0, 0.35 * size as f64));
+                assert!(anchor.as_coeffs().iter().all(|c| c.is_finite()));
+                scene.fill_text(
+                    &mut engine,
+                    &label.name,
+                    size,
+                    FAMILY_SANS,
+                    TextWeight::NORMAL,
+                    anchor,
+                    Brush::Solid(Color::WHITE),
+                );
+            }
+            assert_eq!(scene.len(), placed.len());
+            assert!(matches!(scene.commands()[0], ChartCmd::Text { .. }));
+        }
     }
 }

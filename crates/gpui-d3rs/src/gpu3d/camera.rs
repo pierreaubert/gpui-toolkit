@@ -204,6 +204,23 @@ impl Camera3D {
         (right, up.normalize())
     }
 
+    /// World units per screen pixel at `anchor`'s depth, measured by
+    /// projecting a unit step along the camera-right axis. Powers
+    /// constant-screen-size SDF billboards: multiplying string px by this
+    /// scale yields world sizes that shrink with distance like the geometry
+    /// around them. Returns `None` when the anchor does not project.
+    pub fn world_per_screen_px(&self, anchor: Vec3, width: f32, height: f32) -> Option<f32> {
+        let before = self.project_to_screen(anchor, width, height)?;
+        let after = self.project_to_screen(anchor + self.right(), width, height)?;
+        // Hypot, not just dx: robust under camera roll.
+        let px_per_unit = (after.x - before.x).hypot(after.y - before.y);
+        if px_per_unit > 1e-6 {
+            Some(1.0 / px_per_unit)
+        } else {
+            None
+        }
+    }
+
     /// Project a world point to screen coordinates (0..width, 0..height)
     /// Returns None if the point is behind the camera
     pub fn project_to_screen(&self, world_pos: Vec3, width: f32, height: f32) -> Option<Vec3> {

@@ -71,7 +71,9 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
 
-    // --- Temperature grid circles ---
+    // Temperature ticks (grid circles are built after the areas so the
+    // official paint order — areas, line, spokes, rings — falls out of the
+    // path order).
     let temp_step = 10.0;
     let first_tick = ((temp_min / temp_step).ceil() * temp_step) as i32;
     let last_tick = ((temp_max / temp_step).floor() * temp_step) as i32;
@@ -80,45 +82,8 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .map(|t| t as f64)
         .collect();
 
-    for &temp in &temp_ticks {
-        let r = y_scale.scale(temp);
-        let mut builder = D3PathBuilder::new();
-        let steps = 72;
-        for j in 0..=steps {
-            let angle = (j as f64 / steps as f64) * 2.0 * PI;
-            let x = center + r * angle.cos();
-            let y = center + r * angle.sin();
-            if j == 0 {
-                builder = builder.move_to(x, y);
-            } else {
-                builder = builder.line_to(x, y);
-            }
-        }
-        builder = builder.close_path();
-        d3_paths.push(builder.build());
-    }
-    let num_grid = temp_ticks.len();
-
-    // --- Month spoke lines (12 months) ---
+    // --- Month spoke angles (12 months) ---
     let month_days = [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335];
-    for &day in &month_days {
-        let angle = angle_for_day(day);
-        let x1 = center + inner_radius * angle.cos();
-        let y1 = center + inner_radius * angle.sin();
-        let x2 = center + outer_radius * angle.cos();
-        let y2 = center + outer_radius * angle.sin();
-        let nx = -angle.sin() * 0.4;
-        let ny = angle.cos() * 0.4;
-        let path = D3PathBuilder::new()
-            .move_to(x1 + nx, y1 + ny)
-            .line_to(x2 + nx, y2 + ny)
-            .line_to(x2 - nx, y2 - ny)
-            .line_to(x1 - nx, y1 - ny)
-            .close_path()
-            .build();
-        d3_paths.push(path);
-    }
-    let num_spokes = 12;
 
     // --- Extreme range area (minmin to maxmax) — light fill ---
     {
@@ -235,26 +200,57 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         d3_paths.push(builder.build());
     }
 
-    // Colors for layers
+    // --- Month spokes (official xAxis: 1px radial lines, painted as strokes) ---
+    // Path order is extreme, mean, average ribbon, then spokes and rings.
+    let stroke_start = d3_paths.len();
+    for &day in &month_days {
+        let angle = angle_for_day(day);
+        let x1 = center + inner_radius * angle.cos();
+        let y1 = center + inner_radius * angle.sin();
+        let x2 = center + outer_radius * angle.cos();
+        let y2 = center + outer_radius * angle.sin();
+        d3_paths.push(D3PathBuilder::new().move_to(x1, y1).line_to(x2, y2).build());
+    }
+
+    // --- Temperature grid rings (official yAxis: 1px circles, painted as
+    // strokes — filling the outline would paint whole disks) ---
+    let ring_start = d3_paths.len();
+    for &temp in &temp_ticks {
+        let r = y_scale.scale(temp);
+        let mut builder = D3PathBuilder::new();
+        let steps = 72;
+        for j in 0..=steps {
+            let angle = (j as f64 / steps as f64) * 2.0 * PI;
+            let x = center + r * angle.cos();
+            let y = center + r * angle.sin();
+            if j == 0 {
+                builder = builder.move_to(x, y);
+            } else {
+                builder = builder.line_to(x, y);
+            }
+        }
+        builder = builder.close_path();
+        d3_paths.push(builder.build());
+    }
+
+    // Colors for layers (official: areas at 0.2 fill opacity, grid on top).
     let grid_color: Hsla = chart_colors::grid(&ui_theme);
     let spoke_color: Hsla = chart_colors::grid(&ui_theme);
-    let extreme_color: Hsla = chart_colors::ink_hex(&ui_theme, 0xb0c4de); // lightsteelblue
-    let mean_color: Hsla = chart_colors::ink_hex(&ui_theme, 0x4682b4); // steelblue
+    let extreme_color: Hsla = chart_colors::ink_hex(&ui_theme, 0xb0c4de).opacity(0.2); // lightsteelblue
+    let mean_color: Hsla = chart_colors::ink_hex(&ui_theme, 0x4682b4).opacity(0.2); // steelblue
     let avg_line_color: Hsla = chart_colors::ink_hex(&ui_theme, 0x2c5f8a); // darker steelblue
 
     let num_layers = d3_paths.len();
     let layer_colors: Vec<Hsla> = (0..num_layers)
         .map(|i| {
-            if i < num_grid {
-                grid_color
-            } else if i < num_grid + num_spokes {
-                spoke_color
-            } else if i == num_grid + num_spokes {
-                extreme_color
-            } else if i == num_grid + num_spokes + 1 {
-                mean_color
-            } else {
+            if i < 2 {
+                [extreme_color, mean_color][i]
+            } else if i == 2 {
                 avg_line_color
+            } else if i < ring_start {
+                spoke_color
+            } else {
+                grid_color
             }
         })
         .collect();
@@ -342,8 +338,17 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         move |bounds, _, _| {
                             d3_paths
                                 .iter()
-                                .map(|p| {
-                                    super::path_utils::d3rs_path_to_gpui_simple(p, bounds, 0.0, 0.0)
+                                .enumerate()
+                                .map(|(i, p)| {
+                                    // Areas/ribbon fill; spokes and rings are
+                                    // 1px outlines (official xAxis/yAxis).
+                                    if i >= stroke_start {
+                                        super::path_utils::d3rs_path_to_gpui_stroke(p, bounds, 1.0)
+                                    } else {
+                                        super::path_utils::d3rs_path_to_gpui_simple(
+                                            p, bounds, 0.0, 0.0,
+                                        )
+                                    }
                                 })
                                 .collect::<Vec<_>>()
                         },

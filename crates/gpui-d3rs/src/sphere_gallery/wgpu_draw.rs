@@ -1,8 +1,11 @@
 //! Same-device SphereGallery custom drawing for GPUI WGPU renderers.
 
 use super::element::SphereGalleryItem;
+use super::mesh::cell_center_3d;
 use super::renderer::{SphereGalleryConfig, SphereGalleryRenderer};
 use crate::gpu3d::Camera3D;
+use crate::gputext::billboard::WorldLabel;
+use crate::text::{HorizontalTextAnchor, VerticalTextAnchor};
 use crate::vello2d::wgpu_draw::{CompositePipeline, CompositeResources, clip_src_rect};
 use gpui::{Bounds, CustomDraw, CustomDrawId, Pixels};
 use gpui_wgpu::{WgpuContext, WgpuCustomDraw, WgpuCustomDrawAdapter};
@@ -76,6 +79,47 @@ impl GalleryWgpuDraw {
             selected,
             hovered,
         });
+    }
+
+    /// World-anchored labels for the items, hung just under each sphere with
+    /// a constant screen gap. Empty unless the config opts in — the gallery
+    /// historically carried labels it never displayed — and empty when the
+    /// active renderer cannot dispatch wgpu custom draws (macOS Metal
+    /// silently skips them, so building labels would be wasted work).
+    fn item_labels(&self, camera: &Camera3D, texture_size: [u32; 2]) -> Vec<WorldLabel> {
+        if !self.config.billboard_labels {
+            return Vec::new();
+        }
+        if !crate::gpu3d::gpu_custom_draw_available() {
+            return Vec::new();
+        }
+        let (_, cam_up) = camera.billboard_axes();
+        let (width, height) = (texture_size[0] as f32, texture_size[1] as f32);
+        let mut labels = Vec::new();
+        for (index, item) in self.items.iter().enumerate() {
+            let Some(text) = item.label.as_ref().filter(|label| !label.is_empty()) else {
+                continue;
+            };
+            let center = cell_center_3d(
+                index as u32,
+                self.config.cols,
+                self.config.rows,
+                &self.config.mesh_config,
+            );
+            let Some(scale) = camera.world_per_screen_px(center, width, height) else {
+                continue;
+            };
+            labels.push(WorldLabel {
+                text: text.to_string(),
+                anchor: center - cam_up * (self.config.mesh_config.radius + 4.0 * scale),
+                size_px: self.config.label_size_px,
+                color: [1.0, 1.0, 1.0, 1.0],
+                horizontal: HorizontalTextAnchor::Middle,
+                vertical: VerticalTextAnchor::Top,
+                screen_offset_px: [0.0, 0.0],
+            });
+        }
+        labels
     }
 
     fn ensure_renderer(&self, ctx: &WgpuContext) -> Option<()> {
@@ -158,12 +202,14 @@ impl WgpuCustomDraw for GalleryWgpuDraw {
             renderer.upload_images(&images);
             *self.images_uploaded.borrow_mut() = true;
         }
+        let labels = self.item_labels(&frame.camera, texture_size);
         let Some(source) = renderer.encode_render_to_texture(
             encoder,
             &frame.camera,
             frame.cell_count,
             frame.selected,
             frame.hovered,
+            &labels,
         ) else {
             return;
         };

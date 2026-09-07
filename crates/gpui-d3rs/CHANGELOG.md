@@ -2,6 +2,9 @@
 
 ## Fixed
 
+- Added the missing hexbin axis ticks: 6px outward tick marks on both log
+  axes (as in `d3.axisBottom`/`d3.axisLeft`), pushed the x tick labels below
+  the marks, and added the official bold "Carats" / "$ Price" axis titles.
 - Matched `ClusterLayout` to d3-hierarchy's cluster: leaves share the maximum
   radius regardless of depth (height `1 + max child`, inverted), the angular
   extent keeps d3's half-separation padding, and leaf separation is queried as
@@ -33,6 +36,29 @@
   is wired via `UiAxisTheme`, turbo/viridis/heat ramps adapt with
   `ink_scale`, and the sidebar gained a visible theme toggle cycling all
   variants.
+- Added world-anchored SDF text billboards for the wgpu 3D renderers
+  (`gputext::billboard`, GPU-text Phase 4b): one shared instanced-quad pass
+  over a once-per-process Sans SDF atlas, with constant-screen-size scaling
+  via `Camera3D::world_per_screen_px`. `Surface3DConfig::billboard_labels`
+  moves axis ticks/titles into the GPU pass (colorbar stays screen-space);
+  `SphereGalleryConfig::billboard_labels` (+ `label_size_px`) renders the
+  long-dormant item labels under their spheres. Both default off; the
+  headless-QA capture paths stay label-free so baselines are unchanged.
+  Metal billboards deferred (Metal keeps screen-space text).
+- Cartesian 3D axes now use d3-style nice ticks with plain numeric labels
+  for generic linear data without explicit ticks (previously the audio
+  fallbacks applied: off-range log-frequency ticks, a single 30° step, a
+  single dB step). Explicit `x/y/z_ticks` and log-frequency data keep the
+  exact audio formatting (kHz, degrees, dB); one shared tick plan feeds
+  labels, paint positions, and grid majors.
+- Added a runtime readback-blit fallback for 3D scenes on renderers without
+  wgpu custom draws (notably macOS Metal, which silently drops them): the
+  surface and sphere elements now paint an offscreen render plus image blit
+  when `WgpuCustomDraw` cannot dispatch, instead of showing an empty frame.
+  Previously the surface mesh and gallery spheres never reached the screen
+  on Metal at all. Cache-keyed (static scenes blit for free; rotation
+  re-renders per frame), never engaged on wasm, and label collection stays
+  gated so Metal keeps screen-space axis text.
 
 ## Fixed
 

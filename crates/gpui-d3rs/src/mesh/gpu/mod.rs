@@ -15,9 +15,12 @@ pub(crate) use timestamp::GpuTimestampRecorder;
 #[cfg(all(feature = "gpu-2d", not(test)))]
 mod shaders;
 
-#[cfg(feature = "gpu-compute")]
+/// Adapter compute never runs on wasm (webgpu handles are `!Sync`, and the
+/// blocking dispatch the service is built around must not execute there), so
+/// the whole compute stack — and its only consumer — stays off the target.
+#[cfg(all(feature = "gpu-compute", not(target_family = "wasm")))]
 pub mod compute;
-#[cfg(feature = "gpu-compute")]
+#[cfg(all(feature = "gpu-compute", not(target_family = "wasm")))]
 pub mod compute_shaders;
 
 #[cfg(all(feature = "gpu-3d", not(test)))]

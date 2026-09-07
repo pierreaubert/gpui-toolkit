@@ -447,7 +447,7 @@ pub const LEVEL_METER_DB_TICKS: [f64; 5] = [0.0, -6.0, -20.0, -40.0, -60.0];
 /// Render a vertical dB tick column aligned with a `LevelMeterElement` bar.
 ///
 /// The column stretches to its parent's height, so place it in a fixed-height
-/// row next to the bar. Mirrors [`render_tick_row`] for horizontal meters.
+/// row next to the bar. Mirrors [`crate::ticks::render_tick_row`] for horizontal meters.
 pub fn render_level_meter_ticks(tick_color: Rgba, text_color: Rgba) -> impl IntoElement {
     div()
         .w(px(30.0))

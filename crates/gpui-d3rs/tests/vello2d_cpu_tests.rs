@@ -1,4 +1,5 @@
-use d3rs::vello2d::kurbo::{Circle, Rect, Shape, Stroke};
+use d3rs::gputext::{FAMILY_SANS, FontEngine, TextWeight};
+use d3rs::vello2d::kurbo::{Affine, Circle, Rect, Shape, Stroke};
 use d3rs::vello2d::peniko::{Brush, Color};
 use d3rs::vello2d::{ChartScene, CpuRasterizer};
 
@@ -472,4 +473,100 @@ fn cpu_fixture_covers_audio_spectrum_meters_and_controls() {
         Brush::Solid(Color::from_rgb8(245, 245, 245)),
     );
     assert_deterministic_ink(&audio, 40, 72, "audio visuals");
+}
+
+fn text_scene(engine: &mut FontEngine, transform: Affine) -> ChartScene {
+    let mut scene = ChartScene::new();
+    scene.fill_text(
+        engine,
+        "100°F",
+        24.0,
+        FAMILY_SANS,
+        TextWeight::NORMAL,
+        transform,
+        Brush::Solid(Color::from_rgb8(255, 255, 255)),
+    );
+    scene
+}
+
+fn lit_pixels(buf: &[u8], width: usize, height: usize) -> Vec<(f64, f64)> {
+    let mut out = Vec::new();
+    for y in 0..height {
+        for x in 0..width {
+            if buf[(y * width + x) * 4 + 3] > 8 {
+                out.push((x as f64 + 0.5, y as f64 + 0.5));
+            }
+        }
+    }
+    out
+}
+
+/// Whether any lit pixel center falls within 1.5px of `(x, y)`, absorbing
+/// rasterization and hinting fringe differences between orientations.
+fn lit_near(lit: &[(f64, f64)], x: f64, y: f64) -> bool {
+    lit.iter()
+        .any(|&(lx, ly)| (lx - x).abs() <= 1.5 && (ly - y).abs() <= 1.5)
+}
+
+#[test]
+fn text_paints_and_differs_from_empty() {
+    let mut engine = FontEngine::new();
+    let scene = text_scene(&mut engine, Affine::translate((10.0, 40.0)));
+    assert_deterministic_ink(&scene, 160, 80, "shaped text");
+    let mut rast = CpuRasterizer::new(160, 80);
+    let inked = rast.rasterize(&scene, 160, 80, 1.0);
+    let empty = CpuRasterizer::new(160, 80).rasterize(&ChartScene::new(), 160, 80, 1.0);
+    assert_ne!(inked, empty, "text must differ from the empty scene");
+    assert!(
+        lit_pixels(&inked, 160, 80).len() > 100,
+        "text must paint substantial ink"
+    );
+}
+
+#[test]
+fn rotated_text_is_a_rigid_transform_of_unrotated() {
+    // Same run anchored at C, once axis-aligned and once rotated +90°.
+    // Every lit pixel must map onto lit pixels of the other image under the
+    // inverse rotation (within rasterization tolerance).
+    const C: (f64, f64) = (80.0, 80.0);
+    let mut engine = FontEngine::new();
+    let plain = text_scene(&mut engine, Affine::translate(C));
+    let rotated = text_scene(
+        &mut engine,
+        Affine::translate(C) * Affine::rotate(std::f64::consts::FRAC_PI_2),
+    );
+    let mut rast = CpuRasterizer::new(160, 160);
+    let a = rast.rasterize(&plain, 160, 160, 1.0);
+    let b = rast.rasterize(&rotated, 160, 160, 1.0);
+    let lit_a = lit_pixels(&a, 160, 160);
+    let lit_b = lit_pixels(&b, 160, 160);
+    assert!(lit_a.len() > 100 && lit_b.len() > 100);
+    let count_ratio = lit_a.len() as f64 / lit_b.len() as f64;
+    assert!(
+        (0.8..=1.25).contains(&count_ratio),
+        "rotation must preserve ink coverage, ratio {count_ratio}"
+    );
+    // +90° about C maps p -> C + R(p - C); invert with R(-90°).
+    let back = |p: (f64, f64)| {
+        let (dx, dy) = (p.0 - C.0, p.1 - C.1);
+        (C.0 + dy, C.1 - dx)
+    };
+    let there = |p: (f64, f64)| {
+        let (dx, dy) = (p.0 - C.0, p.1 - C.1);
+        (C.0 - dy, C.1 + dx)
+    };
+    for (pixels, other, map, label) in [
+        (&lit_b, &lit_a, back as fn((f64, f64)) -> (f64, f64), "rot->plain"),
+        (&lit_a, &lit_b, there as fn((f64, f64)) -> (f64, f64), "plain->rot"),
+    ] {
+        let matched = pixels
+            .iter()
+            .filter(|&&p| {
+                let q = map(p);
+                lit_near(other, q.0, q.1)
+            })
+            .count();
+        let frac = matched as f64 / pixels.len() as f64;
+        assert!(frac >= 0.9, "{label} rigid match {frac:.3}");
+    }
 }

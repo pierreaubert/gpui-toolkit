@@ -17,6 +17,12 @@ pub struct SphereGalleryConfig {
     pub ambient: f32,
     /// Diffuse lighting factor
     pub diffuse: f32,
+    /// Render each item's label as a world-anchored SDF billboard under its
+    /// sphere in the wgpu pass. Labels stay upright at every camera angle.
+    /// Defaults off (labels exist on the items but were never displayed).
+    pub billboard_labels: bool,
+    /// Em size of item billboard labels in screen px.
+    pub label_size_px: f32,
 }
 
 impl Default for SphereGalleryConfig {
@@ -29,6 +35,8 @@ impl Default for SphereGalleryConfig {
             background_color: [0.05, 0.05, 0.07],
             ambient: 0.4,
             diffuse: 0.6,
+            billboard_labels: false,
+            label_size_px: 11.0,
         }
     }
 }
@@ -70,6 +78,18 @@ impl SphereGalleryConfig {
 
     pub fn subdivisions(mut self, subs: u32) -> Self {
         self.mesh_config.subdivisions = subs;
+        self
+    }
+
+    /// Render item labels as world-anchored SDF billboards in the wgpu pass
+    pub fn billboard_labels(mut self, enabled: bool) -> Self {
+        self.billboard_labels = enabled;
+        self
+    }
+
+    /// Em size of item billboard labels in screen px
+    pub fn label_size_px(mut self, size: f32) -> Self {
+        self.label_size_px = size.max(1.0);
         self
     }
 }

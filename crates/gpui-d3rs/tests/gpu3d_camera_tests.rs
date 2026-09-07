@@ -201,3 +201,135 @@ fn fit_to_bounds_contains_all_corners() {
         }
     }
 }
+
+#[test]
+fn world_per_screen_px_grows_with_distance() {
+    let near = Camera3D::new()
+        .with_position(Vec3::new(0.0, 0.0, 2.0))
+        .with_target(Vec3::ZERO);
+    let far = Camera3D::new()
+        .with_position(Vec3::new(0.0, 0.0, 8.0))
+        .with_target(Vec3::ZERO);
+    let near_scale = near
+        .world_per_screen_px(Vec3::ZERO, 400.0, 300.0)
+        .expect("origin projects");
+    let far_scale = far
+        .world_per_screen_px(Vec3::ZERO, 400.0, 300.0)
+        .expect("origin projects");
+    assert!(near_scale > 0.0 && far_scale > 0.0);
+    // Four times the distance spans roughly four times the world per pixel.
+    assert!(
+        (far_scale / near_scale - 4.0).abs() < 0.5,
+        "near {near_scale} far {far_scale}"
+    );
+}
+
+#[test]
+fn world_per_screen_px_rejects_unprojectable_anchors() {
+    let camera = Camera3D::new()
+        .with_position(Vec3::new(0.0, 0.0, 2.0))
+        .with_target(Vec3::ZERO);
+    assert!(
+        camera
+            .world_per_screen_px(Vec3::new(0.0, 0.0, 3.0), 400.0, 300.0)
+            .is_none()
+    );
+}
+
+#[test]
+fn cartesian_tick_plan_labels_linear_data_plainly() {
+    use d3rs::gpu3d::{SurfaceData, cartesian_tick_plan_for_testing};
+
+    // Sinc-demo-shaped linear data: no explicit ticks anywhere.
+    let data = SurfaceData::from_function(
+        (-3.0 * std::f64::consts::PI, 3.0 * std::f64::consts::PI),
+        (-3.0 * std::f64::consts::PI, 3.0 * std::f64::consts::PI),
+        5,
+        5,
+        |x, y| x + y,
+    );
+    let plan = cartesian_tick_plan_for_testing(&data);
+
+    // X and Y span ±3π: nice step 2 gives nine plain integer labels each.
+    for (ticks, labels) in [&plan.x_ticks, &plan.y_ticks]
+        .into_iter()
+        .zip([&plan.x_labels, &plan.y_labels])
+    {
+        assert_eq!(ticks.len(), 9, "ticks: {ticks:?}");
+        assert_eq!(ticks[0], -8.0);
+        assert_eq!(ticks[8], 8.0);
+        assert_eq!(labels.len(), 9);
+        assert_eq!(labels[0], "-8");
+        assert_eq!(labels[8], "8");
+        assert!(
+            labels.iter().all(|label| {
+                !label.contains('k')
+                    && !label.contains('°')
+                    && !label.contains('d')
+                    && !label.contains('B')
+            }),
+            "plain labels, got {labels:?}"
+        );
+    }
+
+    // Z spans ±6π: nice step 5, still plain.
+    assert_eq!(plan.z_ticks[0], -15.0);
+    assert!(plan.z_ticks.len() >= 5);
+    assert_eq!(plan.z_labels.len(), plan.z_ticks.len());
+    assert!(
+        plan.z_labels.iter().all(|label| {
+            !label.contains('k')
+                && !label.contains('°')
+                && !label.contains('d')
+                && !label.contains('B')
+        }),
+        "plain labels, got {:?}",
+        plan.z_labels
+    );
+}
+
+#[test]
+fn cartesian_tick_plan_keeps_audio_contract_for_explicit_ticks() {
+    use d3rs::gpu3d::{SurfaceData, cartesian_tick_plan_for_testing};
+
+    // Spinorama-style explicit ticks keep today's audio formatting exactly.
+    let data = SurfaceData::from_function((20.0, 20000.0), (-180.0, 180.0), 3, 3, |_, _| 0.0)
+        .with_x_ticks(vec![100.0, 1000.0, 2000.0])
+        .with_y_ticks(vec![-90.0, 0.0, 90.0])
+        .with_z_ticks(vec![-40.0, 0.0]);
+    let plan = cartesian_tick_plan_for_testing(&data);
+    assert_eq!(plan.x_ticks, vec![100.0, 1000.0, 2000.0]);
+    assert_eq!(plan.x_labels, vec!["100", "1k", "2k"]);
+    assert_eq!(plan.y_labels, vec!["-90°", "0°", "90°"]);
+    assert_eq!(plan.z_labels, vec!["-40dB", "0dB"]);
+}
+
+#[test]
+fn cartesian_tick_plan_formats_fractions_without_fp_dust() {
+    use d3rs::gpu3d::{SurfaceData, cartesian_tick_plan_for_testing};
+
+    // Unit range → 0.1 steps: 0.1 + 0.2 accumulates float dust that must
+    // never reach a label.
+    let data = SurfaceData::from_function((0.0, 1.0), (0.0, 1.0), 2, 2, |_, _| 0.0);
+    let plan = cartesian_tick_plan_for_testing(&data);
+    assert_eq!(plan.x_ticks.len(), 11);
+    assert_eq!(plan.x_labels[3], "0.3");
+    assert_eq!(plan.x_labels[7], "0.7");
+    assert_eq!(plan.x_labels[10], "1");
+}
+
+#[test]
+fn billboard_label_opts_default_off() {
+    use d3rs::sphere_gallery::SphereGalleryConfig;
+
+    let surface = Surface3DConfig::default();
+    assert!(!surface.billboard_labels);
+    assert!(surface.billboard_labels(true).billboard_labels);
+
+    let gallery = SphereGalleryConfig::default();
+    assert!(!gallery.billboard_labels);
+    assert_eq!(gallery.label_size_px, 11.0);
+    let enabled = gallery.billboard_labels(true).label_size_px(14.0);
+    assert!(enabled.billboard_labels);
+    assert_eq!(enabled.label_size_px, 14.0);
+}

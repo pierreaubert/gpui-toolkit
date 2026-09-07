@@ -21,7 +21,7 @@
 //! ([`search_command_palette_cached`], [`keybinding_hints_cached`]) over the
 //! [`Vec`]-returning twins: the uncached wrappers exist for one-off queries
 //! and share the same matching logic, but they allocate on every call while
-//! the cached variants return cheap [`Rc`] handles with allocation-free hits.
+//! the cached variants return cheap `Rc` handles with allocation-free hits.
 
 mod conflict;
 mod discovery;

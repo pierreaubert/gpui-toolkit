@@ -8,7 +8,9 @@
 //! `tests/components/thinking_orb_parity_test.rs`.
 //!
 //! With the `vello` feature (on by default) this module also ships the
-//! [`ThinkingOrb`] GPUI component, which renders engine frames on the GPU via
+//! `ThinkingOrb` GPUI component, which renders engine frames on the GPU via
+//! (code span, not a link: the component is `vello`-gated and this module
+//! documents the no-default-features build too).
 //! `d3rs::vello2d` (vello-on-wgpu zero-copy custom draw, with an automatic
 //! `vello_cpu` fallback).
 

@@ -1519,6 +1519,7 @@ mod tests {
         let path_element_count = |scene: &d3rs::vello2d::ChartScene| match &scene.commands()[0] {
             d3rs::vello2d::ChartCmd::Fill { path, .. } => path.elements().len(),
             d3rs::vello2d::ChartCmd::Stroke { .. } => 0,
+            d3rs::vello2d::ChartCmd::Text { .. } => 0,
         };
         assert!(path_element_count(&rounded) > path_element_count(&square));
 

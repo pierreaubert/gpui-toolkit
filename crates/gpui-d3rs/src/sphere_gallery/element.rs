@@ -6,11 +6,9 @@ use super::wgpu_draw::{GalleryWgpuDraw, GalleryWgpuRegistration};
 use crate::gpu3d::{Camera3D, OrbitControls};
 use glam::Vec3;
 use gpui::*;
-#[cfg(feature = "headless-qa")]
 use image::{Frame, RgbaImage};
 use std::cell::RefCell;
 use std::rc::Rc;
-#[cfg(feature = "headless-qa")]
 use std::sync::Arc;
 
 /// A single item in the sphere gallery
@@ -22,7 +20,6 @@ pub struct SphereGalleryItem {
     pub label: Option<SharedString>,
 }
 
-#[cfg(feature = "headless-qa")]
 #[derive(Clone, PartialEq, Eq)]
 struct GalleryPaintKey {
     width: u32,
@@ -33,13 +30,11 @@ struct GalleryPaintKey {
     item_count: u32,
 }
 
-#[cfg(feature = "headless-qa")]
 pub(crate) struct CachedGalleryImage {
     key: GalleryPaintKey,
     image: Arc<RenderImage>,
 }
 
-#[cfg(feature = "headless-qa")]
 fn gallery_paint_key(state: &SphereGalleryState, width: u32, height: u32) -> GalleryPaintKey {
     let camera = &state.camera;
     GalleryPaintKey {
@@ -183,7 +178,6 @@ pub struct SphereGalleryElement {
     renderer: Rc<RefCell<Option<SphereGalleryRenderer>>>,
     images_uploaded: Rc<RefCell<bool>>,
     gpu_draw: Rc<GalleryWgpuRegistration>,
-    #[cfg(feature = "headless-qa")]
     paint_cache: Rc<RefCell<Option<CachedGalleryImage>>>,
     items: Vec<SphereGalleryItem>,
 }
@@ -209,7 +203,6 @@ impl SphereGalleryElement {
             renderer,
             images_uploaded,
             gpu_draw,
-            #[cfg(feature = "headless-qa")]
             paint_cache: Rc::new(RefCell::new(None)),
             items,
         }
@@ -238,7 +231,6 @@ impl SphereGalleryElement {
         self
     }
 
-    #[cfg(feature = "headless-qa")]
     fn ensure_renderer(&self) -> bool {
         let mut renderer_ref = self.renderer.borrow_mut();
         if renderer_ref.is_none() {
@@ -251,7 +243,6 @@ impl SphereGalleryElement {
         true
     }
 
-    #[cfg(feature = "headless-qa")]
     fn ensure_images_uploaded(&self) {
         if *self.images_uploaded.borrow() {
             return;
@@ -267,6 +258,60 @@ impl SphereGalleryElement {
             renderer.upload_images(&image_refs);
             *self.images_uploaded.borrow_mut() = true;
             self.paint_cache.borrow_mut().take();
+        }
+    }
+
+    /// Offscreen render plus image blit, shared by headless QA captures and
+    /// the runtime fallback for renderers without wgpu custom draws (Metal).
+    /// A cache miss blocks on a full GPU render and readback; static scenes
+    /// blit for free.
+    fn paint_blit(&self, bounds: Bounds<Pixels>, window: &mut Window) {
+        let width: f32 = bounds.size.width.into();
+        let height: f32 = bounds.size.height.into();
+        let width_u32 = width as u32;
+        let height_u32 = height as u32;
+
+        if width_u32 > 0 && height_u32 > 0 {
+            let key = {
+                let state = self.state.borrow();
+                gallery_paint_key(&state, width_u32, height_u32)
+            };
+            if let Some(image) = self
+                .paint_cache
+                .borrow()
+                .as_ref()
+                .filter(|cache| cache.key == key)
+                .map(|cache| Arc::clone(&cache.image))
+            {
+                let _ = window.paint_image(bounds, Corners::default(), image, 0, false);
+                return;
+            }
+
+            if !self.ensure_renderer() {
+                return;
+            }
+            self.ensure_images_uploaded();
+            if let Some(renderer) = self.renderer.borrow_mut().as_mut() {
+                renderer.resize(width_u32, height_u32);
+                let state = self.state.borrow();
+                if let Some(pixels) = renderer.render(
+                    &state.camera,
+                    state.item_count,
+                    state.selected,
+                    state.hovered,
+                ) && let Some(rgba_image) = RgbaImage::from_raw(width_u32, height_u32, pixels)
+                {
+                    let image = Arc::new(RenderImage::new(vec![Frame::new(rgba_image)]));
+                    let _ = window.paint_image(
+                        bounds,
+                        Corners::default(),
+                        Arc::clone(&image),
+                        0,
+                        false,
+                    );
+                    *self.paint_cache.borrow_mut() = Some(CachedGalleryImage { key, image });
+                }
+            }
         }
     }
 }
@@ -342,15 +387,22 @@ impl Element for SphereGalleryElement {
         if width <= 0.0 || height <= 0.0 {
             return;
         }
-        let state = self.state.borrow();
-        self.gpu_draw.draw.update(
-            state.camera.clone(),
-            state.item_count,
-            state.selected,
-            state.hovered,
-        );
-        drop(state);
-        window.paint_custom(self.gpu_draw.id, bounds);
+        if crate::gpu3d::gpu_custom_draw_available() {
+            let state = self.state.borrow();
+            self.gpu_draw.draw.update(
+                state.camera.clone(),
+                state.item_count,
+                state.selected,
+                state.hovered,
+            );
+            drop(state);
+            window.paint_custom(self.gpu_draw.id, bounds);
+        } else if !cfg!(target_arch = "wasm32") {
+            // No wgpu dispatch (Metal): blocking offscreen render plus
+            // image blit. Never on wasm — stalling the browser event loop
+            // on a readback is worse than an empty frame.
+            self.paint_blit(bounds, window);
+        }
     }
 
     #[cfg(feature = "headless-qa")]
@@ -364,53 +416,7 @@ impl Element for SphereGalleryElement {
         window: &mut Window,
         _cx: &mut App,
     ) {
-        let width: f32 = bounds.size.width.into();
-        let height: f32 = bounds.size.height.into();
-        let width_u32 = width as u32;
-        let height_u32 = height as u32;
-
-        if width_u32 > 0 && height_u32 > 0 {
-            let key = {
-                let state = self.state.borrow();
-                gallery_paint_key(&state, width_u32, height_u32)
-            };
-            if let Some(image) = self
-                .paint_cache
-                .borrow()
-                .as_ref()
-                .filter(|cache| cache.key == key)
-                .map(|cache| Arc::clone(&cache.image))
-            {
-                let _ = window.paint_image(bounds, Corners::default(), image, 0, false);
-                return;
-            }
-
-            if !self.ensure_renderer() {
-                return;
-            }
-            self.ensure_images_uploaded();
-            if let Some(renderer) = self.renderer.borrow_mut().as_mut() {
-                renderer.resize(width_u32, height_u32);
-                let state = self.state.borrow();
-                if let Some(pixels) = renderer.render(
-                    &state.camera,
-                    state.item_count,
-                    state.selected,
-                    state.hovered,
-                ) && let Some(rgba_image) = RgbaImage::from_raw(width_u32, height_u32, pixels)
-                {
-                    let image = Arc::new(RenderImage::new(vec![Frame::new(rgba_image)]));
-                    let _ = window.paint_image(
-                        bounds,
-                        Corners::default(),
-                        Arc::clone(&image),
-                        0,
-                        false,
-                    );
-                    *self.paint_cache.borrow_mut() = Some(CachedGalleryImage { key, image });
-                }
-            }
-        }
+        self.paint_blit(bounds, window);
     }
 }
 

@@ -50,7 +50,8 @@ impl Surface3DDemo {
             .wireframe(false)
             .ambient(0.3)
             .diffuse(0.7)
-            .camera_position(4.0, 45.0, 30.0);
+            .camera_position(4.0, 45.0, 30.0)
+            .billboard_labels(true);
 
         let state = Rc::new(RefCell::new(Surface3DState::new(
             config.camera_distance,
@@ -125,7 +126,8 @@ impl Surface3DDemo {
             .wireframe(false)
             .ambient(0.25)
             .diffuse(0.75)
-            .camera_position(3.5, 60.0, 25.0);
+            .camera_position(3.5, 60.0, 25.0)
+            .billboard_labels(true);
 
         let state = Rc::new(RefCell::new(Surface3DState::new(
             config.camera_distance,

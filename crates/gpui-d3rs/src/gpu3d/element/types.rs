@@ -1,6 +1,5 @@
 use super::super::data::SurfaceData;
 use super::linear::linear_subdivision_ticks;
-use super::misc::default_frequency_ticks;
 use super::misc::log_frequency_minor_ticks;
 use super::misc::remove_positions;
 use super::misc::sanitize_axis_positions;
@@ -27,14 +26,8 @@ pub(super) struct AxisGridTicks {
     pub(super) minor: Vec<f32>,
 }
 
-pub(super) fn frequency_grid_ticks(data: &SurfaceData) -> AxisGridTicks {
-    let mut major = normalized_x_positions(
-        data.x_ticks
-            .clone()
-            .unwrap_or_else(default_frequency_ticks)
-            .into_iter(),
-        data,
-    );
+pub(super) fn frequency_grid_ticks(data: &SurfaceData, major_ticks: &[f64]) -> AxisGridTicks {
+    let mut major = normalized_x_positions(major_ticks.iter().copied(), data);
     let mut minor = if data.x_log {
         normalized_x_positions(log_frequency_minor_ticks(data).into_iter(), data)
     } else {

@@ -7,8 +7,9 @@
 //!
 //! Labels follow the official placement rule for every node (offset 6px,
 //! leaves outward, internal nodes inward, baseline flipped on the left
-//! half), painted with the repo's rotatable Hershey vector font since filled
-//! GPUI text cannot rotate.
+//! half), shaped with the bundled DejaVu Sans through the GPU-text engine
+//! and replayed as rotated scene runs (Phase 3 of
+//! `reviews/20260906-gpu-text.md`).
 
 use super::flare_data;
 use crate::ShowcaseApp;
@@ -16,9 +17,12 @@ use crate::showcase_modules::chart_colors;
 use d3rs::examples::radial_tree::{
     FlareNode, RadialTreeResult, compute_with_root, labels as radial_labels,
 };
+use d3rs::gputext::{FAMILY_SANS, FontEngine, TextWeight};
 use d3rs::hierarchy::HierarchyNode as D3HierarchyNode;
-use d3rs::shape::path::PathBuilder as D3PathBuilder;
-use d3rs::text::vector_font::{measure_text_width, paint_vector_text_at};
+use d3rs::shape::path::{Path, PathCommand};
+use d3rs::vello2d::kurbo::{Affine, BezPath, PathEl, Stroke};
+use d3rs::vello2d::peniko::{Brush, Color};
+use d3rs::vello2d::{ChartScene, VelloChartElement};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
@@ -57,61 +61,27 @@ fn render_radial(cluster: bool, ui_theme: &gpui_ui_kit::theme::Theme) -> Div {
     let width = result.width;
     let height = result.height;
 
-    let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
-    let mut all_colors: Vec<Hsla> = Vec::new();
+    // Links as kurbo paths for scene strokes. Official is #555 at 0.4 over
+    // white; the adapted lightness is kept but alpha lifts to 0.6 — 1.5px
+    // hairlines at 0.4 dissolve over the dark surface while staying subtle.
+    let link_ink = chart_colors::ink(ui_theme, hsla(0.0, 0.0, 0.33, 0.4));
+    let link_brush = ink_brush(hsla(link_ink.h, link_ink.s, link_ink.l, 0.6));
+    let links: Vec<BezPath> = result.link_paths.iter().map(d3_path_to_kurbo).collect();
 
-    // Links (official: #555 at 0.4 opacity, 1.5px)
-    for path in &result.link_paths {
-        d3_paths.push(path.clone());
-        all_colors.push(chart_colors::ink(ui_theme, hsla(0.0, 0.0, 0.33, 0.4)));
-    }
-
-    // Nodes as small circles (official: #555 internal, #999 leaves, r=2.5)
-    let n_sides = 12;
-    for node in &result.nodes {
-        let r = 2.5;
-        let mut builder = D3PathBuilder::new();
-        for v in 0..n_sides {
-            let angle = std::f64::consts::TAU * v as f64 / n_sides as f64;
-            let x = node.x + r * angle.cos();
-            let y = node.y + r * angle.sin();
-            if v == 0 {
-                builder = builder.move_to(x, y);
-            } else {
-                builder = builder.line_to(x, y);
-            }
-        }
-        builder = builder.close_path();
-        d3_paths.push(builder.build());
-        let shade = if node.is_leaf { 0.6 } else { 0.33 };
-        all_colors.push(chart_colors::ink(ui_theme, hsla(0.0, 0.0, shade, 1.0)));
-    }
-
-    // Labels for every node, painted as rotated Hershey vector text along the
-    // spokes (the repo's rotatable-text primitive; filled GPUI text cannot
-    // rotate). Placement follows the official rule: the text center sits half
-    // a measured width plus 6px from the node, outward for leaves and inward
-    // for internal nodes, with the baseline flipped on the left half.
-    let font_size = 10.0f32;
-    let label_specs: Vec<(String, f32, f32, f32)> = radial_labels(&result)
+    // Nodes as center points (official: #555 internal, #999 leaves, r=2.5).
+    let internal_brush = ink_brush(chart_colors::ink(ui_theme, hsla(0.0, 0.0, 0.33, 1.0)));
+    let leaf_brush = ink_brush(chart_colors::ink(ui_theme, hsla(0.0, 0.0, 0.6, 1.0)));
+    let nodes: Vec<(f64, f64, bool)> = result
+        .nodes
         .iter()
-        .map(|label| {
-            let width = measure_text_width(&label.name, font_size);
-            let spoke = label.angle - std::f64::consts::FRAC_PI_2;
-            let (ux, uy) = (spoke.cos(), spoke.sin());
-            let side = if label.outward { 1.0 } else { -1.0 };
-            let dist = width as f64 / 2.0 + 6.0;
-            let cx = label.x + side * ux * dist;
-            let cy = label.y + side * uy * dist;
-            (
-                label.name.clone(),
-                cx as f32,
-                cy as f32,
-                label.rotation as f32,
-            )
-        })
+        .map(|node| (node.x, node.y, node.is_leaf))
         .collect();
-    let label_color = ui_theme.text_primary;
+
+    // Labels keep the official placement rule (offset 6px, leaves outward,
+    // baseline flipped on the left half); only the width source changes from
+    // Hershey metrics to shaped advances.
+    let labels = radial_labels(&result);
+    let label_brush = ink_brush(ui_theme.text_primary);
 
     let title = if cluster {
         "Radial Cluster — Flare Hierarchy"
@@ -150,38 +120,142 @@ fn render_radial(cluster: bool, ui_theme: &gpui_ui_kit::theme::Theme) -> Div {
                 .border_1()
                 .border_color(ui_theme.border)
                 .child(
-                    canvas(
-                        move |bounds, _, _| {
-                            d3_paths
-                                .iter()
-                                .map(|p| {
-                                    super::path_utils::d3rs_path_to_gpui_simple(p, bounds, 0.0, 0.0)
-                                })
-                                .collect::<Vec<_>>()
-                        },
-                        move |bounds, paths, window, _| {
-                            for (i, path_opt) in paths.into_iter().enumerate() {
-                                if let Some(path) = path_opt {
-                                    window.paint_path(path, all_colors[i]);
-                                }
-                            }
-                            let ox: f32 = bounds.origin.x.into();
-                            let oy: f32 = bounds.origin.y.into();
-                            for (name, cx, cy, rotation) in &label_specs {
-                                paint_vector_text_at(
-                                    window,
-                                    name,
-                                    ox + cx,
-                                    oy + cy,
-                                    font_size,
-                                    1.0,
-                                    label_color,
-                                    *rotation,
-                                );
-                            }
-                        },
-                    )
-                    .size_full(),
+                    VelloChartElement::with_builder(move |_, _| {
+                        let mut engine = FontEngine::new();
+                        let mut scene = ChartScene::new();
+                        let link_stroke = Stroke::new(1.5);
+                        for path in &links {
+                            scene.stroke_path(
+                                path.clone(),
+                                link_stroke.clone(),
+                                link_brush.clone(),
+                            );
+                        }
+                        for (x, y, is_leaf) in &nodes {
+                            scene.fill_circle(
+                                *x,
+                                *y,
+                                2.5,
+                                if *is_leaf {
+                                    leaf_brush.clone()
+                                } else {
+                                    internal_brush.clone()
+                                },
+                            );
+                        }
+                        let font_size = 10.0f32;
+                        for label in &labels {
+                            let shaped_width = FontEngine::line_width(&engine.shape(
+                                &label.name,
+                                font_size,
+                                FAMILY_SANS,
+                                TextWeight::NORMAL,
+                            ));
+                            let spoke = label.angle - std::f64::consts::FRAC_PI_2;
+                            let (ux, uy) = (spoke.cos(), spoke.sin());
+                            let side = if label.outward { 1.0 } else { -1.0 };
+                            let dist = shaped_width as f64 / 2.0 + 6.0;
+                            let cx = label.x + side * ux * dist;
+                            let cy = label.y + side * uy * dist;
+                            // Anchor the run's cap-middle center on the label
+                            // point, matching the old Hershey centering.
+                            let anchor = Affine::translate((cx, cy))
+                                * Affine::rotate(label.rotation)
+                                * Affine::translate((
+                                    -shaped_width as f64 / 2.0,
+                                    0.35 * font_size as f64,
+                                ));
+                            scene.fill_text(
+                                &mut engine,
+                                &label.name,
+                                font_size,
+                                FAMILY_SANS,
+                                TextWeight::NORMAL,
+                                anchor,
+                                label_brush.clone(),
+                            );
+                        }
+                        scene
+                    })
+                    .absolute(),
                 ),
         )
+}
+
+/// Theme color (`Hsla` ink or `Rgba` field) into a solid scene brush.
+fn ink_brush(color: impl Into<Rgba>) -> Brush {
+    let rgba: Rgba = color.into();
+    Brush::Solid(Color::new([rgba.r, rgba.g, rgba.b, rgba.a]))
+}
+
+/// Map a d3 path onto kurbo, preserving subpaths. Radial links only emit
+/// `MoveTo` + `CubicCurveTo`; arcs fall back to endpoint lines (never
+/// exercised here) and rects map corner to corner.
+fn d3_path_to_kurbo(path: &Path) -> BezPath {
+    let mut out = BezPath::new();
+    let (mut cx, mut cy) = (0.0, 0.0);
+    for cmd in path.commands() {
+        match *cmd {
+            PathCommand::MoveTo { x, y } => {
+                out.push(PathEl::MoveTo((x, y).into()));
+                cx = x;
+                cy = y;
+            }
+            PathCommand::LineTo { x, y } => {
+                out.push(PathEl::LineTo((x, y).into()));
+                cx = x;
+                cy = y;
+            }
+            PathCommand::HorizontalLineTo { x } => {
+                cx = x;
+                out.push(PathEl::LineTo((cx, cy).into()));
+            }
+            PathCommand::VerticalLineTo { y } => {
+                cy = y;
+                out.push(PathEl::LineTo((cx, cy).into()));
+            }
+            PathCommand::ClosePath => out.push(PathEl::ClosePath),
+            PathCommand::QuadraticCurveTo { x1, y1, x, y } => {
+                out.push(PathEl::QuadTo((x1, y1).into(), (x, y).into()));
+                cx = x;
+                cy = y;
+            }
+            PathCommand::CubicCurveTo {
+                x1,
+                y1,
+                x2,
+                y2,
+                x,
+                y,
+            } => {
+                out.push(PathEl::CurveTo(
+                    (x1, y1).into(),
+                    (x2, y2).into(),
+                    (x, y).into(),
+                ));
+                cx = x;
+                cy = y;
+            }
+            PathCommand::Arc { x, y, .. } | PathCommand::EllipticalArc { x, y, .. } => {
+                out.push(PathEl::LineTo((x, y).into()));
+                cx = x;
+                cy = y;
+            }
+            PathCommand::Rect {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                out.push(PathEl::MoveTo((x, y).into()));
+                out.push(PathEl::LineTo(((x + width), y).into()));
+                out.push(PathEl::LineTo(((x + width), (y + height)).into()));
+                out.push(PathEl::LineTo((x, (y + height)).into()));
+                out.push(PathEl::ClosePath);
+                cx = x;
+                cy = y;
+            }
+        }
+    }
+    out
 }

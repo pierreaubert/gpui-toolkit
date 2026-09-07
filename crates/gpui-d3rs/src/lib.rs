@@ -91,3 +91,5 @@ pub mod timer;
 pub mod transition;
 #[cfg(feature = "vello")]
 pub mod vello2d;
+#[cfg(any(feature = "vello", feature = "gpu-3d"))]
+pub mod gputext;

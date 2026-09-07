@@ -1,10 +1,31 @@
 //! Backend-neutral chart scene: kurbo geometry + peniko brushes.
 
-use kurbo::{BezPath, Circle, PathEl, Rect, RoundedRect, Shape, Stroke};
-use peniko::{Brush, Fill};
+use crate::gputext::{FontEngine, TextWeight};
+use kurbo::{Affine, BezPath, Circle, PathEl, Rect, RoundedRect, Shape, Stroke};
+use peniko::{Brush, Fill, FontData};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_SCENE_REVISION: AtomicU64 = AtomicU64::new(1);
+
+/// One pre-shaped text run: font-mapped glyphs with a scene-space anchor.
+///
+/// Shaping happens at scene build (it needs the engine's cached contexts);
+/// replay stays a cheap encode on both backends. `transform` maps run-local
+/// px (baseline origin, +y down) into scene coordinates — rotation for
+/// radial labels composes here, and replay multiplies the scene transform.
+#[derive(Clone, Debug)]
+pub struct TextRun {
+    /// Resolved font file backing every glyph in [`TextRun::glyphs`].
+    pub font: FontData,
+    /// Requested size in px.
+    pub size: f32,
+    /// Glyphs in visual order, baseline-relative.
+    pub glyphs: Vec<vello::Glyph>,
+    /// Anchor mapping run-local px into scene coordinates.
+    pub transform: Affine,
+    /// Run paint.
+    pub brush: Brush,
+}
 
 /// One draw command in a [`ChartScene`].
 #[derive(Clone, Debug)]
@@ -21,6 +42,8 @@ pub enum ChartCmd {
         stroke: Stroke,
         brush: Brush,
     },
+    /// Fill pre-shaped text runs with their brushes.
+    Text { runs: Vec<TextRun> },
 }
 
 /// Ordered list of chart draw commands, replayed by GPU or CPU backends.
@@ -169,6 +192,46 @@ impl ChartScene {
         self.stroke_path(path, stroke, brush);
     }
 
+    /// Shape one line of text and record it with `transform` mapping
+    /// run-local px into scene coordinates. Empty text emits nothing (and
+    /// does not advance the revision), matching the other no-op builders.
+    pub fn fill_text(
+        &mut self,
+        engine: &mut FontEngine,
+        text: &str,
+        size: f32,
+        family: &str,
+        weight: TextWeight,
+        transform: Affine,
+        brush: Brush,
+    ) {
+        let runs = engine
+            .shape(text, size, family, weight)
+            .into_iter()
+            .filter(|run| !run.glyphs.is_empty())
+            .map(|run| TextRun {
+                font: run.font,
+                size: run.size,
+                glyphs: run
+                    .glyphs
+                    .into_iter()
+                    .map(|glyph| vello::Glyph {
+                        id: glyph.id,
+                        x: glyph.x,
+                        y: glyph.y,
+                    })
+                    .collect(),
+                transform,
+                brush: brush.clone(),
+            })
+            .collect::<Vec<_>>();
+        if runs.is_empty() {
+            return;
+        }
+        self.cmds.push(ChartCmd::Text { runs });
+        self.revision = self.revision.wrapping_add(1);
+    }
+
     pub fn commands(&self) -> &[ChartCmd] {
         &self.cmds
     }
@@ -296,7 +359,52 @@ fn arc_path(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gputext::{FAMILY_SANS, FontEngine};
     use peniko::Color;
+
+    fn engine() -> FontEngine {
+        FontEngine::new()
+    }
+
+    #[test]
+    fn fill_text_records_shaped_runs_and_bumps_revision() {
+        let mut scene = ChartScene::new();
+        let revision = scene.revision();
+        scene.fill_text(
+            &mut engine(),
+            "100°F",
+            12.0,
+            FAMILY_SANS,
+            crate::gputext::TextWeight::NORMAL,
+            Affine::translate((10.0, 30.0)),
+            Brush::Solid(Color::WHITE),
+        );
+        assert_eq!(scene.len(), 1);
+        assert_eq!(scene.revision(), revision + 1);
+        let ChartCmd::Text { runs } = &scene.commands()[0] else {
+            panic!("fill_text must record a Text command");
+        };
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].glyphs.len(), 5);
+        assert_eq!(runs[0].size, 12.0);
+    }
+
+    #[test]
+    fn empty_text_emits_nothing() {
+        let mut scene = ChartScene::new();
+        let revision = scene.revision();
+        scene.fill_text(
+            &mut engine(),
+            "",
+            12.0,
+            FAMILY_SANS,
+            crate::gputext::TextWeight::NORMAL,
+            Affine::IDENTITY,
+            Brush::Solid(Color::WHITE),
+        );
+        assert!(scene.is_empty());
+        assert_eq!(scene.revision(), revision);
+    }
 
     #[test]
     fn revisions_advance_only_when_commands_are_emitted() {

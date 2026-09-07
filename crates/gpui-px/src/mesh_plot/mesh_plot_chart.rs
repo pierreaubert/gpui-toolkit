@@ -11,7 +11,7 @@ use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
 use d3rs::grid::{GridConfig, render_grid};
 #[cfg(feature = "gpu-3d")]
 use d3rs::mesh::MeshBounds;
-#[cfg(feature = "gpu-3d")]
+#[cfg(all(feature = "gpu-3d", not(target_family = "wasm")))]
 use d3rs::mesh::gpu::compute::shared_mesh_compute;
 use d3rs::mesh::{
     ContourBand, CoordinateAxis, IsolineSegment, MarchingTriangles, MeshTopology,
@@ -4243,7 +4243,23 @@ fn contour_geometry(
 /// plots. Filled-band clipping stays on the deterministic CPU implementation
 /// until a matching GPU band pipeline exists. Any adapter creation/dispatch
 /// failure deliberately falls back to `contour_geometry`.
-#[cfg(feature = "gpu-3d")]
+/// wasm twin: the adapter compute service cannot exist on wasm (webgpu
+/// handles are `!Sync`), so contour preparation always runs the
+/// deterministic CPU implementation directly.
+#[cfg(all(feature = "gpu-3d", target_family = "wasm"))]
+fn contour_geometry_with_compute(
+    mesh: &TriangleMesh,
+    field: Option<&ScalarField>,
+    topology: &MeshTopology,
+    horizontal: CoordinateAxis,
+    vertical: CoordinateAxis,
+    mode: &MeshRenderMode,
+    range: Option<[f64; 2]>,
+) -> Result<(Vec<ContourBand>, Vec<IsolineSegment>), ChartError> {
+    contour_geometry(mesh, field, topology, horizontal, vertical, mode, range)
+}
+
+#[cfg(all(feature = "gpu-3d", not(target_family = "wasm")))]
 fn contour_geometry_with_compute(
     mesh: &TriangleMesh,
     field: Option<&ScalarField>,

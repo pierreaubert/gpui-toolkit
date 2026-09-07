@@ -104,7 +104,8 @@ impl DemoView {
         let config = SphereGalleryConfig::new(COLS, ROWS)
             .cell_size(CELL_SIZE)
             .projection(Projection::Stereographic)
-            .apex_height(apex_height as f32);
+            .apex_height(apex_height as f32)
+            .billboard_labels(true);
 
         let gallery = cx.new(|_cx| {
             SphereGalleryView::new(items.clone(), config).on_select(|index, _window, _cx| {
@@ -125,7 +126,8 @@ impl DemoView {
         let config = SphereGalleryConfig::new(COLS, ROWS)
             .cell_size(CELL_SIZE)
             .projection(projection)
-            .apex_height(self.apex_height as f32);
+            .apex_height(self.apex_height as f32)
+            .billboard_labels(true);
 
         let items = self.items.clone();
         self.gallery = cx.new(|_cx| {

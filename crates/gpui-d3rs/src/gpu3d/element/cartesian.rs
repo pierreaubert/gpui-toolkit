@@ -15,9 +15,10 @@ pub(super) fn cartesian_grid_lines(
     data: &SurfaceData,
     camera: &Camera3D,
 ) -> Vec<CartesianGridLine> {
-    let x_ticks = frequency_grid_ticks(data);
-    let angle_ticks = angle_grid_ticks(data);
-    let spl_ticks = spl_grid_ticks(data);
+    let plan = super::ticks::cartesian_tick_plan(data);
+    let x_ticks = frequency_grid_ticks(data, &plan.x_ticks);
+    let angle_ticks = angle_grid_ticks(data, &plan.y_ticks);
+    let spl_ticks = spl_grid_ticks(data, &plan.z_ticks);
     let x_face = if camera.position.x >= camera.target.x {
         -1.0
     } else {

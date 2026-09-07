@@ -1,18 +1,16 @@
 use super::super::camera::Camera3D;
 use super::super::config::Surface3DConfig;
-#[cfg(feature = "headless-qa")]
 use super::super::config::SurfacePlotType;
 use super::super::mesh::{GpuVertex, SurfaceMesh};
 use super::super::shaders;
 use super::Uniforms;
 #[cfg(feature = "headless-qa")]
 use super::misc::background_surface_clear_color;
-#[cfg(feature = "headless-qa")]
 use super::transparent::transparent_surface_clear_color;
-#[cfg(feature = "headless-qa")]
 use super::unpremultiply::unpremultiply_rgba;
 #[cfg(feature = "gpu-2d")]
 use crate::gpu2d::Gpu2DContext;
+use crate::gputext::billboard::{BillboardPass, WorldLabel, render_billboards};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
@@ -42,11 +40,13 @@ pub struct Surface3DRenderer {
     pub(super) render_texture_view: Option<wgpu::TextureView>,
     pub(super) resolve_texture: Option<wgpu::Texture>,
     pub(super) resolve_texture_view: Option<wgpu::TextureView>,
-    #[cfg(feature = "headless-qa")]
     pub(super) readback_buffer: Option<wgpu::Buffer>,
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) config: Surface3DConfig,
+    /// Lazily created on the first labeled frame; label-free scenes (and the
+    /// default opt-out) never pay for the atlas upload or pipeline.
+    pub(super) billboard: Option<BillboardPass>,
 }
 
 impl Surface3DRenderer {
@@ -119,11 +119,11 @@ impl Surface3DRenderer {
             render_texture_view: None,
             resolve_texture: None,
             resolve_texture_view: None,
-            #[cfg(feature = "headless-qa")]
             readback_buffer: None,
             width: 0,
             height: 0,
             config,
+            billboard: None,
         })
     }
 
@@ -505,7 +505,6 @@ impl Surface3DRenderer {
             .as_ref()
             .map(|texture| texture.create_view(&Default::default()));
 
-        #[cfg(feature = "headless-qa")]
         {
             let bytes_per_row = (width * 4 + 255) & !255;
             self.readback_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -526,6 +525,7 @@ impl Surface3DRenderer {
         camera: &Camera3D,
         log_settings: Option<(f32, f32)>,
         clear_color: wgpu::Color,
+        labels: &[WorldLabel],
     ) -> Option<&wgpu::TextureView> {
         if self.vertex_buffer.is_none() || self.width == 0 || self.height == 0 {
             return None;
@@ -591,6 +591,29 @@ impl Surface3DRenderer {
                 render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..self.wireframe_index_count, 0, 0..1);
             }
+
+            // World-anchored SDF labels, depth-tested against the surface.
+            // Empty by default: `render_billboards` no-ops without touching
+            // the pass, and the headless-QA capture path below never submits
+            // labels, keeping its baselines stable.
+            if !labels.is_empty() {
+                let (cam_right, cam_up) = camera.billboard_axes();
+                let (viewport_w, viewport_h) = (self.width as f32, self.height as f32);
+                render_billboards(
+                    &mut self.billboard,
+                    &self.device,
+                    &self.queue,
+                    &mut render_pass,
+                    camera.view_projection_matrix().to_cols_array_2d(),
+                    cam_right.to_array(),
+                    cam_up.to_array(),
+                    wgpu::TextureFormat::Rgba8Unorm,
+                    wgpu::TextureFormat::Depth32Float,
+                    self.config.msaa_samples,
+                    labels,
+                    |anchor| camera.world_per_screen_px(anchor, viewport_w, viewport_h),
+                );
+            }
         }
 
         if self.config.msaa_samples > 1 {
@@ -615,8 +638,6 @@ impl Surface3DRenderer {
         self.render_with_clear(camera, log_settings, clear_color, false)
     }
 
-    #[cfg(feature = "headless-qa")]
-    #[allow(dead_code)]
     pub(in super::super) fn render_transparent(
         &mut self,
         camera: &Camera3D,
@@ -630,7 +651,6 @@ impl Surface3DRenderer {
         )
     }
 
-    #[cfg(feature = "headless-qa")]
     pub(super) fn render_with_clear(
         &mut self,
         camera: &Camera3D,
@@ -820,10 +840,7 @@ impl Surface3DRenderer {
             self.render_texture_view = None;
             self.resolve_texture = None;
             self.resolve_texture_view = None;
-            #[cfg(feature = "headless-qa")]
-            {
-                self.readback_buffer = None;
-            }
+            self.readback_buffer = None;
         }
         self.config = config;
         // Note: Full pipeline recreation would be needed for some settings

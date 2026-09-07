@@ -42,8 +42,9 @@ pub use camera::{Camera3D, OrbitControls, Projection, StandardView};
 pub use config::{Colormap, Surface3DConfig, SurfacePlotType};
 pub use data::{SurfaceData, SurfaceVertex};
 pub use element::{
-    CartesianGridLineDebug, CartesianGridLineDebugKind, Surface3DElement, Surface3DState,
-    cartesian_grid_lines_for_testing, clamp_render_dimensions, overlay_color_for_background,
+    CartesianGridLineDebug, CartesianGridLineDebugKind, CartesianTickPlan, Surface3DElement,
+    Surface3DState, cartesian_grid_lines_for_testing, cartesian_tick_plan_for_testing,
+    clamp_render_dimensions, overlay_color_for_background,
     projected_surface_depth_visibility_for_testing, upright_rotation_angle,
 };
 pub use lines::{Line3D, Lines3DElement, Lines3DScene, Lines3DState, Polygon3D};
@@ -52,3 +53,20 @@ pub use renderer::{
     Surface3DRenderer, transparent_surface_clear_color_for_testing, unpremultiply_rgba_for_testing,
 };
 pub mod projection_tests;
+
+/// Whether a wgpu custom draw submitted this frame can reach the screen.
+///
+/// False on renderers that silently drop `WgpuCustomDraw` (notably macOS
+/// Metal) and on wasm, where the web backend never sets the probe. Callers
+/// use this to pick a fallback: screen-space text instead of billboards,
+/// and (native only) a blocking readback blit instead of the custom draw.
+pub(crate) fn gpu_custom_draw_available() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        false
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        gpui::wgpu_custom_draw_available()
+    }
+}

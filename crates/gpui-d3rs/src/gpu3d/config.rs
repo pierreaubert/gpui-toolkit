@@ -168,6 +168,11 @@ pub struct Surface3DConfig {
     pub show_axes: bool,
     /// Show colorbar legend
     pub show_colorbar: bool,
+    /// Render axis tick labels and titles as world-anchored SDF billboards
+    /// in the wgpu pass instead of screen-space GPUI text. Labels stay
+    /// upright and readable at every camera angle; the colorbar legend
+    /// (a 2D overlay) always stays screen-space. Defaults off.
+    pub billboard_labels: bool,
     /// Surface opacity (0.0 - 1.0)
     pub opacity: f32,
     /// Show isolines projection
@@ -204,6 +209,7 @@ impl Default for Surface3DConfig {
             camera_elevation: 30.0,
             show_axes: true,
             show_colorbar: true,
+            billboard_labels: false,
             opacity: 1.0,
             isolines: false,
             isoline_step: 0.05,
@@ -300,6 +306,13 @@ impl Surface3DConfig {
     /// Show colorbar legend
     pub fn show_colorbar(mut self, enabled: bool) -> Self {
         self.show_colorbar = enabled;
+        self
+    }
+
+    /// Render axis labels as world-anchored SDF billboards in the wgpu pass
+    /// instead of screen-space GPUI text
+    pub fn billboard_labels(mut self, enabled: bool) -> Self {
+        self.billboard_labels = enabled;
         self
     }
 

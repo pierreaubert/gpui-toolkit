@@ -24,7 +24,7 @@ spinorama = ["dep:autoeq", "dep:tokio", "dep:ndarray", "dep:reqwest", "dep:urlen
 tokio = ["dep:tokio"]
 gpu-3d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "dep:gpui_wgpu", "gpui"]
 gpu-2d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "dep:gpui_wgpu", "gpui", "vello-gpui"]
-vello = ["dep:vello", "dep:vello_cpu", "dep:peniko", "dep:kurbo", "dep:bytemuck", "dep:log"]
+vello = ["dep:vello", "dep:vello_cpu", "dep:peniko", "dep:kurbo", "dep:bytemuck", "dep:log", "dep:parley", "dep:fontique"]
 vello-gpui = ["vello", "gpui", "dep:wgpu", "dep:gpui_wgpu"]
 gpu-metal = ["gpu-2d", "gpu-3d", "gpui", "dep:metal", "dep:objc", "dep:gpui_macos"]
 # Vello scenes on the Metal renderer: headless-wgpu raster + drawable blit.
@@ -62,6 +62,8 @@ vello = { workspace = true, optional = true }
 vello_cpu = { workspace = true, optional = true }
 peniko = { workspace = true, optional = true }
 kurbo = { workspace = true, optional = true }
+parley = { workspace = true, optional = true }
+fontique = { workspace = true, optional = true }
 log = { workspace = true, optional = true } # d3rs has no log dep on main; workspace pins log 0.4.28 (root Cargo.toml :80)
 gpui_wgpu = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
@@ -268,6 +270,11 @@ required-features = ["gpu-2d"]
 [[test]]
 name = "gpu3d_camera_tests"
 path = "tests/gpu3d_camera_tests.rs"
+required-features = ["gpu-3d"]
+
+[[test]]
+name = "billboard_tests"
+path = "tests/billboard_tests.rs"
 required-features = ["gpu-3d"]
 
 [[test]]

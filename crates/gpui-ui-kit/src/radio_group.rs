@@ -5,7 +5,7 @@
 //! re-affirm the highlighted option, and screen readers see a `radiogroup`
 //! containing `radio` options with `checked` state.
 //!
-//! State is parent-owned (like [`Checkbox`]): pass `selected` plus
+//! State is parent-owned (like [`crate::Checkbox`]): pass `selected` plus
 //! `on_change` and the group stays fully controlled.
 
 use crate::accessibility::{

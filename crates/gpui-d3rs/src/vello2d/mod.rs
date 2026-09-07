@@ -30,7 +30,7 @@ pub use gpu_snapshot::{
     PixelDiff, SnapshotError, compare_rgba, compare_rgba_downsampled2, diff_image_rgba,
     snapshot_scene_gpu,
 };
-pub use scene::{ChartCmd, ChartScene};
+pub use scene::{ChartCmd, ChartScene, TextRun};
 
 #[cfg(feature = "vello-gpui")]
 pub use element::{

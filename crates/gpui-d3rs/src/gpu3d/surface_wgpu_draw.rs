@@ -4,6 +4,7 @@ use super::camera::Camera3D;
 use super::config::Surface3DConfig;
 use super::mesh::SurfaceMesh;
 use super::renderer::Surface3DRenderer;
+use crate::gputext::billboard::WorldLabel;
 use crate::vello2d::wgpu_draw::{CompositePipeline, CompositeResources, clip_src_rect};
 use gpui::{Bounds, CustomDraw, CustomDrawId, Pixels};
 use gpui_wgpu::{WgpuContext, WgpuCustomDraw, WgpuCustomDrawAdapter};
@@ -38,6 +39,10 @@ impl Drop for SurfaceWgpuRegistration {
 pub(crate) struct SurfaceWgpuDraw {
     renderer: Rc<RefCell<Option<Surface3DRenderer>>>,
     mesh: Rc<RefCell<Option<SurfaceMesh>>>,
+    /// World-anchored labels shared with the element: stage 2 clears the
+    /// cell here in [`Self::update`], stage 4 fills it, and [`Self::draw_wgpu`]
+    /// reads it after paint completes — same-frame, no lag.
+    labels: Rc<RefCell<Vec<WorldLabel>>>,
     frame: RefCell<Option<SurfaceFrame>>,
     uploaded_mesh_revision: Cell<u64>,
     configured_revision: Cell<u64>,
@@ -49,10 +54,12 @@ impl SurfaceWgpuDraw {
     pub(crate) fn register(
         renderer: Rc<RefCell<Option<Surface3DRenderer>>>,
         mesh: Rc<RefCell<Option<SurfaceMesh>>>,
+        labels: Rc<RefCell<Vec<WorldLabel>>>,
     ) -> Rc<SurfaceWgpuRegistration> {
         let draw = Rc::new(Self {
             renderer,
             mesh,
+            labels,
             frame: RefCell::new(None),
             uploaded_mesh_revision: Cell::new(u64::MAX),
             configured_revision: Cell::new(u64::MAX),
@@ -73,6 +80,9 @@ impl SurfaceWgpuDraw {
         mesh_revision: u64,
         config_revision: u64,
     ) {
+        // Fresh frame: stage 4 re-collects every painted frame, so stale
+        // labels (e.g. after toggling the flag off) can never leak through.
+        self.labels.borrow_mut().clear();
         *self.frame.borrow_mut() = Some(SurfaceFrame {
             camera,
             config,
@@ -159,6 +169,7 @@ impl WgpuCustomDraw for SurfaceWgpuDraw {
             self.uploaded_mesh_revision.set(frame.mesh_revision);
         }
 
+        let labels = self.labels.borrow();
         let Some(source) = renderer.encode_render_to_texture(
             encoder,
             &frame.camera,
@@ -169,6 +180,7 @@ impl WgpuCustomDraw for SurfaceWgpuDraw {
                 b: 0.0,
                 a: 0.0,
             },
+            &labels,
         ) else {
             return;
         };

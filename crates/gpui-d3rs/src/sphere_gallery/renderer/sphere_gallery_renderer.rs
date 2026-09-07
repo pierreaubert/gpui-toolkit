@@ -2,6 +2,7 @@ use super::super::mesh::{GalleryVertex, generate_sphere_mesh};
 use super::super::shaders;
 use super::Uniforms;
 use super::sphere_gallery_config::SphereGalleryConfig;
+use crate::gputext::billboard::{BillboardPass, WorldLabel, render_billboards};
 #[cfg(feature = "gpu-2d")]
 use crate::gpu2d::Gpu2DContext;
 use crate::gpu3d::Camera3D;
@@ -29,6 +30,9 @@ pub struct SphereGalleryRenderer {
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) config: SphereGalleryConfig,
+    /// Lazily created on the first labeled frame; label-free galleries (the
+    /// default) never pay for the atlas upload or pipeline.
+    pub(super) billboard: Option<BillboardPass>,
 }
 
 impl SphereGalleryRenderer {
@@ -246,6 +250,7 @@ impl SphereGalleryRenderer {
             width: 0,
             height: 0,
             config,
+            billboard: None,
         })
     }
 
@@ -420,6 +425,7 @@ impl SphereGalleryRenderer {
         cell_count: u32,
         selected_index: Option<u32>,
         hovered_index: Option<u32>,
+        labels: &[WorldLabel],
     ) -> Option<&wgpu::TextureView> {
         if self.vertex_buffer.is_none() || self.width == 0 || self.height == 0 {
             return None;
@@ -476,6 +482,28 @@ impl SphereGalleryRenderer {
                 wgpu::IndexFormat::Uint32,
             );
             render_pass.draw_indexed(0..self.index_count, 0, 0..1);
+
+            // Item labels under their spheres, depth-tested against them.
+            // Empty by default (and always in the headless capture path, so
+            // its baselines stay stable).
+            if !labels.is_empty() {
+                let (cam_right, cam_up) = camera.billboard_axes();
+                let (viewport_w, viewport_h) = (self.width as f32, self.height as f32);
+                render_billboards(
+                    &mut self.billboard,
+                    &self.device,
+                    &self.queue,
+                    &mut render_pass,
+                    camera.view_projection_matrix().to_cols_array_2d(),
+                    cam_right.to_array(),
+                    cam_up.to_array(),
+                    wgpu::TextureFormat::Rgba8Unorm,
+                    wgpu::TextureFormat::Depth32Float,
+                    1,
+                    labels,
+                    |anchor| camera.world_per_screen_px(anchor, viewport_w, viewport_h),
+                );
+            }
         }
 
         self.render_texture_view.as_ref()
@@ -490,7 +518,6 @@ impl SphereGalleryRenderer {
     }
 
     /// Render the gallery and return RGBA pixel data
-    #[cfg(feature = "headless-qa")]
     pub fn render(
         &mut self,
         camera: &Camera3D,

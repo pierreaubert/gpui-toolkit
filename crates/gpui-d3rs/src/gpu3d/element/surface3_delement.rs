@@ -5,36 +5,32 @@ use super::super::data::SurfaceData;
 use super::super::mesh::SurfaceMesh;
 use super::super::renderer::Surface3DRenderer;
 use super::super::surface_wgpu_draw::{SurfaceWgpuDraw, SurfaceWgpuRegistration};
-use super::angle::angle_major_ticks;
 use super::cartesian::cartesian_grid_lines;
 use super::consts::{MAX_SURFACE_RENDER_DIMENSION, MAX_SURFACE_RENDER_PIXELS};
-use super::misc::default_frequency_ticks;
 use super::misc::project_world_to_screen;
 use super::paint::paint_depth_clipped_stroke_segment;
 use super::paint::paint_stroke_segment;
 use super::projected_depth_buffer::ProjectedDepthBuffer;
-use super::spl::spl_major_ticks;
 use super::surface3_dstate::Surface3DState;
+use super::ticks::cartesian_tick_plan;
 use super::types::CartesianGridLineKind;
 use crate::color::D3Color;
 use crate::contour::ContourGenerator;
+use crate::gputext::billboard::WorldLabel;
 use crate::shape::contour_smoothing::StrokePoint;
 use crate::text::{GlyphTextConfig, HorizontalTextAnchor, VerticalTextAnchor, paint_chart_text_at};
 use glam::Vec3;
 use gpui::*;
-#[cfg(feature = "headless-qa")]
 use image::{Frame, RgbaImage};
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::panic;
 use std::rc::Rc;
-#[cfg(feature = "headless-qa")]
 use std::sync::Arc;
 
-/// CPU readback cache retained only for headless QA captures.
-#[cfg(feature = "headless-qa")]
-#[allow(dead_code)]
+/// CPU readback cache for the surface blit: headless QA captures plus the
+/// runtime fallback that serves renderers without wgpu custom draws (Metal).
 #[derive(Clone)]
 pub(super) struct SurfaceTextureCache {
     pub key: u64,
@@ -48,9 +44,9 @@ pub(super) struct SurfaceGeometryCache {
     pub key: u64,
     pub isoline_segments: Vec<(Vec3, Vec3)>,
     pub depth_buffer: Option<ProjectedDepthBuffer>,
-    pub freq_labels: Vec<String>,
-    pub angle_labels: Vec<String>,
-    pub spl_labels: Vec<String>,
+    pub x_labels: Vec<String>,
+    pub y_labels: Vec<String>,
+    pub z_labels: Vec<String>,
     pub azimuth_labels: Vec<String>,
     pub elevation_labels: Vec<String>,
     pub colorbar_labels: Vec<String>,
@@ -67,11 +63,14 @@ pub struct Surface3DElement {
     pub(super) state: Rc<RefCell<Surface3DState>>,
     pub(super) renderer: Rc<RefCell<Option<Surface3DRenderer>>>,
     pub(super) mesh: Rc<RefCell<Option<SurfaceMesh>>>,
-    #[cfg(feature = "headless-qa")]
-    #[allow(dead_code)]
     pub(super) surface_cache: Rc<RefCell<Option<SurfaceTextureCache>>>,
     gpu_draw: Rc<SurfaceWgpuRegistration>,
     pub(super) geometry_cache: Rc<RefCell<Option<SurfaceGeometryCache>>>,
+    /// World-anchored labels collected by the stage-4 axes painters and read
+    /// by the wgpu custom draw after paint completes. Stage 2 (surface
+    /// submit) only shares the cell; it never reads it, so collecting in
+    /// stage 4 lands in the same frame with no one-frame lag.
+    pub(super) labels_cell: Rc<RefCell<Vec<WorldLabel>>>,
 }
 
 impl Surface3DElement {
@@ -85,7 +84,12 @@ impl Surface3DElement {
 
         let renderer = Rc::new(RefCell::new(None));
         let mesh = Rc::new(RefCell::new(None));
-        let gpu_draw = SurfaceWgpuDraw::register(Rc::clone(&renderer), Rc::clone(&mesh));
+        let labels_cell = Rc::new(RefCell::new(Vec::new()));
+        let gpu_draw = SurfaceWgpuDraw::register(
+            Rc::clone(&renderer),
+            Rc::clone(&mesh),
+            Rc::clone(&labels_cell),
+        );
         Self {
             data,
             data_revision: 0,
@@ -95,10 +99,10 @@ impl Surface3DElement {
             state: Rc::new(RefCell::new(state)),
             renderer,
             mesh,
-            #[cfg(feature = "headless-qa")]
             surface_cache: Rc::new(RefCell::new(None)),
             gpu_draw,
             geometry_cache: Rc::new(RefCell::new(None)),
+            labels_cell,
         }
     }
 
@@ -114,10 +118,7 @@ impl Surface3DElement {
         self.mesh_revision = self.mesh_revision.wrapping_add(1);
         // Clear cached mesh, surface render, and paint geometry to force regeneration
         *self.mesh.borrow_mut() = None;
-        #[cfg(feature = "headless-qa")]
-        {
-            *self.surface_cache.borrow_mut() = None;
-        }
+        *self.surface_cache.borrow_mut() = None;
         *self.geometry_cache.borrow_mut() = None;
     }
 
@@ -130,10 +131,7 @@ impl Surface3DElement {
         }
         // If any render-relevant setting changes, invalidate the cached surface texture.
         if surface_render_config_changed(&self.config, &config) {
-            #[cfg(feature = "headless-qa")]
-            {
-                *self.surface_cache.borrow_mut() = None;
-            }
+            *self.surface_cache.borrow_mut() = None;
             self.config_revision = self.config_revision.wrapping_add(1);
         }
         // Isoline / label settings may change independently; invalidate geometry cache.
@@ -155,7 +153,6 @@ impl Surface3DElement {
         self
     }
 
-    #[cfg(feature = "headless-qa")]
     pub(super) fn ensure_renderer(&self) -> bool {
         let mut renderer_ref = self.renderer.borrow_mut();
         if renderer_ref.is_none() {
@@ -353,28 +350,9 @@ impl Surface3DElement {
             None
         };
 
-        let freq_labels: Vec<String> = self
-            .data
-            .x_ticks
-            .clone()
-            .unwrap_or_else(default_frequency_ticks)
-            .iter()
-            .map(|&freq| {
-                if freq >= 1000.0 {
-                    format!("{}k", freq / 1000.0)
-                } else {
-                    format!("{}", freq)
-                }
-            })
-            .collect();
-
-        let angle_labels: Vec<String> = angle_major_ticks(&self.data)
-            .iter()
-            .map(|&angle| format!("{}°", angle))
-            .collect();
-
-        let (spl_ticks, _) = spl_major_ticks(&self.data);
-        let spl_labels: Vec<String> = spl_ticks.iter().map(|&spl| format!("{}dB", spl)).collect();
+        // One plan feeds label strings, paint-loop positions, and grid
+        // majors alike, so the three can never drift apart.
+        let plan = cartesian_tick_plan(&self.data);
 
         let azimuth_labels: Vec<String> = self
             .data
@@ -408,9 +386,9 @@ impl Surface3DElement {
             key,
             isoline_segments,
             depth_buffer,
-            freq_labels,
-            angle_labels,
-            spl_labels,
+            x_labels: plan.x_labels,
+            y_labels: plan.y_labels,
+            z_labels: plan.z_labels,
             azimuth_labels,
             elevation_labels,
             colorbar_labels,
@@ -607,8 +585,11 @@ impl Surface3DElement {
     }
 
     /// Paint the cached surface texture, rendering and caching it on a cache miss.
-    #[cfg(feature = "headless-qa")]
-    #[allow(dead_code)]
+    ///
+    /// Serves headless QA captures and, at runtime, renderers without wgpu
+    /// custom draws (Metal): an offscreen render plus image blit. A miss
+    /// blocks on a full GPU render and readback, so continuous rotation
+    /// re-renders every frame; static scenes blit for free.
     pub(super) fn paint_cached_surface(
         &self,
         bounds: Bounds<Pixels>,
@@ -647,6 +628,15 @@ impl Surface3DElement {
 
         if let Some(renderer) = self.renderer.borrow_mut().as_mut() {
             renderer.resize(width_u32, height_u32);
+            // Upload the mesh: the live custom-draw path tracks this per
+            // revision, but the blit path has no upload tracking, so a cache
+            // miss re-uploads (correct; misses are already full renders).
+            {
+                let mesh = self.mesh.borrow();
+                if let Some(mesh) = mesh.as_ref() {
+                    renderer.set_mesh(mesh);
+                }
+            }
 
             let log_settings = if self.data.x_log {
                 let min_x = self.data.x_min as f32;
@@ -767,10 +757,74 @@ impl Surface3DElement {
 
         if width_u32 > 0 && height_u32 > 0 {
             let camera = self.state.borrow().camera.clone();
-            self.paint_gpu_surface(bounds, &camera, [width_u32, height_u32], window);
+            if super::super::gpu_custom_draw_available() {
+                self.paint_gpu_surface(bounds, &camera, [width_u32, height_u32], window);
+            } else if !cfg!(target_arch = "wasm32") {
+                // No wgpu dispatch (Metal): blocking offscreen render plus
+                // image blit. Never on wasm — stalling the browser event
+                // loop on a readback is worse than no surface.
+                self.paint_cached_surface(
+                    bounds,
+                    width_u32,
+                    height_u32,
+                    scale_factor,
+                    &camera,
+                    window,
+                );
+            }
         }
 
         scale_factor
+    }
+
+    /// Collect a world-anchored label for the wgpu billboard pass. Returns
+    /// `true` when the label was accepted (billboards enabled, text
+    /// non-empty, anchor projects in depth range); axis painters fall back
+    /// to screen-space text on `false`, so the flag-off path is untouched.
+    ///
+    /// Collection is also refused when the active renderer cannot dispatch
+    /// wgpu custom draws (notably macOS Metal, which silently skips them):
+    /// suppressing screen text there would leave no text at all.
+    pub(super) fn collect_billboard_label(
+        &self,
+        camera: &Camera3D,
+        width: f32,
+        height: f32,
+        overlay_color: Rgba,
+        text: &str,
+        anchor: glam::Vec3,
+        size_px: f32,
+        horizontal: HorizontalTextAnchor,
+        vertical: VerticalTextAnchor,
+        screen_offset_px: [f32; 2],
+    ) -> bool {
+        if !self.config.billboard_labels || text.is_empty() {
+            return false;
+        }
+        if !super::super::gpu_custom_draw_available() {
+            return false;
+        }
+        let Some(projected) = camera.project_to_screen(anchor, width, height) else {
+            return false;
+        };
+        if !(0.0..=1.0).contains(&projected.z) {
+            return false;
+        }
+        self.labels_cell.borrow_mut().push(WorldLabel {
+            text: text.to_string(),
+            anchor,
+            size_px,
+            color: [
+                overlay_color.r,
+                overlay_color.g,
+                overlay_color.b,
+                overlay_color.a,
+            ],
+            horizontal,
+            vertical,
+            screen_offset_px,
+        });
+        true
     }
 
     /// Screen-space rotation keeping a label at `pos` upright.
@@ -813,6 +867,20 @@ impl Surface3DElement {
                           pos: glam::Vec3,
                           horizontal_anchor: HorizontalTextAnchor,
                           vertical_anchor: VerticalTextAnchor| {
+            if self.collect_billboard_label(
+                camera,
+                width,
+                height,
+                overlay_color,
+                &text,
+                pos,
+                10.0,
+                horizontal_anchor,
+                vertical_anchor,
+                [0.0, 0.0],
+            ) {
+                return;
+            }
             if let Some(screen_pos) = camera.project_to_screen(pos, width, height) {
                 // Check if point is within reasonable bounds (not clipped)
                 if screen_pos.z >= 0.0 && screen_pos.z <= 1.0 {
@@ -899,6 +967,21 @@ impl Surface3DElement {
                         (0.0, font_size * 0.8)
                     };
 
+                    if self.collect_billboard_label(
+                        camera,
+                        width,
+                        height,
+                        overlay_color,
+                        label,
+                        label_pos_3d,
+                        font_size,
+                        HorizontalTextAnchor::Middle,
+                        VerticalTextAnchor::Middle,
+                        [offset_x, offset_y],
+                    ) {
+                        return;
+                    }
+
                     let text_config = GlyphTextConfig::rotated(
                         font_size,
                         overlay_color,
@@ -936,19 +1019,15 @@ impl Surface3DElement {
             }
         }
 
-        // Freq Labels (X axis)
-        let freq_ticks = self
-            .data
-            .x_ticks
-            .clone()
-            .unwrap_or_else(default_frequency_ticks);
-        for (i, &freq) in freq_ticks.iter().enumerate() {
-            let x = self.data.normalize_x(freq);
+        // X axis tick labels (positions share the cache's tick plan)
+        let x_ticks = cartesian_tick_plan(&self.data).x_ticks;
+        for (i, &tick) in x_ticks.iter().enumerate() {
+            let x = self.data.normalize_x(tick);
             let pos = glam::Vec3::new(x, -0.5, best_x_z_val);
             let tick_dir_z = if best_x_z_val > 0.0 { 1.0 } else { -1.0 };
             let tick_vec = glam::Vec3::new(0.0, 0.0, 0.1 * tick_dir_z);
 
-            let label = cache.freq_labels.get(i).map(|s| s.as_str()).unwrap_or("");
+            let label = cache.x_labels.get(i).map(|s| s.as_str()).unwrap_or("");
             draw_tick_and_label(window, pos, tick_vec, label);
         }
 
@@ -986,16 +1065,16 @@ impl Surface3DElement {
             }
         }
 
-        // Angle Labels (Z axis) - 30° major ticks
-        let angle_ticks = angle_major_ticks(&self.data);
+        // Y axis tick labels (positions share the cache's tick plan)
+        let y_ticks = cartesian_tick_plan(&self.data).y_ticks;
 
-        for (i, &angle) in angle_ticks.iter().enumerate() {
-            let z = self.data.normalize_y(angle);
+        for (i, &tick) in y_ticks.iter().enumerate() {
+            let z = self.data.normalize_y(tick);
             let pos = glam::Vec3::new(best_z_x_val, -0.5, z);
             let tick_dir_x = if best_z_x_val > 0.0 { 1.0 } else { -1.0 };
             let tick_vec = glam::Vec3::new(0.1 * tick_dir_x, 0.0, 0.0);
 
-            let label = cache.angle_labels.get(i).map(|s| s.as_str()).unwrap_or("");
+            let label = cache.y_labels.get(i).map(|s| s.as_str()).unwrap_or("");
             draw_tick_and_label(window, pos, tick_vec, label);
         }
         // Angle Axis Title
@@ -1033,15 +1112,15 @@ impl Surface3DElement {
             }
         }
 
-        // SPL Labels (Y axis)
+        // Z axis tick labels (positions share the cache's tick plan)
         // Generate dynamic ticks based on actual data range
-        let (spl_ticks, _) = spl_major_ticks(&self.data);
-        for (i, &spl) in spl_ticks.iter().enumerate() {
-            let y = self.data.normalize_z(spl) - 0.5;
+        let z_ticks = cartesian_tick_plan(&self.data).z_ticks;
+        for (i, &tick) in z_ticks.iter().enumerate() {
+            let y = self.data.normalize_z(tick) - 0.5;
             let pos = glam::Vec3::new(best_y_x, y, best_y_z);
             let tick_vec = glam::Vec3::new(best_y_x * 0.1, 0.0, best_y_z * 0.1);
 
-            let label = cache.spl_labels.get(i).map(|s| s.as_str()).unwrap_or("");
+            let label = cache.z_labels.get(i).map(|s| s.as_str()).unwrap_or("");
             draw_tick_and_label(window, pos, tick_vec, label);
         }
         // SPL Axis Title
@@ -1129,6 +1208,21 @@ impl Surface3DElement {
                     } else {
                         (0.0, font_size * 0.8)
                     };
+
+                    if self.collect_billboard_label(
+                        camera,
+                        width,
+                        height,
+                        overlay_color,
+                        label,
+                        label_pos_3d,
+                        font_size,
+                        HorizontalTextAnchor::Middle,
+                        VerticalTextAnchor::Middle,
+                        [offset_x, offset_y],
+                    ) {
+                        return;
+                    }
 
                     let text_config = GlyphTextConfig::rotated(
                         font_size,

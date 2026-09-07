@@ -13,7 +13,8 @@
 //! for eyeballing. Skips gracefully where no wgpu adapter exists; the
 //! component-lab backend-compare view is the interactive consumer.
 
-use d3rs::vello2d::kurbo::{Rect, Stroke};
+use d3rs::gputext::{FAMILY_SANS, FontEngine, TextWeight};
+use d3rs::vello2d::kurbo::{Affine, Rect, Stroke};
 use d3rs::vello2d::peniko::{Brush, Color};
 use d3rs::vello2d::{
     ChartScene, CpuRasterizer, SnapshotError, compare_rgba, compare_rgba_downsampled2,
@@ -195,5 +196,55 @@ fn gpu_snapshot_agrees_with_cpu_per_shape() {
         strokes.down_frac < 0.05,
         "strokes down frac {}",
         strokes.down_frac
+    );
+}
+
+fn text_scene() -> ChartScene {
+    // Axis-aligned run (hinted on both engines) plus a +90° rotated run
+    // (unhinted on both), in logical coordinates at SCALE.
+    let mut engine = FontEngine::new();
+    let mut scene = ChartScene::new();
+    scene.fill_text(
+        &mut engine,
+        "100°F",
+        12.0,
+        FAMILY_SANS,
+        TextWeight::NORMAL,
+        Affine::translate((6.0, 20.0)),
+        Brush::Solid(Color::from_rgb8(245, 245, 245)),
+    );
+    scene.fill_text(
+        &mut engine,
+        "100°F",
+        12.0,
+        FAMILY_SANS,
+        TextWeight::BOLD,
+        Affine::translate((44.0, 8.0)) * Affine::rotate(std::f64::consts::FRAC_PI_2),
+        Brush::Solid(Color::from_rgb8(120, 200, 255)),
+    );
+    scene
+}
+
+#[test]
+fn gpu_snapshot_agrees_with_cpu_on_text() {
+    eprintln!("cpu-vs-gpu text (tol 8):");
+    let scene = text_scene();
+    let Some(stat) = compare_shape("text", &scene) else {
+        eprintln!("SKIP: no wgpu adapter for GPU text agreement test");
+        return;
+    };
+    // Bounds sit ~10x above the observed Apple Silicon floor; a broken
+    // glyph transform or paint reads orders of magnitude higher.
+    assert!(stat.std_mean < 1.0, "text std mean {}", stat.std_mean);
+    assert!(stat.std_frac < 0.05, "text std frac {}", stat.std_frac);
+    assert!(
+        stat.down_mean < 0.5,
+        "text down mean {}",
+        stat.down_mean
+    );
+    assert!(
+        stat.down_frac < 0.1,
+        "text down frac {}",
+        stat.down_frac
     );
 }

@@ -233,7 +233,46 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .h(px(1.0))
                         .bg(ui_theme.border),
                 )
-                // Y-axis tick labels
+                // Axis titles (official: "Carats" / "$ Price", bold)
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(margin_left as f32))
+                        .top(px((margin_top + cache.plot_h - 18.0) as f32))
+                        .w(px(cache.plot_w as f32))
+                        .flex()
+                        .justify_end()
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::BOLD)
+                                .child("Carats"),
+                        ),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left(px((margin_left + 4.0) as f32))
+                        .top(px(2.0))
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::BOLD)
+                                .child("$ Price"),
+                        ),
+                )
+                // Y-axis tick marks (official: 6px outward ticks)
+                .children(y_ticks.iter().map(|&val| {
+                    let y = cache.y_scale.scale(val);
+                    div()
+                        .absolute()
+                        .left(px((margin_left - 6.0) as f32))
+                        .top(px((margin_top + y) as f32))
+                        .w(px(6.0))
+                        .h(px(1.0))
+                        .bg(ui_theme.border)
+                }))
+                // Y-axis tick labels (cleared past the 6px marks)
                 .children(y_ticks.iter().map(|&val| {
                     let y = cache.y_scale.scale(val);
                     div()
@@ -243,7 +282,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .w(px(margin_left as f32))
                         .flex()
                         .justify_end()
-                        .pr_1()
+                        .pr_2()
                         .child(div().text_xs().child(format!("{:.0}", val)))
                 }))
                 // Fine Y grid lines
@@ -268,13 +307,24 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .h(px(1.0))
                         .bg(Hsla::from(ui_theme.border).opacity(0.25))
                 }))
-                // X-axis tick labels
+                // X-axis tick marks (official: 6px outward ticks)
+                .children(x_ticks.iter().map(|&val| {
+                    let x = cache.x_scale.scale(val);
+                    div()
+                        .absolute()
+                        .left(px((margin_left + x) as f32))
+                        .top(px((margin_top + cache.plot_h + 1.0) as f32))
+                        .w(px(1.0))
+                        .h(px(6.0))
+                        .bg(ui_theme.border)
+                }))
+                // X-axis tick labels (below the 6px marks plus a 3px gap)
                 .children(x_ticks.iter().map(|&val| {
                     let x = cache.x_scale.scale(val);
                     div()
                         .absolute()
                         .left(px((margin_left + x - 15.0) as f32))
-                        .top(px((margin_top + cache.plot_h + 4.0) as f32))
+                        .top(px((margin_top + cache.plot_h + 10.0) as f32))
                         .w(px(30.0))
                         .flex()
                         .justify_center()
