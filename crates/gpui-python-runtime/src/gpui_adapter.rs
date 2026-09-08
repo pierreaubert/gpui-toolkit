@@ -81,11 +81,16 @@ impl GpuiMeshPlotCache {
         self.specs.len()
     }
 
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.specs.is_empty()
+    }
+
     pub fn retain_only<'a>(&mut self, ids: impl IntoIterator<Item = &'a str>) {
         let live = ids.into_iter().collect::<std::collections::HashSet<_>>();
         self.specs.retain(|id, _| live.contains(id.as_str()));
         self.revisions.retain(|id, _| live.contains(id.as_str()));
-        self.resources.retain_only(live.into_iter());
+        self.resources.retain_only(live);
     }
 }
 
@@ -396,7 +401,7 @@ fn mesh_gpu_upload(spec: &MeshSpec) -> (MeshUpload, Vec<[f32; 4]>) {
     let mut positions = Vec::with_capacity(spec.indices.len());
     let mut colors = Vec::with_capacity(spec.indices.len());
     let mut indices = Vec::with_capacity(spec.indices.len());
-    for (triangle_index, triangle) in spec.indices.chunks_exact(3).enumerate() {
+    for (triangle_index, triangle) in spec.indices.as_chunks::<3>().0.iter().enumerate() {
         let vertices = [
             spec.vertices[triangle[0] as usize],
             spec.vertices[triangle[1] as usize],
@@ -482,7 +487,7 @@ fn scene_gpu_upload(spec: &SceneSpec) -> (MeshUpload, Vec<[f32; 4]>, bool) {
                     continue;
                 }
 
-                for (triangle_index, triangle) in mesh.indices.chunks_exact(3).enumerate() {
+                for (triangle_index, triangle) in mesh.indices.as_chunks::<3>().0.iter().enumerate() {
                     let vertices = [
                         mesh.vertices[triangle[0] as usize],
                         mesh.vertices[triangle[1] as usize],
@@ -635,7 +640,7 @@ fn mesh_polygons(spec: &MeshSpec) -> Vec<Polygon3D> {
     let scale = 2.0 / (max - min).max_element().max(f32::EPSILON);
     let normalize = |point: Point3| (vec3(point) - center) * scale;
     spec.indices
-        .chunks_exact(3)
+        .as_chunks::<3>().0.iter()
         .enumerate()
         .map(|(triangle_index, triangle)| Polygon3D {
             vertices: triangle
@@ -858,7 +863,7 @@ fn scene_scene(spec: &SceneSpec) -> Lines3DScene {
                 }))
             }
             SceneNode::Mesh(mesh) => {
-                polygons.extend(mesh.indices.chunks_exact(3).enumerate().map(
+                polygons.extend(mesh.indices.as_chunks::<3>().0.iter().enumerate().map(
                     |(triangle_index, triangle)| {
                         Polygon3D {
                             vertices: triangle

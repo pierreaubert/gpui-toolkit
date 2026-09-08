@@ -156,7 +156,7 @@ fn metal_uniform_2d(state: &MeshSceneState) -> MetalUniform2d {
 
 fn vertex_normals(upload: &MeshUpload) -> Vec<[f32; 3]> {
     let mut normals = vec![[0.0; 3]; upload.positions_f32.len()];
-    for triangle in upload.indices.chunks_exact(3) {
+    for triangle in upload.indices.as_chunks::<3>().0 {
         let (Some(a), Some(b), Some(c)) = (
             upload.positions_f32.get(triangle[0] as usize),
             upload.positions_f32.get(triangle[1] as usize),
@@ -198,7 +198,7 @@ fn vertex_normals(upload: &MeshUpload) -> Vec<[f32; 3]> {
 fn metal_field_values(upload: &MeshUpload) -> Vec<f32> {
     upload
         .indices
-        .chunks_exact(3)
+        .as_chunks::<3>().0.iter()
         .enumerate()
         .flat_map(|(cell, triangle)| {
             let cell_value = upload
@@ -288,7 +288,7 @@ impl MetalResources {
     ) -> Option<Self> {
         let normals = vertex_normals(upload);
         let mut vertices = Vec::with_capacity(upload.indices.len());
-        for (cell, triangle) in upload.indices.chunks_exact(3).enumerate() {
+        for (cell, triangle) in upload.indices.as_chunks::<3>().0.iter().enumerate() {
             for &index in triangle {
                 let position = *upload.positions_f32.get(index as usize)?;
                 vertices.push(metal_vertex(
@@ -522,7 +522,7 @@ impl MetalResources {
 
         let mut offset = 0usize;
         let contents = self.vertices.contents() as *mut MetalVertex;
-        for (cell, triangle) in upload.indices.chunks_exact(3).enumerate() {
+        for (cell, triangle) in upload.indices.as_chunks::<3>().0.iter().enumerate() {
             let cell_value = upload
                 .cell_values_f32
                 .as_ref()

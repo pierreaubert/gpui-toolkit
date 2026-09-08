@@ -182,7 +182,7 @@ pub fn snapshot_scene_gpu(
 /// rasterizer unpremultiplies before storing (`fg.rgb / max(fg.a, eps)` in
 /// `fine.wgsl`); the CPU oracle and GPUI atlases both work premultiplied.
 fn premultiply_rgba_in_place(rgba: &mut [u8]) {
-    for pixel in rgba.chunks_exact_mut(4) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
         let alpha = u32::from(pixel[3]);
         if alpha == 0 {
             pixel[0] = 0;
@@ -292,7 +292,7 @@ pub fn compare_rgba(a: &[u8], b: &[u8], tolerance: u8) -> Option<PixelDiff> {
     let mut sum = 0u64;
     let mut max = 0u8;
     let mut over = 0usize;
-    for (index, pixel) in a.chunks_exact(4).enumerate() {
+    for (index, pixel) in a.as_chunks::<4>().0.iter().enumerate() {
         let other = &b[index * 4..index * 4 + 4];
         let mut pixel_over = false;
         for channel in 0..4 {
@@ -376,7 +376,7 @@ pub fn diff_image_rgba(a: &[u8], b: &[u8], amplify: f32) -> Option<Vec<u8>> {
         return None;
     }
     let mut out = Vec::with_capacity(a.len());
-    for pixel in a.chunks_exact(4).zip(b.chunks_exact(4)) {
+    for pixel in a.as_chunks::<4>().0.iter().zip(b.as_chunks::<4>().0.iter()) {
         let (pa, pb) = pixel;
         let mut different = false;
         for channel in 0..3 {
@@ -431,7 +431,7 @@ mod compare_tests {
         // Opaque 4x4, one bright pixel at (0,0). Nudging it moves one block
         // average a little; relocating it to another block moves two a lot.
         let mut a = vec![0u8; 4 * 4 * 4];
-        for pixel in a.chunks_exact_mut(4) {
+        for pixel in a.as_chunks_mut::<4>().0 {
             pixel[3] = 255;
         }
         a[0] = 255;

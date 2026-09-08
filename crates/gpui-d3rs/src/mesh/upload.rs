@@ -162,7 +162,7 @@ pub fn expand_cell_shading(upload: &MeshUpload) -> MeshUpload {
         .as_ref()
         .map(|_| Vec::with_capacity(upload.indices.len()));
 
-    for triangle in upload.indices.chunks_exact(3) {
+    for triangle in upload.indices.as_chunks::<3>().0 {
         for &source_index in triangle {
             let source = source_index as usize;
             let Some(position) = upload.positions_f32.get(source).copied() else {

@@ -68,6 +68,11 @@ pub struct ShowcaseApp {
     pub force_node_positions: Rc<RefCell<Vec<(f32, f32)>>>,
     // Cached expensive D3 example data so it is not recomputed every render.
     pub hexbin_cache: Option<Rc<super::showcase_modules::d3_examples::hexbin::HexbinCache>>,
+    /// Parsed diamonds points for the hexbin demo (CSV parse happens once;
+    /// re-binning on radius change reuses these).
+    pub hexbin_points: Option<Rc<[[f64; 2]]>>,
+    /// Hexagon radius in px for the hexbin demo (slider-controlled).
+    pub hexbin_radius: f32,
     pub force_directed_cache:
         Option<Rc<super::showcase_modules::d3_examples::force_directed::ForceDirectedCache>>,
     /// Retained large scatter cache; both canonical normalized points and its
@@ -205,6 +210,8 @@ impl ShowcaseApp {
             force_running: false,
             force_node_positions: Rc::new(RefCell::new(Vec::new())),
             hexbin_cache: None,
+            hexbin_points: None,
+            hexbin_radius: 6.0,
             force_directed_cache: None,
             lod_scatter: {
                 let mut state = 0x9E37_79B9_u32;

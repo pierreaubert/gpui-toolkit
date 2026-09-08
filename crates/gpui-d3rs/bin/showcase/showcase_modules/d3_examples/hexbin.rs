@@ -10,29 +10,61 @@ use d3rs::scale::{LogScale, Scale};
 use d3rs::shape::path::PathBuilder as D3PathBuilder;
 use gpui::prelude::*;
 use gpui::*;
+use gpui_ui_kit::Slider;
 use gpui_ui_kit::theme::ThemeExt;
 use std::rc::Rc;
 
 const DIAMONDS_CSV: &str = include_str!("../../data/diamonds.csv");
 
-/// Cached hexbin data so the expensive CSV parse, binning, and path generation
-/// happen only once.
+/// Log-decade ticks for a `[min, max]` domain: labeled majors at 1/2/5 × 10^k
+/// and faint minors at 3/4/6/7/8/9 × 10^k, all clipped to the domain so no
+/// tick silently falls outside a logarithmic axis.
+fn log_axis_ticks(min: f64, max: f64) -> (Vec<f64>, Vec<f64>) {
+    let mut majors = Vec::new();
+    let mut minors = Vec::new();
+    if min <= 0.0 || max <= min {
+        return (majors, minors);
+    }
+    let lo = min.log10().floor() as i32;
+    let hi = max.log10().ceil() as i32;
+    for k in lo..=hi {
+        let decade = 10_f64.powi(k);
+        for m in 1..=9 {
+            let value = m as f64 * decade;
+            if value >= min && value <= max {
+                if m == 1 || m == 2 || m == 5 {
+                    majors.push(value);
+                } else {
+                    minors.push(value);
+                }
+            }
+        }
+    }
+    (majors, minors)
+}
+
+/// Cached hexbin data: the CSV parse happens once per session (see
+/// [`load_points`]); binning and path generation re-run only when the hexagon
+/// radius changes.
 pub struct HexbinCache {
+    pub hex_radius: f32,
     pub data_count: usize,
     pub bin_count: usize,
     pub d3_paths: Rc<[d3rs::shape::path::Path]>,
     pub hex_colors: Rc<[Hsla]>,
     pub x_scale: LogScale,
     pub y_scale: LogScale,
+    /// Data domains (for domain-derived log ticks).
+    pub x_domain: (f64, f64),
+    pub y_domain: (f64, f64),
     pub plot_w: f64,
     pub plot_h: f64,
 }
 
-fn build_cache() -> Rc<HexbinCache> {
-    // Load real diamonds dataset (53,940 rows) via d3rs CSV parser
+/// Load real diamonds dataset (53,940 rows) via d3rs CSV parser.
+fn load_points() -> Rc<[[f64; 2]]> {
     let rows = d3rs::fetch::parse_csv(DIAMONDS_CSV).expect("valid diamonds CSV");
-    let data: Vec<[f64; 2]> = rows
-        .iter()
+    rows.iter()
         .filter_map(|row| {
             let carat: f64 = row.get("carat")?.parse().ok()?;
             let price: f64 = row.get("price")?.parse().ok()?;
@@ -42,8 +74,11 @@ fn build_cache() -> Rc<HexbinCache> {
                 None
             }
         })
-        .collect();
+        .collect::<Vec<_>>()
+        .into()
+}
 
+fn build_cache(data: &[[f64; 2]], hex_radius: f32) -> Rc<HexbinCache> {
     let width = 700.0_f64;
     let height = 700.0_f64;
     let margin_left = 60.0_f64;
@@ -67,7 +102,7 @@ fn build_cache() -> Rc<HexbinCache> {
     let y_scale = LogScale::new().domain(y_min, y_max).range(plot_h, 0.0);
 
     // Map data points into plot coordinates and use d3rs Hexbin for binning
-    let hex_radius = (8.0 * plot_w / 928.0).max(4.0);
+    let hex_radius = f64::from(hex_radius);
     let mapped_data: Vec<[f64; 2]> = data
         .iter()
         .map(|d| [x_scale.scale(d[0]), y_scale.scale(d[1])])
@@ -109,28 +144,68 @@ fn build_cache() -> Rc<HexbinCache> {
     }
 
     Rc::new(HexbinCache {
+        hex_radius: hex_radius as f32,
         data_count,
         bin_count,
         d3_paths: d3_paths.into(),
         hex_colors: hex_colors.into(),
         x_scale,
         y_scale,
+        x_domain: (x_min, x_max),
+        y_domain: (y_min, y_max),
         plot_w,
         plot_h,
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::log_axis_ticks;
+
+    #[test]
+    fn log_ticks_cover_decades_without_duplicates_or_gaps() {
+        // Diamonds price domain: labeled 1/2/5 set, minors fill the rest.
+        let (majors, minors) = log_axis_ticks(326.0, 18823.0);
+        assert_eq!(majors, vec![500.0, 1000.0, 2000.0, 5000.0, 10000.0]);
+        for tick in majors.iter().chain(minors.iter()) {
+            assert!(
+                (326.0..=18823.0).contains(tick),
+                "tick {tick} escapes the domain"
+            );
+        }
+        assert!(minors.contains(&400.0));
+        assert!(minors.contains(&9000.0));
+        // No major duplicated as a minor.
+        for major in &majors {
+            assert!(!minors.contains(major), "major {major} duplicated");
+        }
+        // Carat domain keeps its classic labeled set.
+        let (majors, _) = log_axis_ticks(0.2, 5.01);
+        assert_eq!(majors, vec![0.2, 0.5, 1.0, 2.0, 5.0]);
+        // Degenerate input yields no ticks instead of NaNs.
+        assert_eq!(log_axis_ticks(0.0, -1.0), (Vec::new(), Vec::new()));
+    }
+}
+
 fn ensure_cache(app: &mut ShowcaseApp) -> Rc<HexbinCache> {
-    if let Some(cache) = app.hexbin_cache.clone() {
+    if app.hexbin_points.is_none() {
+        app.hexbin_points = Some(load_points());
+    }
+    let radius = app.hexbin_radius;
+    if let Some(cache) = app.hexbin_cache.clone()
+        && cache.hex_radius == radius
+    {
         return cache;
     }
-    let cache = build_cache();
+    let points = app.hexbin_points.clone().expect("points loaded above");
+    let cache = build_cache(&points, radius);
     app.hexbin_cache = Some(cache.clone());
     cache
 }
 
 pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let ui_theme = cx.theme();
+    let entity = cx.entity().clone();
     let cache = ensure_cache(app);
 
     let width = 700.0_f64;
@@ -138,14 +213,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let margin_left = 60.0_f64;
     let margin_top = 20.0_f64;
 
-    // Log-scale friendly ticks
-    let x_ticks: Vec<f64> = vec![0.2, 0.5, 1.0, 2.0, 5.0];
-    let y_ticks: Vec<f64> = vec![500.0, 1000.0, 2000.0, 5000.0, 10000.0];
-    let x_minor_ticks: Vec<f64> = vec![0.3, 0.4, 0.6, 0.7, 0.8, 0.9, 1.5, 3.0, 4.0];
-    let y_minor_ticks: Vec<f64> = vec![
-        400.0, 600.0, 700.0, 800.0, 900.0, 1500.0, 2000.0, 3000.0, 4000.0, 6000.0, 7000.0, 8000.0,
-        9000.0, 15000.0,
-    ];
+    // Log-decade ticks derived from the data domains so every tick lands
+    // inside its logarithmic axis.
+    let (x_ticks, x_minor_ticks) = log_axis_ticks(cache.x_domain.0, cache.x_domain.1);
+    let (y_ticks, y_minor_ticks) = log_axis_ticks(cache.y_domain.0, cache.y_domain.1);
 
     let data_count = cache.data_count;
     let bin_count = cache.bin_count;
@@ -203,7 +274,24 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     div()
                         .text_xs()
                         .child(format!("{} points -> {} bins", data_count, bin_count)),
-                ),
+                )
+                .child({
+                    let entity = entity.clone();
+                    Slider::new("hexbin-radius")
+                        .label("Hexagon size")
+                        .value(app.hexbin_radius)
+                        .min(2.0)
+                        .max(20.0)
+                        .step(0.5)
+                        .show_value(true)
+                        .width(200.0)
+                        .on_change(move |value, _window, cx| {
+                            entity.update(cx, |this, cx| {
+                                this.hexbin_radius = value;
+                                cx.notify();
+                            });
+                        })
+                }),
         )
         .child(
             div()
@@ -221,7 +309,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px(margin_top as f32))
                         .w(px(2.0))
                         .h(px(cache.plot_h as f32))
-                        .bg(ui_theme.border),
+                        .bg(ui_theme.text_muted),
                 )
                 // X-axis line
                 .child(
@@ -231,7 +319,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px((margin_top + cache.plot_h) as f32))
                         .w(px(cache.plot_w as f32))
                         .h(px(1.0))
-                        .bg(ui_theme.border),
+                        .bg(ui_theme.text_muted),
                 )
                 // Axis titles (official: "Carats" / "$ Price", bold)
                 .child(
@@ -270,7 +358,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px((margin_top + y) as f32))
                         .w(px(6.0))
                         .h(px(1.0))
-                        .bg(ui_theme.border)
+                        .bg(ui_theme.text_muted)
                 }))
                 // Y-axis tick labels (cleared past the 6px marks)
                 .children(y_ticks.iter().map(|&val| {
@@ -294,7 +382,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px((margin_top + y) as f32))
                         .w(px(cache.plot_w as f32))
                         .h(px(1.0))
-                        .bg(Hsla::from(ui_theme.border).opacity(0.12))
+                        .bg(Hsla::from(ui_theme.text_muted).opacity(0.12))
                 }))
                 // Y grid lines
                 .children(y_ticks.iter().map(|&val| {
@@ -305,7 +393,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px((margin_top + y) as f32))
                         .w(px(cache.plot_w as f32))
                         .h(px(1.0))
-                        .bg(Hsla::from(ui_theme.border).opacity(0.25))
+                        .bg(Hsla::from(ui_theme.text_muted).opacity(0.25))
                 }))
                 // X-axis tick marks (official: 6px outward ticks)
                 .children(x_ticks.iter().map(|&val| {
@@ -316,7 +404,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px((margin_top + cache.plot_h + 1.0) as f32))
                         .w(px(1.0))
                         .h(px(6.0))
-                        .bg(ui_theme.border)
+                        .bg(ui_theme.text_muted)
                 }))
                 // X-axis tick labels (below the 6px marks plus a 3px gap)
                 .children(x_ticks.iter().map(|&val| {
@@ -343,7 +431,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px(margin_top as f32))
                         .w(px(1.0))
                         .h(px(cache.plot_h as f32))
-                        .bg(Hsla::from(ui_theme.border).opacity(0.12))
+                        .bg(Hsla::from(ui_theme.text_muted).opacity(0.12))
                 }))
                 // X grid lines
                 .children(x_ticks.iter().map(|&val| {
@@ -354,7 +442,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .top(px(margin_top as f32))
                         .w(px(1.0))
                         .h(px(cache.plot_h as f32))
-                        .bg(Hsla::from(ui_theme.border).opacity(0.25))
+                        .bg(Hsla::from(ui_theme.text_muted).opacity(0.25))
                 }))
                 // Plot area with hexbin
                 .child(

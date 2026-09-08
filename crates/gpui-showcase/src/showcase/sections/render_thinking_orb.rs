@@ -53,7 +53,10 @@ pub(crate) struct ThinkingOrbsLab {
 
 impl ThinkingOrbsLab {
     pub(crate) fn new(cx: &mut Context<Self>) -> Self {
-        let dot_color = Color::rgb(96, 165, 250);
+        // Theme-aware default: each theme ships an accent readable on its
+        // own background, so small and large dots stay visible in both
+        // light and dark themes. The picker still allows any override.
+        let dot_color = Color::from_rgba(cx.theme().accent);
         let mut orbs = Vec::with_capacity(OrbState::ALL.len());
         let mut base_counts = Vec::with_capacity(OrbState::ALL.len());
         for state in OrbState::ALL {

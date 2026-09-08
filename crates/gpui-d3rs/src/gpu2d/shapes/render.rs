@@ -1121,22 +1121,18 @@ where
     let (y_min, y_max) = y_scale.range();
     let x_span = x_max - x_min;
     let y_span = y_max - y_min;
-    let x_positions = (x_span != 0.0)
-        .then(|| {
+    let x_positions = if x_span != 0.0 { {
             x_ticks
                 .iter()
                 .map(|&x| ((x_scale.scale(x) - x_min) / x_span) as f32)
                 .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let y_positions = (y_span != 0.0)
-        .then(|| {
+        } } else { Default::default() };
+    let y_positions = if y_span != 0.0 { {
             y_ticks
                 .iter()
                 .map(|&y| (1.0 - (y_scale.scale(y) - y_min) / y_span) as f32)
                 .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+        } } else { Default::default() };
     let line_width = config.line_width;
     let line_color = [
         config.line_color[0],

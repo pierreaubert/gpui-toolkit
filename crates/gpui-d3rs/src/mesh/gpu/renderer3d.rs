@@ -785,7 +785,7 @@ fn write_chunked_buffer(ctx: &gpui_wgpu::WgpuContext, buffer: &wgpu::Buffer, byt
 #[cfg(not(test))]
 fn build_3d_vertices(upload: &MeshUpload, colors: Option<&[[f32; 4]]>) -> Vec<Mesh3DVertex> {
     let mut normals = vec![[0.0f32; 3]; upload.positions_f32.len()];
-    for triangle in upload.indices.chunks_exact(3) {
+    for triangle in upload.indices.as_chunks::<3>().0 {
         let Some(a) = upload.positions_f32.get(triangle[0] as usize) else {
             continue;
         };
@@ -882,7 +882,7 @@ fn expand_cell_upload(upload: &MeshUpload) -> MeshUpload {
     // list so wireframe indices never address the old vertex space.
     expanded.edge_indices = expanded
         .indices
-        .chunks_exact(3)
+        .as_chunks::<3>().0.iter()
         .flat_map(|triangle| {
             [
                 triangle[0],

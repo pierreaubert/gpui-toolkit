@@ -11,7 +11,10 @@ use d3rs::scale::{LinearScale, Scale};
 use d3rs::shape::area::Area;
 use d3rs::shape::curve::Curve;
 use d3rs::shape::stack::{Stack, StackOffset, StackOrder};
-use d3rs::text::{GlyphTextConfig, render_glyph_text};
+use d3rs::text::{
+    GlyphTextConfig, HorizontalTextAnchor, VerticalTextAnchor, measure_glyph_text_width,
+    render_glyph_text, render_glyph_text_anchored,
+};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
@@ -218,17 +221,24 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .border_1()
                 .border_color(theme.border)
                 .relative()
-                // Y-axis label
-                .child(
+                // Y-axis label, vertically centered on the axis: the
+                // bottom-to-top rotation is about the anchor, so with a
+                // Start/Middle anchor the visible box middle sits exactly
+                // half the measured advance above the anchor point.
+                .child({
+                    let title = "Revenue ($)";
+                    let title_half = measure_glyph_text_width(title, 10.0) / 2.0;
                     div()
                         .absolute()
                         .left(px(2.0))
-                        .top(px((margin_top + chart_height / 2.0 - 30.0) as f32))
-                        .child(render_glyph_text(
-                            "Revenue ($)",
+                        .top(px((margin_top + chart_height / 2.0) as f32 + title_half))
+                        .child(render_glyph_text_anchored(
+                            title,
                             &GlyphTextConfig::vertical_bottom_to_top(10.0, theme.text_secondary),
-                        )),
-                )
+                            HorizontalTextAnchor::Start,
+                            VerticalTextAnchor::Middle,
+                        ))
+                })
                 // Y-axis line
                 .child(
                     div()

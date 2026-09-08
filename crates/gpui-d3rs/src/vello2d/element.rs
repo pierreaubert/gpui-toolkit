@@ -24,7 +24,7 @@ pub type RasterBackend = crate::render2d::VelloBackend;
 /// operations avoids a separate full-image clear scan on every cache miss.
 fn swizzle_rgba_to_bgra(pixels: &mut [u8]) -> bool {
     let mut has_coverage = false;
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         has_coverage |= pixel[3] != 0;
         pixel.swap(0, 2);
     }

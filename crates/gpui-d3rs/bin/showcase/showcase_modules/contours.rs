@@ -1,4 +1,5 @@
 use crate::showcase_modules::chart_colors;
+use crate::showcase_modules::layout::{self, SIDE_MENU_WIDTH};
 use d3rs::contour::{ContourGenerator, DensityEstimator};
 use d3rs::render2d::{Renderer2D, VelloBackend};
 use d3rs::scale::LinearScale;
@@ -54,8 +55,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let contours = generator.contours(&values, &thresholds);
     let contour_bands = generator.contour_bands(&values, &thresholds);
 
-    // Scales for the Gaussian surface plot
-    let gaussian_width = app.content_width * 0.5;
+    // Scales for the Gaussian surface plot: half the content width, but
+    // never wider than the row allows next to the side menu.
+    let gaussian_width =
+        (app.content_width * 0.5).min(layout::plot_width(app.content_width, SIDE_MENU_WIDTH));
     let gaussian_height = (gaussian_width * 0.75).min(app.content_height * 0.4);
     let x_scale_gaussian = LinearScale::new()
         .domain(0.0, grid_size as f64)
@@ -70,23 +73,35 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         ContourRenderMode::Isoline => ContourConfig::new()
             .stroke_width(2.0)
             .fill(false)
-            .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), viridis_color_scale())),
+            .color_scale(chart_colors::ink_scale(
+                chart_colors::background_lightness(&ui_theme),
+                viridis_color_scale(),
+            )),
         ContourRenderMode::Surface => ContourConfig::new()
             .stroke_width(1.5)
             .fill(true)
             .fill_opacity(0.6)
-            .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), viridis_color_scale())),
+            .color_scale(chart_colors::ink_scale(
+                chart_colors::background_lightness(&ui_theme),
+                viridis_color_scale(),
+            )),
         ContourRenderMode::Heatmap => ContourConfig::new()
             .stroke_width(1.5)
             .fill(true)
             .fill_opacity(0.4)
-            .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), viridis_color_scale())),
+            .color_scale(chart_colors::ink_scale(
+                chart_colors::background_lightness(&ui_theme),
+                viridis_color_scale(),
+            )),
     };
     let gaussian_line_config = ContourConfig::new()
         .stroke_width(0.75)
         .fill(false)
         .stroke_opacity(0.35)
-        .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), viridis_color_scale()));
+        .color_scale(chart_colors::ink_scale(
+            chart_colors::background_lightness(&ui_theme),
+            viridis_color_scale(),
+        ));
 
     // Generate heatmap data for the Gaussian surface
     let heatmap_x_values: Vec<f64> = (0..grid_size).map(|i| i as f64).collect();
@@ -118,8 +133,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let density_contours = density_generator.contours(&density_grid, &density_thresholds);
     let density_bands = density_generator.contour_bands(&density_grid, &density_thresholds);
 
-    // Scales for the density plot
-    let density_size = (app.content_width * 0.4).min(app.content_height * 0.5);
+    // Scales for the density plot: same row constraint as the Gaussian plot.
+    let density_size = (app.content_width * 0.4)
+        .min(app.content_height * 0.5)
+        .min(layout::plot_width(app.content_width, SIDE_MENU_WIDTH));
     let x_scale_density = LinearScale::new()
         .domain(0.0, density_grid_size as f64)
         .range(0.0, density_size as f64);
@@ -132,394 +149,408 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .stroke_width(1.5)
         .fill(true)
         .fill_opacity(0.5)
-        .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), heat_color_scale()));
+        .color_scale(chart_colors::ink_scale(
+            chart_colors::background_lightness(&ui_theme),
+            heat_color_scale(),
+        ));
     let density_line_config = ContourConfig::new()
         .stroke_width(0.75)
         .fill(false)
         .stroke_opacity(0.45)
-        .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), heat_color_scale()));
+        .color_scale(chart_colors::ink_scale(
+            chart_colors::background_lightness(&ui_theme),
+            heat_color_scale(),
+        ));
 
-    div()
-        .flex()
-        .gap_8()
-        // Left side: Visualizations
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_6()
-                .child(
-                    div()
-                        .text_2xl()
-                        .font_weight(FontWeight::BOLD)
-                        .child(format!("Contours Demo · {}", app.renderer_label())),
-                )
-                // Marching Squares Contours with render mode switch
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_4()
-                                .child(
-                                    div().text_lg().font_weight(FontWeight::SEMIBOLD).child(
+    div().flex().flex_col().w_full().child(
+        div()
+            .id("contours-row-scroll")
+            .flex()
+            .gap_8()
+            .overflow_x_scroll()
+            // Left side: Visualizations
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_6()
+                    .child(
+                        div()
+                            .text_2xl()
+                            .font_weight(FontWeight::BOLD)
+                            .child(format!("Contours Demo · {}", app.renderer_label())),
+                    )
+                    // Marching Squares Contours with render mode switch
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_4()
+                                    .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(
                                         format!("Gaussian Surface ({})", render_mode.label()),
-                                    ),
-                                )
-                                .child({
-                                    let entity = entity.clone();
-                                    div()
-                                        .id("render-mode-toggle")
-                                        .px_3()
-                                        .py_1()
-                                        .bg(ui_theme.accent)
-                                        .hover(|s| s.bg(ui_theme.accent_hover))
-                                        .rounded_md()
-                                        .cursor_pointer()
-                                        .text_xs()
-                                        .child("Toggle Mode")
-                                        .on_click(move |_, _window, cx| {
-                                            entity.update(cx, |this, _| {
-                                                this.contour_render_mode =
-                                                    this.contour_render_mode.next();
-                                            });
-                                        })
-                                }),
-                        )
-                        .child(div().text_sm().child(match render_mode {
-                            ContourRenderMode::Isoline => "Isoline: Contour lines only",
-                            ContourRenderMode::Surface => "Surface: Filled contour bands",
-                            ContourRenderMode::Heatmap => "Heatmap: Pixel-based rendering",
-                        }))
-                        .child(
-                            div()
-                                .w(px(gaussian_width))
-                                .h(px(gaussian_height))
-                                .bg(ui_theme.surface)
-                                .border_1()
-                                .border_color(ui_theme.border)
-                                .relative()
-                                .when(render_mode == ContourRenderMode::Isoline, |this| {
-                                    this.child(render_contour_selected(
-                                        contours.clone(),
-                                        &x_scale_gaussian,
-                                        &y_scale_gaussian,
-                                        &gaussian_config,
-                                        app.renderer_selection(),
                                     ))
-                                })
-                                .when(render_mode == ContourRenderMode::Surface, |this| {
-                                    this.child(render_contour_bands_selected(
-                                        contour_bands.clone(),
-                                        &x_scale_gaussian,
-                                        &y_scale_gaussian,
-                                        &gaussian_config,
-                                        app.renderer_selection(),
-                                    ))
-                                    .child(
-                                        render_contour_selected(
+                                    .child({
+                                        let entity = entity.clone();
+                                        div()
+                                            .id("render-mode-toggle")
+                                            .px_3()
+                                            .py_1()
+                                            .bg(ui_theme.accent)
+                                            .hover(|s| s.bg(ui_theme.accent_hover))
+                                            .rounded_md()
+                                            .cursor_pointer()
+                                            .text_xs()
+                                            .child("Toggle Mode")
+                                            .on_click(move |_, _window, cx| {
+                                                entity.update(cx, |this, _| {
+                                                    this.contour_render_mode =
+                                                        this.contour_render_mode.next();
+                                                });
+                                            })
+                                    }),
+                            )
+                            .child(div().text_sm().child(match render_mode {
+                                ContourRenderMode::Isoline => "Isoline: Contour lines only",
+                                ContourRenderMode::Surface => "Surface: Filled contour bands",
+                                ContourRenderMode::Heatmap => "Heatmap: Pixel-based rendering",
+                            }))
+                            .child(
+                                div()
+                                    .w(px(gaussian_width))
+                                    .h(px(gaussian_height))
+                                    .bg(ui_theme.surface)
+                                    .border_1()
+                                    .border_color(ui_theme.border)
+                                    .relative()
+                                    .when(render_mode == ContourRenderMode::Isoline, |this| {
+                                        this.child(render_contour_selected(
                                             contours.clone(),
                                             &x_scale_gaussian,
                                             &y_scale_gaussian,
-                                            &gaussian_line_config,
+                                            &gaussian_config,
                                             app.renderer_selection(),
-                                        ),
-                                    )
-                                })
-                                .when(render_mode == ContourRenderMode::Heatmap, |this| {
-                                    let heatmap_config =
-                                        ContourConfig::new().color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), viridis_color_scale()));
-                                    this.child(render_heatmap_selected(
-                                        gaussian_heatmap.clone(),
-                                        &x_scale_gaussian,
-                                        &y_scale_gaussian,
-                                        &heatmap_config,
+                                        ))
+                                    })
+                                    .when(render_mode == ContourRenderMode::Surface, |this| {
+                                        this.child(render_contour_bands_selected(
+                                            contour_bands.clone(),
+                                            &x_scale_gaussian,
+                                            &y_scale_gaussian,
+                                            &gaussian_config,
+                                            app.renderer_selection(),
+                                        ))
+                                        .child(
+                                            render_contour_selected(
+                                                contours.clone(),
+                                                &x_scale_gaussian,
+                                                &y_scale_gaussian,
+                                                &gaussian_line_config,
+                                                app.renderer_selection(),
+                                            ),
+                                        )
+                                    })
+                                    .when(render_mode == ContourRenderMode::Heatmap, |this| {
+                                        let heatmap_config = ContourConfig::new().color_scale(
+                                            chart_colors::ink_scale(
+                                                chart_colors::background_lightness(&ui_theme),
+                                                viridis_color_scale(),
+                                            ),
+                                        );
+                                        this.child(render_heatmap_selected(
+                                            gaussian_heatmap.clone(),
+                                            &x_scale_gaussian,
+                                            &y_scale_gaussian,
+                                            &heatmap_config,
+                                            app.renderer_selection(),
+                                        ))
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap_2()
+                                    .mt_2()
+                                    .text_xs()
+                                    .child("Viridis color scale: low → high"),
+                            ),
+                    )
+                    // Density Estimation
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_lg()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Kernel Density Estimation"),
+                            )
+                            .child(div().text_sm().child("Density contours from point data"))
+                            .child(
+                                div()
+                                    .w(px(density_size))
+                                    .h(px(density_size))
+                                    .bg(ui_theme.surface)
+                                    .border_1()
+                                    .border_color(ui_theme.border)
+                                    .relative()
+                                    .child(render_contour_bands_selected(
+                                        density_bands,
+                                        &x_scale_density,
+                                        &y_scale_density,
+                                        &density_config,
                                         app.renderer_selection(),
                                     ))
-                                }),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .gap_2()
-                                .mt_2()
-                                .text_xs()
-                                .child("Viridis color scale: low → high"),
-                        ),
-                )
-                // Density Estimation
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_lg()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Kernel Density Estimation"),
-                        )
-                        .child(div().text_sm().child("Density contours from point data"))
-                        .child(
-                            div()
-                                .w(px(density_size))
-                                .h(px(density_size))
-                                .bg(ui_theme.surface)
-                                .border_1()
-                                .border_color(ui_theme.border)
-                                .relative()
-                                .child(render_contour_bands_selected(
-                                    density_bands,
-                                    &x_scale_density,
-                                    &y_scale_density,
-                                    &density_config,
-                                    app.renderer_selection(),
-                                ))
-                                .child(render_contour_selected(
-                                    density_contours,
-                                    &x_scale_density,
-                                    &y_scale_density,
-                                    &density_line_config,
-                                    app.renderer_selection(),
-                                ))
-                                // Overlay the original points
-                                .children(points.iter().map(|(x, y)| {
-                                    div()
-                                        .absolute()
-                                        .left(px((*x * density_size as f64 - 2.0) as f32))
-                                        .top(px(((1.0 - *y) * density_size as f64 - 2.0) as f32))
-                                        .w(px(4.0))
-                                        .h(px(4.0))
-                                        .rounded_full()
-                                        .bg(Hsla::from(ui_theme.text_primary).opacity(0.7))
-                                })),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .gap_2()
-                                .mt_2()
-                                .text_xs()
-                                .child("Heat color scale with point overlay"),
-                        ),
-                ),
-        )
-        // Right side: Controls
-        .child(
-            div()
-                .w(px(280.0))
-                .flex()
-                .flex_col()
-                .gap_4()
-                .p_4()
-                .bg(ui_theme.surface)
-                .border_1()
-                .border_color(ui_theme.border)
-                .rounded_lg()
-                .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Controls"),
-                )
-                // Gaussian Surface Controls
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child("Gaussian Surface"),
-                        )
-                        .child({
-                            let entity = entity.clone();
-                            Slider::new("grid-size")
-                                .label("Grid Size")
-                                .value(app.contour_grid_size as f32)
-                                .min(20.0)
-                                .max(100.0)
-                                .step(10.0)
-                                .show_value(true)
-                                .width(220.0)
-                                .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        this.contour_grid_size = value as usize;
-                                        cx.notify();
-                                    });
-                                })
-                        })
-                        .child({
-                            let entity = entity.clone();
-                            Slider::new("num-levels")
-                                .label("Contour Levels")
-                                .value(app.contour_num_levels as f32)
-                                .min(2.0)
-                                .max(10.0)
-                                .step(1.0)
-                                .show_value(true)
-                                .width(220.0)
-                                .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        this.contour_num_levels = value as usize;
-                                        cx.notify();
-                                    });
-                                })
-                        })
-                        .child({
-                            let entity = entity.clone();
-                            Slider::new("peak1-x")
-                                .label("Peak 1 X")
-                                .value(app.contour_peak1_x)
-                                .min(-1.0)
-                                .max(1.0)
-                                .step(0.1)
-                                .show_value(true)
-                                .width(220.0)
-                                .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        this.contour_peak1_x = value;
-                                        cx.notify();
-                                    });
-                                })
-                        })
-                        .child({
-                            let entity = entity.clone();
-                            Slider::new("peak1-y")
-                                .label("Peak 1 Y")
-                                .value(app.contour_peak1_y)
-                                .min(-1.0)
-                                .max(1.0)
-                                .step(0.1)
-                                .show_value(true)
-                                .width(220.0)
-                                .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        this.contour_peak1_y = value;
-                                        cx.notify();
-                                    });
-                                })
-                        })
-                        .child({
-                            let entity = entity.clone();
-                            Slider::new("peak2-x")
-                                .label("Peak 2 X")
-                                .value(app.contour_peak2_x)
-                                .min(-1.0)
-                                .max(1.0)
-                                .step(0.1)
-                                .show_value(true)
-                                .width(220.0)
-                                .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        this.contour_peak2_x = value;
-                                        cx.notify();
-                                    });
-                                })
-                        })
-                        .child({
-                            let entity = entity.clone();
-                            Slider::new("peak2-y")
-                                .label("Peak 2 Y")
-                                .value(app.contour_peak2_y)
-                                .min(-1.0)
-                                .max(1.0)
-                                .step(0.1)
-                                .show_value(true)
-                                .width(220.0)
-                                .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        this.contour_peak2_y = value;
-                                        cx.notify();
-                                    });
-                                })
-                        }),
-                )
-                // Density Estimation Controls
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .mt_4()
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child("Density Estimation"),
-                        )
-                        .child({
-                            let entity = entity.clone();
-                            Slider::new("bandwidth")
-                                .label("Bandwidth")
-                                .value(app.density_bandwidth)
-                                .min(0.02)
-                                .max(0.2)
-                                .step(0.02)
-                                .show_value(true)
-                                .width(220.0)
-                                .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        this.density_bandwidth = value;
-                                        cx.notify();
-                                    });
-                                })
-                        })
-                        .child({
-                            let entity = entity.clone();
-                            Slider::new("num-points")
-                                .label("Number of Points")
-                                .value(app.density_num_points as f32)
-                                .min(20.0)
-                                .max(200.0)
-                                .step(10.0)
-                                .show_value(true)
-                                .width(220.0)
-                                .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        this.density_num_points = value as usize;
-                                        cx.notify();
-                                    });
-                                })
-                        }),
-                )
-                // Statistics
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .mt_4()
-                        .p_3()
-                        .bg(ui_theme.surface)
-                        .border_1()
-                        .border_color(ui_theme.border)
-                        .rounded_md()
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child("STATISTICS"),
-                        )
-                        .child(
-                            div()
-                                .text_sm()
-                                .child(format!("Grid: {}x{}", grid_size, grid_size)),
-                        )
-                        .child(div().text_sm().child(format!("Levels: {}", num_levels)))
-                        .child(div().text_sm().child(format!(
-                            "Rings: {}",
-                            contours.iter().map(|c| c.coordinates.len()).sum::<usize>()
-                        )))
-                        .child(div().text_sm().child(format!("Points: {}", num_points))),
-                ),
-        )
+                                    .child(render_contour_selected(
+                                        density_contours,
+                                        &x_scale_density,
+                                        &y_scale_density,
+                                        &density_line_config,
+                                        app.renderer_selection(),
+                                    ))
+                                    // Overlay the original points
+                                    .children(points.iter().map(|(x, y)| {
+                                        div()
+                                            .absolute()
+                                            .left(px((*x * density_size as f64 - 2.0) as f32))
+                                            .top(
+                                                px(((1.0 - *y) * density_size as f64 - 2.0) as f32),
+                                            )
+                                            .w(px(4.0))
+                                            .h(px(4.0))
+                                            .rounded_full()
+                                            .bg(Hsla::from(ui_theme.text_primary).opacity(0.7))
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap_2()
+                                    .mt_2()
+                                    .text_xs()
+                                    .child("Heat color scale with point overlay"),
+                            ),
+                    ),
+            )
+            // Right side: Controls
+            .child(
+                div()
+                    .w(px(SIDE_MENU_WIDTH))
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .p_4()
+                    .bg(ui_theme.surface)
+                    .border_1()
+                    .border_color(ui_theme.border)
+                    .rounded_lg()
+                    .child(
+                        div()
+                            .text_lg()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Controls"),
+                    )
+                    // Gaussian Surface Controls
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("Gaussian Surface"),
+                            )
+                            .child({
+                                let entity = entity.clone();
+                                Slider::new("grid-size")
+                                    .label("Grid Size")
+                                    .value(app.contour_grid_size as f32)
+                                    .min(20.0)
+                                    .max(100.0)
+                                    .step(10.0)
+                                    .show_value(true)
+                                    .width(220.0)
+                                    .on_change(move |value, _window, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.contour_grid_size = value as usize;
+                                            cx.notify();
+                                        });
+                                    })
+                            })
+                            .child({
+                                let entity = entity.clone();
+                                Slider::new("num-levels")
+                                    .label("Contour Levels")
+                                    .value(app.contour_num_levels as f32)
+                                    .min(2.0)
+                                    .max(10.0)
+                                    .step(1.0)
+                                    .show_value(true)
+                                    .width(220.0)
+                                    .on_change(move |value, _window, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.contour_num_levels = value as usize;
+                                            cx.notify();
+                                        });
+                                    })
+                            })
+                            .child({
+                                let entity = entity.clone();
+                                Slider::new("peak1-x")
+                                    .label("Peak 1 X")
+                                    .value(app.contour_peak1_x)
+                                    .min(-1.0)
+                                    .max(1.0)
+                                    .step(0.1)
+                                    .show_value(true)
+                                    .width(220.0)
+                                    .on_change(move |value, _window, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.contour_peak1_x = value;
+                                            cx.notify();
+                                        });
+                                    })
+                            })
+                            .child({
+                                let entity = entity.clone();
+                                Slider::new("peak1-y")
+                                    .label("Peak 1 Y")
+                                    .value(app.contour_peak1_y)
+                                    .min(-1.0)
+                                    .max(1.0)
+                                    .step(0.1)
+                                    .show_value(true)
+                                    .width(220.0)
+                                    .on_change(move |value, _window, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.contour_peak1_y = value;
+                                            cx.notify();
+                                        });
+                                    })
+                            })
+                            .child({
+                                let entity = entity.clone();
+                                Slider::new("peak2-x")
+                                    .label("Peak 2 X")
+                                    .value(app.contour_peak2_x)
+                                    .min(-1.0)
+                                    .max(1.0)
+                                    .step(0.1)
+                                    .show_value(true)
+                                    .width(220.0)
+                                    .on_change(move |value, _window, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.contour_peak2_x = value;
+                                            cx.notify();
+                                        });
+                                    })
+                            })
+                            .child({
+                                let entity = entity.clone();
+                                Slider::new("peak2-y")
+                                    .label("Peak 2 Y")
+                                    .value(app.contour_peak2_y)
+                                    .min(-1.0)
+                                    .max(1.0)
+                                    .step(0.1)
+                                    .show_value(true)
+                                    .width(220.0)
+                                    .on_change(move |value, _window, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.contour_peak2_y = value;
+                                            cx.notify();
+                                        });
+                                    })
+                            }),
+                    )
+                    // Density Estimation Controls
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .mt_4()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("Density Estimation"),
+                            )
+                            .child({
+                                let entity = entity.clone();
+                                Slider::new("bandwidth")
+                                    .label("Bandwidth")
+                                    .value(app.density_bandwidth)
+                                    .min(0.02)
+                                    .max(0.2)
+                                    .step(0.02)
+                                    .show_value(true)
+                                    .width(220.0)
+                                    .on_change(move |value, _window, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.density_bandwidth = value;
+                                            cx.notify();
+                                        });
+                                    })
+                            })
+                            .child({
+                                let entity = entity.clone();
+                                Slider::new("num-points")
+                                    .label("Number of Points")
+                                    .value(app.density_num_points as f32)
+                                    .min(20.0)
+                                    .max(200.0)
+                                    .step(10.0)
+                                    .show_value(true)
+                                    .width(220.0)
+                                    .on_change(move |value, _window, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.density_num_points = value as usize;
+                                            cx.notify();
+                                        });
+                                    })
+                            }),
+                    )
+                    // Statistics
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .mt_4()
+                            .p_3()
+                            .bg(ui_theme.surface)
+                            .border_1()
+                            .border_color(ui_theme.border)
+                            .rounded_md()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("STATISTICS"),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .child(format!("Grid: {}x{}", grid_size, grid_size)),
+                            )
+                            .child(div().text_sm().child(format!("Levels: {}", num_levels)))
+                            .child(div().text_sm().child(format!(
+                                "Rings: {}",
+                                contours.iter().map(|c| c.coordinates.len()).sum::<usize>()
+                            )))
+                            .child(div().text_sm().child(format!("Points: {}", num_points))),
+                    ),
+            ),
+    )
 }
 
 use super::{ContourRenderMode, ShowcaseApp};

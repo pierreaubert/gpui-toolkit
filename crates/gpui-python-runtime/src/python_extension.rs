@@ -1343,7 +1343,7 @@ impl NativePxMeshPickIndex {
             "positions",
         )?;
         let positions = position_values
-            .chunks_exact(3)
+            .as_chunks::<3>().0.iter()
             .map(|value| [value[0], value[1], value[2]])
             .collect::<Vec<_>>();
 
@@ -1354,7 +1354,7 @@ impl NativePxMeshPickIndex {
             "triangles",
         )?;
         let triangles = triangle_values
-            .chunks_exact(3)
+            .as_chunks::<3>().0.iter()
             .map(|value| {
                 Ok([
                     u32::try_from(value[0])

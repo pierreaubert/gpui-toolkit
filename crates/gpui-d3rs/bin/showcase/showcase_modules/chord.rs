@@ -1,7 +1,8 @@
 use crate::ShowcaseApp;
 use d3rs::chord::{ChordLayout, RibbonGenerator};
 use d3rs::text::{
-    GlyphTextConfig, HorizontalTextAnchor, VerticalTextAnchor, render_glyph_text_anchored,
+    GlyphTextConfig, HorizontalTextAnchor, VerticalTextAnchor, measure_glyph_text_width,
+    render_glyph_text_anchored,
 };
 use gpui::*;
 use crate::showcase_modules::chart_colors;
@@ -44,23 +45,53 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     use d3rs::shape::arc::{Arc, ArcDatum};
     let arc_gen = Arc::new();
 
-    // Pre-compute side-aware label positions and rotations.
-    let label_positions: Vec<(&str, f64, f64, f32, HorizontalTextAnchor)> = chords
+    // Pre-compute arc-following label glyphs: each character of a group name
+    // is placed on the label circle (outside the ticks) at the group's
+    // mid-angle, rotated tangent to the arc. Labels centered in the bottom
+    // half flip tops-inward so the text never reads upside-down.
+    let label_font_size = 10.0;
+    let label_glyphs: Vec<(String, f64, f64, f32)> = chords
         .groups
         .iter()
-        .map(|g| {
+        .flat_map(|g| {
+            let name = names[g.index % names.len()];
             let d3_mid = (g.start_angle + g.end_angle) / 2.0;
             let std_mid = d3_mid - PI / 2.0;
-            let lx = width / 2.0 + label_radius * std_mid.cos();
-            let ly = height / 2.0 + label_radius * std_mid.sin();
-            let on_left = d3_mid > PI;
-            let rotation = std_mid as f32 + if on_left { std::f32::consts::PI } else { 0.0 };
-            let h_anchor = if on_left {
-                HorizontalTextAnchor::Start
-            } else {
-                HorizontalTextAnchor::End
-            };
-            (names[g.index % names.len()], lx, ly, rotation, h_anchor)
+            let flip = std_mid.sin() > 0.0;
+            let advances: Vec<f32> = name
+                .chars()
+                .map(|ch| {
+                    let mut buf = [0u8; 4];
+                    measure_glyph_text_width(ch.encode_utf8(&mut buf), label_font_size)
+                })
+                .collect();
+            let total: f32 = advances.iter().sum();
+            if total <= 0.0 {
+                return Vec::new();
+            }
+            let span = f64::from(total) / label_radius;
+            let mut acc = 0.0f32;
+            name.chars()
+                .zip(advances.iter())
+                .map(|(ch, advance)| {
+                    let center_frac =
+                        (acc + *advance / 2.0) / total;
+                    acc += *advance;
+                    let angle = if flip {
+                        std_mid + span / 2.0 - f64::from(center_frac) * span
+                    } else {
+                        std_mid - span / 2.0 + f64::from(center_frac) * span
+                    };
+                    let rotation = (if flip {
+                        angle - PI / 2.0
+                    } else {
+                        angle + PI / 2.0
+                    }) as f32;
+                    let gx = width / 2.0 + label_radius * angle.cos();
+                    let gy = height / 2.0 + label_radius * angle.sin();
+                    (ch.to_string(), gx, gy, rotation)
+                })
+                .collect::<Vec<_>>()
         })
         .collect();
 
@@ -197,21 +228,24 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     )
                     .size_full(),
                 )
-                // Group name labels as rotated glyph text outside the arcs
+                // Group name labels as arc-following glyphs outside the ticks
                 .children(
-                    label_positions
+                    label_glyphs
                         .iter()
-                        .map(|(name, lx, ly, rotation, h_anchor)| {
-                            let config =
-                                GlyphTextConfig::rotated(10.0, ui_theme.text_primary, *rotation);
+                        .map(|(glyph, gx, gy, rotation)| {
+                            let config = GlyphTextConfig::rotated(
+                                label_font_size,
+                                ui_theme.text_primary,
+                                *rotation,
+                            );
                             div()
                                 .absolute()
-                                .left(px(*lx as f32))
-                                .top(px(*ly as f32))
+                                .left(px(*gx as f32))
+                                .top(px(*gy as f32))
                                 .child(render_glyph_text_anchored(
-                                    name,
+                                    glyph,
                                     &config,
-                                    *h_anchor,
+                                    HorizontalTextAnchor::Middle,
                                     VerticalTextAnchor::Middle,
                                 ))
                         }),

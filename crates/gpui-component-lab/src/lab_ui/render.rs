@@ -55,6 +55,8 @@ pub(super) fn px_line_theme(theme: &Theme) -> ChartTheme {
 /// Bar-chart chrome derived from the active theme.
 pub(super) fn px_bar_theme(theme: &Theme) -> BarTheme {
     BarTheme {
+        axis_line_color: theme.border,
+        axis_label_color: theme.text_secondary,
         plot_background: theme.background,
         title_color: theme.text_primary,
         legend_text_color: theme.text_secondary,
@@ -64,6 +66,8 @@ pub(super) fn px_bar_theme(theme: &Theme) -> BarTheme {
 /// Scatter-chart chrome derived from the active theme.
 pub(super) fn px_scatter_theme(theme: &Theme) -> ScatterTheme {
     ScatterTheme {
+        axis_line_color: theme.border,
+        axis_label_color: theme.text_secondary,
         plot_background: theme.background,
         title_color: theme.text_primary,
         legend_text_color: theme.text_secondary,

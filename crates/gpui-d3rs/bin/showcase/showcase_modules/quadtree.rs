@@ -1,4 +1,5 @@
 use crate::showcase_modules::chart_colors;
+use crate::showcase_modules::layout::{self, SIDE_MENU_WIDTH};
 use d3rs::axis::{AxisConfig, render_axis};
 use d3rs::quadtree::{QuadNode, QuadTree};
 use d3rs::scale::{LinearScale, Scale};
@@ -38,8 +39,11 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     // Find all points within radius
     let within_radius = quadtree.find_all(query_x, query_y, search_radius);
 
-    // Scales for the visualization
-    let size = (app.content_width * 0.5).min(app.content_height * 0.6);
+    // Scales for the visualization: half the content width, but never wider
+    // than the row allows next to the side menu.
+    let size = (app.content_width * 0.5)
+        .min(app.content_height * 0.6)
+        .min(layout::plot_width(app.content_width, SIDE_MENU_WIDTH));
     let x_scale = LinearScale::new()
         .domain(0.0, 100.0)
         .range(0.0, size as f64);
@@ -75,367 +79,375 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     div()
         .flex()
-        .gap_8()
-        // Left side: Visualization
+        .flex_col()
+        .w_full()
         .child(
             div()
-                .flex()
-                .flex_col()
-                .gap_6()
-                .child(
-                    div()
-                        .text_2xl()
-                        .font_weight(FontWeight::BOLD)
-                        .child("QuadTree Demo"),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .max_w(px(500.0))
-                        .child("QuadTree is a 2D spatial index for efficient nearest-neighbor queries. Move the query point and adjust the search radius to see how the quadtree partitions space."),
-                )
-                // Main visualization
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .items_start()
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Spatial Partitioning"),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .items_start()
-                                // Left axis
-                                .child(render_axis(
-                                    &y_scale,
-                                    &AxisConfig::left().with_ticks(5),
-                                    size,
-                                    &theme,
-                                ))
-                                // Plot area
-                                .child(
-                                    div()
-                                        .w(px(size))
-                                        .h(px(size))
-                                        .bg(ui_theme.surface)
-                                        .border_1()
-                                        .border_color(ui_theme.border)
-                                        .relative()
-                                        // Draw quadtree partitions
-                                        .children(bounds_list.iter().map(|&(bx0, by0, bx1, by1)| {
-                                            let px_x = x_scale.scale(bx0) as f32;
-                                            let px_y = (size as f64 - y_scale.scale(by1)) as f32;
-                                            let px_w = (x_scale.scale(bx1) - x_scale.scale(bx0)) as f32;
-                                            let px_h = (y_scale.scale(by1) - y_scale.scale(by0)) as f32;
-                                            div()
-                                                .absolute()
-                                                .left(px(px_x))
-                                                .top(px(px_y))
-                                                .w(px(px_w))
-                                                .h(px(px_h))
-                                                .border_1()
-                                                .border_color(chart_colors::ink_rgba(&ui_theme, rgba(0x0066cc40)))
-                                        }))
-                                        // Draw search radius circle
-                                        .child(
-                                            div()
-                                                .absolute()
-                                                .left(px((x_scale.scale(query_x) - x_scale.scale(search_radius) + x_scale.scale(0.0)) as f32))
-                                                .top(px((size as f64 - y_scale.scale(query_y) - y_scale.scale(search_radius) + y_scale.scale(0.0)) as f32))
-                                                .w(px((2.0 * (x_scale.scale(search_radius) - x_scale.scale(0.0))) as f32))
-                                                .h(px((2.0 * (y_scale.scale(search_radius) - y_scale.scale(0.0))) as f32))
-                                                .rounded_full()
-                                                .bg(chart_colors::ink_rgba(&ui_theme, rgba(0x00aa0020)))
-                                                .border_2()
-                                                .border_color(chart_colors::ink_rgba(&ui_theme, rgba(0x00aa0080)))
-                                        )
-                                        // Draw all points
-                                        .children(points.iter().map(|&(pt_x, pt_y)| {
-                                            let key = ((pt_x * 1000.0) as i64, (pt_y * 1000.0) as i64);
-                                            let is_in_radius = within_radius_set.contains(&key);
-                                            let color = if is_in_radius {
-                                            chart_colors::ink_rgba(&ui_theme, rgb(0x00aa00))
-                                        } else {
-                                            chart_colors::ink_rgba(&ui_theme, rgb(0x666666))
-                                        };
-                                            div()
-                                                .absolute()
-                                                .left(gpui::px((x_scale.scale(pt_x) - 4.0) as f32))
-                                                .top(gpui::px((size as f64 - y_scale.scale(pt_y) - 4.0) as f32))
-                                                .w(gpui::px(8.0))
-                                                .h(gpui::px(8.0))
-                                                .rounded_full()
-                                                .bg(color)
-                                        }))
-                                        // Draw query point
-                                        .child(
-                                            div()
-                                                .absolute()
-                                                .left(px((x_scale.scale(query_x) - 6.0) as f32))
-                                                .top(px((size as f64 - y_scale.scale(query_y) - 6.0) as f32))
-                                                .w(px(12.0))
-                                                .h(px(12.0))
-                                                .rounded_full()
-                                                .bg(chart_colors::ink_hex(&ui_theme, 0xff0000))
-                                                .border_2()
-                                                .border_color(chart_colors::ink_hex(&ui_theme, 0xffffff))
-                                        )
-                                        // Draw nearest point highlight
-                                        .when_some(nearest.cloned(), |this, (nx, ny)| {
-                                            this.child(
-                                                div()
-                                                    .absolute()
-                                                    .left(px((x_scale.scale(nx) - 8.0) as f32))
-                                                    .top(px((size as f64 - y_scale.scale(ny) - 8.0) as f32))
-                                                    .w(px(16.0))
-                                                    .h(px(16.0))
-                                                    .rounded_full()
-                                                    .border_3()
-                                                    .border_color(chart_colors::ink_hex(&ui_theme, 0xff6600))
-                                            )
-                                        }),
-                                ),
-                        )
-                        // Bottom axis
-                        .child(
-                            div()
-                                .flex()
-                                // Spacer for left axis
-                                .child(div().w(px(60.0)))
-                                .child(render_axis(
-                                    &x_scale,
-                                    &AxisConfig::bottom().with_ticks(5),
-                                    size,
-                                    &theme,
-                                )),
-                        ),
-                )
-                // Legend
-                .child(
-                    div()
-                        .flex()
-                        .gap_4()
-                        .mt_2()
-                        .text_xs()
-                        .child(
-                            div()
-                                .flex()
-                                .gap_1()
-                                .items_center()
-                                .child(div().w(px(12.0)).h(px(12.0)).rounded_full().bg(chart_colors::ink_hex(&ui_theme, 0xff0000)))
-                                .child("Query Point"),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .gap_1()
-                                .items_center()
-                                .child(div().w(px(12.0)).h(px(12.0)).rounded_full().border_2().border_color(chart_colors::ink_hex(&ui_theme, 0xff6600)))
-                                .child("Nearest"),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .gap_1()
-                                .items_center()
-                                .child(div().w(px(12.0)).h(px(12.0)).rounded_full().bg(chart_colors::ink_hex(&ui_theme, 0x00aa00)))
-                                .child("Within Radius"),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .gap_1()
-                                .items_center()
-                                .child(div().w(px(12.0)).h(px(12.0)).border_1().border_color(chart_colors::ink_rgba(&ui_theme, rgba(0x0066cc80))))
-                                .child("QuadTree Cell"),
-                        ),
-                ),
-        )
-        // Right side: Controls
-        .child(
-            div()
-                .w(px(280.0))
-                .flex()
-                .flex_col()
-                .gap_4()
-                .p_4()
-                .bg(ui_theme.surface)
-                .border_1()
-                .border_color(ui_theme.border)
-                .rounded_lg()
-                .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Controls"),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child("Query Point"),
-                        )
-                        .child({
-                            let entity = entity.clone();
-                            Slider::new("query-x")
-                                .label("X")
-                                .value(app.quadtree_query_x)
-                                .min(0.0)
-                                .max(100.0)
-                                .step(1.0)
-                                .show_value(true)
-                                .width(220.0)
-                                .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        this.quadtree_query_x = value;
-                                        cx.notify();
-                                    });
-                                })
-                        })
-                        .child({
-                            let entity = entity.clone();
-                            Slider::new("query-y")
-                                .label("Y")
-                                .value(app.quadtree_query_y)
-                                .min(0.0)
-                                .max(100.0)
-                                .step(1.0)
-                                .show_value(true)
-                                .width(220.0)
-                                .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        this.quadtree_query_y = value;
-                                        cx.notify();
-                                    });
-                                })
-                        })
-                        .child({
-                            let entity = entity.clone();
-                            Slider::new("search-radius")
-                                .label("Search Radius")
-                                .value(app.quadtree_search_radius)
-                                .min(5.0)
-                                .max(50.0)
-                                .step(1.0)
-                                .show_value(true)
-                                .width(220.0)
-                                .on_change(move |value, _window, cx| {
-                                    entity.update(cx, |this, cx| {
-                                        this.quadtree_search_radius = value;
-                                        cx.notify();
-                                    });
-                                })
-                        }),
-                )
-                // Statistics
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .mt_4()
-                        .p_3()
-                        .bg(ui_theme.surface)
-                        .border_1()
-                        .border_color(ui_theme.border)
-                        .rounded_md()
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child("STATISTICS"),
-                        )
-                        .child(
-                            div()
-                                .text_sm()
-                                .child(format!("Total Points: {}", quadtree.size())),
-                        )
-                        .child(
-                            div()
-                                .text_sm()
-                                .child(format!("Within Radius: {}", within_radius.len())),
-                        )
-                        .when_some(nearest.cloned(), |this, (nx, ny)| {
-                            this.child(
+            .id("quadtree-row-scroll")
+            .flex()
+            .gap_8()
+            .overflow_x_scroll()
+            // Left side: Visualization
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_6()
+                    .child(
+                        div()
+                            .text_2xl()
+                            .font_weight(FontWeight::BOLD)
+                            .child("QuadTree Demo"),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .max_w(px(500.0))
+                            .child("QuadTree is a 2D spatial index for efficient nearest-neighbor queries. Move the query point and adjust the search radius to see how the quadtree partitions space."),
+                    )
+                    // Main visualization
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .items_start()
+                            .child(
                                 div()
                                     .text_sm()
-                                    .child(format!("Nearest: ({:.1}, {:.1})", nx, ny)),
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Spatial Partitioning"),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_start()
+                                    // Left axis
+                                    .child(render_axis(
+                                        &y_scale,
+                                        &AxisConfig::left().with_ticks(5),
+                                        size,
+                                        &theme,
+                                    ))
+                                    // Plot area
+                                    .child(
+                                        div()
+                                            .w(px(size))
+                                            .h(px(size))
+                                            .bg(ui_theme.surface)
+                                            .border_1()
+                                            .border_color(ui_theme.border)
+                                            .relative()
+                                            // Draw quadtree partitions
+                                            .children(bounds_list.iter().map(|&(bx0, by0, bx1, by1)| {
+                                                let px_x = x_scale.scale(bx0) as f32;
+                                                let px_y = (size as f64 - y_scale.scale(by1)) as f32;
+                                                let px_w = (x_scale.scale(bx1) - x_scale.scale(bx0)) as f32;
+                                                let px_h = (y_scale.scale(by1) - y_scale.scale(by0)) as f32;
+                                                div()
+                                                    .absolute()
+                                                    .left(px(px_x))
+                                                    .top(px(px_y))
+                                                    .w(px(px_w))
+                                                    .h(px(px_h))
+                                                    .border_1()
+                                                    .border_color(chart_colors::ink_rgba(&ui_theme, rgba(0x0066cc40)))
+                                            }))
+                                            // Draw search radius circle
+                                            .child(
+                                                div()
+                                                    .absolute()
+                                                    .left(px((x_scale.scale(query_x) - x_scale.scale(search_radius) + x_scale.scale(0.0)) as f32))
+                                                    .top(px((size as f64 - y_scale.scale(query_y) - y_scale.scale(search_radius) + y_scale.scale(0.0)) as f32))
+                                                    .w(px((2.0 * (x_scale.scale(search_radius) - x_scale.scale(0.0))) as f32))
+                                                    .h(px((2.0 * (y_scale.scale(search_radius) - y_scale.scale(0.0))) as f32))
+                                                    .rounded_full()
+                                                    .bg(chart_colors::ink_rgba(&ui_theme, rgba(0x00aa0020)))
+                                                    .border_2()
+                                                    .border_color(chart_colors::ink_rgba(&ui_theme, rgba(0x00aa0080)))
+                                            )
+                                            // Draw all points
+                                            .children(points.iter().map(|&(pt_x, pt_y)| {
+                                                let key = ((pt_x * 1000.0) as i64, (pt_y * 1000.0) as i64);
+                                                let is_in_radius = within_radius_set.contains(&key);
+                                                let color = if is_in_radius {
+                                                chart_colors::ink_rgba(&ui_theme, rgb(0x00aa00))
+                                            } else {
+                                                chart_colors::ink_rgba(&ui_theme, rgb(0x666666))
+                                            };
+                                                div()
+                                                    .absolute()
+                                                    .left(gpui::px((x_scale.scale(pt_x) - 4.0) as f32))
+                                                    .top(gpui::px((size as f64 - y_scale.scale(pt_y) - 4.0) as f32))
+                                                    .w(gpui::px(8.0))
+                                                    .h(gpui::px(8.0))
+                                                    .rounded_full()
+                                                    .bg(color)
+                                            }))
+                                            // Draw query point
+                                            .child(
+                                                div()
+                                                    .absolute()
+                                                    .left(px((x_scale.scale(query_x) - 6.0) as f32))
+                                                    .top(px((size as f64 - y_scale.scale(query_y) - 6.0) as f32))
+                                                    .w(px(12.0))
+                                                    .h(px(12.0))
+                                                    .rounded_full()
+                                                    .bg(chart_colors::ink_hex(&ui_theme, 0xff0000))
+                                                    .border_2()
+                                                    .border_color(chart_colors::ink_hex(&ui_theme, 0xffffff))
+                                            )
+                                            // Draw nearest point highlight
+                                            .when_some(nearest.cloned(), |this, (nx, ny)| {
+                                                this.child(
+                                                    div()
+                                                        .absolute()
+                                                        .left(px((x_scale.scale(nx) - 8.0) as f32))
+                                                        .top(px((size as f64 - y_scale.scale(ny) - 8.0) as f32))
+                                                        .w(px(16.0))
+                                                        .h(px(16.0))
+                                                        .rounded_full()
+                                                        .border_3()
+                                                        .border_color(chart_colors::ink_hex(&ui_theme, 0xff6600))
+                                                )
+                                            }),
+                                    ),
+                            )
+                            // Bottom axis
+                            .child(
+                                div()
+                                    .flex()
+                                    // Spacer for left axis
+                                    .child(div().w(px(60.0)))
+                                    .child(render_axis(
+                                        &x_scale,
+                                        &AxisConfig::bottom().with_ticks(5),
+                                        size,
+                                        &theme,
+                                    )),
+                            ),
+                    )
+                    // Legend
+                    .child(
+                        div()
+                            .flex()
+                            .gap_4()
+                            .mt_2()
+                            .text_xs()
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap_1()
+                                    .items_center()
+                                    .child(div().w(px(12.0)).h(px(12.0)).rounded_full().bg(chart_colors::ink_hex(&ui_theme, 0xff0000)))
+                                    .child("Query Point"),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap_1()
+                                    .items_center()
+                                    .child(div().w(px(12.0)).h(px(12.0)).rounded_full().border_2().border_color(chart_colors::ink_hex(&ui_theme, 0xff6600)))
+                                    .child("Nearest"),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap_1()
+                                    .items_center()
+                                    .child(div().w(px(12.0)).h(px(12.0)).rounded_full().bg(chart_colors::ink_hex(&ui_theme, 0x00aa00)))
+                                    .child("Within Radius"),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap_1()
+                                    .items_center()
+                                    .child(div().w(px(12.0)).h(px(12.0)).border_1().border_color(chart_colors::ink_rgba(&ui_theme, rgba(0x0066cc80))))
+                                    .child("QuadTree Cell"),
+                            ),
+                    ),
+            )
+            // Right side: Controls
+            .child(
+                div()
+                    .w(px(SIDE_MENU_WIDTH))
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .p_4()
+                    .bg(ui_theme.surface)
+                    .border_1()
+                    .border_color(ui_theme.border)
+                    .rounded_lg()
+                    .child(
+                        div()
+                            .text_lg()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Controls"),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("Query Point"),
+                            )
+                            .child({
+                                let entity = entity.clone();
+                                Slider::new("query-x")
+                                    .label("X")
+                                    .value(app.quadtree_query_x)
+                                    .min(0.0)
+                                    .max(100.0)
+                                    .step(1.0)
+                                    .show_value(true)
+                                    .width(220.0)
+                                    .on_change(move |value, _window, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.quadtree_query_x = value;
+                                            cx.notify();
+                                        });
+                                    })
+                            })
+                            .child({
+                                let entity = entity.clone();
+                                Slider::new("query-y")
+                                    .label("Y")
+                                    .value(app.quadtree_query_y)
+                                    .min(0.0)
+                                    .max(100.0)
+                                    .step(1.0)
+                                    .show_value(true)
+                                    .width(220.0)
+                                    .on_change(move |value, _window, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.quadtree_query_y = value;
+                                            cx.notify();
+                                        });
+                                    })
+                            })
+                            .child({
+                                let entity = entity.clone();
+                                Slider::new("search-radius")
+                                    .label("Search Radius")
+                                    .value(app.quadtree_search_radius)
+                                    .min(5.0)
+                                    .max(50.0)
+                                    .step(1.0)
+                                    .show_value(true)
+                                    .width(220.0)
+                                    .on_change(move |value, _window, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.quadtree_search_radius = value;
+                                            cx.notify();
+                                        });
+                                    })
+                            }),
+                    )
+                    // Statistics
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .mt_4()
+                            .p_3()
+                            .bg(ui_theme.surface)
+                            .border_1()
+                            .border_color(ui_theme.border)
+                            .rounded_md()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("STATISTICS"),
                             )
                             .child(
                                 div()
                                     .text_sm()
-                                    .child(format!(
-                                        "Distance: {:.2}",
-                                        ((nx - query_x).powi(2) + (ny - query_y).powi(2)).sqrt()
-                                    )),
+                                    .child(format!("Total Points: {}", quadtree.size())),
                             )
-                        })
-                        .when_some(quadtree.extent(), |this, ext| {
-                            this.child(
+                            .child(
                                 div()
                                     .text_sm()
-                                    .child(format!("Extent: [{:.0},{:.0}]-[{:.0},{:.0}]", ext.x0, ext.y0, ext.x1, ext.y1)),
+                                    .child(format!("Within Radius: {}", within_radius.len())),
                             )
-                        })
-                        .child(
-                            div()
-                                .text_sm()
-                                .child(format!("Cells: {}", bounds_list.len())),
-                        ),
-                )
-                // API Examples
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .mt_4()
-                        .p_3()
-                        .bg(ui_theme.surface)
-                        .text_color(ui_theme.text_primary)
-                        .rounded_md()
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_weight(FontWeight::MEDIUM)
-                                .child("API USAGE"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_family("Monaco")
-                                .child("let mut qt = QuadTree::new();"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_family("Monaco")
-                                .child("qt.add(x, y, data);"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_family("Monaco")
-                                .child("qt.find(x, y, radius);"),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .font_family("Monaco")
-                                .child("qt.find_all(x, y, radius);"),
-                        ),
-                ),
+                            .when_some(nearest.cloned(), |this, (nx, ny)| {
+                                this.child(
+                                    div()
+                                        .text_sm()
+                                        .child(format!("Nearest: ({:.1}, {:.1})", nx, ny)),
+                                )
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .child(format!(
+                                            "Distance: {:.2}",
+                                            ((nx - query_x).powi(2) + (ny - query_y).powi(2)).sqrt()
+                                        )),
+                                )
+                            })
+                            .when_some(quadtree.extent(), |this, ext| {
+                                this.child(
+                                    div()
+                                        .text_sm()
+                                        .child(format!("Extent: [{:.0},{:.0}]-[{:.0},{:.0}]", ext.x0, ext.y0, ext.x1, ext.y1)),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .child(format!("Cells: {}", bounds_list.len())),
+                            ),
+                    )
+                    // API Examples
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .mt_4()
+                            .p_3()
+                            .bg(ui_theme.surface)
+                            .text_color(ui_theme.text_primary)
+                            .rounded_md()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("API USAGE"),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_family("Monaco")
+                                    .child("let mut qt = QuadTree::new();"),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_family("Monaco")
+                                    .child("qt.add(x, y, data);"),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_family("Monaco")
+                                    .child("qt.find(x, y, radius);"),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_family("Monaco")
+                                    .child("qt.find_all(x, y, radius);"),
+                            ),
+                    ),
+            )
         )
 }
 

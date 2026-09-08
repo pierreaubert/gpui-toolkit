@@ -1,0 +1,2 @@
+# Permit three additional parameters before triggering clippy::too_many_arguments.
+too-many-arguments-threshold = 10

@@ -23,8 +23,13 @@ fn ink_brush(white: f64, a: Option<f64>, dark: bool) -> Brush {
 }
 
 /// Tint preset ink while retaining its light/dark depth fade and alpha.
+///
+/// `white` is an ink value (`0` = darkest ink, i.e. the near/large dots), so
+/// tint strength is the ink amount `1 - white`: near/large dots render
+/// near-full tint and far/small dots fade toward the theme background,
+/// mirroring [`ink_brush`].
 fn tint_brush(tint: Rgba, white: f64, a: Option<f64>, dark: bool) -> Brush {
-    let strength = white.clamp(0.0, 1.0) as f32;
+    let strength = (1.0 - white).clamp(0.0, 1.0) as f32;
     let background = if dark { 0.0 } else { 1.0 };
     let mix = |component: f32| background + (component - background) * strength;
     let alpha = tint.a * a.unwrap_or(1.0).clamp(0.0, 1.0) as f32;
@@ -163,6 +168,48 @@ mod tests {
     use crate::thinking_orb::engine;
     use crate::thinking_orb::presets::{OrbSize, OrbState, resolve_preset};
     use d3rs::vello2d::CpuRasterizer;
+    use gpui::Rgba;
+
+    fn solid_rgba(brush: &Brush) -> [f32; 4] {
+        match brush {
+            Brush::Solid(color) => color.components,
+            _ => panic!("orb dots must paint as solid brushes"),
+        }
+    }
+
+    #[test]
+    fn tint_keeps_near_and_far_dots_visible_on_both_themes() {
+        let tint = Rgba { r: 0.4, g: 0.6, b: 1.0, a: 1.0 };
+        for dark in [false, true] {
+            let background = if dark { 0.0 } else { 1.0 };
+            // Near/large dots (`white` ≈ 0, darkest ink) render near-full
+            // tint so they stay visible on the theme background.
+            let near = solid_rgba(&tint_brush(tint, 0.0, None, dark));
+            assert!(
+                (near[0] - tint.r).abs() < 0.01
+                    && (near[1] - tint.g).abs() < 0.01
+                    && (near[2] - tint.b).abs() < 0.01,
+                "near dots must show the tint (dark={dark}): {near:?}"
+            );
+            // Far/small dots (`white` ≈ 1) fade toward the theme background.
+            let far = solid_rgba(&tint_brush(tint, 1.0, None, dark));
+            assert!(
+                (far[0] - background).abs() < 0.01
+                    && (far[1] - background).abs() < 0.01
+                    && (far[2] - background).abs() < 0.01,
+                "far dots must fade to the background (dark={dark}): {far:?}"
+            );
+            // Depth ordering is monotonic: nearer ink is always more tinted.
+            let mid = solid_rgba(&tint_brush(tint, 0.5, None, dark));
+            let dist = |c: [f32; 4]| {
+                (c[0] - tint.r).abs() + (c[1] - tint.g).abs() + (c[2] - tint.b).abs()
+            };
+            assert!(
+                dist(near) <= dist(mid) && dist(mid) <= dist(far),
+                "tint strength must follow ink depth (dark={dark})"
+            );
+        }
+    }
 
     #[test]
     fn cpu_scene_has_coverage_at_its_local_raster_origin() {

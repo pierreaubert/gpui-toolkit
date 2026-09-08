@@ -12,14 +12,14 @@ use crate::{
     validate_data_array, validate_data_length, validate_dimensions, validate_positive,
     validate_range, validate_range_log,
 };
-use d3rs::axis::{AxisConfig, DefaultAxisTheme, render_axis};
+use d3rs::axis::{AxisConfig, AxisTheme, render_axis};
 use d3rs::color::D3Color;
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::scale::{LinearScale, LogScale};
 use d3rs::shape::{ScatterConfig, ScatterPoint, render_scatter_selected};
 use d3rs::text::{GlyphTextConfig, render_glyph_text};
 use gpui::prelude::*;
-use gpui::{AnyElement, IntoElement, div, px, rgb};
+use gpui::{AnyElement, IntoElement, Rgba, div, px, rgb};
 use gpui_design::DesignSystem;
 use std::sync::Arc;
 
@@ -176,6 +176,22 @@ mod streaming_cache_tests {
             empty_chart.replace_primary_data_shared(Arc::from([]), Arc::from([])),
             Err(ChartError::EmptyData { field: "x" })
         ));
+    }
+}
+
+/// Axis theme adapter driven by [`ScatterTheme`](super::scatter_theme::ScatterTheme).
+struct ScatterAxisTheme {
+    axis_line_color: Rgba,
+    axis_label_color: Rgba,
+}
+
+impl AxisTheme for ScatterAxisTheme {
+    fn axis_line_color(&self) -> Rgba {
+        self.axis_line_color
+    }
+
+    fn axis_label_color(&self) -> Rgba {
+        self.axis_label_color
     }
 }
 
@@ -841,7 +857,10 @@ impl ScatterChart {
             })
             .collect();
 
-        let axis_theme = DefaultAxisTheme;
+        let axis_theme = ScatterAxisTheme {
+            axis_line_color: self.theme.axis_line_color,
+            axis_label_color: self.theme.axis_label_color,
+        };
         let grid_config = GridConfig::default().with_design(&design);
         let x_axis_config = AxisConfig::bottom().with_design(&design);
         let y_axis_config = AxisConfig::left().with_design(&design);

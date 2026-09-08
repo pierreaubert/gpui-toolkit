@@ -112,7 +112,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     );
     all_colors.push(chart_colors::axis_line(&ui_theme));
 
-    // Y grid lines cloned from y ticks at 0.1 opacity
+    // Y grid lines (theme-aware via the shared helper).
     let y_tick_step = (max_bin / 5.0).ceil().max(1.0);
     let y_ticks: Vec<f64> = (0..)
         .map(|i| i as f64 * y_tick_step)

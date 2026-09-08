@@ -109,9 +109,11 @@ pub fn categorical(theme: &Theme, scheme: &ColorScheme, index: usize) -> Hsla {
     ink_d3(theme, scheme.color(index))
 }
 
-/// Gridlines: theme border, dimmed.
+/// Gridlines: a foreground token, dimmed, so lines stay visible on the plot
+/// background in every theme. (`border` at low opacity blends back into
+/// `surface` — invisible in dark themes.)
 pub fn grid(theme: &Theme) -> Hsla {
-    Hsla::from(theme.border).opacity(0.35)
+    Hsla::from(theme.text_muted).opacity(0.35)
 }
 
 /// Axis lines and tick marks.
@@ -188,7 +190,7 @@ mod tests {
     #[test]
     fn chrome_comes_from_theme() {
         let theme = dark();
-        assert_eq!(grid(&theme).h, Hsla::from(theme.border).h);
+        assert_eq!(grid(&theme), Hsla::from(theme.text_muted).opacity(0.35));
         assert_eq!(axis_line(&theme), Hsla::from(theme.text_muted));
         assert_eq!(tick(&theme), Hsla::from(theme.text_muted));
         let at = UiAxisTheme(&theme);

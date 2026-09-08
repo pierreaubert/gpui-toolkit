@@ -147,7 +147,7 @@ fn strokes_preset() -> ChartScene {
 }
 
 fn swizzle_to_bgra(pixels: &mut [u8]) {
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
 }
@@ -226,7 +226,7 @@ mod backend_compare_tests {
         let pixels = CpuRasterizer::new(320, 240).rasterize(&scene, 320, 240, 2.0);
         assert_eq!(pixels.len(), 320 * 240 * 4);
         assert!(
-            pixels.chunks_exact(4).any(|pixel| pixel[3] > 0),
+            pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 0),
             "knob preset must paint"
         );
     }

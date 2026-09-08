@@ -364,7 +364,7 @@ impl Render for ShowcaseView {
             ))
             // ---- Content ----
             .child(Self::render_content(
-                &solved,
+                solved,
                 selected_id,
                 is_h,
                 if is_h {
@@ -388,7 +388,7 @@ impl Render for ShowcaseView {
                 divider_color,
                 accent,
                 fg,
-                &tabs,
+                tabs,
                 &theme,
                 base_sz,
                 small_sz,

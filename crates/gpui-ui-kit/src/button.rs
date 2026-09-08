@@ -337,7 +337,7 @@ impl RenderOnce for Button {
         // Resolve design and focus handle first, before borrowing the theme,
         // because those operations need `&mut App`.
         let design = crate::design::resolve_design(self.design.clone(), cx);
-        let focus_handle = button_focus_handle(&self.id, cx);
+        let focus_handle = button_focus_handle(&self.id, cx).tab_stop(!self.disabled);
 
         let global_theme = cx.theme();
         let theme = self
@@ -357,6 +357,16 @@ impl RenderOnce for Button {
         let mut el = div()
             .id(self.id.clone())
             .track_focus_element(&focus_handle)
+            .on_key_down(|event: &gpui::KeyDownEvent, window, cx| {
+                if event.keystroke.key == "tab" {
+                    if event.keystroke.modifiers.shift {
+                        window.focus_prev(cx);
+                    } else {
+                        window.focus_next(cx);
+                    }
+                    cx.stop_propagation();
+                }
+            })
             .font_family(global_theme.font_family.clone())
             .flex()
             .items_center()

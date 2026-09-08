@@ -1,5 +1,5 @@
 pub(super) fn unpremultiply_rgba(pixels: &mut [u8]) {
-    for rgba in pixels.chunks_exact_mut(4) {
+    for rgba in pixels.as_chunks_mut::<4>().0 {
         let alpha = rgba[3];
         if alpha == 0 || alpha == u8::MAX {
             continue;

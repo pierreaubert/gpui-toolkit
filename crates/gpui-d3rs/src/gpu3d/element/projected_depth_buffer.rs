@@ -39,7 +39,7 @@ impl ProjectedDepthBuffer {
             })
             .collect::<Vec<_>>();
 
-        for triangle in mesh.indices.chunks_exact(3) {
+        for triangle in mesh.indices.as_chunks::<3>().0 {
             let Some(p0) = triangle
                 .first()
                 .and_then(|index| projected_vertices.get(*index as usize))

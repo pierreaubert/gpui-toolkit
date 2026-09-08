@@ -492,6 +492,115 @@ fn read_python_messages_with_mmap<R: BufRead>(
     reader_wake.notify();
 }
 
+pub(super) fn load_python_session_blocking()
+-> Result<(PythonAppIr, PythonSession), Box<dyn Error + Send + Sync>> {
+    let session = spawn_python_session()?;
+    session.send(&HostMessage::Initialize(
+        gpui_python_runtime::session::Initialize {
+            session_version: gpui_python_runtime::session::PYTHON_APP_SESSION_VERSION,
+            capabilities: DEFAULT_HOST_CAPABILITIES
+                .iter()
+                .map(|value| (*value).into())
+                .collect(),
+            platform: std::env::consts::OS.into(),
+            theme: "system".into(),
+            window: gpui_python_runtime::session::WindowMetadata {
+                width: 1240.0,
+                height: 820.0,
+                scale_factor: 1.0,
+            },
+        },
+    ))?;
+    match session.recv()? {
+        PythonMessage::Ready(ready) => {
+            gpui_python_runtime::session::SessionState::new(
+                DEFAULT_HOST_CAPABILITIES
+                    .iter()
+                    .map(|capability| (*capability).into())
+                    .collect(),
+            )
+            .validate_ready(&ready)?;
+        }
+        other => return Err(format!("expected Python session ready, received {other:?}").into()),
+    }
+    let mut before_snapshot = Vec::new();
+    let app_ir = loop {
+        match session.recv()? {
+            PythonMessage::Snapshot { app_ir } => {
+                app_ir.validate()?;
+                break app_ir;
+            }
+            message => before_snapshot.push(message),
+        }
+    };
+    // Re-play startup effects, commands, jobs, and diagnostics through the
+    // normal host message loop after the initial UI tree is available.
+    session.prepend_messages(before_snapshot);
+    Ok((app_ir, session))
+}
+
+/// Validate the initial snapshot through the same persistent-session
+/// handshake used by the interactive host.
+pub(super) fn load_python_app_blocking() -> Result<PythonAppIr, Box<dyn Error + Send + Sync>> {
+    let (app, _session) = load_python_session_blocking()?;
+    Ok(app)
+}
+
+struct BackgroundFuture<T> {
+    result: SharedResult<T>,
+    waker: Arc<Mutex<Option<Waker>>>,
+}
+
+impl<T> Future for BackgroundFuture<T> {
+    type Output = Result<T, Box<dyn Error + Send + Sync>>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if let Some(result) = self.result.lock().unwrap().take() {
+            return Poll::Ready(result);
+        }
+        *self.waker.lock().unwrap() = Some(cx.waker().clone());
+        Poll::Pending
+    }
+}
+
+pub(super) fn load_python_session_async()
+-> impl Future<Output = Result<(PythonAppIr, PythonSession), Box<dyn Error + Send + Sync>>> {
+    let result = Arc::new(Mutex::new(None));
+    let waker = Arc::new(Mutex::new(None::<Waker>));
+    let result2 = result.clone();
+    let waker2 = waker.clone();
+    std::thread::spawn(move || {
+        let output = load_python_session_blocking();
+        *result2.lock().unwrap() = Some(output);
+        if let Some(w) = waker2.lock().unwrap().take() {
+            w.wake();
+        }
+    });
+    BackgroundFuture { result, waker }
+}
+
+pub(super) fn python_executable() -> OsString {
+    if let Some(value) = env::var_os("GPUI_PYTHON") {
+        return value;
+    }
+    let repo_venv = repo_root().join("venv/bin/python");
+    if repo_venv.exists() {
+        return repo_venv.into_os_string();
+    }
+    OsString::from("python3")
+}
+
+pub(super) fn python_path(script: &Path) -> OsString {
+    let mut paths = vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python")];
+    if let Some(parent) = script.parent() {
+        paths.push(parent.to_path_buf());
+    }
+    if let Some(existing) = env::var_os("PYTHONPATH") {
+        paths.extend(env::split_paths(&existing));
+    }
+    env::join_paths(paths).unwrap_or_else(|_| OsString::new())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -842,113 +951,4 @@ for line in sys.stdin:
             Ok(PythonMessage::MappedDatasetFrame(frame)) if frame.payload.is_none()
         ));
     }
-}
-
-pub(super) fn load_python_session_blocking()
--> Result<(PythonAppIr, PythonSession), Box<dyn Error + Send + Sync>> {
-    let session = spawn_python_session()?;
-    session.send(&HostMessage::Initialize(
-        gpui_python_runtime::session::Initialize {
-            session_version: gpui_python_runtime::session::PYTHON_APP_SESSION_VERSION,
-            capabilities: DEFAULT_HOST_CAPABILITIES
-                .iter()
-                .map(|value| (*value).into())
-                .collect(),
-            platform: std::env::consts::OS.into(),
-            theme: "system".into(),
-            window: gpui_python_runtime::session::WindowMetadata {
-                width: 1240.0,
-                height: 820.0,
-                scale_factor: 1.0,
-            },
-        },
-    ))?;
-    match session.recv()? {
-        PythonMessage::Ready(ready) => {
-            gpui_python_runtime::session::SessionState::new(
-                DEFAULT_HOST_CAPABILITIES
-                    .iter()
-                    .map(|capability| (*capability).into())
-                    .collect(),
-            )
-            .validate_ready(&ready)?;
-        }
-        other => return Err(format!("expected Python session ready, received {other:?}").into()),
-    }
-    let mut before_snapshot = Vec::new();
-    let app_ir = loop {
-        match session.recv()? {
-            PythonMessage::Snapshot { app_ir } => {
-                app_ir.validate()?;
-                break app_ir;
-            }
-            message => before_snapshot.push(message),
-        }
-    };
-    // Re-play startup effects, commands, jobs, and diagnostics through the
-    // normal host message loop after the initial UI tree is available.
-    session.prepend_messages(before_snapshot);
-    Ok((app_ir, session))
-}
-
-/// Validate the initial snapshot through the same persistent-session
-/// handshake used by the interactive host.
-pub(super) fn load_python_app_blocking() -> Result<PythonAppIr, Box<dyn Error + Send + Sync>> {
-    let (app, _session) = load_python_session_blocking()?;
-    Ok(app)
-}
-
-struct BackgroundFuture<T> {
-    result: SharedResult<T>,
-    waker: Arc<Mutex<Option<Waker>>>,
-}
-
-impl<T> Future for BackgroundFuture<T> {
-    type Output = Result<T, Box<dyn Error + Send + Sync>>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if let Some(result) = self.result.lock().unwrap().take() {
-            return Poll::Ready(result);
-        }
-        *self.waker.lock().unwrap() = Some(cx.waker().clone());
-        Poll::Pending
-    }
-}
-
-pub(super) fn load_python_session_async()
--> impl Future<Output = Result<(PythonAppIr, PythonSession), Box<dyn Error + Send + Sync>>> {
-    let result = Arc::new(Mutex::new(None));
-    let waker = Arc::new(Mutex::new(None::<Waker>));
-    let result2 = result.clone();
-    let waker2 = waker.clone();
-    std::thread::spawn(move || {
-        let output = load_python_session_blocking();
-        *result2.lock().unwrap() = Some(output);
-        if let Some(w) = waker2.lock().unwrap().take() {
-            w.wake();
-        }
-    });
-    BackgroundFuture { result, waker }
-}
-
-pub(super) fn python_executable() -> OsString {
-    if let Some(value) = env::var_os("GPUI_PYTHON") {
-        return value;
-    }
-    let repo_venv = repo_root().join("venv/bin/python");
-    if repo_venv.exists() {
-        return repo_venv.into_os_string();
-    }
-    OsString::from("python3")
-}
-
-pub(super) fn python_path(script: &Path) -> OsString {
-    let mut paths = vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python")];
-    if let Some(parent) = script.parent() {
-        paths.push(parent.to_path_buf());
-    }
-    if let Some(existing) = env::var_os("PYTHONPATH") {
-        paths.extend(env::split_paths(&existing));
-    }
-    env::join_paths(paths).unwrap_or_else(|_| OsString::new())
 }

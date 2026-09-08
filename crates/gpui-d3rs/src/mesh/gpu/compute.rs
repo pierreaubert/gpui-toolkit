@@ -441,7 +441,7 @@ impl AdapterCompute {
         let data = slice.get_mapped_range();
         let mut range = [f32::INFINITY, f32::NEG_INFINITY];
         let mut valid = false;
-        for partial in data.chunks_exact(16) {
+        for partial in data.as_chunks::<16>().0 {
             let minimum = f32::from_le_bytes(partial[0..4].try_into().map_err(|_| ())?);
             let maximum = f32::from_le_bytes(partial[4..8].try_into().map_err(|_| ())?);
             let has_values = u32::from_le_bytes(partial[8..12].try_into().map_err(|_| ())?) != 0;
@@ -761,7 +761,7 @@ impl AdapterCompute {
                 let byte_start = level_index.checked_mul(bytes_per_level).ok_or(())?;
                 let byte_end = byte_start.checked_add(bytes_per_level).ok_or(())?;
                 let level_data = data.get(byte_start..byte_end).ok_or(())?;
-                for chunk in level_data.chunks_exact(112) {
+                for chunk in level_data.as_chunks::<112>().0 {
                     let valid = u32::from_le_bytes([chunk[96], chunk[97], chunk[98], chunk[99]]);
                     if valid == 0 {
                         continue;
@@ -1105,7 +1105,7 @@ impl AdapterCompute {
                     positions: Vec::new(),
                     triangles: Vec::new(),
                 };
-                for chunk in band_data.chunks_exact(112) {
+                for chunk in band_data.as_chunks::<112>().0 {
                     let valid = u32::from_le_bytes(chunk[96..100].try_into().map_err(|_| ())?);
                     let count = u32::from_le_bytes(chunk[100..104].try_into().map_err(|_| ())?);
                     if valid == 0 || !(3..=6).contains(&count) {

@@ -9,6 +9,10 @@ pub struct ScatterTheme {
     pub title_color: Rgba,
     /// Legend text color
     pub legend_text_color: Rgba,
+    /// Axis line and grid color
+    pub axis_line_color: Rgba,
+    /// Axis tick label color
+    pub axis_label_color: Rgba,
 }
 
 impl Default for ScatterTheme {
@@ -21,6 +25,19 @@ impl Default for ScatterTheme {
                 g: 0.0,
                 b: 0.0,
                 a: 0.6,
+            },
+            // Matches the previously hardcoded `DefaultAxisTheme`.
+            axis_line_color: Rgba {
+                r: 0.5,
+                g: 0.5,
+                b: 0.5,
+                a: 1.0,
+            },
+            axis_label_color: Rgba {
+                r: 0.3,
+                g: 0.3,
+                b: 0.3,
+                a: 1.0,
             },
         }
     }

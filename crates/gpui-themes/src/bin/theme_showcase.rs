@@ -107,9 +107,12 @@ impl Render for ThemeShowcase {
             .flex_col()
             .child(self.render_theme_selector(cx))
             .child(
+                // The theme menu above stays fixed; only the showcase body
+                // scrolls so the whole theme can be inspected.
                 div()
+                    .id("theme-showcase-body")
                     .flex_1()
-                    .overflow_hidden()
+                    .overflow_y_scroll()
                     .child(self.showcase.clone()),
             )
     }
@@ -133,7 +136,9 @@ fn main() {
     MiniApp::run(
         MiniAppConfig::new("GPUI Theme Showcase")
             .size(1400.0, 900.0)
-            .scrollable(true)
+            // Root must not scroll: the theme menu stays fixed and only
+            // the showcase body (`theme-showcase-body`) scrolls.
+            .scrollable(false)
             .with_theme(false), // Showcase manages its own theme
         |cx| cx.new(ThemeShowcase::new),
     );

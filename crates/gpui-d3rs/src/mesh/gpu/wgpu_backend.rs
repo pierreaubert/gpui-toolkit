@@ -308,7 +308,7 @@ fn expand_cell_upload(upload: &MeshUpload) -> MeshUpload {
     let mut expanded = expand_cell_shading(upload);
     expanded.edge_indices = expanded
         .indices
-        .chunks_exact(3)
+        .as_chunks::<3>().0.iter()
         .flat_map(|triangle| {
             [
                 triangle[0],
@@ -387,7 +387,7 @@ impl WgpuCustomDraw for WgpuMeshDraw {
             upload.positions_f32.len()
         };
         let edge_index_count = if field_is_cell {
-            upload.indices.chunks_exact(3).count().saturating_mul(6)
+        upload.indices.as_chunks::<3>().0.len().saturating_mul(6)
         } else {
             upload.edge_indices.len()
         };

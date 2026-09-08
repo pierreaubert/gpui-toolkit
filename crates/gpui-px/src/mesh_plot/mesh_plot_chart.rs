@@ -1709,10 +1709,10 @@ impl MeshPlot {
         let allow_zoom = nav.allow_zoom;
         let allow_inspect = nav.allow_inspect;
         let pan_scene_move = nav.scene.clone();
-        let interaction_surface = div()
+        div()
             .size_full()
             .id(format!("mesh-plot-{}", mesh.id))
-            .track_focus(&focus_handle)
+            .track_focus(focus_handle)
             .focusable()
             .cursor_grab()
             .child(plot_element)
@@ -1780,8 +1780,7 @@ impl MeshPlot {
                         false,
                     );
                 }
-            });
-        interaction_surface
+            })
     }
 
     /// Overlay stage of `build_frame`: press-to-select and drag-to-pan
@@ -3053,9 +3052,9 @@ impl MeshPlot {
             prep.mode,
             MeshRenderMode::Mesh | MeshRenderMode::ScalarFill { .. }
         ) {
-            self.series_mesh_element(&retained_state)
+            self.series_mesh_element(retained_state)
         } else {
-            self.series_contour_element(&prep, &contours)
+            self.series_contour_element(prep, &contours)
         }
     }
 

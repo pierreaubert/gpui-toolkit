@@ -686,12 +686,12 @@ pub fn decode_geometry(
                 return Err("geometry.positions ArrayData values must be finite".into());
             }
             let positions: Arc<[[f64; 3]]> = positions
-                .chunks_exact(3)
+                .as_chunks::<3>().0.iter()
                 .map(|point| [point[0], point[1], point[2]])
                 .collect::<Vec<_>>()
                 .into();
             let triangles = triangles
-                .chunks_exact(3)
+                .as_chunks::<3>().0.iter()
                 .map(|triangle| {
                     let a = u32::try_from(triangle[0])
                         .map_err(|_| "mesh triangle index exceeds u32".to_string())?;
@@ -1089,7 +1089,7 @@ pub fn build_prepared(
         } else {
             Wireframe::Hidden
         },
-        options.color_range.clone(),
+        options.color_range,
     );
     #[cfg(feature = "gpu-3d")]
     if let Some(camera) = parsed_camera {
@@ -1479,7 +1479,7 @@ mod tests {
                 state.selection.clone(),
                 state.wireframe,
                 state.render_mode.clone(),
-                state.color_range.clone(),
+                state.color_range,
                 state.geometry_revision,
                 state.field_revision,
                 state.orbit.distance,
@@ -1508,7 +1508,7 @@ mod tests {
                 state.selection.clone(),
                 state.wireframe,
                 state.render_mode.clone(),
-                state.color_range.clone(),
+                state.color_range,
                 state.geometry_revision,
                 state.field_revision,
                 state.orbit.distance,
@@ -1537,7 +1537,7 @@ mod tests {
                 state.selection.clone(),
                 state.wireframe,
                 state.render_mode.clone(),
-                state.color_range.clone(),
+                state.color_range,
             )
         };
 
@@ -1560,7 +1560,7 @@ mod tests {
                 state.selection.clone(),
                 state.wireframe,
                 state.render_mode.clone(),
-                state.color_range.clone(),
+                state.color_range,
             )
         };
         assert_eq!(after, before);

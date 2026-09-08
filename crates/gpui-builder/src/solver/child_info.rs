@@ -2,7 +2,7 @@ use super::types::ChildInfo;
 use crate::types::{Axis, LayoutNode, LayoutPreferences, Sizing, sanitize_ratio};
 
 fn fractional_bounds(min: f32, max: f32) -> (f32, f32) {
-    let min = min.is_finite().then_some(min.max(0.0)).unwrap_or(0.0);
+    let min = if min.is_finite() { min.max(0.0) } else { 0.0 };
     let max = if max.is_nan() || max.is_sign_negative() {
         0.0
     } else if max.is_infinite() {

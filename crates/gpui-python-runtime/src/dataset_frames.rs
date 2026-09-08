@@ -1131,8 +1131,8 @@ impl DatasetFrameStore {
         {
             return Ok(false);
         }
-        if let Some(pending) = self.pending.get(&resource_id) {
-            if frame.generation == pending.generation {
+        if let Some(pending) = self.pending.get(&resource_id)
+            && frame.generation == pending.generation {
                 if !pending.matches(&frame) {
                     return Err(DatasetFrameError::InvalidMetadata);
                 }
@@ -1144,7 +1144,6 @@ impl DatasetFrameStore {
                     };
                 }
             }
-        }
         let previous_pending_bytes = self
             .pending
             .get(&resource_id)

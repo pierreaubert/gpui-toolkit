@@ -129,7 +129,7 @@ pub fn render_offscreen(
     let range = state.color.range;
     let range_span = (range[1] - range[0]).abs().max(f32::EPSILON);
 
-    for (cell_index, triangle) in upload.indices.chunks_exact(3).enumerate() {
+    for (cell_index, triangle) in upload.indices.as_chunks::<3>().0.iter().enumerate() {
         let (Some(a), Some(b), Some(c)) =
             (point(triangle[0]), point(triangle[1]), point(triangle[2]))
         else {
@@ -198,7 +198,7 @@ pub fn render_offscreen(
     }
 
     if state.color.isoline_step > 0.0 && state.color.isoline_width_px > 0.0 {
-        for (cell_index, triangle) in upload.indices.chunks_exact(3).enumerate() {
+        for (cell_index, triangle) in upload.indices.as_chunks::<3>().0.iter().enumerate() {
             let triangle_values = if let Some(values) = &upload.cell_values_f32 {
                 let value = values.get(cell_index).copied().unwrap_or(f32::NAN);
                 [value; 3]
@@ -249,7 +249,7 @@ pub fn render_offscreen(
     }
 
     if state.color.wireframe {
-        for edge_indices in upload.edge_indices.chunks_exact(2) {
+        for edge_indices in upload.edge_indices.as_chunks::<2>().0 {
             let (Some(a), Some(b)) = (point(edge_indices[0]), point(edge_indices[1])) else {
                 continue;
             };
@@ -439,7 +439,7 @@ pub fn render_offscreen_wgpu_with_camera(
             .copy_from_slice(&data[source_start..source_end]);
     }
     if format == wgpu::TextureFormat::Bgra8Unorm {
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
         }
     }

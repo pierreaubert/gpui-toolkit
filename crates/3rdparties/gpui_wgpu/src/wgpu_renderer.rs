@@ -1246,7 +1246,6 @@ impl WgpuRenderer {
                 *self.last_error.lock().unwrap() = Some(error.to_string());
             }
             frame.present();
-            return;
         }
 
         #[cfg(not(feature = "headless-qa"))]
@@ -2304,7 +2303,7 @@ impl WgpuHeadlessRenderer {
             let destination = &mut pixels[y * row_bytes as usize..][..row_bytes as usize];
             if bgra {
                 for (source, destination) in
-                    source.chunks_exact(4).zip(destination.chunks_exact_mut(4))
+        source.as_chunks::<4>().0.iter().zip(destination.as_chunks_mut::<4>().0.iter_mut())
                 {
                     destination.copy_from_slice(&[source[2], source[1], source[0], source[3]]);
                 }

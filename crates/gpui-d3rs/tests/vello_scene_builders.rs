@@ -33,7 +33,7 @@ fn line_and_bar_scene_builders_have_deterministic_cpu_output() {
 
     let mut rasterizer = CpuRasterizer::new(80, 40);
     let pixels = rasterizer.rasterize(&line, 80, 40, 1.0);
-    assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] != 0));
+    assert!(pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] != 0));
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn heatmap_scene_ignores_nan_cells_and_rasterizes_valid_cells() {
     assert!(
         rasterizer
             .rasterize(&scene, 32, 32, 1.0)
-            .chunks_exact(4)
+            .as_chunks::<4>().0.iter()
             .any(|pixel| pixel[3] != 0)
     );
 }

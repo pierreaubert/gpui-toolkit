@@ -6,6 +6,7 @@ use super::misc::series_color;
 use super::misc::start_animation_loop;
 use crate::ShowcaseApp;
 use crate::showcase_modules::chart_colors;
+use crate::showcase_modules::layout::{self, SIDE_MENU_WIDTH};
 use gpui::prelude::*;
 use gpui::*;
 use gpui_ui_kit::theme::ThemeExt;
@@ -48,8 +49,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     // Generate data
     let data = generate_sample_data(n_series, m_samples);
 
-    // Plot dimensions
-    let plot_width = app.content_width as f64;
+    // Plot dimensions: share the row with the side menu so the menu stays
+    // visible at any window width.
+    let plot_width = layout::plot_width(app.content_width, SIDE_MENU_WIDTH) as f64;
     let plot_height = (plot_width * 0.5).min(app.content_height as f64 * 0.5);
     let bar_padding = 2.0;
 
@@ -95,11 +97,14 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .child("Ported from Observable: d3/stacked-to-grouped-bars"),
                 ),
         )
-        // Main content
+        // Main content: horizontally scrollable so the side menu stays
+        // reachable on narrow windows; the plot width already shrinks first.
         .child(
             div()
+                .id("stacked-bars-row-scroll")
                 .flex()
                 .gap_8()
+                .overflow_x_scroll()
                 // Left: Visualization
                 .child(
                     div()
@@ -183,7 +188,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 // Right: Controls
                 .child(
                     div()
-                        .w(px(280.0))
+                        .w(px(SIDE_MENU_WIDTH))
                         .flex()
                         .flex_col()
                         .gap_4()
@@ -212,7 +217,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .px_4()
                                         .py_2()
                                         .bg(if disabled {
-                                            chart_colors::grid(&theme)
+                                            Hsla::from(theme.muted)
                                         } else {
                                             chart_colors::ink_hex(&theme, 0x007acc)
                                         })

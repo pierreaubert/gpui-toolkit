@@ -7,6 +7,7 @@ pub mod contours;
 pub mod force;
 pub mod geo;
 pub mod hierarchy;
+pub mod layout;
 pub mod line_charts;
 pub mod meshes;
 pub mod overview;

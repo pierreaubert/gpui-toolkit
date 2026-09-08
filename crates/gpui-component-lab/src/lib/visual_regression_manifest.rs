@@ -435,9 +435,9 @@ fn diff_visual_case(
 
     for ((baseline_pixel, actual_pixel), diff_pixel) in baseline
         .as_raw()
-        .chunks_exact(4)
-        .zip(actual.as_raw().chunks_exact(4))
-        .zip(diff_pixels.chunks_exact_mut(4))
+        .as_chunks::<4>().0.iter()
+        .zip(actual.as_raw().as_chunks::<4>().0.iter())
+        .zip(diff_pixels.as_chunks_mut::<4>().0.iter_mut())
     {
         let pixel_max_delta = baseline_pixel
             .iter()
@@ -539,21 +539,6 @@ fn sanitize_path_part(value: &str) -> String {
     encoded
 }
 
-#[cfg(test)]
-mod path_name_tests {
-    use super::{capture_id, sanitize_path_part};
-
-    #[test]
-    fn path_parts_and_capture_ids_preserve_raw_identity() {
-        assert_ne!(sanitize_path_part("a.b"), sanitize_path_part("a-b"));
-        assert_ne!(sanitize_path_part("A"), sanitize_path_part("a"));
-        assert_ne!(
-            capture_id("a.b", "small", "light"),
-            capture_id("a-b", "small", "light")
-        );
-    }
-}
-
 fn image_is_blank(image: &RgbaImage) -> bool {
     let mut pixels = image.pixels();
     let Some(first) = pixels.next() else {
@@ -569,4 +554,19 @@ fn manifest_path(output_root: &Path, renderer_id: &str, group: &str, capture_id:
         .join(format!("{capture_id}.png"))
         .to_string_lossy()
         .replace('\\', "/")
+}
+
+#[cfg(test)]
+mod path_name_tests {
+    use super::{capture_id, sanitize_path_part};
+
+    #[test]
+    fn path_parts_and_capture_ids_preserve_raw_identity() {
+        assert_ne!(sanitize_path_part("a.b"), sanitize_path_part("a-b"));
+        assert_ne!(sanitize_path_part("A"), sanitize_path_part("a"));
+        assert_ne!(
+            capture_id("a.b", "small", "light"),
+            capture_id("a-b", "small", "light")
+        );
+    }
 }

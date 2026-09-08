@@ -70,10 +70,8 @@ impl TextMeasureCache {
     fn measure_key(&self, measure: &dyn TextMeasure) -> MeasureCacheKey {
         MeasureCacheKey {
             identity: measure.cache_key(),
-            epoch: measure
-                .cache_key_is_stable()
-                .then_some(0)
-                .unwrap_or(self.solve_epoch),
+            epoch: if measure
+                .cache_key_is_stable() { 0 } else { self.solve_epoch },
         }
     }
 }

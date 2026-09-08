@@ -15,7 +15,7 @@ fn assert_deterministic_ink(scene: &ChartScene, width: u16, height: u16, label: 
     let second_pixels = second.rasterize(scene, width, height, 1.0);
     assert_eq!(first_pixels, second_pixels, "{label} must be deterministic");
     assert!(
-        first_pixels.chunks_exact(4).any(|pixel| pixel[3] > 0),
+        first_pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 0),
         "{label} must paint at least one pixel"
     );
 }

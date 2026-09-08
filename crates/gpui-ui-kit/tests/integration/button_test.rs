@@ -306,3 +306,47 @@ async fn test_button_custom_theme(cx: &mut TestAppContext) {
 
     let _window = cx.add_window(|_window, _cx| ThemedView);
 }
+
+/// Tab traverses actionable buttons, skips disabled controls, and supports reverse navigation.
+#[gpui::test]
+async fn test_button_tab_navigation_skips_disabled(cx: &mut TestAppContext) {
+    struct TabButtons(Arc<AtomicUsize>);
+    impl Render for TabButtons {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let first = self.0.clone();
+            let disabled = self.0.clone();
+            let last = self.0.clone();
+            div()
+                .size_full()
+                .child(
+                    Button::new("tab-regression-first", "First").on_click(move |_, _| {
+                        first.fetch_add(1, Ordering::SeqCst);
+                    }),
+                )
+                .child(
+                    Button::new("tab-regression-disabled", "Disabled")
+                        .disabled(true)
+                        .on_click(move |_, _| {
+                            disabled.fetch_add(100, Ordering::SeqCst);
+                        }),
+                )
+                .child(
+                    Button::new("tab-regression-last", "Last").on_click(move |_, _| {
+                        last.fetch_add(10, Ordering::SeqCst);
+                    }),
+                )
+        }
+    }
+    let count = Arc::new(AtomicUsize::new(0));
+    let state = count.clone();
+    let window = cx.add_window(move |_, _| TabButtons(state));
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    cx.update(|window, cx| window.focus_next(cx));
+    cx.simulate_keystrokes("enter");
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    cx.simulate_keystrokes("tab enter");
+    assert_eq!(count.load(Ordering::SeqCst), 11);
+    cx.simulate_keystrokes("shift-tab space");
+    assert_eq!(count.load(Ordering::SeqCst), 12);
+}
