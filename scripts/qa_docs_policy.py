@@ -93,7 +93,12 @@ def check() -> list[str]:
     if not gpui_revision or gpui_revision not in readme:
         errors.append("README GPUI revision does not match Cargo.toml")
 
-    manifest = (ROOT / "crates/gpui-toolkit/src/vendored_patches.rs").read_text()
+    # The manifest migrated from gpui-toolkit to gpui-release-gates (Sep 2026);
+    # accept either location so the policy tracks the code, not history.
+    manifest_path = ROOT / "crates/gpui-release-gates/src/vendored_patches.rs"
+    if not manifest_path.is_file():
+        manifest_path = ROOT / "crates/gpui-toolkit/src/vendored_patches.rs"
+    manifest = manifest_path.read_text()
     paths = re.findall(r'local_path:\s*"([^"]+)"', manifest)
     today = dt.date.today()
     for patch in manifest.split("\n    VendoredPatch {")[1:]:

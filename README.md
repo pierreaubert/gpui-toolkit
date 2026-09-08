@@ -56,6 +56,7 @@ Two open source examples:
 | [gpui-profiler](./crates/gpui-profiler/) | Lightweight allocation profiling and hot-path regression utilities. |
 | [gpui-px](./crates/gpui-px/) | Plotly Express-style charting API built on `gpui-d3rs` for scatter, line, bar, heatmap, contour, surface, pie, boxplot, and treemap views. |
 | [gpui-python-runtime](./crates/gpui-python-runtime/) | Retained scene specification runtime for a GPUI Python wrapper, with an optional showcase. |
+| [gpui-release-gates](./crates/gpui-release-gates/) | Release-QA metadata (stability, gates, publish plan) for the GPUI toolkit workspace. |
 | [gpui-scaffolder](./crates/gpui-scaffolder/) | CLI for creating standalone GPUI mini-app projects backed by `gpui-miniapp`. |
 | [gpui-themes](./crates/gpui-themes/) | Theme editor and theme showcase infrastructure for GPUI applications. |
 | [gpui-ui-kit](./crates/gpui-ui-kit/) | Reusable UI component library: buttons, inputs, dialogs, menus, tabs, tables, QR, command palette, sidebar, wizard, workflow canvas, and more. |

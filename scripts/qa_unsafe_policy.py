@@ -25,8 +25,16 @@ FFI_BOUNDARY_DIRS = (
 # pointers returned by `MTLBuffer::contents()`. This file is the explicit
 # native-renderer boundary for that access, even though the rest of gpui-d3rs
 # remains safe Rust.
+#
+# The Python runtime retains published dataset generations through a read-only
+# `mmap` syscall (`memmap2::MmapOptions::map`, an `unsafe fn`). This file is
+# the explicit OS-mapping boundary for that single call: the mapped file is
+# session-private 0600, opened `O_NOFOLLOW | O_CLOEXEC` after the publisher
+# closed it, unlinked on Unix at map time, and the crate root denies
+# `unsafe_code` with one targeted `#[allow]` on the mapping function.
 FFI_BOUNDARY_FILES = {
     "crates/gpui-d3rs/src/mesh/gpu/metal_backend.rs",
+    "crates/gpui-python-runtime/src/dataset_frames.rs",
 }
 
 # This safe crate contains FFI attributes only as generated Rust source text.

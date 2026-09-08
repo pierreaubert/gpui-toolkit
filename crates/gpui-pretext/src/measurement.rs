@@ -287,10 +287,10 @@ impl MeasureCache {
         let key: Arc<str> = Arc::from(seg);
         self.retained_bytes += key.len() + std::mem::size_of::<SegmentMetrics>();
         self.order.push_back(Arc::clone(&key));
-        let metrics_ptr = match self.cache.raw_entry_mut().from_key(seg) {
-            RawEntryMut::Occupied(entry) => entry.into_mut() as *mut SegmentMetrics,
+        match self.cache.raw_entry_mut().from_key(seg) {
+            RawEntryMut::Occupied(_) => {}
             RawEntryMut::Vacant(entry) => {
-                let (_, metrics) = entry.insert(
+                entry.insert(
                     key,
                     SegmentMetrics {
                         width,
@@ -299,18 +299,18 @@ impl MeasureCache {
                         grapheme_prefix_widths: None,
                     },
                 );
-                metrics as *mut SegmentMetrics
             }
         };
         // Evict after inserting so the new entry counts toward the budgets.
-        // The just-inserted key sits at the back of the LRU order, so it
-        // survives unless every budget is zero.
         self.evict_if_needed();
-        // SAFETY: `evict_if_needed` only pops from the front of the LRU order
-        // while more than `capacity` entries exist; the back (this entry) is
-        // removed only when capacity is zero, which `with_budgets` forbids via
-        // `capacity.max(1)`.
-        unsafe { &*metrics_ptr }
+        // The just-inserted key sits at the back of the LRU order and the
+        // eviction loop never pops the back entry (`order.len() > 1`
+        // guard), so a plain lookup replaces the old raw pointer without
+        // unsafe. Capacity is at least 1 by construction (`with_budgets`
+        // applies `capacity.max(1)` and offers no setter).
+        self.cache
+            .get(seg)
+            .expect("just-inserted entry survives eviction")
     }
 
     pub fn get_width(&mut self, seg: &str, measure: &dyn TextMeasure) -> f64 {

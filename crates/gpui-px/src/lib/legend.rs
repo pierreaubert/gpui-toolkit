@@ -83,3 +83,15 @@ impl ChartLegendSummary {
         self.items.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ChartLegendMarker;
+
+    #[test]
+    fn legend_markers_round_trip_to_names() {
+        assert_eq!(ChartLegendMarker::Line.as_str(), "line");
+        assert_eq!(ChartLegendMarker::Circle.as_str(), "circle");
+        assert_eq!(ChartLegendMarker::Square.as_str(), "square");
+    }
+}
