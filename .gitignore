@@ -58,6 +58,7 @@ check_output_*.txt
 .superpowers
 /docs/superpowers
 /.tokensave
+/reviews
 
 # Logs
 logs
