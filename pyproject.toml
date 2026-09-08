@@ -25,7 +25,10 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: User Interfaces",
 ]
-dependencies = []
+dependencies = [
+    "Pillow>=10",
+    "playwright>=1.40",
+]
 
 [project.urls]
 Repository = "https://github.com/pierreaubert/gpui-toolkit"
