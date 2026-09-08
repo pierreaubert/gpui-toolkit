@@ -319,6 +319,7 @@ fn spawn_python_session_for_script(
     })
 }
 
+#[cfg(test)]
 fn read_python_messages<R: BufRead>(
     reader: R,
     tx: SyncSender<Result<PythonMessage, String>>,

@@ -181,10 +181,12 @@ class NativeWrapperTests(unittest.TestCase):
             d3rs.SequentialScheme.turbo(),
             d3rs.SequentialScheme.bu_pu(),
             d3rs.SequentialScheme.cubehelix(),
+            d3rs.SequentialScheme.rainbow(),
         ]
-        self.assertEqual(len(sequential_schemes), 12)
+        self.assertEqual(len(sequential_schemes), 13)
         self.assertTrue(all(len(scale.sample(3)) == 3 for scale in sequential_schemes))
         self.assertEqual(d3rs.SequentialScheme.get("Viridis").name(), "Viridis")
+        self.assertEqual(d3rs.SequentialScheme.get("Rainbow").name(), "Rainbow")
         self.assertIsNone(d3rs.SequentialScheme.get("unknown"))
 
         custom_diverging = d3rs.DivergingScale.new(
@@ -943,6 +945,15 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertIsInstance(native.RandomPoisson.new(1.0).sample(), int)
         self.assertIsInstance(native.RandomIrwinHall.new(2).sample(), float)
         self.assertIsInstance(native.RandomBates.new(2).sample(), float)
+        self.assertIsInstance(native.RandomInt.new(0, 10).sample(), int)
+        self.assertIsInstance(native.RandomPareto.new(1.0).sample(), float)
+        self.assertIsInstance(native.RandomGeometric.new(0.5).sample(), int)
+        self.assertIsInstance(native.RandomGamma.new(2.0, 2.0).sample(), float)
+        self.assertIsInstance(native.RandomBeta.new(2.0, 2.0).sample(), float)
+        self.assertIsInstance(native.RandomWeibull.new(1.5, 1.0, 0.0).sample(), float)
+        self.assertIsInstance(native.RandomCauchy.new(0.0, 1.0).sample(), float)
+        self.assertIsInstance(native.RandomLogistic.new(0.0, 1.0).sample(), float)
+        self.assertIsInstance(native.RandomBinomial.new(10, 0.5).sample(), int)
         self.assertEqual(native.pairs(values), [(1.0, 2.0), (2.0, 3.0), (3.0, 4.0)])
         self.assertEqual(
             d3rs.cross([1.0, 2.0], [10.0, 20.0]),
@@ -1562,8 +1573,8 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertIs(px.Renderer2D, d3rs.Renderer2D)
         self.assertIs(px.VelloBackend, d3rs.VelloBackend)
         self.assertEqual(d3rs.VelloBackend.AUTO.value, "auto")
-        with self.assertRaises(ValueError):
-            d3rs.VelloBackend("metal")
+        self.assertEqual(d3rs.VelloBackend.METAL.value, "metal")
+        self.assertEqual(d3rs.VelloBackend("metal"), d3rs.VelloBackend.METAL)
 
         square = ((0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0))
         self.assertEqual(d3rs.polygon_area(polygon=square), 100.0)
@@ -1751,6 +1762,7 @@ class NativeWrapperTests(unittest.TestCase):
             self.assertTrue(symbol_path.points)
             self.assertGreater(symbol.radius(), 0.0)
         self.assertEqual(native.Symbol.circle(64.0)._symbol_type, native.SymbolType.CIRCLE)
+        self.assertEqual(native.Symbol.wye(64.0)._symbol_type, native.SymbolType.WYE)
         self.assertIs(d3rs.Symbol, native.Symbol)
 
         link = native.Link.from_points((0.0, 10.0), (100.0, 80.0))
@@ -1779,9 +1791,14 @@ class NativeWrapperTests(unittest.TestCase):
         slices = pie.generate(data, lambda item: item["value"])
         self.assertEqual([item.data["name"] for item in slices], ["b", "a"])
         self.assertEqual([item.index for item in slices], [1, 0])
+        # d3-shape semantics: layout slices stay contiguous (the pad lives
+        # inside each slice span and is carved out by the arc generator).
         self.assertAlmostEqual(
             sum(item.arc._end_angle - item.arc._start_angle for item in slices),
-            math.tau - 0.02,
+            math.tau,
+        )
+        self.assertAlmostEqual(
+            slices[0].arc._end_angle, slices[1].arc._start_angle
         )
         self.assertEqual(len(native.pie((1.0, 2.0), 100.0)), 2)
         self.assertEqual(len(native.donut((1.0, 2.0), 50.0, 100.0)), 2)
@@ -1948,8 +1965,12 @@ class NativeWrapperTests(unittest.TestCase):
             native.Curve.monotone_x(),
             native.Curve.monotone_y(),
             native.Curve.natural(),
+            native.Curve.bump_x(),
+            native.Curve.bump_y(),
         ):
             self.assertTrue(curve.interpolate(points))
+        self.assertEqual(native.Curve.bump_x().kind, native.CurveKind.BUMP_X)
+        self.assertEqual(native.Curve.bump_y().kind, native.CurveKind.BUMP_Y)
 
         radial_points = (
             native.RadialPoint(0.0, 10.0),
@@ -2234,9 +2255,34 @@ class NativeWrapperTests(unittest.TestCase):
             native.RandomPoisson.with_seed(3.0, 7),
             native.RandomIrwinHall.with_seed(4, 7),
             native.RandomBates.with_seed(4, 7),
+            native.RandomInt.with_seed(0, 10, 7),
+            native.RandomPareto.with_seed(1.0, 7),
+            native.RandomGeometric.with_seed(0.5, 7),
+            native.RandomGamma.with_seed(2.0, 2.0, 7),
+            native.RandomBeta.with_seed(2.0, 2.0, 7),
+            native.RandomWeibull.with_seed(1.5, 1.0, 0.0, 7),
+            native.RandomCauchy.with_seed(0.0, 1.0, 7),
+            native.RandomLogistic.with_seed(0.0, 1.0, 7),
+            native.RandomBinomial.with_seed(10, 0.5, 7),
         )
         values = [generator.sample() for generator in constructors]
         self.assertTrue(all(math.isfinite(float(value)) for value in values))
+        self.assertTrue(
+            0 <= native.RandomInt.with_seed(0, 10, 7).sample() < 10
+        )
+        self.assertGreaterEqual(native.RandomPareto.with_seed(1.0, 7).sample(), 1.0)
+        self.assertGreaterEqual(native.RandomGeometric.with_seed(0.5, 7).sample(), 1)
+        beta_sample = native.RandomBeta.with_seed(2.0, 2.0, 7).sample()
+        self.assertTrue(0.0 <= beta_sample <= 1.0)
+        self.assertEqual(
+            native.RandomBinomial.with_seed(10, 0.5, 7).sample(),
+            native.RandomBinomial.with_seed(10, 0.5, 7).sample(),
+        )
+        self.assertTrue(math.isfinite(native.RandomCauchy.standard().sample()))
+        self.assertTrue(math.isfinite(native.RandomLogistic.standard().sample()))
+        self.assertTrue(
+            math.isfinite(native.RandomWeibull.standard(1.5).sample())
+        )
         self.assertNotEqual(
             native.RandomUniform.with_seed(0.0, 1.0, 9).sample(),
             native.RandomUniform.with_seed(0.0, 1.0, 10).sample(),
@@ -2256,6 +2302,24 @@ class NativeWrapperTests(unittest.TestCase):
             native.RandomNormal(0.0, -1.0)
         with self.assertRaisesRegex(ValueError, "n"):
             native.RandomBates(0)
+        with self.assertRaisesRegex(ValueError, "k"):
+            native.RandomGamma(0.0, 2.0)
+        with self.assertRaisesRegex(ValueError, "theta"):
+            native.RandomGamma(2.0, 0.0)
+        with self.assertRaisesRegex(ValueError, "alpha"):
+            native.RandomPareto(0.0)
+        with self.assertRaisesRegex(ValueError, "beta"):
+            native.RandomBeta(2.0, -1.0)
+        with self.assertRaisesRegex(ValueError, "p"):
+            native.RandomGeometric(math.inf)
+        with self.assertRaisesRegex(ValueError, "k"):
+            native.RandomWeibull(0.0, 1.0, 0.0)
+        with self.assertRaisesRegex(ValueError, "a"):
+            native.RandomCauchy(math.inf, 1.0)
+        with self.assertRaisesRegex(ValueError, "b"):
+            native.RandomLogistic(0.0, math.nan)
+        with self.assertRaisesRegex(ValueError, "p"):
+            native.RandomBinomial(10, math.inf)
 
     def test_installed_extension_runs_geo_math_graticules_and_versors(self) -> None:
         if not native.AVAILABLE:
@@ -2629,6 +2693,18 @@ class NativeWrapperTests(unittest.TestCase):
         self.assertIsNone(tree.find(20.0, 20.0, radius=1.0))
         self.assertEqual(
             {value["id"] for value in tree.find_all(2.0, 1.0, 3.0)},
+            {"a", "b", "c"},
+        )
+        buffered: list[object] = []
+        tree.find_all_into(2.0, 1.0, 3.0, buffered)
+        self.assertEqual(
+            {value["id"] for value in buffered},
+            {"a", "b", "c"},
+        )
+        rows: list[tuple[float, float, object]] = []
+        tree.extend_data_into(rows)
+        self.assertEqual(
+            {value["id"] for _, _, value in rows},
             {"a", "b", "c"},
         )
 

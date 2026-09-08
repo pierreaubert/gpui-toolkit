@@ -524,6 +524,7 @@ _ENTRIES = (
     ('gpui-python-runtime.strict-compatibility-constructors', 'declarative', 'gpui_toolkit.charts.line'),
     ('gpui-d3rs.scene3d-array-surface', 'declarative', 'gpui_toolkit.scene3d.surface'),
     ('gpui-d3rs.scene3d-array-geometry', 'declarative', 'gpui_toolkit.scene3d'),
+    ('gpui-release-gates.release-qa-metadata', 'non-consumer', 'gpui_toolkit'),
 )
 
 def capabilities() -> tuple[Capability, ...]:

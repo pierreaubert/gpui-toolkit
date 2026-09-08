@@ -24,9 +24,6 @@ ignore = [
     # Unmaintained async-std via vendored http_client -> async-tar (entered the lock with
     # the Phase-1 vendored closure); no safe upgrade until upstream Zed moves off it.
     "RUSTSEC-2025-0052",
-    # Unmaintained rustybuzz via usvg -> gpui (pre-existing upstream Zed SVG text path,
-    # flagged by a freshly published advisory); no safe upgrade available.
-    "RUSTSEC-2026-0206",
 ]
 
 [licenses]

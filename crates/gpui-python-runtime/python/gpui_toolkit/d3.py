@@ -70,6 +70,7 @@ class VelloBackend(str, Enum):
     AUTO = "auto"
     CPU = "cpu"
     WGPU = "wgpu"
+    METAL = "metal"
 
 
 def _color_u8(value: int, name: str) -> int:
@@ -588,6 +589,10 @@ class SequentialScheme:
     @staticmethod
     def cubehelix() -> SequentialScale:
         return SequentialScale._named("Cubehelix")
+
+    @staticmethod
+    def rainbow() -> SequentialScale:
+        return SequentialScale._named("Rainbow")
 
     @staticmethod
     def get(name: str) -> SequentialScale | None:
@@ -2514,6 +2519,15 @@ RandomBernoulli = _native.RandomBernoulli
 RandomPoisson = _native.RandomPoisson
 RandomIrwinHall = _native.RandomIrwinHall
 RandomBates = _native.RandomBates
+RandomInt = _native.RandomInt
+RandomPareto = _native.RandomPareto
+RandomGeometric = _native.RandomGeometric
+RandomGamma = _native.RandomGamma
+RandomBeta = _native.RandomBeta
+RandomWeibull = _native.RandomWeibull
+RandomCauchy = _native.RandomCauchy
+RandomLogistic = _native.RandomLogistic
+RandomBinomial = _native.RandomBinomial
 HALF_PI = _native.HALF_PI
 TAU = _native.TAU
 EPSILON = _native.EPSILON

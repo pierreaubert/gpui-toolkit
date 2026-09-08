@@ -26,12 +26,21 @@ try:
         timer_set_now as _timer_set_now,
         timer_flush as _timer_flush,
         _RandomBernoulli as _NativeRandomBernoulli,
+        _RandomBeta as _NativeRandomBeta,
+        _RandomBinomial as _NativeRandomBinomial,
+        _RandomCauchy as _NativeRandomCauchy,
         _RandomExponential as _NativeRandomExponential,
+        _RandomGamma as _NativeRandomGamma,
+        _RandomGeometric as _NativeRandomGeometric,
+        _RandomInt as _NativeRandomInt,
         _RandomIrwinHall as _NativeRandomIrwinHall,
+        _RandomLogistic as _NativeRandomLogistic,
         _RandomLogNormal as _NativeRandomLogNormal,
         _RandomNormal as _NativeRandomNormal,
+        _RandomPareto as _NativeRandomPareto,
         _RandomPoisson as _NativeRandomPoisson,
         _RandomUniform as _NativeRandomUniform,
+        _RandomWeibull as _NativeRandomWeibull,
         _format_locale_value,
         _format_prefix_value,
         interpolate_transform_svg as _interpolate_transform_svg,
@@ -498,6 +507,15 @@ except ImportError:  # Source declarations remain usable without a built wheel.
     _NativeRandomPoisson = _missing
     _NativeRandomIrwinHall = _missing
     _NativeRandomBates = _missing
+    _NativeRandomBeta = _missing
+    _NativeRandomBinomial = _missing
+    _NativeRandomCauchy = _missing
+    _NativeRandomGamma = _missing
+    _NativeRandomGeometric = _missing
+    _NativeRandomInt = _missing
+    _NativeRandomLogistic = _missing
+    _NativeRandomPareto = _missing
+    _NativeRandomWeibull = _missing
     _geo_radians = _missing
     _geo_degrees = _missing
     _geo_distance = _missing
@@ -3409,6 +3427,10 @@ class Symbol:
     def triangle(cls, size: float) -> "Symbol":
         return cls(SymbolType.TRIANGLE, float(size))
 
+    @classmethod
+    def wye(cls, size: float) -> "Symbol":
+        return cls(SymbolType.WYE, float(size))
+
     def symbol_type(self, t: SymbolType | str) -> "Symbol":
         return replace(self, _symbol_type=SymbolType(t))
 
@@ -4087,6 +4109,8 @@ class CurveKind(str, Enum):
     MONOTONE_X = "monotone_x"
     MONOTONE_Y = "monotone_y"
     NATURAL = "natural"
+    BUMP_X = "bump_x"
+    BUMP_Y = "bump_y"
 
 
 CurveType = CurveKind
@@ -4176,6 +4200,14 @@ class Curve:
     @classmethod
     def natural(cls) -> "Curve":
         return cls(CurveKind.NATURAL)
+
+    @classmethod
+    def bump_x(cls) -> "Curve":
+        return cls(CurveKind.BUMP_X)
+
+    @classmethod
+    def bump_y(cls) -> "Curve":
+        return cls(CurveKind.BUMP_Y)
 
     def interpolate(
         self, points: Sequence[tuple[float, float]]
@@ -5387,6 +5419,193 @@ class RandomBates:
 
     def sample(self) -> float:
         return float(self._inner.sample())
+
+
+@dataclass(frozen=True, init=False)
+class RandomInt:
+    _inner: object
+
+    def __init__(self, min: int, max: int) -> None:
+        object.__setattr__(self, "_inner", _NativeRandomInt(int(min), int(max)))
+
+    @classmethod
+    def new(cls, min: int, max: int) -> "RandomInt":
+        return cls(min, max)
+
+    @classmethod
+    def with_seed(cls, min: int, max: int, seed: int) -> "RandomInt":
+        return _random_wrapper(cls, _NativeRandomInt(int(min), int(max), int(seed)))
+
+    def sample(self) -> int:
+        return int(self._inner.sample())
+
+
+@dataclass(frozen=True, init=False)
+class RandomPareto:
+    _inner: object
+
+    def __init__(self, alpha: float) -> None:
+        object.__setattr__(self, "_inner", _NativeRandomPareto(float(alpha)))
+
+    @classmethod
+    def new(cls, alpha: float) -> "RandomPareto":
+        return cls(alpha)
+
+    @classmethod
+    def with_seed(cls, alpha: float, seed: int) -> "RandomPareto":
+        return _random_wrapper(cls, _NativeRandomPareto(float(alpha), int(seed)))
+
+    def sample(self) -> float:
+        return float(self._inner.sample())
+
+
+@dataclass(frozen=True, init=False)
+class RandomGeometric:
+    _inner: object
+
+    def __init__(self, p: float) -> None:
+        object.__setattr__(self, "_inner", _NativeRandomGeometric(float(p)))
+
+    @classmethod
+    def new(cls, p: float) -> "RandomGeometric":
+        return cls(p)
+
+    @classmethod
+    def with_seed(cls, p: float, seed: int) -> "RandomGeometric":
+        return _random_wrapper(cls, _NativeRandomGeometric(float(p), int(seed)))
+
+    def sample(self) -> int:
+        return int(self._inner.sample())
+
+
+@dataclass(frozen=True, init=False)
+class RandomGamma:
+    _inner: object
+
+    def __init__(self, k: float, theta: float) -> None:
+        object.__setattr__(self, "_inner", _NativeRandomGamma(float(k), float(theta)))
+
+    @classmethod
+    def new(cls, k: float, theta: float) -> "RandomGamma":
+        return cls(k, theta)
+
+    @classmethod
+    def with_seed(cls, k: float, theta: float, seed: int) -> "RandomGamma":
+        return _random_wrapper(cls, _NativeRandomGamma(float(k), float(theta), int(seed)))
+
+    def sample(self) -> float:
+        return float(self._inner.sample())
+
+
+@dataclass(frozen=True, init=False)
+class RandomBeta:
+    _inner: object
+
+    def __init__(self, alpha: float, beta: float) -> None:
+        object.__setattr__(self, "_inner", _NativeRandomBeta(float(alpha), float(beta)))
+
+    @classmethod
+    def new(cls, alpha: float, beta: float) -> "RandomBeta":
+        return cls(alpha, beta)
+
+    @classmethod
+    def with_seed(cls, alpha: float, beta: float, seed: int) -> "RandomBeta":
+        return _random_wrapper(
+            cls, _NativeRandomBeta(float(alpha), float(beta), int(seed))
+        )
+
+    def sample(self) -> float:
+        return float(self._inner.sample())
+
+
+@dataclass(frozen=True, init=False)
+class RandomWeibull:
+    _inner: object
+
+    def __init__(self, k: float, a: float, b: float) -> None:
+        object.__setattr__(self, "_inner", _NativeRandomWeibull(float(k), float(a), float(b)))
+
+    @classmethod
+    def new(cls, k: float, a: float, b: float) -> "RandomWeibull":
+        return cls(k, a, b)
+
+    @classmethod
+    def with_seed(cls, k: float, a: float, b: float, seed: int) -> "RandomWeibull":
+        return _random_wrapper(
+            cls, _NativeRandomWeibull(float(k), float(a), float(b), int(seed))
+        )
+
+    @classmethod
+    def standard(cls, k: float) -> "RandomWeibull":
+        return cls(float(k), 1.0, 0.0)
+
+    def sample(self) -> float:
+        return float(self._inner.sample())
+
+
+@dataclass(frozen=True, init=False)
+class RandomCauchy:
+    _inner: object
+
+    def __init__(self, a: float, b: float) -> None:
+        object.__setattr__(self, "_inner", _NativeRandomCauchy(float(a), float(b)))
+
+    @classmethod
+    def new(cls, a: float, b: float) -> "RandomCauchy":
+        return cls(a, b)
+
+    @classmethod
+    def with_seed(cls, a: float, b: float, seed: int) -> "RandomCauchy":
+        return _random_wrapper(cls, _NativeRandomCauchy(float(a), float(b), int(seed)))
+
+    @classmethod
+    def standard(cls) -> "RandomCauchy":
+        return cls(0.0, 1.0)
+
+    def sample(self) -> float:
+        return float(self._inner.sample())
+
+
+@dataclass(frozen=True, init=False)
+class RandomLogistic:
+    _inner: object
+
+    def __init__(self, a: float, b: float) -> None:
+        object.__setattr__(self, "_inner", _NativeRandomLogistic(float(a), float(b)))
+
+    @classmethod
+    def new(cls, a: float, b: float) -> "RandomLogistic":
+        return cls(a, b)
+
+    @classmethod
+    def with_seed(cls, a: float, b: float, seed: int) -> "RandomLogistic":
+        return _random_wrapper(cls, _NativeRandomLogistic(float(a), float(b), int(seed)))
+
+    @classmethod
+    def standard(cls) -> "RandomLogistic":
+        return cls(0.0, 1.0)
+
+    def sample(self) -> float:
+        return float(self._inner.sample())
+
+
+@dataclass(frozen=True, init=False)
+class RandomBinomial:
+    _inner: object
+
+    def __init__(self, n: int, p: float) -> None:
+        object.__setattr__(self, "_inner", _NativeRandomBinomial(int(n), float(p)))
+
+    @classmethod
+    def new(cls, n: int, p: float) -> "RandomBinomial":
+        return cls(n, p)
+
+    @classmethod
+    def with_seed(cls, n: int, p: float, seed: int) -> "RandomBinomial":
+        return _random_wrapper(cls, _NativeRandomBinomial(int(n), float(p), int(seed)))
+
+    def sample(self) -> int:
+        return int(self._inner.sample())
 
 
 def shuffle(
@@ -9311,6 +9530,14 @@ class QuadTree:
             for identifier in self._index.find_all(float(x), float(y), float(radius))
         ]
 
+    def extend_data_into(self, out: list[tuple[float, float, object]]) -> None:
+        out.extend(self.data())
+
+    def find_all_into(
+        self, x: float, y: float, radius: float, out: list[object]
+    ) -> None:
+        out.extend(self.find_all(x, y, radius))
+
     def data(self) -> list[tuple[float, float, object]]:
         return [
             (float(x), float(y), self._values[int(identifier)])
@@ -9847,6 +10074,15 @@ __all__ = [
     "RandomPoisson",
     "RandomIrwinHall",
     "RandomBates",
+    "RandomInt",
+    "RandomPareto",
+    "RandomGeometric",
+    "RandomGamma",
+    "RandomBeta",
+    "RandomWeibull",
+    "RandomCauchy",
+    "RandomLogistic",
+    "RandomBinomial",
     "HALF_PI",
     "TAU",
     "EPSILON",

@@ -9,7 +9,7 @@ aggregate_crate = "gpui-toolkit"
 aggregate_feature = "all"
 rustdoc_inventory = "python-rustdoc-inventory.json"
 rustdoc_packages = ["gpui-d3rs", "gpui-px"]
-rustdoc_inventory_digest = "b3b2254945a4a5050eef7a080395487eaa00183152dd08d44797a3173bd9a0ea"
+rustdoc_inventory_digest = "878c614d933bbe83b0015c21fbc7b34cca3f58ad823173f77354a6a564556df0"
 # Stable 2.0 cannot be declared while full rustdoc-inventory classification and
 # the remaining targeted-crate inventory waves are open.
 release_ready = false
@@ -1608,6 +1608,14 @@ include_signature = true
 
 [[rustdoc_classification]]
 package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::symbol::Symbol::wye"
+python_path = "gpui_toolkit.d3rs.Symbol.wye"
+disposition = "translated"
+include_signature = true
+rationale = "Rust symbol enums, path geometry, point buffers, and checked error variants map to immutable Python builders, native-backed results, and typed exceptions."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+[[rustdoc_classification]]
+package = "gpui-d3rs"
 rustdoc_id = "d3rs::shape::symbol::Symbol::try_generate"
 python_path = "gpui_toolkit.d3rs.Symbol.try_generate"
 disposition = "translated"
@@ -2993,6 +3001,36 @@ rationale = "Rust's tagged Curve enum and Point vectors map to a strict CurveKin
 tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
 include_signature = true
 
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::curve::Curve::BumpX"
+python_path = "gpui_toolkit.d3rs.CurveKind"
+disposition = "translated"
+rationale = "Rust's tagged Curve enum and Point vectors map to a strict CurveKind/value representation and typed Python point tuples backed by the native interpolator."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::curve::Curve::BumpY"
+python_path = "gpui_toolkit.d3rs.CurveKind"
+disposition = "translated"
+rationale = "Rust's tagged Curve enum and Point vectors map to a strict CurveKind/value representation and typed Python point tuples backed by the native interpolator."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::curve::Curve::bump_x"
+python_path = "gpui_toolkit.d3rs.Curve.bump_x"
+disposition = "translated"
+include_signature = true
+rationale = "Rust's tagged Curve enum and Point vectors map to a strict CurveKind/value representation and typed Python point tuples backed by the native interpolator."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::curve::Curve::bump_y"
+python_path = "gpui_toolkit.d3rs.Curve.bump_y"
+disposition = "translated"
+include_signature = true
+rationale = "Rust's tagged Curve enum and Point vectors map to a strict CurveKind/value representation and typed Python point tuples backed by the native interpolator."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
 [[rustdoc_classification]]
 package = "gpui-d3rs"
 rustdoc_id = "d3rs::shape::curve::Curve::natural"
@@ -9398,6 +9436,22 @@ tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
 
 [[rustdoc_classification]]
 package = "gpui-d3rs"
+rustdoc_id = "d3rs::quadtree::quad_tree::QuadTree::extend_data_into"
+python_path = "gpui_toolkit.d3rs.QuadTree.extend_data_into"
+disposition = "translated"
+include_signature = true
+rationale = "Python wrapper delegates spatial state and traversal to the native quadtree index."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::quadtree::quad_tree::QuadTree::find_all_into"
+python_path = "gpui_toolkit.d3rs.QuadTree.find_all_into"
+disposition = "translated"
+include_signature = true
+rationale = "Python wrapper delegates spatial state and traversal to the native quadtree index."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+[[rustdoc_classification]]
+package = "gpui-d3rs"
 rustdoc_id = "d3rs::quadtree::quad_tree::QuadTree::from_data"
 python_path = "gpui_toolkit.d3rs.QuadTree.from_data"
 disposition = "translated"
@@ -9923,6 +9977,348 @@ tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
 package = "gpui-d3rs"
 rustdoc_id = "d3rs::random::shuffle_in_place"
 python_path = "gpui_toolkit.d3rs.shuffle_in_place"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomInt"
+python_path = "gpui_toolkit.d3rs.RandomInt"
+disposition = "translated"
+rationale = "Native random state or distribution is exposed as a typed Python wrapper."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomInt::new"
+python_path = "gpui_toolkit.d3rs.RandomInt.new"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomInt::sample"
+python_path = "gpui_toolkit.d3rs.RandomInt.sample"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomInt::with_seed"
+python_path = "gpui_toolkit.d3rs.RandomInt.with_seed"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomPareto"
+python_path = "gpui_toolkit.d3rs.RandomPareto"
+disposition = "translated"
+rationale = "Native random state or distribution is exposed as a typed Python wrapper."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomPareto::new"
+python_path = "gpui_toolkit.d3rs.RandomPareto.new"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomPareto::sample"
+python_path = "gpui_toolkit.d3rs.RandomPareto.sample"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomPareto::with_seed"
+python_path = "gpui_toolkit.d3rs.RandomPareto.with_seed"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomGeometric"
+python_path = "gpui_toolkit.d3rs.RandomGeometric"
+disposition = "translated"
+rationale = "Native random state or distribution is exposed as a typed Python wrapper."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomGeometric::new"
+python_path = "gpui_toolkit.d3rs.RandomGeometric.new"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomGeometric::sample"
+python_path = "gpui_toolkit.d3rs.RandomGeometric.sample"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomGeometric::with_seed"
+python_path = "gpui_toolkit.d3rs.RandomGeometric.with_seed"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomGamma"
+python_path = "gpui_toolkit.d3rs.RandomGamma"
+disposition = "translated"
+rationale = "Native random state or distribution is exposed as a typed Python wrapper."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomGamma::new"
+python_path = "gpui_toolkit.d3rs.RandomGamma.new"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomGamma::sample"
+python_path = "gpui_toolkit.d3rs.RandomGamma.sample"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomGamma::with_seed"
+python_path = "gpui_toolkit.d3rs.RandomGamma.with_seed"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomBeta"
+python_path = "gpui_toolkit.d3rs.RandomBeta"
+disposition = "translated"
+rationale = "Native random state or distribution is exposed as a typed Python wrapper."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomBeta::new"
+python_path = "gpui_toolkit.d3rs.RandomBeta.new"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomBeta::sample"
+python_path = "gpui_toolkit.d3rs.RandomBeta.sample"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomBeta::with_seed"
+python_path = "gpui_toolkit.d3rs.RandomBeta.with_seed"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomWeibull"
+python_path = "gpui_toolkit.d3rs.RandomWeibull"
+disposition = "translated"
+rationale = "Native random state or distribution is exposed as a typed Python wrapper."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomWeibull::new"
+python_path = "gpui_toolkit.d3rs.RandomWeibull.new"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomWeibull::sample"
+python_path = "gpui_toolkit.d3rs.RandomWeibull.sample"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomWeibull::with_seed"
+python_path = "gpui_toolkit.d3rs.RandomWeibull.with_seed"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomWeibull::standard"
+python_path = "gpui_toolkit.d3rs.RandomWeibull.standard"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomCauchy"
+python_path = "gpui_toolkit.d3rs.RandomCauchy"
+disposition = "translated"
+rationale = "Native random state or distribution is exposed as a typed Python wrapper."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomCauchy::new"
+python_path = "gpui_toolkit.d3rs.RandomCauchy.new"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomCauchy::sample"
+python_path = "gpui_toolkit.d3rs.RandomCauchy.sample"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomCauchy::with_seed"
+python_path = "gpui_toolkit.d3rs.RandomCauchy.with_seed"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomCauchy::standard"
+python_path = "gpui_toolkit.d3rs.RandomCauchy.standard"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomLogistic"
+python_path = "gpui_toolkit.d3rs.RandomLogistic"
+disposition = "translated"
+rationale = "Native random state or distribution is exposed as a typed Python wrapper."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomLogistic::new"
+python_path = "gpui_toolkit.d3rs.RandomLogistic.new"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomLogistic::sample"
+python_path = "gpui_toolkit.d3rs.RandomLogistic.sample"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomLogistic::with_seed"
+python_path = "gpui_toolkit.d3rs.RandomLogistic.with_seed"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomLogistic::standard"
+python_path = "gpui_toolkit.d3rs.RandomLogistic.standard"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomBinomial"
+python_path = "gpui_toolkit.d3rs.RandomBinomial"
+disposition = "translated"
+rationale = "Native random state or distribution is exposed as a typed Python wrapper."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomBinomial::new"
+python_path = "gpui_toolkit.d3rs.RandomBinomial.new"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomBinomial::sample"
+python_path = "gpui_toolkit.d3rs.RandomBinomial.sample"
+disposition = "translated"
+include_signature = true
+rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::random::RandomBinomial::with_seed"
+python_path = "gpui_toolkit.d3rs.RandomBinomial.with_seed"
 disposition = "translated"
 include_signature = true
 rationale = "Typed Python wrapper preserves explicit RNG state and native random semantics."
@@ -16142,6 +16538,14 @@ tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
 
 [[rustdoc_classification]]
 package = "gpui-d3rs"
+rustdoc_id = "d3rs::color::chromatic::sequential_scheme::SequentialScheme::rainbow"
+python_path = "gpui_toolkit.d3rs.SequentialScheme.rainbow"
+disposition = "translated"
+include_signature = true
+rationale = "Native Rainbow scale constructor."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+[[rustdoc_classification]]
+package = "gpui-d3rs"
 rustdoc_id = "d3rs::color::chromatic::sequential_scheme::SequentialScheme::inferno"
 python_path = "gpui_toolkit.d3rs.SequentialScheme.inferno"
 disposition = "translated"
@@ -17370,6 +17774,13 @@ disposition = "translated"
 rationale = "Typed Vello backend preference consumed during host capability resolution."
 tests = ["crates/gpui-python-runtime/python/tests/test_native.py", "crates/gpui-python-runtime/python/tests/test_v2_data.py"]
 
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::render2d::VelloBackend::Metal"
+python_path = "gpui_toolkit.d3rs.VelloBackend.METAL"
+disposition = "translated"
+rationale = "Typed Vello backend preference consumed during host capability resolution."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py", "crates/gpui-python-runtime/python/tests/test_v2_data.py"]
 [[rustdoc_classification]]
 package = "gpui-d3rs"
 rustdoc_id = "d3rs::render2d::VelloBackend::Auto"
@@ -21822,6 +22233,14 @@ rust_path = "gpui_python_runtime::dataset_frames::{dense_array_values,dense_arra
 python_path = "gpui_toolkit.scene3d"
 disposition = "declarative"
 tests = ["crates/gpui-python-runtime/python/tests/test_scene3d.py", "crates/gpui-python-runtime/src/dataset_frames.rs", "crates/gpui-python-runtime/bin/showcase/python_ir_showcase.rs"]
+
+[[capability]]
+id = "gpui-release-gates.release-qa-metadata"
+rust_path = "gpui_release_gates::release_qa_matrix"
+python_path = "gpui_toolkit"
+disposition = "non-consumer"
+rationale = "Release gates are unpublished maintainer-side Rust QA metadata (stability manifest, publish plan, hygiene, packaging, and QA matrices) evaluated before a release; wheels ship built artifacts and expose no gate-evaluation surface to Python consumers."
+tests = ["scripts/tests/test_qa_release_evidence.py"]
 
 [[rustdoc_completion_scope]]
 id = "gpui-d3rs.shape-path"

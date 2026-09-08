@@ -21,6 +21,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The portable test matrix links dozens of large test binaries; make
+      # room first. Xcode (macOS) is kept: the iOS scaffold lane needs it.
+      - name: Reclaim runner disk space
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            rm -rf ~/Library/Android/sdk /usr/local/share/android-sdk 2>/dev/null || true
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            rm -rf /c/Android /c/dotnet 2>/dev/null || true
+          fi
+          df -h / || true
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -266,6 +278,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The all-features workspace check plus the full test codegen can
+      # exceed the free space left on a stock GitHub-hosted runner; reclaim
+      # the unused SDKs first (mirrors the qa-gpui-obvious job below).
+      - name: Reclaim runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h /
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -310,6 +330,11 @@ jobs:
     needs: check-and-test
     steps:
       - uses: actions/checkout@v7
+
+      - name: Reclaim runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h /
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -608,6 +633,11 @@ jobs:
     needs: check-and-test
     steps:
       - uses: actions/checkout@v7
+
+      - name: Reclaim runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          df -h /
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable

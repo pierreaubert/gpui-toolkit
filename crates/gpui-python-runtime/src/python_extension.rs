@@ -79,8 +79,9 @@ use d3rs::quadtree::{
     Aggregate as D3QuadAggregate, QuadNode as D3QuadNode, QuadTree as D3QuadTree,
 };
 use d3rs::random::{
-    LcgRng, RandomBates, RandomBernoulli, RandomExponential, RandomIrwinHall, RandomLogNormal,
-    RandomNormal, RandomPoisson, RandomUniform,
+    LcgRng, RandomBates, RandomBernoulli, RandomBeta, RandomBinomial, RandomCauchy,
+    RandomExponential, RandomGamma, RandomGeometric, RandomInt, RandomIrwinHall, RandomLogNormal,
+    RandomLogistic, RandomNormal, RandomPareto, RandomPoisson, RandomUniform, RandomWeibull,
 };
 use d3rs::sankey::{
     SankeyLayout as D3SankeyLayout, SankeyLayoutError as D3SankeyLayoutError,
@@ -257,7 +258,7 @@ fn interpolate_number_array(
             "interpolation arrays must have equal lengths",
         ));
     }
-    Ok(py.allow_threads(move || d3rs::interpolate::interpolate_number_array(a, b)(t)))
+    Ok(py.detach(move || d3rs::interpolate::interpolate_number_array(a, b)(t)))
 }
 
 macro_rules! color_interpolator {
@@ -1581,7 +1582,7 @@ fn bisect_left(py: Python<'_>, data: Vec<f64>, value: f64) -> PyResult<usize> {
     finite_values(&data)?;
     sorted_values(&data)?;
     finite("value", value)?;
-    Ok(py.allow_threads(|| d3rs::array::bisect_left_f64(&data, value)))
+    Ok(py.detach(|| d3rs::array::bisect_left_f64(&data, value)))
 }
 
 /// Return the insertion point after equal values in a sorted numeric slice.
@@ -1590,7 +1591,7 @@ fn bisect_right(py: Python<'_>, data: Vec<f64>, value: f64) -> PyResult<usize> {
     finite_values(&data)?;
     sorted_values(&data)?;
     finite("value", value)?;
-    Ok(py.allow_threads(|| d3rs::array::bisect_right_f64(&data, value)))
+    Ok(py.detach(|| d3rs::array::bisect_right_f64(&data, value)))
 }
 
 /// Compute a d3-array quantile, sorting a private copy of the input.
@@ -1600,7 +1601,7 @@ fn quantile(py: Python<'_>, data: Vec<f64>, percentile: f64) -> PyResult<Option<
     if !percentile.is_finite() || !(0.0..=1.0).contains(&percentile) {
         return Err(PyValueError::new_err("percentile must be in [0, 1]"));
     }
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         let mut data = data;
         d3rs::array::quantile(&mut data, percentile)
     }))
@@ -1613,7 +1614,7 @@ fn quantile_sorted(py: Python<'_>, data: Vec<f64>, percentile: f64) -> PyResult<
     if !percentile.is_finite() || !(0.0..=1.0).contains(&percentile) {
         return Err(PyValueError::new_err("percentile must be in [0, 1]"));
     }
-    Ok(py.allow_threads(|| d3rs::array::quantile_sorted(&data, percentile)))
+    Ok(py.detach(|| d3rs::array::quantile_sorted(&data, percentile)))
 }
 
 #[pyfunction]
@@ -1621,25 +1622,25 @@ fn least_index(py: Python<'_>, data: Vec<f64>, value: f64) -> PyResult<Option<us
     finite_values(&data)?;
     sorted_values(&data)?;
     finite("value", value)?;
-    Ok(py.allow_threads(|| d3rs::array::least_index(&data, value)))
+    Ok(py.detach(|| d3rs::array::least_index(&data, value)))
 }
 
 #[pyfunction(name = "min")]
 fn array_min(py: Python<'_>, data: Vec<f64>) -> PyResult<Option<f64>> {
     finite_values(&data)?;
-    Ok(py.allow_threads(|| data.iter().copied().reduce(f64::min)))
+    Ok(py.detach(|| data.iter().copied().reduce(f64::min)))
 }
 
 #[pyfunction(name = "max")]
 fn array_max(py: Python<'_>, data: Vec<f64>) -> PyResult<Option<f64>> {
     finite_values(&data)?;
-    Ok(py.allow_threads(|| data.iter().copied().reduce(f64::max)))
+    Ok(py.detach(|| data.iter().copied().reduce(f64::max)))
 }
 
 #[pyfunction]
 fn min_index(py: Python<'_>, data: Vec<f64>) -> PyResult<Option<usize>> {
     finite_values(&data)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         if data.is_empty() {
             return None;
         }
@@ -1656,7 +1657,7 @@ fn min_index(py: Python<'_>, data: Vec<f64>) -> PyResult<Option<usize>> {
 #[pyfunction]
 fn max_index(py: Python<'_>, data: Vec<f64>) -> PyResult<Option<usize>> {
     finite_values(&data)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         if data.is_empty() {
             return None;
         }
@@ -1673,19 +1674,19 @@ fn max_index(py: Python<'_>, data: Vec<f64>) -> PyResult<Option<usize>> {
 #[pyfunction(name = "sum")]
 fn array_sum(py: Python<'_>, data: Vec<f64>) -> PyResult<f64> {
     finite_values(&data)?;
-    Ok(py.allow_threads(|| d3rs::array::sum(&data)))
+    Ok(py.detach(|| d3rs::array::sum(&data)))
 }
 
 #[pyfunction]
 fn mean(py: Python<'_>, data: Vec<f64>) -> PyResult<Option<f64>> {
     finite_values(&data)?;
-    Ok(py.allow_threads(|| d3rs::array::mean(&data)))
+    Ok(py.detach(|| d3rs::array::mean(&data)))
 }
 
 #[pyfunction]
 fn median(py: Python<'_>, data: Vec<f64>) -> PyResult<Option<f64>> {
     finite_values(&data)?;
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         let mut data = data;
         d3rs::array::median(&mut data)
     }))
@@ -1694,19 +1695,19 @@ fn median(py: Python<'_>, data: Vec<f64>) -> PyResult<Option<f64>> {
 #[pyfunction]
 fn variance(py: Python<'_>, data: Vec<f64>) -> PyResult<Option<f64>> {
     finite_values(&data)?;
-    Ok(py.allow_threads(|| d3rs::array::variance(&data)))
+    Ok(py.detach(|| d3rs::array::variance(&data)))
 }
 
 #[pyfunction]
 fn deviation(py: Python<'_>, data: Vec<f64>) -> PyResult<Option<f64>> {
     finite_values(&data)?;
-    Ok(py.allow_threads(|| d3rs::array::deviation(&data)))
+    Ok(py.detach(|| d3rs::array::deviation(&data)))
 }
 
 #[pyfunction]
 fn extent(py: Python<'_>, data: Vec<f64>) -> PyResult<Option<(f64, f64)>> {
     finite_values(&data)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         let minimum = data.iter().copied().reduce(f64::min);
         let maximum = data.iter().copied().reduce(f64::max);
         minimum.zip(maximum)
@@ -1716,7 +1717,7 @@ fn extent(py: Python<'_>, data: Vec<f64>) -> PyResult<Option<(f64, f64)>> {
 #[pyfunction]
 fn cumsum(py: Python<'_>, data: Vec<f64>) -> PyResult<Vec<f64>> {
     finite_values(&data)?;
-    Ok(py.allow_threads(|| d3rs::array::cumsum(&data)))
+    Ok(py.detach(|| d3rs::array::cumsum(&data)))
 }
 
 type NativeHistogramBin = (f64, f64, Vec<f64>);
@@ -1800,7 +1801,7 @@ fn histogram(
         }
     };
 
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         generator
             .generate(&data)
             .into_iter()
@@ -1843,7 +1844,7 @@ fn nice_bin_edges(minimum: f64, maximum: f64, count: i64) -> PyResult<Vec<f64>> 
 #[pyfunction]
 fn reverse(py: Python<'_>, mut data: Vec<f64>) -> PyResult<Vec<f64>> {
     finite_values(&data)?;
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         d3rs::array::reverse(&mut data);
         data
     }))
@@ -1857,7 +1858,7 @@ fn shuffle_seeded(py: Python<'_>, mut data: Vec<f64>, seed: i64) -> PyResult<Vec
             "shuffle_seeded seed must be non-negative",
         ));
     }
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         d3rs::array::shuffle_seeded(&mut data, seed as u64);
         data
     }))
@@ -1866,7 +1867,7 @@ fn shuffle_seeded(py: Python<'_>, mut data: Vec<f64>, seed: i64) -> PyResult<Vec
 #[pyfunction]
 fn shuffle(py: Python<'_>, mut data: Vec<f64>) -> PyResult<Vec<f64>> {
     finite_values(&data)?;
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         d3rs::array::shuffle(&mut data);
         data
     }))
@@ -1875,7 +1876,7 @@ fn shuffle(py: Python<'_>, mut data: Vec<f64>) -> PyResult<Vec<f64>> {
 #[pyfunction]
 fn pairs(py: Python<'_>, data: Vec<f64>) -> PyResult<Vec<(f64, f64)>> {
     finite_values(&data)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         d3rs::array::pairs(&data)
             .into_iter()
             .map(|(left, right)| (*left, *right))
@@ -1887,7 +1888,7 @@ fn pairs(py: Python<'_>, data: Vec<f64>) -> PyResult<Vec<(f64, f64)>> {
 fn cross(py: Python<'_>, left: Vec<f64>, right: Vec<f64>) -> PyResult<Vec<(f64, f64)>> {
     finite_values(&left)?;
     finite_values(&right)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         d3rs::array::cross(&left, &right)
             .into_iter()
             .map(|(left, right)| (*left, *right))
@@ -1898,13 +1899,13 @@ fn cross(py: Python<'_>, left: Vec<f64>, right: Vec<f64>) -> PyResult<Vec<(f64, 
 #[pyfunction]
 fn unique(py: Python<'_>, data: Vec<f64>) -> PyResult<Vec<f64>> {
     let data = finite_keys(data)?;
-    Ok(py.allow_threads(|| key_values(d3rs::array::unique(&data))))
+    Ok(py.detach(|| key_values(d3rs::array::unique(&data))))
 }
 
 #[pyfunction(name = "sort")]
 fn array_sort(py: Python<'_>, data: Vec<f64>) -> PyResult<Vec<f64>> {
     let mut data = finite_keys(data)?;
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         d3rs::array::sort_by(&mut data, |value| *value);
         key_values(data)
     }))
@@ -1913,7 +1914,7 @@ fn array_sort(py: Python<'_>, data: Vec<f64>) -> PyResult<Vec<f64>> {
 #[pyfunction]
 fn sort_descending(py: Python<'_>, data: Vec<f64>) -> PyResult<Vec<f64>> {
     let mut data = finite_keys(data)?;
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         d3rs::array::sort_by_desc(&mut data, |value| *value);
         key_values(data)
     }))
@@ -1929,7 +1930,7 @@ fn merge_sorted(py: Python<'_>, slices: Vec<Vec<f64>>) -> PyResult<Vec<f64>> {
         .into_iter()
         .map(|values| values.into_iter().map(FiniteF64).collect())
         .collect();
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         let references: Vec<&[FiniteF64]> = slices.iter().map(Vec::as_slice).collect();
         key_values(d3rs::array::merge_sorted(&references))
     }))
@@ -1941,56 +1942,56 @@ fn binary_search(py: Python<'_>, data: Vec<f64>, value: f64) -> PyResult<Option<
     finite("value", value)?;
     let raw: Vec<f64> = data.iter().map(|value| value.0).collect();
     sorted_values(&raw)?;
-    Ok(py.allow_threads(|| d3rs::array::binary_search(&data, &FiniteF64(value))))
+    Ok(py.detach(|| d3rs::array::binary_search(&data, &FiniteF64(value))))
 }
 
 #[pyfunction]
 fn difference(py: Python<'_>, left: Vec<f64>, right: Vec<f64>) -> PyResult<Vec<f64>> {
     let left = finite_keys(left)?;
     let right = finite_keys(right)?;
-    Ok(py.allow_threads(|| key_values(d3rs::array::difference(&left, &right))))
+    Ok(py.detach(|| key_values(d3rs::array::difference(&left, &right))))
 }
 
 #[pyfunction]
 fn intersection(py: Python<'_>, left: Vec<f64>, right: Vec<f64>) -> PyResult<Vec<f64>> {
     let left = finite_keys(left)?;
     let right = finite_keys(right)?;
-    Ok(py.allow_threads(|| key_values(d3rs::array::intersection(&left, &right))))
+    Ok(py.detach(|| key_values(d3rs::array::intersection(&left, &right))))
 }
 
 #[pyfunction(name = "union")]
 fn array_union(py: Python<'_>, left: Vec<f64>, right: Vec<f64>) -> PyResult<Vec<f64>> {
     let left = finite_keys(left)?;
     let right = finite_keys(right)?;
-    Ok(py.allow_threads(|| key_values(d3rs::array::union(&left, &right))))
+    Ok(py.detach(|| key_values(d3rs::array::union(&left, &right))))
 }
 
 #[pyfunction]
 fn symmetric_difference(py: Python<'_>, left: Vec<f64>, right: Vec<f64>) -> PyResult<Vec<f64>> {
     let left = finite_keys(left)?;
     let right = finite_keys(right)?;
-    Ok(py.allow_threads(|| key_values(d3rs::array::symmetric_difference(&left, &right))))
+    Ok(py.detach(|| key_values(d3rs::array::symmetric_difference(&left, &right))))
 }
 
 #[pyfunction]
 fn is_subset(py: Python<'_>, left: Vec<f64>, right: Vec<f64>) -> PyResult<bool> {
     let left = finite_keys(left)?;
     let right = finite_keys(right)?;
-    Ok(py.allow_threads(|| d3rs::array::is_subset(&left, &right)))
+    Ok(py.detach(|| d3rs::array::is_subset(&left, &right)))
 }
 
 #[pyfunction]
 fn is_superset(py: Python<'_>, left: Vec<f64>, right: Vec<f64>) -> PyResult<bool> {
     let left = finite_keys(left)?;
     let right = finite_keys(right)?;
-    Ok(py.allow_threads(|| d3rs::array::is_superset(&left, &right)))
+    Ok(py.detach(|| d3rs::array::is_superset(&left, &right)))
 }
 
 #[pyfunction]
 fn is_disjoint(py: Python<'_>, left: Vec<f64>, right: Vec<f64>) -> PyResult<bool> {
     let left = finite_keys(left)?;
     let right = finite_keys(right)?;
-    Ok(py.allow_threads(|| d3rs::array::is_disjoint(&left, &right)))
+    Ok(py.detach(|| d3rs::array::is_disjoint(&left, &right)))
 }
 
 fn tick_arguments(start: f64, stop: f64) -> PyResult<()> {
@@ -2014,7 +2015,7 @@ fn scale_nice_number(range: f64, round: bool) -> PyResult<f64> {
 fn generate_linear_ticks(py: Python<'_>, min: f64, max: f64, count: usize) -> PyResult<Vec<f64>> {
     finite("min", min)?;
     finite("max", max)?;
-    Ok(py.allow_threads(|| d3rs::scale::generate_linear_ticks(min, max, count)))
+    Ok(py.detach(|| d3rs::scale::generate_linear_ticks(min, max, count)))
 }
 
 #[pyfunction]
@@ -2028,7 +2029,7 @@ fn generate_log_ticks(
     finite("min", min)?;
     finite("max", max)?;
     finite("base", base)?;
-    Ok(py.allow_threads(|| d3rs::scale::generate_log_ticks(min, max, base, subdivisions)))
+    Ok(py.detach(|| d3rs::scale::generate_log_ticks(min, max, base, subdivisions)))
 }
 
 fn tick_count(count: i64) -> PyResult<usize> {
@@ -2040,7 +2041,7 @@ fn tick_count(count: i64) -> PyResult<usize> {
 fn ticks(py: Python<'_>, start: f64, stop: f64, count: i64) -> PyResult<Vec<f64>> {
     tick_arguments(start, stop)?;
     let count = tick_count(count)?;
-    Ok(py.allow_threads(|| d3rs::array::ticks(start, stop, count)))
+    Ok(py.detach(|| d3rs::array::ticks(start, stop, count)))
 }
 
 #[pyfunction]
@@ -2048,7 +2049,7 @@ fn ticks(py: Python<'_>, start: f64, stop: f64, count: i64) -> PyResult<Vec<f64>
 fn tick_step(py: Python<'_>, start: f64, stop: f64, count: i64) -> PyResult<f64> {
     tick_arguments(start, stop)?;
     let count = tick_count(count)?;
-    Ok(py.allow_threads(|| d3rs::array::tick_step(start, stop, count)))
+    Ok(py.detach(|| d3rs::array::tick_step(start, stop, count)))
 }
 
 #[pyfunction]
@@ -2056,7 +2057,7 @@ fn tick_step(py: Python<'_>, start: f64, stop: f64, count: i64) -> PyResult<f64>
 fn tick_increment(py: Python<'_>, start: f64, stop: f64, count: i64) -> PyResult<f64> {
     tick_arguments(start, stop)?;
     let count = tick_count(count)?;
-    Ok(py.allow_threads(|| d3rs::array::tick_increment(start, stop, count)))
+    Ok(py.detach(|| d3rs::array::tick_increment(start, stop, count)))
 }
 
 #[pyfunction]
@@ -2064,7 +2065,7 @@ fn tick_increment(py: Python<'_>, start: f64, stop: f64, count: i64) -> PyResult
 fn nice(py: Python<'_>, start: f64, stop: f64, count: i64) -> PyResult<(f64, f64)> {
     tick_arguments(start, stop)?;
     let count = tick_count(count)?;
-    Ok(py.allow_threads(|| d3rs::array::nice(start, stop, count)))
+    Ok(py.detach(|| d3rs::array::nice(start, stop, count)))
 }
 
 #[pyfunction]
@@ -2075,7 +2076,7 @@ fn ticks_interval(py: Python<'_>, start: f64, stop: f64, interval: f64) -> PyRes
             "interval must be positive and finite",
         ));
     }
-    Ok(py.allow_threads(|| d3rs::array::ticks_interval(start, stop, interval)))
+    Ok(py.detach(|| d3rs::array::ticks_interval(start, stop, interval)))
 }
 
 #[pyfunction]
@@ -2093,7 +2094,7 @@ fn log_ticks(
             "base must be finite and greater than 1",
         ));
     }
-    Ok(py.allow_threads(|| d3rs::array::log_ticks(start, stop, base, subdivisions)))
+    Ok(py.detach(|| d3rs::array::log_ticks(start, stop, base, subdivisions)))
 }
 
 #[pyfunction]
@@ -2101,7 +2102,7 @@ fn log_ticks(
 fn time_ticks(py: Python<'_>, start: f64, stop: f64, count: i64) -> PyResult<Vec<f64>> {
     tick_arguments(start, stop)?;
     let count = tick_count(count)?;
-    Ok(py.allow_threads(|| d3rs::array::time_ticks(start, stop, count)))
+    Ok(py.detach(|| d3rs::array::time_ticks(start, stop, count)))
 }
 
 /// Apply gpui-d3rs's `LinearScale` without holding the Python GIL.
@@ -2119,7 +2120,7 @@ fn linear_scale(
     finite("domain[1]", domain.1)?;
     finite("range[0]", range.0)?;
     finite("range[1]", range.1)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         LinearScale::new()
             .domain(domain.0, domain.1)
             .range(range.0, range.1)
@@ -2142,7 +2143,7 @@ fn linear_scale_invert(
     finite("domain[1]", domain.1)?;
     finite("range[0]", range.0)?;
     finite("range[1]", range.1)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         LinearScale::new()
             .domain(domain.0, domain.1)
             .range(range.0, range.1)
@@ -2160,7 +2161,7 @@ fn linear_scale_nice(
 ) -> PyResult<(f64, f64)> {
     finite("domain[0]", domain.0)?;
     finite("domain[1]", domain.1)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         let scale = LinearScale::new().domain(domain.0, domain.1).nice(count);
         (scale.domain_min(), scale.domain_max())
     }))
@@ -2170,7 +2171,7 @@ fn linear_scale_nice(
 fn linear_scale_ticks(py: Python<'_>, domain: (f64, f64), count: usize) -> PyResult<Vec<f64>> {
     finite("domain[0]", domain.0)?;
     finite("domain[1]", domain.1)?;
-    Ok(py.allow_threads(|| LinearScale::new().domain(domain.0, domain.1).ticks(count)))
+    Ok(py.detach(|| LinearScale::new().domain(domain.0, domain.1).ticks(count)))
 }
 
 fn validate_log_scale(domain: (f64, f64), range: (f64, f64), base: f64) -> PyResult<()> {
@@ -2212,7 +2213,7 @@ fn log_scale(
     if value <= 0.0 {
         return Err(PyValueError::new_err("log scale value must be positive"));
     }
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         LogScale::new()
             .domain(domain.0, domain.1)
             .range(range.0, range.1)
@@ -2234,7 +2235,7 @@ fn log_scale_invert(
 ) -> PyResult<Option<f64>> {
     finite("value", value)?;
     validate_log_scale(domain, range, base)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         LogScale::new()
             .domain(domain.0, domain.1)
             .range(range.0, range.1)
@@ -2253,7 +2254,7 @@ fn log_scale_ticks(
     base: f64,
 ) -> PyResult<Vec<f64>> {
     validate_log_scale(domain, (0.0, 1.0), base)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         LogScale::new()
             .domain(domain.0, domain.1)
             .base(base)
@@ -2287,7 +2288,7 @@ fn pow_scale(
 ) -> PyResult<f64> {
     finite("value", value)?;
     validate_pow_scale(domain, range, exponent)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         PowScale::new()
             .domain(domain.0, domain.1)
             .range(range.0, range.1)
@@ -2309,7 +2310,7 @@ fn pow_scale_invert(
 ) -> PyResult<Option<f64>> {
     finite("value", value)?;
     validate_pow_scale(domain, range, exponent)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         PowScale::new()
             .domain(domain.0, domain.1)
             .range(range.0, range.1)
@@ -2327,7 +2328,7 @@ fn pow_scale_nice(
     count: Option<usize>,
 ) -> PyResult<(f64, f64)> {
     validate_pow_scale(domain, (0.0, 1.0), 1.0)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         let scale = PowScale::new().domain(domain.0, domain.1).nice(count);
         (scale.domain_min(), scale.domain_max())
     }))
@@ -2336,7 +2337,7 @@ fn pow_scale_nice(
 #[pyfunction]
 fn pow_scale_ticks(py: Python<'_>, domain: (f64, f64), count: usize) -> PyResult<Vec<f64>> {
     validate_pow_scale(domain, (0.0, 1.0), 1.0)?;
-    Ok(py.allow_threads(|| PowScale::new().domain(domain.0, domain.1).ticks(count)))
+    Ok(py.detach(|| PowScale::new().domain(domain.0, domain.1).ticks(count)))
 }
 
 fn validate_symlog_scale(domain: (f64, f64), range: (f64, f64), constant: f64) -> PyResult<()> {
@@ -2365,7 +2366,7 @@ fn symlog_scale(
 ) -> PyResult<f64> {
     finite("value", value)?;
     validate_symlog_scale(domain, range, constant)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         SymlogScale::new()
             .domain(domain.0, domain.1)
             .range(range.0, range.1)
@@ -2387,7 +2388,7 @@ fn symlog_scale_invert(
 ) -> PyResult<Option<f64>> {
     finite("value", value)?;
     validate_symlog_scale(domain, range, constant)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         SymlogScale::new()
             .domain(domain.0, domain.1)
             .range(range.0, range.1)
@@ -2405,7 +2406,7 @@ fn symlog_scale_nice(
     count: Option<usize>,
 ) -> PyResult<(f64, f64)> {
     validate_symlog_scale(domain, (0.0, 1.0), 1.0)?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         let scale = SymlogScale::new().domain(domain.0, domain.1).nice(count);
         (scale.domain_min(), scale.domain_max())
     }))
@@ -2414,7 +2415,7 @@ fn symlog_scale_nice(
 #[pyfunction]
 fn symlog_scale_ticks(py: Python<'_>, domain: (f64, f64), count: usize) -> PyResult<Vec<f64>> {
     validate_symlog_scale(domain, (0.0, 1.0), 1.0)?;
-    Ok(py.allow_threads(|| SymlogScale::new().domain(domain.0, domain.1).ticks(count)))
+    Ok(py.detach(|| SymlogScale::new().domain(domain.0, domain.1).ticks(count)))
 }
 
 fn validate_thresholds(thresholds: &[f64], name: &str) -> PyResult<()> {
@@ -2445,7 +2446,7 @@ fn threshold_scale_index(
 ) -> PyResult<usize> {
     validate_thresholds(&thresholds, "threshold scale thresholds")?;
     let range = range_indices(range_len, "threshold scale")?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         ThresholdScale::with_range(range)
             .domain(thresholds)
             .scale(value)
@@ -2461,7 +2462,7 @@ fn threshold_scale_invert_extent(
 ) -> PyResult<Option<(f64, f64)>> {
     validate_thresholds(&thresholds, "threshold scale thresholds")?;
     let range = range_indices(range_len, "threshold scale")?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         ThresholdScale::with_range(range)
             .domain(thresholds)
             .invert_extent(index)
@@ -2482,7 +2483,7 @@ fn quantize_scale_index(
 ) -> PyResult<usize> {
     validate_quantize_domain(domain)?;
     let range = range_indices(range_len, "quantize scale")?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         QuantizeScale::with_range(range)
             .domain(domain.0, domain.1)
             .scale(value)
@@ -2500,7 +2501,7 @@ fn quantize_scale_thresholds(
         return Ok(Vec::new());
     }
     let range: Vec<usize> = (0..range_len).collect();
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         QuantizeScale::with_range(range)
             .domain(domain.0, domain.1)
             .thresholds()
@@ -2519,7 +2520,7 @@ fn quantize_scale_invert_extent(
         return Ok(None);
     }
     let range: Vec<usize> = (0..range_len).collect();
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         QuantizeScale::with_range(range)
             .domain(domain.0, domain.1)
             .invert_extent(index)
@@ -2545,7 +2546,7 @@ fn quantile_scale_prepare(
 ) -> PyResult<(Vec<f64>, Vec<f64>)> {
     validate_quantile_samples(&samples)?;
     let range: Vec<usize> = (0..range_len).collect();
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         let scale = QuantileScale::with_range(range).domain(samples);
         (scale.domain_samples().to_vec(), scale.quantiles().to_vec())
     }))
@@ -2560,7 +2561,7 @@ fn quantile_scale_index(
 ) -> PyResult<usize> {
     validate_quantile_samples(&samples)?;
     let range = range_indices(range_len, "quantile scale")?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         QuantileScale::with_range(range)
             .domain(samples)
             .scale(value)
@@ -2579,7 +2580,7 @@ fn quantile_scale_invert_extent(
         return Ok(None);
     }
     let range: Vec<usize> = (0..range_len).collect();
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         QuantileScale::with_range(range)
             .domain(samples)
             .invert_extent(index)
@@ -2616,7 +2617,7 @@ fn band_scale_layout(
             ("align", align),
         ],
     )?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         let domain: Vec<usize> = (0..domain_len).collect();
         let scale = BandScale::new()
             .domain(domain.clone())
@@ -2646,7 +2647,7 @@ fn point_scale_layout(
     round: bool,
 ) -> PyResult<PointScaleLayout> {
     validate_ordinal_layout(range, &[("padding", padding), ("align", align)])?;
-    Ok(py.allow_threads(|| {
+    Ok(py.detach(|| {
         let domain: Vec<usize> = (0..domain_len).collect();
         let scale = PointScale::new()
             .domain(domain.clone())
@@ -2690,14 +2691,14 @@ numeric_interpolator!(interpolate_date, interpolate_date);
 fn interpolate_basis(py: Python<'_>, values: Vec<f64>, t: f64) -> PyResult<f64> {
     finite_values(&values)?;
     finite("t", t)?;
-    Ok(py.allow_threads(|| d3rs::interpolate::interpolate_basis(&values)(t)))
+    Ok(py.detach(|| d3rs::interpolate::interpolate_basis(&values)(t)))
 }
 
 #[pyfunction]
 fn interpolate_basis_closed(py: Python<'_>, values: Vec<f64>, t: f64) -> PyResult<f64> {
     finite_values(&values)?;
     finite("t", t)?;
-    Ok(py.allow_threads(|| d3rs::interpolate::interpolate_basis_closed(&values)(t)))
+    Ok(py.detach(|| d3rs::interpolate::interpolate_basis_closed(&values)(t)))
 }
 
 #[pyfunction]
@@ -2709,7 +2710,7 @@ fn interpolate_discrete(py: Python<'_>, values: Vec<f64>, t: f64) -> PyResult<f6
             "interpolate_discrete requires at least one value",
         ));
     }
-    Ok(py.allow_threads(|| d3rs::interpolate::interpolate_discrete(&values)(t)))
+    Ok(py.detach(|| d3rs::interpolate::interpolate_discrete(&values)(t)))
 }
 
 #[pyfunction]
@@ -2733,7 +2734,7 @@ fn piecewise(py: Python<'_>, values: Vec<f64>, t: f64) -> PyResult<f64> {
             "piecewise requires at least one value",
         ));
     }
-    Ok(py.allow_threads(|| d3rs::interpolate::piecewise(&values)(t)))
+    Ok(py.detach(|| d3rs::interpolate::piecewise(&values)(t)))
 }
 
 #[pyfunction]
@@ -2752,7 +2753,7 @@ fn piecewise_domain(
         ));
     }
     sorted_values(&positions)?;
-    Ok(py.allow_threads(|| d3rs::interpolate::piecewise_domain(&positions, &values)(t)))
+    Ok(py.detach(|| d3rs::interpolate::piecewise_domain(&positions, &values)(t)))
 }
 
 #[pyfunction]
@@ -2764,7 +2765,7 @@ fn quantize_values(py: Python<'_>, values: Vec<f64>, t: f64) -> PyResult<f64> {
             "quantize requires at least one value",
         ));
     }
-    Ok(py.allow_threads(|| d3rs::interpolate::quantize(&values)(t)))
+    Ok(py.detach(|| d3rs::interpolate::quantize(&values)(t)))
 }
 
 fn ease_function(value: &str) -> PyResult<d3rs::interpolate::EaseFunction> {
@@ -2821,7 +2822,7 @@ fn interpolate_matrix(
         finite_values(row)?;
     }
     finite("t", t)?;
-    Ok(py.allow_threads(|| d3rs::interpolate::interpolate_matrix(&a, &b)(t)))
+    Ok(py.detach(|| d3rs::interpolate::interpolate_matrix(&a, &b)(t)))
 }
 
 #[pyfunction]
@@ -3066,7 +3067,7 @@ impl PyDensityPyramid {
     ) -> PyResult<Self> {
         let bounds = lod_bounds(bounds)?;
         let inner = py
-            .allow_threads(|| D3DensityPyramid::build(&x, &y, bounds, base_dimension))
+            .detach(|| D3DensityPyramid::build(&x, &y, bounds, base_dimension))
             .map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(Self { inner })
     }
@@ -3104,12 +3105,12 @@ fn lod_m4_indices(
     x1: f64,
     columns: usize,
 ) -> Vec<usize> {
-    py.allow_threads(|| d3rs::lod::m4_indices(&x, &y, x0, x1, columns))
+    py.detach(|| d3rs::lod::m4_indices(&x, &y, x0, x1, columns))
 }
 
 #[pyfunction]
 fn lod_m4_point_indices(py: Python<'_>, points: Vec<(f32, f32)>, columns: usize) -> Vec<usize> {
-    py.allow_threads(|| d3rs::lod::m4_point_indices(&points, columns))
+    py.detach(|| d3rs::lod::m4_point_indices(&points, columns))
 }
 
 type NativeHierarchyNode = Rc<RefCell<HierarchyNode<usize>>>;
@@ -3228,7 +3229,7 @@ impl Drop for HierarchySeparationGuard {
 }
 
 fn hierarchy_python_separation(left: &HierarchyNode<usize>, right: &HierarchyNode<usize>) -> f64 {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let callback = HIERARCHY_SEPARATION.with(|state| {
             state
                 .borrow()
@@ -3587,7 +3588,7 @@ fn contour_generate(
 ) -> PyResult<Vec<NativeContour>> {
     contour_grid(&values, width, height)?;
     finite_values(&thresholds)?;
-    py.allow_threads(move || {
+    py.detach(move || {
         let generator = configured_contour_generator(
             width,
             height,
@@ -3635,7 +3636,7 @@ fn contour_band_generate(
             "contour band thresholds must be strictly increasing",
         ));
     }
-    py.allow_threads(move || {
+    py.detach(move || {
         let generator = configured_contour_generator(
             width,
             height,
@@ -3678,7 +3679,7 @@ fn contour_segment_generate(
 ) -> PyResult<Vec<NativeContourSegment>> {
     contour_grid(&values, width, height)?;
     finite_values(&thresholds)?;
-    py.allow_threads(move || {
+    py.detach(move || {
         let generator = configured_contour_generator(
             width,
             height,
@@ -3774,7 +3775,7 @@ fn density_estimate(
         .y(y_domain.0, y_domain.1)
         .bandwidth(bandwidth)
         .kernel(density_kernel_type(kernel)?);
-    py.allow_threads(move || estimator.try_estimate(&points))
+    py.detach(move || estimator.try_estimate(&points))
         .map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
@@ -3808,7 +3809,7 @@ fn density_estimate_weighted(
         .y(y_domain.0, y_domain.1)
         .bandwidth(bandwidth)
         .kernel(density_kernel_type(kernel)?);
-    py.allow_threads(move || estimator.try_estimate_weighted(&points))
+    py.detach(move || estimator.try_estimate_weighted(&points))
         .map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
@@ -3825,7 +3826,7 @@ fn density_2d_auto(
         return Err(PyValueError::new_err("density points must be finite"));
     }
     finite("density bandwidth", bandwidth)?;
-    py.allow_threads(move || try_density_2d(&points, width, height, bandwidth))
+    py.detach(move || try_density_2d(&points, width, height, bandwidth))
         .map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
@@ -3988,7 +3989,7 @@ fn delaunay_snapshot(
             &[(bounds.0, bounds.1), (bounds.2, bounds.3)],
         )?;
     }
-    py.allow_threads(move || {
+    py.detach(move || {
         let delaunay =
             Delaunay::try_new(&points).map_err(|error| PyValueError::new_err(error.to_string()))?;
         let triangles = delaunay.triangles().collect();
@@ -4031,7 +4032,7 @@ fn delaunay_find(
             ));
         }
     }
-    py.allow_threads(move || {
+    py.detach(move || {
         let delaunay =
             Delaunay::try_new(&points).map_err(|error| PyValueError::new_err(error.to_string()))?;
         match radius {
@@ -4090,7 +4091,7 @@ fn force_simulate(
         ));
     }
 
-    py.allow_threads(move || {
+    py.detach(move || {
         let node_count = nodes.len();
         let mut simulation_nodes = Vec::with_capacity(node_count);
         for (index, x, y, vx, vy, fx, fy) in nodes {
@@ -4470,7 +4471,7 @@ fn shape_stack(
 ) -> PyResult<Vec<NativeStackSeries>> {
     let order = stack_order(order)?;
     let offset = stack_offset(offset)?;
-    let result = py.allow_threads(move || {
+    let result = py.detach(move || {
         let stack = ShapeStack::new().keys(keys).order(order).offset(offset);
         if checked {
             stack.try_generate(&data)
@@ -4541,6 +4542,8 @@ fn shape_curve(value: &str, parameter: Option<f64>) -> PyResult<ShapeCurve> {
         "monotone_x" => no_parameter().map(|()| ShapeCurve::MonotoneX),
         "monotone_y" => no_parameter().map(|()| ShapeCurve::MonotoneY),
         "natural" => no_parameter().map(|()| ShapeCurve::Natural),
+        "bump_x" => no_parameter().map(|()| ShapeCurve::BumpX),
+        "bump_y" => no_parameter().map(|()| ShapeCurve::BumpY),
         _ => Err(PyValueError::new_err(format!(
             "unknown curve type {value:?}"
         ))),
@@ -4564,7 +4567,7 @@ fn shape_curve_interpolate(
         .map(|(x, y)| d3rs::shape::Point::new(x, y))
         .collect::<Vec<_>>();
     Ok(py
-        .allow_threads(move || curve.interpolate(&points))
+        .detach(move || curve.interpolate(&points))
         .into_iter()
         .map(|point| (point.x, point.y))
         .collect())
@@ -4629,7 +4632,7 @@ fn radial_line_path(
 ) -> PyResult<String> {
     let curve = shape_curve(kind, parameter)?;
     let points = radial_points(points);
-    py.allow_threads(move || {
+    py.detach(move || {
         let config = RadialLineConfig::new(cx, cy).curve(curve).closed(closed);
         if checked {
             try_radial_line(&points, &config)
@@ -4654,7 +4657,7 @@ fn radial_area_path(
 ) -> PyResult<String> {
     let curve = shape_curve(kind, parameter)?;
     let points = radial_points(points);
-    py.allow_threads(move || {
+    py.detach(move || {
         let config = RadialAreaConfig::new(cx, cy)
             .inner_radius(inner_radius)
             .curve(curve);
@@ -4676,7 +4679,7 @@ fn polar_grid_circle_paths(
     radii: Vec<f64>,
     checked: bool,
 ) -> PyResult<Vec<String>> {
-    py.allow_threads(move || {
+    py.detach(move || {
         if checked {
             try_polar_grid_circles(cx, cy, &radii)
         } else {
@@ -4697,7 +4700,7 @@ fn polar_grid_ray_paths(
     inner_radius: f64,
     checked: bool,
 ) -> PyResult<Vec<String>> {
-    py.allow_threads(move || {
+    py.detach(move || {
         if checked {
             try_polar_grid_rays(cx, cy, outer_radius, &angles, inner_radius)
         } else {
@@ -4877,7 +4880,7 @@ fn shape_path_analyze(
         return Err(PyValueError::new_err("tolerance must be positive"));
     }
     let path = build_native_path(commands)?;
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         let svg = path.to_svg_string();
         let bounds = path.bounds();
         let points = path
@@ -4929,7 +4932,7 @@ fn shape_area_generate(
         )));
     }
     let curve = shape_curve(kind, parameter)?;
-    let path = py.allow_threads(move || {
+    let path = py.detach(move || {
         let indices = (0..top.len()).collect::<Vec<_>>();
         let top_x = top.iter().map(|point| point.0).collect::<Vec<_>>();
         let top_y = top.iter().map(|point| point.1).collect::<Vec<_>>();
@@ -4965,7 +4968,7 @@ fn shape_simple_area(
     y1: Vec<f64>,
     checked: bool,
 ) -> PyResult<NativeSimpleArea> {
-    let result = py.allow_threads(move || {
+    let result = py.detach(move || {
         let area = SimpleArea::new(x, y0, y1);
         let points = if checked {
             area.try_points()?
@@ -5030,7 +5033,7 @@ fn chord_layout(
     let group_order = chord_sort_order(sort_groups)?;
     let subgroup_order = chord_sort_order(sort_subgroups)?;
     let chord_order = chord_sort_order(sort_chords)?;
-    let result = py.allow_threads(move || {
+    let result = py.detach(move || {
         let mut layout = NativeChordLayout::new().pad_angle(pad_angle);
         if let Some(order) = group_order {
             layout = layout.sort_groups(order);
@@ -5100,7 +5103,7 @@ fn chord_ribbon_path(
             value: chord.1.3,
         },
     };
-    let path = py.allow_threads(move || {
+    let path = py.detach(move || {
         NativeRibbonGenerator::new(radius)
             .center(center.0, center.1)
             .generate_path(&chord)
@@ -5249,7 +5252,7 @@ fn timer_callback(
     error: Arc<std::sync::Mutex<Option<String>>>,
 ) -> impl FnMut(f64) -> bool + Send + 'static {
     move |elapsed| {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             match callback
                 .bind(py)
                 .call1((elapsed,))
@@ -5315,7 +5318,7 @@ impl NativeTimerHandle {
                 let callback_error_for_callback = callback_error.clone();
                 NativeTimerResource::Timeout(D3Timeout::new(
                     move |elapsed| {
-                        Python::with_gil(|py| {
+                        Python::attach(|py| {
                             if let Err(error) = callback.bind(py).call1((elapsed,)) {
                                 *callback_error_for_callback
                                     .lock()
@@ -5402,7 +5405,7 @@ impl NativeTimerHandle {
 
     fn join(&self, py: Python<'_>) {
         let resource = self.resource.clone();
-        py.allow_threads(move || match resource {
+        py.detach(move || match resource {
             NativeTimerResource::Timer(timer) => timer.join(),
             NativeTimerResource::Interval(timer) => timer.join(),
             NativeTimerResource::Timeout(timer) => timer.join(),
@@ -5415,7 +5418,7 @@ impl NativeTimerHandle {
             return Err(PyValueError::new_err("timeout_ms must be non-negative"));
         }
         let timeout = std::time::Duration::from_secs_f64(timeout_ms / 1000.0);
-        Ok(py.allow_threads(|| match &self.resource {
+        Ok(py.detach(|| match &self.resource {
             NativeTimerResource::Timer(timer) => timer.try_join(timeout),
             NativeTimerResource::Interval(timer) => timer.try_join(timeout),
             NativeTimerResource::Timeout(timer) => timer.try_join(timeout),
@@ -5814,6 +5817,227 @@ impl PyRandomBates {
     }
 }
 
+#[pyclass(name = "_RandomInt", unsendable)]
+struct PyRandomInt {
+    inner: RandomInt,
+}
+
+#[pymethods]
+impl PyRandomInt {
+    #[new]
+    #[pyo3(signature = (min, max, seed=None))]
+    fn new(min: i64, max: i64, seed: Option<u64>) -> PyResult<Self> {
+        Ok(Self {
+            inner: seed.map_or_else(
+                || RandomInt::new(min, max),
+                |seed| RandomInt::with_seed(min, max, seed),
+            ),
+        })
+    }
+
+    fn sample(&self) -> i64 {
+        self.inner.sample()
+    }
+}
+
+#[pyclass(name = "_RandomPareto", unsendable)]
+struct PyRandomPareto {
+    inner: RandomPareto,
+}
+
+#[pymethods]
+impl PyRandomPareto {
+    #[new]
+    #[pyo3(signature = (alpha, seed=None))]
+    fn new(alpha: f64, seed: Option<u64>) -> PyResult<Self> {
+        random_positive("alpha", alpha)?;
+        Ok(Self {
+            inner: seed.map_or_else(
+                || RandomPareto::new(alpha),
+                |seed| RandomPareto::with_seed(alpha, seed),
+            ),
+        })
+    }
+
+    fn sample(&self) -> f64 {
+        self.inner.sample()
+    }
+}
+
+#[pyclass(name = "_RandomGeometric", unsendable)]
+struct PyRandomGeometric {
+    inner: RandomGeometric,
+}
+
+#[pymethods]
+impl PyRandomGeometric {
+    #[new]
+    #[pyo3(signature = (p, seed=None))]
+    fn new(p: f64, seed: Option<u64>) -> PyResult<Self> {
+        random_finite("p", p)?;
+        Ok(Self {
+            inner: seed.map_or_else(
+                || RandomGeometric::new(p),
+                |seed| RandomGeometric::with_seed(p, seed),
+            ),
+        })
+    }
+
+    fn sample(&self) -> u64 {
+        self.inner.sample()
+    }
+}
+
+#[pyclass(name = "_RandomGamma", unsendable)]
+struct PyRandomGamma {
+    inner: RandomGamma,
+}
+
+#[pymethods]
+impl PyRandomGamma {
+    #[new]
+    #[pyo3(signature = (k, theta, seed=None))]
+    fn new(k: f64, theta: f64, seed: Option<u64>) -> PyResult<Self> {
+        random_positive("k", k)?;
+        random_positive("theta", theta)?;
+        Ok(Self {
+            inner: seed.map_or_else(
+                || RandomGamma::new(k, theta),
+                |seed| RandomGamma::with_seed(k, theta, seed),
+            ),
+        })
+    }
+
+    fn sample(&self) -> f64 {
+        self.inner.sample()
+    }
+}
+
+#[pyclass(name = "_RandomBeta", unsendable)]
+struct PyRandomBeta {
+    inner: RandomBeta,
+}
+
+#[pymethods]
+impl PyRandomBeta {
+    #[new]
+    #[pyo3(signature = (alpha, beta, seed=None))]
+    fn new(alpha: f64, beta: f64, seed: Option<u64>) -> PyResult<Self> {
+        random_positive("alpha", alpha)?;
+        random_positive("beta", beta)?;
+        Ok(Self {
+            inner: seed.map_or_else(
+                || RandomBeta::new(alpha, beta),
+                |seed| RandomBeta::with_seed(alpha, beta, seed),
+            ),
+        })
+    }
+
+    fn sample(&self) -> f64 {
+        self.inner.sample()
+    }
+}
+
+#[pyclass(name = "_RandomWeibull", unsendable)]
+struct PyRandomWeibull {
+    inner: RandomWeibull,
+}
+
+#[pymethods]
+impl PyRandomWeibull {
+    #[new]
+    #[pyo3(signature = (k, a, b, seed=None))]
+    fn new(k: f64, a: f64, b: f64, seed: Option<u64>) -> PyResult<Self> {
+        random_positive("k", k)?;
+        random_finite("a", a)?;
+        random_finite("b", b)?;
+        Ok(Self {
+            inner: seed.map_or_else(
+                || RandomWeibull::new(k, a, b),
+                |seed| RandomWeibull::with_seed(k, a, b, seed),
+            ),
+        })
+    }
+
+    fn sample(&self) -> f64 {
+        self.inner.sample()
+    }
+}
+
+#[pyclass(name = "_RandomCauchy", unsendable)]
+struct PyRandomCauchy {
+    inner: RandomCauchy,
+}
+
+#[pymethods]
+impl PyRandomCauchy {
+    #[new]
+    #[pyo3(signature = (a, b, seed=None))]
+    fn new(a: f64, b: f64, seed: Option<u64>) -> PyResult<Self> {
+        random_finite("a", a)?;
+        random_finite("b", b)?;
+        Ok(Self {
+            inner: seed.map_or_else(
+                || RandomCauchy::new(a, b),
+                |seed| RandomCauchy::with_seed(a, b, seed),
+            ),
+        })
+    }
+
+    fn sample(&self) -> f64 {
+        self.inner.sample()
+    }
+}
+
+#[pyclass(name = "_RandomLogistic", unsendable)]
+struct PyRandomLogistic {
+    inner: RandomLogistic,
+}
+
+#[pymethods]
+impl PyRandomLogistic {
+    #[new]
+    #[pyo3(signature = (a, b, seed=None))]
+    fn new(a: f64, b: f64, seed: Option<u64>) -> PyResult<Self> {
+        random_finite("a", a)?;
+        random_finite("b", b)?;
+        Ok(Self {
+            inner: seed.map_or_else(
+                || RandomLogistic::new(a, b),
+                |seed| RandomLogistic::with_seed(a, b, seed),
+            ),
+        })
+    }
+
+    fn sample(&self) -> f64 {
+        self.inner.sample()
+    }
+}
+
+#[pyclass(name = "_RandomBinomial", unsendable)]
+struct PyRandomBinomial {
+    inner: RandomBinomial,
+}
+
+#[pymethods]
+impl PyRandomBinomial {
+    #[new]
+    #[pyo3(signature = (n, p, seed=None))]
+    fn new(n: u64, p: f64, seed: Option<u64>) -> PyResult<Self> {
+        random_finite("p", p)?;
+        Ok(Self {
+            inner: seed.map_or_else(
+                || RandomBinomial::new(n, p),
+                |seed| RandomBinomial::with_seed(n, p, seed),
+            ),
+        })
+    }
+
+    fn sample(&self) -> u64 {
+        self.inner.sample()
+    }
+}
+
 fn finite_geo_point(name: &str, point: NativePoint) -> PyResult<()> {
     finite(&format!("{name}.longitude"), point.0)?;
     finite(&format!("{name}.latitude"), point.1)
@@ -5923,7 +6147,7 @@ fn geo_graticule(
     validate_geo_step("step_major", step_major)?;
     validate_geo_step("step_minor", step_minor)?;
     random_positive("precision", precision)?;
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         let graticule = Graticule::new()
             .extent_major([
                 [extent_major.0.0, extent_major.0.1],
@@ -6236,7 +6460,7 @@ fn geo_projection_apply(
             )));
         }
     };
-    Ok(py.allow_threads(move || match operation {
+    Ok(py.detach(move || match operation {
         0 => Some(projection_call!(&projection, project, point.0, point.1)),
         1 => Some(projection_call!(
             &projection,
@@ -6417,7 +6641,7 @@ fn geo_stream_events(
     coordinates: &Bound<'_, PyAny>,
 ) -> PyResult<Vec<NativeGeoStreamEvent>> {
     let geometry = geo_geometry(geometry_kind, coordinates)?;
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         let mut collector = GeoStreamCollector::default();
         d3_stream_geojson(&geometry, &mut collector);
         collector.events
@@ -6441,7 +6665,7 @@ fn native_auto_typed(value: D3AutoTyped) -> NativeAutoTyped {
 
 #[pyfunction]
 fn fetch_auto_type_values(py: Python<'_>, values: Vec<String>) -> Vec<NativeAutoTyped> {
-    py.allow_threads(move || {
+    py.detach(move || {
         values
             .iter()
             .map(|value| native_auto_typed(d3_auto_type(value)))
@@ -6517,7 +6741,7 @@ fn configured_dsv_parser(
         .budget(dsv_budget(budget)))
 }
 
-#[pyclass(name = "_DsvCancellationToken")]
+#[pyclass(name = "_DsvCancellationToken", skip_from_py_object)]
 #[derive(Clone, Default)]
 struct NativeDsvCancellationToken {
     cancelled: Arc<AtomicBool>,
@@ -6563,7 +6787,7 @@ fn fetch_parse_dsv(
         budget,
     )?;
     let cancellation = cancellation.map(|token| Arc::clone(&token.cancelled));
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         let result = parser.parse_with_budget_and_cancel(&text, dsv_budget(budget), || {
             cancellation
                 .as_ref()
@@ -6594,7 +6818,7 @@ fn fetch_parse_dsv_rows(
         column_policy,
         budget,
     )?;
-    Ok(py.allow_threads(move || match parser.parse_rows(&text) {
+    Ok(py.detach(move || match parser.parse_rows(&text) {
         Ok(rows) => (rows, None),
         Err(error) => (Vec::new(), Some(native_dsv_error(error))),
     }))
@@ -6724,7 +6948,7 @@ fn sankey_layout(
     if input_order {
         layout = layout.link_sort_input_order();
     }
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         match if checked {
             layout.try_compute(&node_names, &links)
         } else {
@@ -6837,7 +7061,7 @@ fn hexbin_bin(
     radius: f64,
     extent: (NativePoint, NativePoint),
 ) -> (Option<Vec<NativeHexBin>>, Option<NativeHexError>) {
-    py.allow_threads(
+    py.detach(
         move || match configured_hexbin(radius, extent).try_bin(points) {
             Ok(bins) => (
                 Some(
@@ -6881,7 +7105,7 @@ fn hexbin_centers(
     radius: f64,
     extent: (NativePoint, NativePoint),
 ) -> (Option<Vec<NativePoint>>, Option<NativeHexError>) {
-    py.allow_threads(
+    py.detach(
         move || match configured_hexbin(radius, extent).try_centers() {
             Ok(centers) => (Some(centers), None),
             Err(error) => (None, Some(native_hex_error(error))),
@@ -6919,7 +7143,7 @@ fn tile_layout(
     clamp_x: bool,
     clamp_y: bool,
 ) -> (Option<NativeTileSet>, Option<NativeTileError>) {
-    py.allow_threads(move || {
+    py.detach(move || {
         let layout = D3TileLayout::new()
             .extent([[extent.0.0, extent.0.1], [extent.1.0, extent.1.1]])
             .scale(scale)
@@ -7069,7 +7293,7 @@ fn axis_layout(
     config.title_padding = title_padding;
     config.label_angle = label_angle;
 
-    let result = py.allow_threads(move || match scale_kind {
+    let result = py.detach(move || match scale_kind {
         "linear" => {
             let mut scale = LinearScale::new()
                 .domain(domain.0, domain.1)
@@ -7539,7 +7763,7 @@ fn grid_layout(
     config.dot_opacity = dot_opacity;
     config.vertical_line_values = vertical_values;
     config.horizontal_line_values = horizontal_values;
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         match D3GridLayout::try_from_scales(&x_scale, &y_scale, &config, width, height) {
             Ok(layout) => (
                 Some((
@@ -7748,7 +7972,7 @@ fn legend_layout(
         font_size,
         max_width,
     )?;
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         let result = if let Some(avg_char_width) = avg_char_width {
             d3rs::legend::LegendLayout::try_from_config_with_char_width(
                 &config,
@@ -7861,7 +8085,7 @@ fn validate_quad_point(path: &str, x: f64, y: f64) -> PyResult<()> {
     finite(&format!("{path}.y"), y)
 }
 
-#[pyclass(name = "_QuadTreeIndex")]
+#[pyclass(name = "_QuadTreeIndex", skip_from_py_object)]
 #[derive(Clone, Default)]
 struct NativeQuadTreeIndex {
     tree: D3QuadTree<usize>,
@@ -8067,7 +8291,7 @@ fn geo_multi_polygon(geometry: D3GeoJsonGeometry) -> Option<NativeMultiPolygon> 
 
 #[pyfunction]
 fn topojson_parse_land(py: Python<'_>, json: String) -> Option<NativeMultiPolygon> {
-    py.allow_threads(move || d3_parse_land(&json).and_then(geo_multi_polygon))
+    py.detach(move || d3_parse_land(&json).and_then(geo_multi_polygon))
 }
 
 #[pyfunction]
@@ -8088,7 +8312,7 @@ fn topojson_parse_land_with_budget(
         max_output_points,
         max_geometries,
     );
-    py.allow_threads(move || {
+    py.detach(move || {
         d3_parse_land_with_budget(&json, &budget)
             .map(geo_multi_polygon)
             .map_err(|error| PyValueError::new_err(error.to_string()))?
@@ -8184,7 +8408,7 @@ fn geo_path_render(
     let geometry = geo_geometry(geometry_kind, coordinates)?;
     let projection =
         build_geo_projection(projection_kind, scale, translate, center, rotate, parallels)?;
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         geo_path_call!(projection, render_geo_path, &geometry, digits, point_radius)
     }))
 }
@@ -8208,7 +8432,7 @@ fn geo_path_bounds(
     let geometry = geo_geometry(geometry_kind, coordinates)?;
     let projection =
         build_geo_projection(projection_kind, scale, translate, center, rotate, parallels)?;
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         geo_path_call!(projection, bounds_geo_path, &geometry, digits, point_radius)
     }))
 }
@@ -8232,7 +8456,7 @@ fn geo_path_centroid(
     let geometry = geo_geometry(geometry_kind, coordinates)?;
     let projection =
         build_geo_projection(projection_kind, scale, translate, center, rotate, parallels)?;
-    Ok(py.allow_threads(move || {
+    Ok(py.detach(move || {
         geo_path_call!(
             projection,
             centroid_geo_path,
@@ -8258,7 +8482,7 @@ fn geo_path_project_coords(
     validate_geo_line(&coordinates, "coordinates")?;
     let projection =
         build_geo_projection(projection_kind, scale, translate, center, rotate, parallels)?;
-    Ok(py.allow_threads(move || geo_path_call!(projection, project_geo_path, &coordinates)))
+    Ok(py.detach(move || geo_path_call!(projection, project_geo_path, &coordinates)))
 }
 
 type NativeFormatSpecifier = (
@@ -8765,7 +8989,7 @@ fn dataset_arrow_ipc(
         arrays.push((name, array));
     }
     let bytes = py
-        .allow_threads(move || -> Result<Vec<u8>, String> {
+        .detach(move || -> Result<Vec<u8>, String> {
             let batch = RecordBatch::try_from_iter(
                 arrays
                     .iter()
@@ -9022,6 +9246,15 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyRandomPoisson>()?;
     module.add_class::<PyRandomIrwinHall>()?;
     module.add_class::<PyRandomBates>()?;
+    module.add_class::<PyRandomInt>()?;
+    module.add_class::<PyRandomPareto>()?;
+    module.add_class::<PyRandomGeometric>()?;
+    module.add_class::<PyRandomGamma>()?;
+    module.add_class::<PyRandomBeta>()?;
+    module.add_class::<PyRandomWeibull>()?;
+    module.add_class::<PyRandomCauchy>()?;
+    module.add_class::<PyRandomLogistic>()?;
+    module.add_class::<PyRandomBinomial>()?;
     module.add_class::<NativeDsvCancellationToken>()?;
     module.add_class::<NativeQuadTreeIndex>()?;
     module.add_function(wrap_pyfunction!(geo_radians_value, module)?)?;

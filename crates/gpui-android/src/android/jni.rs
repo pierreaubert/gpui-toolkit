@@ -232,9 +232,9 @@ pub fn find_app_class<'local>(
 ///
 /// The global references are owned by this map; readers only borrow the raw
 /// pointer for the duration of one `Env` call.
-static CACHED_APP_CLASSES: std::sync::Mutex<
-    std::collections::HashMap<String, Global<JObject<'static>>>,
-> = std::sync::Mutex::new(std::collections::HashMap::new());
+static CACHED_APP_CLASSES: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, Global<JObject<'static>>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 /// Resolve an application class, reusing a cached global reference.
 ///
@@ -606,10 +606,6 @@ fn process_input_events(app: &AndroidApp) {
 }
 
 // ── main event loop ───────────────────────────────────────────────────────────
-
-/// Frame cadence while momentum scrolling or a fling animation is active.
-/// The tested twin lives in `crate::event_stages`.
-const FRAME_POLL_INTERVAL: Duration = Duration::from_millis(8);
 
 fn event_loop_poll_timeout(
     needs_frame_pump: bool,
@@ -1707,7 +1703,7 @@ mod tests {
         );
         assert_eq!(
             event_loop_poll_timeout(true, Some(Duration::from_secs(1))),
-            Some(FRAME_POLL_INTERVAL)
+            Some(crate::event_stages::FRAME_POLL_INTERVAL)
         );
     }
 

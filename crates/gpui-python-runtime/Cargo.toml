@@ -85,7 +85,7 @@ arrow-ipc = { workspace = true }
 memmap2 = { workspace = true }
 tempfile = { workspace = true }
 libc = { workspace = true }
-pyo3 = { version = "0.25", features = ["abi3-py310", "extension-module"], optional = true }
+pyo3 = { version = "0.29", features = ["abi3-py310", "extension-module"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = { workspace = true }

@@ -61,7 +61,7 @@ fn generate_reflected_trait(trait_item: ItemTrait) -> TokenStream {
                 .sig
                 .inputs
                 .iter()
-                .any(|arg| matches!(arg, FnArg::Receiver(r) if r.reference.is_none()));
+                .any(|arg| matches!(arg, FnArg::Receiver(r) if matches!(r.kind, syn::ReceiverKind::Value)));
 
             // Check if method returns Self
             let returns_self = match &method.sig.output {
