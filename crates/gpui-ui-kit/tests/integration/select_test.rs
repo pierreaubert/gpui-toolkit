@@ -455,3 +455,132 @@ async fn test_select_shows_selected_label(cx: &mut TestAppContext) {
 
     let _window = cx.add_window(|_window, _cx| SelectedLabelView);
 }
+
+#[gpui::test]
+async fn test_select_supplied_focus_handle_drives_keyboard(cx: &mut TestAppContext) {
+    struct FocusedSelect {
+        focus: gpui::FocusHandle,
+        open: bool,
+        highlighted: Option<usize>,
+        selected: String,
+    }
+    impl Render for FocusedSelect {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let toggle = cx.entity().downgrade();
+            let highlight = cx.entity().downgrade();
+            let change = cx.entity().downgrade();
+            div().size_full().child(
+                Select::new("supplied-focus-select")
+                    .focus_handle(self.focus.clone())
+                    .options(vec![
+                        SelectOption::new("first", "First"),
+                        SelectOption::new("second", "Second"),
+                    ])
+                    .selected(self.selected.clone())
+                    .is_open(self.open)
+                    .highlighted_index(self.highlighted)
+                    .on_toggle(move |open, _, cx| {
+                        let _ = toggle.update(cx, |view, cx| {
+                            view.open = open;
+                            cx.notify();
+                        });
+                    })
+                    .on_highlight(move |index, _, cx| {
+                        let _ = highlight.update(cx, |view, cx| {
+                            view.highlighted = index;
+                            cx.notify();
+                        });
+                    })
+                    .on_change(move |value, _, cx| {
+                        let _ = change.update(cx, |view, cx| {
+                            view.selected = value.to_string();
+                            view.open = false;
+                            cx.notify();
+                        });
+                    }),
+            )
+        }
+    }
+    let focus = cx.update(|cx| cx.focus_handle());
+    let supplied = focus.clone();
+    let window = cx.add_window(move |_, _| FocusedSelect {
+        focus: supplied,
+        open: false,
+        highlighted: None,
+        selected: "first".into(),
+    });
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    cx.update(|window, cx| focus.focus(window, cx));
+    cx.update(|window, cx| {
+        assert!(focus.is_focused(window));
+        assert!(window.is_element_focused(&"supplied-focus-select".into(), cx));
+    });
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert!(window.read_with(&cx, |view, _| view.open).unwrap());
+    cx.simulate_keystrokes("down enter");
+    cx.run_until_parked();
+    assert_eq!(
+        window
+            .read_with(&cx, |view, _| view.selected.clone())
+            .unwrap(),
+        "second"
+    );
+    assert!(!window.read_with(&cx, |view, _| view.open).unwrap());
+
+    // Reopening must highlight the committed selection; Escape cancels navigation.
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(
+        window.read_with(&cx, |view, _| view.highlighted).unwrap(),
+        Some(1)
+    );
+    cx.simulate_keystrokes("up escape");
+    cx.run_until_parked();
+    assert!(!window.read_with(&cx, |view, _| view.open).unwrap());
+    assert_eq!(
+        window
+            .read_with(&cx, |view, _| view.selected.clone())
+            .unwrap(),
+        "second"
+    );
+    cx.update(|window, cx| {
+        assert!(focus.is_focused(window));
+        assert!(window.is_element_focused(&"supplied-focus-select".into(), cx));
+    });
+}
+
+#[gpui::test]
+async fn test_select_long_label_keeps_arrow_inside_narrow_trigger(cx: &mut TestAppContext) {
+    struct NarrowSelect;
+    impl Render for NarrowSelect {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().w(gpui::px(140.0)).child(
+                Select::new("narrow-select")
+                    .options(vec![SelectOption::new(
+                        "long",
+                        "A very long output device name that must be truncated at narrow widths",
+                    )])
+                    .selected("long"),
+            )
+        }
+    }
+    let window = cx.add_window(|_, _| NarrowSelect);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    let trigger = cx
+        .debug_bounds("narrow-select-trigger")
+        .expect("trigger rendered");
+    let label = cx
+        .debug_bounds("narrow-select-label")
+        .expect("label rendered");
+    let arrow = cx
+        .debug_bounds("narrow-select-arrow")
+        .expect("arrow rendered");
+    assert!(trigger.size.width <= gpui::px(140.0));
+    assert!(label.size.width > gpui::px(0.0));
+    assert!(arrow.size.width > gpui::px(0.0));
+    assert!(label.right() <= arrow.left());
+    assert!(arrow.right() <= trigger.right());
+}

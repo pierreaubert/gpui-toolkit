@@ -1191,3 +1191,66 @@ async fn test_potentiometer_log_scale_end_sets_max(cx: &mut TestAppContext) {
         );
     }
 }
+
+struct ScrollPolicyPotView {
+    value: Rc<RefCell<f64>>,
+    parent_scrolls: Arc<AtomicUsize>,
+}
+
+impl Render for ScrollPolicyPotView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let value = self.value.clone();
+        let parent_scrolls = self.parent_scrolls.clone();
+        div()
+            .size_full()
+            .debug_selector(|| "scroll-policy-parent".to_string())
+            .on_scroll_wheel(move |_, _, _| {
+                parent_scrolls.fetch_add(1, Ordering::SeqCst);
+            })
+            .child(
+                Potentiometer::new("scroll-policy-pot")
+                    .value(*self.value.borrow())
+                    .min(0.0)
+                    .max(100.0)
+                    .scroll_requires_alt(true)
+                    .on_change(move |new_value, _, _| *value.borrow_mut() = new_value),
+            )
+    }
+}
+
+#[gpui::test]
+async fn alt_scroll_policy_preserves_parent_scrolling(cx: &mut TestAppContext) {
+    let value = Rc::new(RefCell::new(50.0));
+    let parent_scrolls = Arc::new(AtomicUsize::new(0));
+    let view_value = value.clone();
+    let view_scrolls = parent_scrolls.clone();
+    let window = cx.add_window(move |_, _| ScrollPolicyPotView {
+        value: view_value,
+        parent_scrolls: view_scrolls,
+    });
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    let position = cx
+        .debug_bounds("scroll-policy-parent")
+        .expect("scroll fixture must render")
+        .origin
+        + point(gpui::px(30.0), gpui::px(30.0));
+    for alt in [false, true] {
+        cx.simulate_event(ScrollWheelEvent {
+            position,
+            delta: ScrollDelta::Lines(point(0.0, -1.0)),
+            modifiers: Modifiers {
+                alt,
+                ..Default::default()
+            },
+            touch_phase: TouchPhase::Moved,
+        });
+        cx.run_until_parked();
+        assert_eq!(parent_scrolls.load(Ordering::SeqCst), 1);
+        if alt {
+            assert!(*value.borrow() > 50.0);
+        } else {
+            assert_eq!(*value.borrow(), 50.0);
+        }
+    }
+}

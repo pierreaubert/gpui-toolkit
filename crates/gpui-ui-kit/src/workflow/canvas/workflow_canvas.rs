@@ -182,6 +182,17 @@ impl WorkflowCanvas {
         &mut self.state.graph
     }
 
+    /// Select an existing node, optionally retaining the current selection.
+    /// Returns false for an unknown ID without changing selection. Notify the
+    /// entity after calling, as with `select_all` and `clear_selection`.
+    pub fn select_node(&mut self, node_id: NodeId, add_to_selection: bool) -> bool {
+        if !self.state.graph.nodes.contains_key(&node_id) {
+            return false;
+        }
+        self.state.selection.select_node(node_id, add_to_selection);
+        true
+    }
+
     /// Get the current selection
     pub fn selection(&self) -> &SelectionState {
         &self.state.selection

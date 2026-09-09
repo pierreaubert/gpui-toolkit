@@ -851,3 +851,31 @@ fn test_port_positions_clamped_for_tiny_node() {
     );
     assert!(p0.y >= 0.0, "port y must not be above node top");
 }
+
+#[gpui::test]
+fn canvas_programmatic_selection_preserves_graph(cx: &mut gpui::TestAppContext) {
+    use gpui::AppContext;
+    let canvas = cx.new(super::WorkflowCanvas::new);
+    canvas.update(cx, |canvas, _| {
+        let first = WorkflowNodeData::new("First", Position::new(20.0, 30.0));
+        let second = WorkflowNodeData::new("Second", Position::new(220.0, 30.0));
+        let (first_id, second_id) = (first.id, second.id);
+        canvas.add_node(first);
+        canvas.add_node(second);
+        let graph_before = serde_json::to_value(canvas.graph()).unwrap();
+
+        assert!(canvas.select_node(first_id, false));
+        assert!(canvas.selection().is_node_selected(first_id));
+        assert!(!canvas.select_node(NodeId::new_v4(), false));
+        assert!(canvas.selection().is_node_selected(first_id));
+        assert_eq!(canvas.selection().selected_nodes.len(), 1);
+
+        assert!(canvas.select_node(second_id, true));
+        assert_eq!(canvas.selection().selected_nodes.len(), 2);
+        assert!(canvas.select_node(second_id, false));
+        assert!(!canvas.selection().is_node_selected(first_id));
+        assert!(canvas.selection().is_node_selected(second_id));
+        assert_eq!(canvas.selection().selected_nodes.len(), 1);
+        assert_eq!(serde_json::to_value(canvas.graph()).unwrap(), graph_before);
+    });
+}

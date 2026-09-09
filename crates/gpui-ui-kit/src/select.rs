@@ -47,6 +47,7 @@ pub use types::SelectTheme;
 /// A select dropdown component with theming support
 pub struct Select {
     id: ElementId,
+    focus_handle: Option<FocusHandle>,
     options: Vec<SelectOption>,
     option_ids: Vec<ElementId>,
     selected: Option<SharedString>,
@@ -70,6 +71,7 @@ impl Select {
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
+            focus_handle: None,
             options: Vec::new(),
             option_ids: Vec::new(),
             selected: None,
@@ -107,6 +109,13 @@ impl Select {
             .enumerate()
             .map(|(idx, _)| (self.id.clone(), idx.to_string()).into())
             .collect();
+    }
+
+    /// Supply the trigger's focus handle for programmatic focus and focus groups.
+    /// If omitted, the select retains its own handle by element ID.
+    pub fn focus_handle(mut self, handle: FocusHandle) -> Self {
+        self.focus_handle = Some(handle);
+        self
     }
 
     /// Set options
@@ -237,15 +246,17 @@ impl Select {
         // Get or create a stable FocusHandle for this select element.
         // Without this, window.focus() cannot be called and keyboard events
         // never reach the trigger after a mouse click.
-        let focus_handle = SELECT_FOCUS_HANDLES.with(|handles| {
-            let mut handles = handles.borrow_mut();
-            if !handles.contains_key(&self.id) && handles.len() >= MAX_SELECT_FOCUS_ENTRIES {
-                handles.clear();
-            }
-            handles
-                .entry(self.id.clone())
-                .or_insert_with(|| cx.focus_handle())
-                .clone()
+        let focus_handle = self.focus_handle.unwrap_or_else(|| {
+            SELECT_FOCUS_HANDLES.with(|handles| {
+                let mut handles = handles.borrow_mut();
+                if !handles.contains_key(&self.id) && handles.len() >= MAX_SELECT_FOCUS_ENTRIES {
+                    handles.clear();
+                }
+                handles
+                    .entry(self.id.clone())
+                    .or_insert_with(|| cx.focus_handle())
+                    .clone()
+            })
         });
 
         // Borrow the global theme's font family in a scoped block so the
@@ -270,7 +281,7 @@ impl Select {
         let mut trigger = div()
             .id(self.id)
             .font_family(font_family.clone())
-            .track_focus(&focus_handle)
+            .track_focus_element(&focus_handle)
             .flex()
             .items_center()
             .justify_between()
@@ -320,6 +331,11 @@ impl Select {
 
         let currently_open = self.is_open;
         let num_options = self.options.len();
+        let initial_highlight = self
+            .options
+            .iter()
+            .position(|option| !option.disabled && Some(&option.value) == self.selected.as_ref())
+            .or_else(|| self.options.iter().position(|option| !option.disabled));
         let current_highlight = self.highlighted_index;
         let highlighted_option = current_highlight
             .and_then(|idx| self.options.get(idx).map(|o| (o.value.clone(), o.disabled)));
@@ -383,6 +399,15 @@ impl Select {
                             }
                             true
                         }
+                        "enter" => {
+                            if let Some(ref handler) = toggle_rc {
+                                handler(true, window, cx);
+                            }
+                            if let Some(ref handler) = highlight_rc {
+                                handler(initial_highlight, window, cx);
+                            }
+                            true
+                        }
                         "down" | "up" if currently_open => {
                             let delta = if event.keystroke.key == "down" {
                                 1
@@ -426,10 +451,26 @@ impl Select {
             div().text_color(theme.placeholder_color).child("Select...")
         };
 
-        trigger = trigger.child(display_text);
+        trigger = trigger
+            .debug_selector(|| format!("{dropdown_id}-trigger"))
+            .child(
+                display_text
+                    .debug_selector(|| format!("{dropdown_id}-label"))
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .text_ellipsis(),
+            );
 
         // Dropdown arrow
-        trigger = trigger.child(div().text_xs().text_color(theme.arrow_color).child("▼"));
+        trigger = trigger.child(
+            div()
+                .debug_selector(|| format!("{dropdown_id}-arrow"))
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(theme.arrow_color)
+                .child("▼"),
+        );
 
         container = container.child(apply_native_accessibility(
             trigger,

@@ -71,6 +71,13 @@ separately:
 `Gpui3DCache` is available behind the `gpui` feature and keeps
 `Surface3DElement` / line camera state keyed by stable ids.
 
+## Tutorial
+
+New to the Python API? [`python/tutorial/`](python/tutorial/) walks through
+installing the `gpui-toolkit` wheel and building a native demo app
+(`demo_app.py`: text, metrics, a `px` line chart, and a button with a live
+`on_action` → `patch` loop), then points at the larger examples below.
+
 ## Python Examples
 
 The examples build JSON-serializable scene specs that the Rust runtime can

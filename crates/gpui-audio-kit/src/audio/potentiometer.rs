@@ -56,6 +56,7 @@ pub struct Potentiometer {
     scale: PotentiometerScale,
     selected: bool,
     disabled: bool,
+    scroll_requires_alt: bool,
     theme: Option<PotentiometerTheme>,
     /// Override accent color for the value arc (e.g., plugin-specific color)
     accent_color: Option<Rgba>,
@@ -92,6 +93,7 @@ impl Potentiometer {
             scale: PotentiometerScale::default(),
             selected: false,
             disabled: false,
+            scroll_requires_alt: false,
             theme: None,
             accent_color: None,
             design_tokens: Default::default(),
@@ -222,6 +224,13 @@ impl Potentiometer {
     pub fn design(mut self, design: impl Into<std::sync::Arc<gpui_design::DesignSystem>>) -> Self {
         let design = design.into();
         self.design_tokens = crate::audio_design_tokens::AudioDesignTokens::from(design.as_ref());
+        self
+    }
+
+    /// Require Alt/Option for wheel adjustment; ordinary wheel events bubble
+    /// to a containing scrollport. Defaults to false for compatibility.
+    pub fn scroll_requires_alt(mut self, required: bool) -> Self {
+        self.scroll_requires_alt = required;
         self
     }
 
@@ -514,6 +523,7 @@ struct PotHandlers {
     max: f64,
     scale: PotentiometerScale,
     disabled: bool,
+    scroll_requires_alt: bool,
 }
 
 /// Copyable 2D renderer selection for custom-painted dial elements.
@@ -1189,7 +1199,11 @@ fn wire_pot_discrete(mut container: Stateful<Div>, h: &PotHandlers) -> Stateful<
         let current_value_scroll = h.current_value.clone();
         let config_scroll = h.config.clone();
         let commit_scroll = h.on_commit.clone();
+        let scroll_requires_alt = h.scroll_requires_alt;
         container = container.on_scroll_wheel(move |event, window, cx| {
+            if scroll_requires_alt && !event.modifiers.alt {
+                return;
+            }
             cx.stop_propagation();
             let val = current_value_scroll.get();
             if let Some(new_value) =
@@ -1332,6 +1346,7 @@ impl RenderOnce for Potentiometer {
             max,
             scale,
             disabled,
+            scroll_requires_alt: self.scroll_requires_alt,
         };
 
         let chassis = ChassisSpec::new(
