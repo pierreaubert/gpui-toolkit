@@ -237,14 +237,6 @@ fn gpu_snapshot_agrees_with_cpu_on_text() {
     // glyph transform or paint reads orders of magnitude higher.
     assert!(stat.std_mean < 1.0, "text std mean {}", stat.std_mean);
     assert!(stat.std_frac < 0.05, "text std frac {}", stat.std_frac);
-    assert!(
-        stat.down_mean < 0.5,
-        "text down mean {}",
-        stat.down_mean
-    );
-    assert!(
-        stat.down_frac < 0.1,
-        "text down frac {}",
-        stat.down_frac
-    );
+    assert!(stat.down_mean < 0.5, "text down mean {}", stat.down_mean);
+    assert!(stat.down_frac < 0.1, "text down frac {}", stat.down_frac);
 }

@@ -137,7 +137,11 @@ pub fn bake_charset(chars: impl Iterator<Item = char>) -> SdfAtlas {
         let dst_y = cell_y + SDF_CELL_PAD;
         // Empty bitmaps (spaces) keep a blank cell but still record metrics.
         if metrics.width > 0 && metrics.height > 0 {
-            for (row, chunk) in sdf.chunks_exact(metrics.width).enumerate().take(metrics.height) {
+            for (row, chunk) in sdf
+                .chunks_exact(metrics.width)
+                .enumerate()
+                .take(metrics.height)
+            {
                 let start = (dst_y + row) * size_px as usize + dst_x;
                 data[start..start + metrics.width].copy_from_slice(chunk);
             }
@@ -185,10 +189,7 @@ pub fn layout_string(atlas: &SdfAtlas, text: &str, px_size: f32) -> LaidOutStrin
         laid.glyphs.push(PlacedGlyph {
             uv_min: cell.uv_min,
             uv_max: cell.uv_max,
-            offset_px: [
-                pen + cell.cell_offset_x * unit,
-                cell.cell_offset_y * unit,
-            ],
+            offset_px: [pen + cell.cell_offset_x * unit, cell.cell_offset_y * unit],
             size_px: [cell.cell_px * unit, cell.cell_px * unit],
         });
         pen += cell.advance * unit;
@@ -317,7 +318,10 @@ mod tests {
         let edge = sdf[4 * w + 3] as f32;
         let outside = sdf[4 * w + 4] as f32;
         assert!((edge - 128.0).abs() < 40.0, "outline near midpoint: {edge}");
-        assert!((outside - 128.0).abs() < 40.0, "outline near midpoint: {outside}");
+        assert!(
+            (outside - 128.0).abs() < 40.0,
+            "outline near midpoint: {outside}"
+        );
         assert!(edge > outside, "inside edge brighter than outside edge");
     }
 
@@ -331,7 +335,10 @@ mod tests {
     #[test]
     fn sdf_is_deterministic() {
         let (coverage, w, h) = half_filled();
-        assert_eq!(sdf_from_coverage(&coverage, w, h), sdf_from_coverage(&coverage, w, h));
+        assert_eq!(
+            sdf_from_coverage(&coverage, w, h),
+            sdf_from_coverage(&coverage, w, h)
+        );
     }
 
     #[test]

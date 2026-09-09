@@ -435,7 +435,9 @@ fn diff_visual_case(
 
     for ((baseline_pixel, actual_pixel), diff_pixel) in baseline
         .as_raw()
-        .as_chunks::<4>().0.iter()
+        .as_chunks::<4>()
+        .0
+        .iter()
         .zip(actual.as_raw().as_chunks::<4>().0.iter())
         .zip(diff_pixels.as_chunks_mut::<4>().0.iter_mut())
     {

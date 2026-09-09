@@ -68,6 +68,8 @@ pub mod geo;
 pub mod gpu2d;
 #[cfg(all(feature = "gpu-3d", not(test)))]
 pub mod gpu3d;
+#[cfg(any(feature = "vello", feature = "gpu-3d"))]
+pub mod gputext;
 pub mod grid;
 pub mod hexbin;
 pub mod legend;
@@ -91,5 +93,3 @@ pub mod timer;
 pub mod transition;
 #[cfg(feature = "vello")]
 pub mod vello2d;
-#[cfg(any(feature = "vello", feature = "gpu-3d"))]
-pub mod gputext;

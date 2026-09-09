@@ -149,7 +149,6 @@ impl SequentialScale {
         self
     }
 
-
     /// Copy the scale.
     pub fn copy(&self) -> Self {
         self.clone()
@@ -172,7 +171,10 @@ impl Scale<f64, D3Color> for SequentialScale {
     }
 
     fn ticks(&self, count: usize) -> Vec<f64> {
-        let (lo, hi) = (self.domain[0].min(self.domain[1]), self.domain[0].max(self.domain[1]));
+        let (lo, hi) = (
+            self.domain[0].min(self.domain[1]),
+            self.domain[0].max(self.domain[1]),
+        );
         generate_linear_ticks(lo, hi, count)
     }
 
@@ -246,7 +248,6 @@ impl DivergingScale {
         self.clamped = enabled;
         self
     }
-
 
     /// Copy the scale.
     pub fn copy(&self) -> Self {
@@ -355,7 +356,6 @@ impl SequentialLogScale {
         self
     }
 
-
     /// Copy the scale.
     pub fn copy(&self) -> Self {
         self.clone()
@@ -448,7 +448,6 @@ impl SequentialPowScale {
         self
     }
 
-
     /// Copy the scale.
     pub fn copy(&self) -> Self {
         self.clone()
@@ -529,7 +528,6 @@ impl SequentialSymlogScale {
         self.inner = self.inner.clamp(enabled);
         self
     }
-
 
     /// Copy the scale.
     pub fn copy(&self) -> Self {
@@ -649,9 +647,7 @@ mod tests {
 
     #[test]
     fn sequential_maps_domain_to_interpolator() {
-        let scale = SequentialScale::new()
-            .domain(0.0, 100.0)
-            .interpolator(gray);
+        let scale = SequentialScale::new().domain(0.0, 100.0).interpolator(gray);
         assert_eq!(scale.scale(0.0).r, 0.0);
         assert_eq!(scale.scale(100.0).r, 1.0);
         assert!((scale.scale(50.0).r - 0.5).abs() < 1e-6);
@@ -659,9 +655,7 @@ mod tests {
 
     #[test]
     fn sequential_descending_and_clamp() {
-        let scale = SequentialScale::new()
-            .domain(100.0, 0.0)
-            .interpolator(gray);
+        let scale = SequentialScale::new().domain(100.0, 0.0).interpolator(gray);
         assert_eq!(scale.scale(100.0).r, 0.0);
         assert_eq!(scale.scale(0.0).r, 1.0);
         // Unclamped extrapolation passes t through.

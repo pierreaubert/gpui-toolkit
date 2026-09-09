@@ -212,7 +212,11 @@ mod tests {
     #[test]
     fn empty_text_shapes_to_no_runs() {
         let mut engine = engine();
-        assert!(engine.shape("", 12.0, FAMILY_SANS, FontWeight::NORMAL).is_empty());
+        assert!(
+            engine
+                .shape("", 12.0, FAMILY_SANS, FontWeight::NORMAL)
+                .is_empty()
+        );
     }
 
     #[test]
@@ -236,12 +240,10 @@ mod tests {
     #[test]
     fn advance_scales_with_size() {
         let mut engine = engine();
-        let small = FontEngine::line_width(
-            &engine.shape("100°F", 10.0, FAMILY_SANS, FontWeight::NORMAL),
-        );
-        let large = FontEngine::line_width(
-            &engine.shape("100°F", 20.0, FAMILY_SANS, FontWeight::NORMAL),
-        );
+        let small =
+            FontEngine::line_width(&engine.shape("100°F", 10.0, FAMILY_SANS, FontWeight::NORMAL));
+        let large =
+            FontEngine::line_width(&engine.shape("100°F", 20.0, FAMILY_SANS, FontWeight::NORMAL));
         assert!(small > 0.0 && large > small);
         assert!((large / small - 2.0).abs() < 1e-4);
     }
@@ -263,8 +265,12 @@ mod tests {
         let wide =
             FontEngine::line_width(&engine.shape("MMMM", 12.0, FAMILY_MONO, FontWeight::NORMAL));
         assert_eq!(narrow, wide);
-        let digits =
-            FontEngine::line_width(&engine.shape("0123456789", 12.0, FAMILY_MONO, FontWeight::NORMAL));
+        let digits = FontEngine::line_width(&engine.shape(
+            "0123456789",
+            12.0,
+            FAMILY_MONO,
+            FontWeight::NORMAL,
+        ));
         let zero =
             FontEngine::line_width(&engine.shape("0", 12.0, FAMILY_MONO, FontWeight::NORMAL));
         assert_eq!(digits, 10.0 * zero);
@@ -296,7 +302,11 @@ mod tests {
         for family in [FAMILY_SANS, FAMILY_MONO] {
             let runs = engine.shape(TICK_CHARSET, 12.0, family, FontWeight::NORMAL);
             let glyphs: usize = runs.iter().map(|run| run.glyphs.len()).sum();
-            assert_eq!(glyphs, TICK_CHARSET.chars().count(), "{family} dropped chars");
+            assert_eq!(
+                glyphs,
+                TICK_CHARSET.chars().count(),
+                "{family} dropped chars"
+            );
             assert_no_notdef(&runs);
         }
         let bold = engine.shape(TICK_CHARSET, 12.0, FAMILY_SANS, FontWeight::BOLD);

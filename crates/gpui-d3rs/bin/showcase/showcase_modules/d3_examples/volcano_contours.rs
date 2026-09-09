@@ -92,12 +92,18 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             .fill(true)
             .fill_opacity(1.0)
             .stroke_opacity(0.0)
-            .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), turbo_color_scale())),
+            .color_scale(chart_colors::ink_scale(
+                chart_colors::background_lightness(&ui_theme),
+                turbo_color_scale(),
+            )),
         VolcanoColorScale::Viridis => ContourConfig::new()
             .fill(true)
             .fill_opacity(1.0)
             .stroke_opacity(0.0)
-            .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), viridis_color_scale())),
+            .color_scale(chart_colors::ink_scale(
+                chart_colors::background_lightness(&ui_theme),
+                viridis_color_scale(),
+            )),
     };
 
     // Color configuration for contour lines
@@ -106,12 +112,18 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             .fill(false)
             .stroke_width(if show_stroke { 0.5 } else { 0.0 })
             .stroke_opacity(if show_stroke { 0.3 } else { 0.0 })
-            .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), turbo_color_scale())),
+            .color_scale(chart_colors::ink_scale(
+                chart_colors::background_lightness(&ui_theme),
+                turbo_color_scale(),
+            )),
         VolcanoColorScale::Viridis => ContourConfig::new()
             .fill(false)
             .stroke_width(if show_stroke { 0.5 } else { 0.0 })
             .stroke_opacity(if show_stroke { 0.3 } else { 0.0 })
-            .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), viridis_color_scale())),
+            .color_scale(chart_colors::ink_scale(
+                chart_colors::background_lightness(&ui_theme),
+                viridis_color_scale(),
+            )),
     };
 
     // Heatmap data for high-level API demo
@@ -437,12 +449,7 @@ render_contour_bands(bands, &x_scale, &y_scale, &config)"#,
 }
 
 /// Render a color scale legend
-fn render_color_legend(
-    scale_type: VolcanoColorScale,
-    min_val: f64,
-    max_val: f64,
-    bg: f32,
-) -> Div {
+fn render_color_legend(scale_type: VolcanoColorScale, min_val: f64, max_val: f64, bg: f32) -> Div {
     let num_steps = 20;
     let step_width = 20.0;
 

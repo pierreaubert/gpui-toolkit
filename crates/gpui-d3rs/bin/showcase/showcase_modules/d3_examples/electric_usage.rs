@@ -136,7 +136,10 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .overflow_hidden()
                                 .children((0..10).map(|i| {
                                     let t = i as f64 / 9.0;
-                                    div().flex_1().h_full().bg(chart_colors::ink_rgba(&ui_theme, scheme.get(t).to_rgba()))
+                                    div().flex_1().h_full().bg(chart_colors::ink_rgba(
+                                        &ui_theme,
+                                        scheme.get(t).to_rgba(),
+                                    ))
                                 })),
                         )
                         .child(div().text_size(px(7.0)).child("High")),

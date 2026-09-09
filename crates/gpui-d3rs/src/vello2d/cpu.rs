@@ -70,9 +70,7 @@ impl CpuRasterizer {
                         // Mirror `apply_paint`: image brushes warn and skip
                         // instead of painting with stale state.
                         if matches!(run.brush, Brush::Image(_)) {
-                            log::warn!(
-                                "vello2d: image brush unsupported on CPU backend, skipped"
-                            );
+                            log::warn!("vello2d: image brush unsupported on CPU backend, skipped");
                             continue;
                         }
                         apply_paint(&mut self.ctx, &run.brush);

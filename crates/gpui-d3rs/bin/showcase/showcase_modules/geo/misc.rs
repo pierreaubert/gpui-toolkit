@@ -1,12 +1,12 @@
 use super::super::ShowcaseApp;
 use super::super::world_data::get_world_data;
 use crate::GeoProjectionType;
+use crate::showcase_modules::chart_colors;
 use d3rs::geo::{
     ConicEqualArea, Equirectangular, GeoPath, Graticule, Mercator, Orthographic, Projection,
     Stereographic,
 };
 use gpui::*;
-use crate::showcase_modules::chart_colors;
 use gpui_ui_kit::theme::{Theme, ThemeExt};
 
 /// Famous cities with their coordinates

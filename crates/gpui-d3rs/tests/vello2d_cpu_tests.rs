@@ -15,7 +15,11 @@ fn assert_deterministic_ink(scene: &ChartScene, width: u16, height: u16, label: 
     let second_pixels = second.rasterize(scene, width, height, 1.0);
     assert_eq!(first_pixels, second_pixels, "{label} must be deterministic");
     assert!(
-        first_pixels.as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 0),
+        first_pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel[3] > 0),
         "{label} must paint at least one pixel"
     );
 }
@@ -556,8 +560,18 @@ fn rotated_text_is_a_rigid_transform_of_unrotated() {
         (C.0 - dy, C.1 + dx)
     };
     for (pixels, other, map, label) in [
-        (&lit_b, &lit_a, back as fn((f64, f64)) -> (f64, f64), "rot->plain"),
-        (&lit_a, &lit_b, there as fn((f64, f64)) -> (f64, f64), "plain->rot"),
+        (
+            &lit_b,
+            &lit_a,
+            back as fn((f64, f64)) -> (f64, f64),
+            "rot->plain",
+        ),
+        (
+            &lit_a,
+            &lit_b,
+            there as fn((f64, f64)) -> (f64, f64),
+            "plain->rot",
+        ),
     ] {
         let matched = pixels
             .iter()

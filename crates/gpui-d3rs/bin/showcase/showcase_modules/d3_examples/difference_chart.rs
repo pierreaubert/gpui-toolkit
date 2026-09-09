@@ -103,7 +103,12 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().size_3().bg(chart_colors::ink_hex(&ui_theme, 0xfc8d59)).rounded_sm())
+                        .child(
+                            div()
+                                .size_3()
+                                .bg(chart_colors::ink_hex(&ui_theme, 0xfc8d59))
+                                .rounded_sm(),
+                        )
                         .child(div().text_xs().child("San Francisco warmer")),
                 )
                 .child(
@@ -111,7 +116,12 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().size_3().bg(chart_colors::ink_hex(&ui_theme, 0x91bfdb)).rounded_sm())
+                        .child(
+                            div()
+                                .size_3()
+                                .bg(chart_colors::ink_hex(&ui_theme, 0x91bfdb))
+                                .rounded_sm(),
+                        )
                         .child(div().text_xs().child("New York warmer")),
                 ),
         )

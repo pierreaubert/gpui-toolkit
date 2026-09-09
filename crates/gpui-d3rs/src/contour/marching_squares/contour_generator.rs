@@ -64,34 +64,6 @@ pub struct ContourGenerator {
     band_crossings: Rc<RefCell<Vec<(f64, Point)>>>,
 }
 
-#[cfg(test)]
-mod clone_tests {
-    use super::ContourGenerator;
-
-    #[test]
-    fn clone_owns_independent_scratch_buffers() {
-        let original = ContourGenerator::new(2, 2);
-        let clone = original.clone();
-
-        assert!(!std::rc::Rc::ptr_eq(
-            &original.visited_cache,
-            &clone.visited_cache
-        ));
-        assert!(!std::rc::Rc::ptr_eq(
-            &original.upsampled_buf,
-            &clone.upsampled_buf
-        ));
-        assert!(!std::rc::Rc::ptr_eq(
-            &original.band_points,
-            &clone.band_points
-        ));
-        assert!(!std::rc::Rc::ptr_eq(
-            &original.band_crossings,
-            &clone.band_crossings
-        ));
-    }
-}
-
 impl Clone for ContourGenerator {
     fn clone(&self) -> Self {
         Self {
@@ -984,5 +956,33 @@ impl ContourGenerator {
         } else {
             self.y0 + (py / (self.height - 1) as f64) * (self.y1 - self.y0)
         }
+    }
+}
+
+#[cfg(test)]
+mod clone_tests {
+    use super::ContourGenerator;
+
+    #[test]
+    fn clone_owns_independent_scratch_buffers() {
+        let original = ContourGenerator::new(2, 2);
+        let clone = original.clone();
+
+        assert!(!std::rc::Rc::ptr_eq(
+            &original.visited_cache,
+            &clone.visited_cache
+        ));
+        assert!(!std::rc::Rc::ptr_eq(
+            &original.upsampled_buf,
+            &clone.upsampled_buf
+        ));
+        assert!(!std::rc::Rc::ptr_eq(
+            &original.band_points,
+            &clone.band_points
+        ));
+        assert!(!std::rc::Rc::ptr_eq(
+            &original.band_crossings,
+            &clone.band_crossings
+        ));
     }
 }

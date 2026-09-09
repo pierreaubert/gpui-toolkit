@@ -151,22 +151,41 @@ pub(super) fn build_header_row<T: 'static>(
 ///
 /// Copies the (usually tiny) selection set once per render so `build` can
 /// keep moving it into the keyboard handler with zero copies.
+pub(super) struct TableBodyParams<'a, T: 'static> {
+    pub rows: &'a [T],
+    pub columns: &'a [Column<T>],
+    pub table_id: &'a ElementId,
+    pub selection_mode: SelectionMode,
+    pub focused_index: Option<usize>,
+    pub selected_indices: &'a Rc<HashSet<usize>>,
+    pub on_selection_change:
+        &'a Option<Rc<Box<dyn Fn(&HashSet<usize>, &mut Window, &mut App) + 'static>>>,
+    pub alternating_rows: bool,
+    pub virtual_window: DataVirtualWindow,
+    pub virtual_row_height: Option<f32>,
+    pub theme: &'a TableTheme,
+    pub pad: &'a TablePaddings,
+}
+
 pub(super) fn build_body<T: 'static>(
-    rows: &[T],
-    columns: &[Column<T>],
-    table_id: &ElementId,
-    selection_mode: SelectionMode,
-    focused_index: Option<usize>,
-    selected_indices: &Rc<HashSet<usize>>,
-    on_selection_change: &Option<Rc<Box<dyn Fn(&HashSet<usize>, &mut Window, &mut App) + 'static>>>,
-    alternating_rows: bool,
-    virtual_window: DataVirtualWindow,
-    virtual_row_height: Option<f32>,
-    theme: &TableTheme,
-    pad: &TablePaddings,
+    params: TableBodyParams<'_, T>,
     window: &mut Window,
     cx: &mut App,
 ) -> Stateful<Div> {
+    let TableBodyParams {
+        rows,
+        columns,
+        table_id,
+        selection_mode,
+        focused_index,
+        selected_indices,
+        on_selection_change,
+        alternating_rows,
+        virtual_window,
+        virtual_row_height,
+        theme,
+        pad,
+    } = params;
     let mut body = div()
         .id((table_id.clone(), "body"))
         .flex_1()

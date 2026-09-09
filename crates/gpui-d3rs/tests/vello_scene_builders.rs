@@ -77,7 +77,9 @@ fn heatmap_scene_ignores_nan_cells_and_rasterizes_valid_cells() {
     assert!(
         rasterizer
             .rasterize(&scene, 32, 32, 1.0)
-            .as_chunks::<4>().0.iter()
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|pixel| pixel[3] != 0)
     );
 }

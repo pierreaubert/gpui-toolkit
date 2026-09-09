@@ -368,8 +368,7 @@ impl VelloScenePainter {
         {
             let mut fallback = false;
             if let Some(BackendState::Metal { image, rendered }) = self.state.as_mut() {
-                fallback =
-                    !paint_metal_snapshot(image, rendered, scene.as_scene(), bounds, window);
+                fallback = !paint_metal_snapshot(image, rendered, scene.as_scene(), bounds, window);
             }
             if fallback {
                 self.state = Some(BackendState::Cpu(CpuState {
@@ -486,8 +485,7 @@ fn paint_metal_snapshot(
     let scale_bits = scale_factor.to_bits();
     if *rendered == Some((scene.revision(), w, h, scale_bits)) {
         if let Some(img) = image.as_ref() {
-            let _ =
-                window.paint_image(bounds, Corners::default(), Arc::clone(img), 0, false);
+            let _ = window.paint_image(bounds, Corners::default(), Arc::clone(img), 0, false);
         }
         return true;
     }
@@ -1027,8 +1025,7 @@ impl Element for VelloChartElement {
             {
                 let mut fallback = false;
                 if let Some(BackendState::Metal { image, rendered }) = self.state.as_mut() {
-                    fallback =
-                        !paint_metal_snapshot(image, rendered, &self.scene, bounds, window);
+                    fallback = !paint_metal_snapshot(image, rendered, &self.scene, bounds, window);
                 }
                 if fallback {
                     self.state = Some(BackendState::Cpu(CpuState {

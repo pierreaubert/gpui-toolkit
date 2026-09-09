@@ -189,7 +189,10 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .children((0..9).map(|i| {
                             let t = (i as f64 + 0.5) / 9.0;
                             let c = scheme.get(t);
-                            div().flex_1().h_full().bg(chart_colors::ink_rgba(&ui_theme, c.to_rgba()))
+                            div()
+                                .flex_1()
+                                .h_full()
+                                .bg(chart_colors::ink_rgba(&ui_theme, c.to_rgba()))
                         })),
                 )
                 .child(div().text_xs().child(format!("+{max_abs:.0}%"))),

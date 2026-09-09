@@ -63,7 +63,11 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .flex()
                 .items_center()
                 .gap_1()
-                .child(div().size_3().bg(chart_colors::categorical(&ui_theme, &scheme, i)))
+                .child(
+                    div()
+                        .size_3()
+                        .bg(chart_colors::categorical(&ui_theme, &scheme, i)),
+                )
                 .child(
                     div()
                         .text_xs()

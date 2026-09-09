@@ -433,6 +433,20 @@ pub struct DatasetFrameStore {
 }
 
 type DatasetKey = (String, u64);
+/// Sampled `(x, y)` series returned by the `sample_xy*` helpers.
+type XySeriesSample = Result<Option<(Vec<f64>, Vec<f64>)>, DatasetFrameError>;
+/// Sampled `(label, value)` pairs returned by `sample_label_values`.
+type LabelValuesSample = Result<Option<(Vec<String>, Vec<f64>)>, DatasetFrameError>;
+/// One sampled table row: `(x, y, y0, label, color, dash, key)`.
+type SampledTableRow = (
+    f64,
+    f64,
+    Option<f64>,
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DatasetFrameStats {
     pub resources: usize,
@@ -451,6 +465,22 @@ pub struct SampledXySeries {
     pub y: Vec<f64>,
     pub y0: Vec<f64>,
     pub keys: Vec<String>,
+}
+
+/// Field selection and LOD budget for `DatasetFrameStore::sample_xy_series`.
+#[derive(Debug, Clone, Copy)]
+pub struct XySeriesSampleRequest<'a> {
+    pub resource_id: &'a str,
+    pub x_field: &'a str,
+    pub y_field: &'a str,
+    pub series_field: Option<&'a str>,
+    pub color_field: Option<&'a str>,
+    pub key_field: Option<&'a str>,
+    pub dash_field: Option<&'a str>,
+    pub y0_field: Option<&'a str>,
+    pub predicate_field: Option<&'a str>,
+    pub row_range: Option<(usize, usize)>,
+    pub max_points: usize,
 }
 
 fn validate_series_dash(value: Option<String>) -> Result<Option<String>, DatasetFrameError> {
@@ -1132,18 +1162,19 @@ impl DatasetFrameStore {
             return Ok(false);
         }
         if let Some(pending) = self.pending.get(&resource_id)
-            && frame.generation == pending.generation {
-                if !pending.matches(&frame) {
-                    return Err(DatasetFrameError::InvalidMetadata);
-                }
-                if let Some(existing) = &pending.chunks[frame.sequence as usize] {
-                    return if existing == &frame.payload {
-                        Ok(false)
-                    } else {
-                        Err(DatasetFrameError::InvalidMetadata)
-                    };
-                }
+            && frame.generation == pending.generation
+        {
+            if !pending.matches(&frame) {
+                return Err(DatasetFrameError::InvalidMetadata);
             }
+            if let Some(existing) = &pending.chunks[frame.sequence as usize] {
+                return if existing == &frame.payload {
+                    Ok(false)
+                } else {
+                    Err(DatasetFrameError::InvalidMetadata)
+                };
+            }
+        }
         let previous_pending_bytes = self
             .pending
             .get(&resource_id)
@@ -1995,7 +2026,7 @@ impl DatasetFrameStore {
         x_field: &str,
         y_field: &str,
         max_points: usize,
-    ) -> Result<Option<(Vec<f64>, Vec<f64>)>, DatasetFrameError> {
+    ) -> XySeriesSample {
         if max_points == 0 || max_points > MAX_DATASET_CHART_POINTS {
             return Err(DatasetFrameError::InvalidMetadata);
         }
@@ -2062,7 +2093,7 @@ impl DatasetFrameStore {
         y_field: &str,
         predicate_field: &str,
         max_points: usize,
-    ) -> Result<Option<(Vec<f64>, Vec<f64>)>, DatasetFrameError> {
+    ) -> XySeriesSample {
         if max_points == 0 || max_points > MAX_DATASET_CHART_POINTS {
             return Err(DatasetFrameError::InvalidMetadata);
         }
@@ -2141,7 +2172,7 @@ impl DatasetFrameStore {
         start: usize,
         stop: usize,
         max_points: usize,
-    ) -> Result<Option<(Vec<f64>, Vec<f64>)>, DatasetFrameError> {
+    ) -> XySeriesSample {
         if max_points == 0 || max_points > MAX_DATASET_CHART_POINTS || start > stop {
             return Err(DatasetFrameError::InvalidMetadata);
         }
@@ -2233,7 +2264,7 @@ impl DatasetFrameStore {
         predicate_field: Option<&str>,
         row_range: Option<(usize, usize)>,
         max_points: usize,
-    ) -> Result<Option<(Vec<String>, Vec<f64>)>, DatasetFrameError> {
+    ) -> LabelValuesSample {
         if max_points == 0
             || max_points > MAX_DATASET_CHART_POINTS
             || row_range.is_some_and(|(start, stop)| start > stop)
@@ -2498,18 +2529,21 @@ impl DatasetFrameStore {
     /// chart LOD budget, regardless of series cardinality.
     pub fn sample_xy_series(
         &self,
-        resource_id: &str,
-        x_field: &str,
-        y_field: &str,
-        series_field: Option<&str>,
-        color_field: Option<&str>,
-        key_field: Option<&str>,
-        dash_field: Option<&str>,
-        y0_field: Option<&str>,
-        predicate_field: Option<&str>,
-        row_range: Option<(usize, usize)>,
-        max_points: usize,
+        request: XySeriesSampleRequest<'_>,
     ) -> Result<Option<Vec<SampledXySeries>>, DatasetFrameError> {
+        let XySeriesSampleRequest {
+            resource_id,
+            x_field,
+            y_field,
+            series_field,
+            color_field,
+            key_field,
+            dash_field,
+            y0_field,
+            predicate_field,
+            row_range,
+            max_points,
+        } = request;
         if max_points == 0
             || max_points > MAX_DATASET_CHART_POINTS
             || (series_field.is_none()
@@ -2527,15 +2561,7 @@ impl DatasetFrameStore {
         let reader = StreamReader::try_new(Cursor::new(self.payload_bytes(frame)), None)
             .map_err(|error| DatasetFrameError::Decode(error.to_string()))?;
         let (range_start, range_stop) = row_range.unwrap_or((0, usize::MAX));
-        let mut sampled: Vec<(
-            f64,
-            f64,
-            Option<f64>,
-            String,
-            Option<String>,
-            Option<String>,
-            String,
-        )> = Vec::with_capacity(max_points);
+        let mut sampled: Vec<SampledTableRow> = Vec::with_capacity(max_points);
         let mut eligible = 0_usize;
         let mut seen = 0_u64;
 
@@ -3408,19 +3434,19 @@ mod tests {
         assert!(store.ingest(events_frame).unwrap());
 
         let series = store
-            .sample_xy_series(
-                "events",
-                "x",
-                "y",
-                Some("channel"),
-                Some("color"),
-                Some("id"),
-                Some("dash"),
-                Some("baseline"),
-                None,
-                None,
-                4,
-            )
+            .sample_xy_series(XySeriesSampleRequest {
+                resource_id: "events",
+                x_field: "x",
+                y_field: "y",
+                series_field: Some("channel"),
+                color_field: Some("color"),
+                key_field: Some("id"),
+                dash_field: Some("dash"),
+                y0_field: Some("baseline"),
+                predicate_field: None,
+                row_range: None,
+                max_points: 4,
+            })
             .unwrap()
             .unwrap();
         assert_eq!(series.iter().map(|item| item.x.len()).sum::<usize>(), 4);

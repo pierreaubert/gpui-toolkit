@@ -49,6 +49,19 @@ use std::time::Instant;
 
 type MeshPlotExportCallback = Rc<dyn Fn(Result<String, ChartError>)>;
 
+/// Shared contour-band and isoline overlays derived from one scalar field.
+type ContourOverlays = (Rc<Vec<ContourBand>>, Rc<Vec<IsolineSegment>>);
+
+/// Retained 3D scene state, renderer, and optional LOD state for one frame.
+///
+/// Only used by the non-test retained-3D frame builders below.
+#[cfg(all(feature = "gpu-3d", not(test)))]
+type Retained3dFrame = (
+    Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>>,
+    Rc<d3rs::mesh::gpu::WgpuMesh3DRenderer>,
+    Option<Rc<RefCell<super::interaction::RetainedMeshLod>>>,
+);
+
 #[derive(Default)]
 struct MeshPlotOccurrenceTracker {
     draw_epoch: u64,
@@ -1310,7 +1323,7 @@ impl MeshPlot {
         &mut self,
         cx: &mut Context<MeshPlotLiveElement>,
         prep: &FramePrepare,
-    ) -> Result<(Rc<Vec<ContourBand>>, Rc<Vec<IsolineSegment>>), ChartError> {
+    ) -> Result<ContourOverlays, ChartError> {
         let horizontal = prep.horizontal;
         let vertical = prep.vertical;
         let mode = &prep.mode;
@@ -1548,7 +1561,7 @@ impl MeshPlot {
     fn series_contour_element(
         &mut self,
         prep: &FramePrepare,
-        contours: &(Rc<Vec<ContourBand>>, Rc<Vec<IsolineSegment>>),
+        contours: &ContourOverlays,
     ) -> AnyElement {
         let input = FrameContourSceneInput {
             mesh: prep.mesh.clone(),
@@ -2233,14 +2246,7 @@ impl MeshPlot {
         owner: &Rc<RefCell<MeshPlotState>>,
         prep: &FramePrepare,
         revolve_preparing: bool,
-    ) -> Result<
-        (
-            Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>>,
-            Rc<d3rs::mesh::gpu::WgpuMesh3DRenderer>,
-            Option<Rc<RefCell<super::interaction::RetainedMeshLod>>>,
-        ),
-        ChartError,
-    > {
+    ) -> Result<Retained3dFrame, ChartError> {
         let mut owner = owner.borrow_mut();
         if owner.geometry_revision == 0 {
             owner.mark_resources_changed(true, prep.field.is_some());
@@ -3024,10 +3030,9 @@ impl MeshPlot {
         &mut self,
         prep: &FramePrepare,
         retained_state: &Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>>,
-        contours: (Rc<Vec<ContourBand>>, Rc<Vec<IsolineSegment>>),
+        contours: ContourOverlays,
         #[cfg(feature = "gpu-3d")] retained_3d_state: &Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>>,
-        #[cfg(all(feature = "gpu-3d", not(test)))]
-        retained_3d_custom_id: gpui::CustomDrawId,
+        #[cfg(all(feature = "gpu-3d", not(test)))] retained_3d_custom_id: gpui::CustomDrawId,
     ) -> AnyElement {
         if matches!(
             self.view,
@@ -3064,8 +3069,7 @@ impl MeshPlot {
     fn fallback_plot_element(
         &self,
         #[cfg(feature = "gpu-3d")] retained_3d_state: &Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>>,
-        #[cfg(all(feature = "gpu-3d", not(test)))]
-        retained_3d_custom_id: gpui::CustomDrawId,
+        #[cfg(all(feature = "gpu-3d", not(test)))] retained_3d_custom_id: gpui::CustomDrawId,
     ) -> AnyElement {
         #[cfg(feature = "gpu-3d")]
         if matches!(self.view, MeshPlotView::Surface3d) {
@@ -3092,14 +3096,7 @@ impl MeshPlot {
     fn build_fresh_3d_scene(
         &mut self,
         prep: &FramePrepare,
-    ) -> Result<
-        (
-            Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>>,
-            Rc<d3rs::mesh::gpu::WgpuMesh3DRenderer>,
-            Option<Rc<RefCell<super::interaction::RetainedMeshLod>>>,
-        ),
-        ChartError,
-    > {
+    ) -> Result<Retained3dFrame, ChartError> {
         let (render_mesh, render_field) =
             render_3d_mesh_and_field_for_view(&prep.mesh, prep.field.as_ref(), &self.view)?;
         let fresh_retained_3d_state = build_retained_3d_scene_state(

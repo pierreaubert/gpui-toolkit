@@ -21,9 +21,9 @@ use std::rc::Rc;
 #[derive(Debug, Clone)]
 pub struct RadialNodeResult {
     pub name: String,
-    pub x: f64,     // projected x (cartesian, canvas space)
-    pub y: f64,     // projected y (cartesian, canvas space)
-    pub angle: f64, // raw layout angle (0..2π, 0 at top after projection)
+    pub x: f64,      // projected x (cartesian, canvas space)
+    pub y: f64,      // projected y (cartesian, canvas space)
+    pub angle: f64,  // raw layout angle (0..2π, 0 at top after projection)
     pub radius: f64, // raw layout radius (0..layout radius)
     pub depth: usize,
     pub is_leaf: bool,
@@ -389,7 +389,8 @@ mod tests {
     fn radial_link_matches_d3_bump_radial() {
         // Hand-evaluated (axis angles, no trig): source at the center with
         // angle 0, target at angle π/2 and radius 100, mid radius 50.
-        let path = super::radial_link_path(10.0, 20.0, 0.0, 0.0, std::f64::consts::FRAC_PI_2, 100.0);
+        let path =
+            super::radial_link_path(10.0, 20.0, 0.0, 0.0, std::f64::consts::FRAC_PI_2, 100.0);
         let cmds = path.commands();
         assert_eq!(cmds.len(), 2);
         // cos(-π/2) is ~6e-17 rather than exactly 0, so compare with tolerance.
@@ -441,7 +442,10 @@ mod tests {
                     "link start {sx},{sy} matches no node"
                 );
                 let (_, _, _, _, ex, ey) = cubic_xy(&cmds[1]);
-                assert!(dots.contains(&(ex, ey)), "link end {ex},{ey} matches no node");
+                assert!(
+                    dots.contains(&(ex, ey)),
+                    "link end {ex},{ey} matches no node"
+                );
             }
         }
     }
@@ -519,19 +523,22 @@ mod tests {
             let mut scene = ChartScene::new();
             for label in &placed {
                 let size = 10.0f32;
-                let width =
-                    FontEngine::line_width(&engine.shape(&label.name, size, FAMILY_SANS, TextWeight::NORMAL));
+                let width = FontEngine::line_width(&engine.shape(
+                    &label.name,
+                    size,
+                    FAMILY_SANS,
+                    TextWeight::NORMAL,
+                ));
                 assert!(width.is_finite() && width > 0.0, "shapable: {}", label.name);
                 // Same anchor math as the showcase section.
                 let spoke = label.angle - std::f64::consts::FRAC_PI_2;
                 let (ux, uy) = (spoke.cos(), spoke.sin());
                 let side = if label.outward { 1.0 } else { -1.0 };
                 let dist = width as f64 / 2.0 + 6.0;
-                let anchor = Affine::translate((
-                    label.x + side * ux * dist,
-                    label.y + side * uy * dist,
-                )) * Affine::rotate(label.rotation)
-                    * Affine::translate((-width as f64 / 2.0, 0.35 * size as f64));
+                let anchor =
+                    Affine::translate((label.x + side * ux * dist, label.y + side * uy * dist))
+                        * Affine::rotate(label.rotation)
+                        * Affine::translate((-width as f64 / 2.0, 0.35 * size as f64));
                 assert!(anchor.as_coeffs().iter().all(|c| c.is_finite()));
                 scene.fill_text(
                     &mut engine,

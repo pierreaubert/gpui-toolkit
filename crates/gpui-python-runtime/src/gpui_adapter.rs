@@ -487,7 +487,8 @@ fn scene_gpu_upload(spec: &SceneSpec) -> (MeshUpload, Vec<[f32; 4]>, bool) {
                     continue;
                 }
 
-                for (triangle_index, triangle) in mesh.indices.as_chunks::<3>().0.iter().enumerate() {
+                for (triangle_index, triangle) in mesh.indices.as_chunks::<3>().0.iter().enumerate()
+                {
                     let vertices = [
                         mesh.vertices[triangle[0] as usize],
                         mesh.vertices[triangle[1] as usize],
@@ -640,7 +641,9 @@ fn mesh_polygons(spec: &MeshSpec) -> Vec<Polygon3D> {
     let scale = 2.0 / (max - min).max_element().max(f32::EPSILON);
     let normalize = |point: Point3| (vec3(point) - center) * scale;
     spec.indices
-        .as_chunks::<3>().0.iter()
+        .as_chunks::<3>()
+        .0
+        .iter()
         .enumerate()
         .map(|(triangle_index, triangle)| Polygon3D {
             vertices: triangle

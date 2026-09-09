@@ -360,7 +360,10 @@ impl BillboardPass {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Billboard Pipeline Layout"),
-            bind_group_layouts: &[Some(&uniform_bind_group_layout), Some(&atlas_bind_group_layout)],
+            bind_group_layouts: &[
+                Some(&uniform_bind_group_layout),
+                Some(&atlas_bind_group_layout),
+            ],
             immediate_size: 0,
         });
 
@@ -495,7 +498,12 @@ impl BillboardPass {
 
     /// Upload `instances` for the next [`Self::draw`]. Grows the instance
     /// buffer (doubling) when the batch no longer fits.
-    pub fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, instances: &[BillboardInstance]) {
+    pub fn upload(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        instances: &[BillboardInstance],
+    ) {
         if instances.len() > self.instance_capacity {
             let mut capacity = self.instance_capacity.max(1);
             while capacity < instances.len() {

@@ -331,14 +331,14 @@ fn hex_nibble(nibble: u8) -> char {
 /// Hex SHA-256 digest of a finished hasher. sha2 0.11 no longer formats
 /// digests as hex, so this encodes the finalized bytes manually.
 fn sha256_hex(hasher: Sha256) -> String {
-    hasher.finalize().iter().fold(
-        String::with_capacity(64),
-        |mut hex, byte| {
+    hasher
+        .finalize()
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
             hex.push(hex_nibble(byte >> 4));
             hex.push(hex_nibble(byte & 0x0f));
             hex
-        },
-    )
+        })
 }
 
 impl<W: AsyncWrite + Unpin> HashingWriter<W> {

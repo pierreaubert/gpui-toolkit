@@ -305,7 +305,13 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().w_4().h_4().bg(chart_colors::ink_hex(&ui_theme, 0xb0c4de)).rounded_sm())
+                        .child(
+                            div()
+                                .w_4()
+                                .h_4()
+                                .bg(chart_colors::ink_hex(&ui_theme, 0xb0c4de))
+                                .rounded_sm(),
+                        )
                         .child(div().text_xs().child("Extreme range")),
                 )
                 .child(
@@ -313,7 +319,13 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().w_4().h_4().bg(chart_colors::ink_hex(&ui_theme, 0x4682b4)).rounded_sm())
+                        .child(
+                            div()
+                                .w_4()
+                                .h_4()
+                                .bg(chart_colors::ink_hex(&ui_theme, 0x4682b4))
+                                .rounded_sm(),
+                        )
                         .child(div().text_xs().child("Mean range")),
                 )
                 .child(
@@ -321,7 +333,13 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(div().w_4().h_2().bg(chart_colors::ink_hex(&ui_theme, 0x2c5f8a)).rounded_sm())
+                        .child(
+                            div()
+                                .w_4()
+                                .h_2()
+                                .bg(chart_colors::ink_hex(&ui_theme, 0x2c5f8a))
+                                .rounded_sm(),
+                        )
                         .child(div().text_xs().child("Average")),
                 ),
         )

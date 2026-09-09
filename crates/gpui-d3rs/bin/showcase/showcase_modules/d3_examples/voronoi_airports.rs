@@ -142,9 +142,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 0.8,
                             );
                             let mesh = super::path_utils::d3rs_path_to_gpui_stroke(
-                                &mesh_path,
-                                bounds,
-                                0.8,
+                                &mesh_path, bounds, 0.8,
                             );
                             (fills, grat, mesh)
                         },

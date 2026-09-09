@@ -24,7 +24,8 @@ use gpui_px::{
 use gpui_python_runtime::audio_stream::{AudioFrameKind, AudioFrameStore};
 use gpui_python_runtime::dataset_frames::{
     AggregatedRows, DatasetAggregation, DatasetAggregationOp, DatasetFilter, DatasetFilterValue,
-    DatasetFrameStore, dense_array_unsigned, dense_array_values, dense_grid, sample_dense_xy,
+    DatasetFrameStore, XySeriesSampleRequest, dense_array_unsigned, dense_array_values, dense_grid,
+    sample_dense_xy,
 };
 use gpui_python_runtime::gpui_adapter::{Gpui3DCache, GpuiMeshPlotCache};
 use gpui_python_runtime::mesh_frames::{
@@ -466,19 +467,17 @@ mod native_mesh_plot_tests {
             // Match the showcase host's last-valid-frame policy: a
             // resource decode/build failure must keep the prior native
             // plot rather than replacing it with an error card.
-            let current = gpui_python_runtime::native_mesh_plot::prepare(
-                &self.spec,
-                &self.frames.borrow(),
-            )
-            .and_then(|prepared| {
-                PythonIrShowcase::build_native_mesh_plot(
-                    &self.spec,
-                    &prepared,
-                    Some(self.state.clone()),
-                    Some(callback.clone()),
-                    None,
-                )
-            });
+            let current =
+                gpui_python_runtime::native_mesh_plot::prepare(&self.spec, &self.frames.borrow())
+                    .and_then(|prepared| {
+                        PythonIrShowcase::build_native_mesh_plot(
+                            &self.spec,
+                            &prepared,
+                            Some(self.state.clone()),
+                            Some(callback.clone()),
+                            None,
+                        )
+                    });
             let (plot, state) = match current {
                 Ok((plot, state)) => {
                     self.last_valid_spec = Some(self.spec.clone());
@@ -1594,7 +1593,7 @@ fn validate_mesh_plot_spec_resources(
         patch_id: patch_id.map(str::to_owned),
     };
     let (positions, triangles) =
-        decode_mesh_geometry(&spec.geometry, store, None).map_err(|message| invalid(message))?;
+        decode_mesh_geometry(&spec.geometry, store, None).map_err(invalid)?;
     if matches!(
         spec.view.as_str(),
         "axisymmetric_section" | "axisymmetric_revolve"
@@ -1610,15 +1609,13 @@ fn validate_mesh_plot_spec_resources(
         .and_then(Value::as_str)
         .unwrap_or("mesh");
     let vertex_ids = decode_inline_ids(&spec.geometry, "vertex_ids", positions.len(), store, None)
-        .map_err(|message| invalid(message))?
-        .map(Arc::from);
+        .map_err(invalid)?;
     let cell_ids = decode_inline_ids(&spec.geometry, "cell_ids", triangles.len(), store, None)
-        .map_err(|message| invalid(message))?
-        .map(Arc::from);
+        .map_err(invalid)?;
     let mesh = TriangleMesh {
         id: Arc::from(mesh_id),
-        positions: positions.into(),
-        triangles: triangles.into(),
+        positions,
+        triangles,
         vertex_ids,
         cell_ids,
     };
@@ -1626,7 +1623,7 @@ fn validate_mesh_plot_spec_resources(
         .map_err(|error| invalid(error.to_string()))?;
     if let Some(field) = spec.field.as_ref() {
         let (values, valid) =
-            decode_mesh_field(field, store, None).map_err(|message| invalid(message))?;
+            decode_mesh_field(field, store, None).map_err(invalid)?;
         let association = match field.get("association").and_then(Value::as_str) {
             Some("cell") => ScalarAssociation::Cell,
             _ => ScalarAssociation::Vertex,
@@ -1640,15 +1637,15 @@ fn validate_mesh_plot_spec_resources(
                     .unwrap_or("Field"),
             ),
             unit: field.get("unit").and_then(Value::as_str).map(Arc::from),
-            values: values.into(),
+            values,
             association,
-            valid: valid.map(Arc::from),
+            valid,
         };
         scalar
             .validate(&mesh)
             .map_err(|error| invalid(error.to_string()))?;
         let color_range =
-            native_mesh_plot_color_range(&spec.color_range).map_err(|message| invalid(message))?;
+            native_mesh_plot_color_range(&spec.color_range).map_err(invalid)?;
         let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);
         for (index, value) in scalar.values.iter().enumerate() {
             if scalar
@@ -1667,7 +1664,7 @@ fn validate_mesh_plot_spec_resources(
                 .map_err(|error| invalid(error.to_string()))?;
         }
     }
-    native_mesh_plot_options(spec, mesh_id).map_err(|message| invalid(message))?;
+    native_mesh_plot_options(spec, mesh_id).map_err(invalid)?;
     Ok(())
 }
 
@@ -2929,7 +2926,7 @@ mod mesh_resource_decode_tests {
         configured.validate().unwrap();
         let options = gpui_px::StaticSvgOptions::new(400.0, 300.0);
         let base_svg = showcase
-            .resource_chart_svg(&base, options.clone())
+            .resource_chart_svg(&base, options)
             .expect("base isoline SVG");
         let (configured_svg, summary) = showcase
             .resource_chart_export_result(&configured, options)
@@ -3262,9 +3259,9 @@ mod mesh_resource_decode_tests {
             id: "pressure".into(),
             label: "Pressure".into(),
             unit: None,
-            values: Arc::from(values),
+            values,
             association: ScalarAssociation::Vertex,
-            valid: valid.map(Arc::from),
+            valid,
         }
         .mask_nan()
         .unwrap();
@@ -4899,16 +4896,20 @@ fn with_builder_node<R>(
     }
 }
 
+/// Continuation receiving the built layout nodes for one builder section.
+type LayoutBuildCallback<'a, R> =
+    Box<dyn for<'x> FnOnce(&'x [gpui_builder::LayoutNode<'x>]) -> R + 'a>;
+
 fn with_builder_nodes<R>(
     specs: &[BuilderLayoutSpec],
     measure: &FixedTextMeasure,
-    callback: Box<dyn for<'a> FnOnce(&'a [gpui_builder::LayoutNode<'a>]) -> R + '_>,
+    callback: LayoutBuildCallback<'_, R>,
 ) -> R {
     fn next<R>(
         remaining: &[BuilderLayoutSpec],
         measure: &FixedTextMeasure,
         built: Vec<gpui_builder::LayoutNode<'_>>,
-        callback: Box<dyn for<'a> FnOnce(&'a [gpui_builder::LayoutNode<'a>]) -> R + '_>,
+        callback: LayoutBuildCallback<'_, R>,
     ) -> R {
         match remaining.split_first() {
             None => callback(&built),
@@ -6830,6 +6831,12 @@ struct TableResize {
     start_width: f32,
 }
 
+/// Shaped `(values, shape)` scene array decoded from an `array_data` node.
+type SceneArray<T> = Result<Option<(Vec<T>, Vec<usize>)>, String>;
+
+/// Callback reporting chart export completion to the Python session.
+type ChartExportCallback = Rc<dyn Fn(Result<String, gpui_px::ChartError>)>;
+
 impl PythonIrShowcase {
     fn new_empty(presentation: PresentationStore) -> Self {
         let presentation_state = presentation.snapshot();
@@ -7516,7 +7523,7 @@ impl PythonIrShowcase {
         let scrollable = app
             .miniapp
             .as_ref()
-            .map_or(true, |config| config.scrollable);
+            .is_none_or(|config| config.scrollable);
         let selected_content = app
             .sections
             .iter()
@@ -9066,7 +9073,7 @@ impl PythonIrShowcase {
                     let log_scroll = self
                         .job_log_scrolls
                         .entry(job_id.clone())
-                        .or_insert_with(UniformListScrollHandle::new)
+                        .or_default()
                         .clone();
                     if !is_paused {
                         log_scroll.scroll_to_bottom();
@@ -9125,13 +9132,12 @@ impl PythonIrShowcase {
                                         .child(if is_paused { "Follow tail" } else { "Pause" })
                                         .on_click(cx.listener(move |this, _, _, cx| {
                                             if this.paused_job_logs.remove(&pause_job_id).is_none()
+                                                && let Some(job) = this.jobs.get(&pause_job_id)
                                             {
-                                                if let Some(job) = this.jobs.get(&pause_job_id) {
-                                                    this.paused_job_logs.insert(
-                                                        pause_job_id.clone(),
-                                                        job.logs().cloned().collect(),
-                                                    );
-                                                }
+                                                this.paused_job_logs.insert(
+                                                    pause_job_id.clone(),
+                                                    job.logs().cloned().collect(),
+                                                );
                                             }
                                             cx.notify();
                                         })),
@@ -10227,29 +10233,32 @@ impl PythonIrShowcase {
         )
         .show_handles(!node.disabled)
         .gap(px(ds.spacing.grid_unit));
-        if !node.disabled {
-            if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
-                let list_id = node.id.clone();
-                let action = node.reorder_action.clone();
-                let row_ids = node
-                    .rows
-                    .iter()
-                    .map(|row| row.id.clone())
-                    .collect::<Vec<_>>();
-                list = list.on_reorder(move |from, to, _, _| {
-                    let _ = sink.dispatch(
-                        list_id.clone(),
-                        "reorder",
-                        action.clone(),
-                        serde_json::json!({
-                            "from_index": from,
-                            "to_index": to,
-                            "row_id": row_ids.get(from),
-                            "before_row_id": row_ids.get(to),
-                        }),
-                    );
-                });
-            }
+        if !node.disabled
+            && let Some(sink) = self
+                .session
+                .as_ref()
+                .map(|session| session.event_sink())
+        {
+            let list_id = node.id.clone();
+            let action = node.reorder_action.clone();
+            let row_ids = node
+                .rows
+                .iter()
+                .map(|row| row.id.clone())
+                .collect::<Vec<_>>();
+            list = list.on_reorder(move |from, to, _, _| {
+                let _ = sink.dispatch(
+                    list_id.clone(),
+                    "reorder",
+                    action.clone(),
+                    serde_json::json!({
+                        "from_index": from,
+                        "to_index": to,
+                        "row_id": row_ids.get(from),
+                        "before_row_id": row_ids.get(to),
+                    }),
+                );
+            });
         }
         let mut editor = div().flex().flex_col().gap(px(ds.spacing.control_gap));
         if let Some(label) = &node.label {
@@ -10262,35 +10271,35 @@ impl PythonIrShowcase {
             );
         }
         editor = editor.child(list);
-        if !node.disabled {
-            if let (Some(action), Some(sink)) = (
+        if !node.disabled
+            && let (Some(action), Some(sink)) = (
                 node.add_action.clone(),
                 self.session.as_ref().map(|session| session.event_sink()),
-            ) {
-                let list_id = node.id.clone();
-                editor = editor.child(
-                    div()
-                        .id(stable_element_id(format_args!(
-                            "python-list-add-{}",
-                            node.id
-                        )))
-                        .px(px(ds.spacing.control_padding_x))
-                        .py(px(ds.spacing.control_padding_y))
-                        .rounded(px(ds.corners.sm))
-                        .bg(theme.surface_hover)
-                        .text_color(theme.text_primary)
-                        .cursor_pointer()
-                        .child(node.add_label.clone().unwrap_or_else(|| "Add row".into()))
-                        .on_click(move |_, _, _| {
-                            let _ = sink.dispatch(
-                                list_id.clone(),
-                                "add",
-                                Some(action.clone()),
-                                Value::Null,
-                            );
-                        }),
-                );
-            }
+            )
+        {
+            let list_id = node.id.clone();
+            editor = editor.child(
+                div()
+                    .id(stable_element_id(format_args!(
+                        "python-list-add-{}",
+                        node.id
+                    )))
+                    .px(px(ds.spacing.control_padding_x))
+                    .py(px(ds.spacing.control_padding_y))
+                    .rounded(px(ds.corners.sm))
+                    .bg(theme.surface_hover)
+                    .text_color(theme.text_primary)
+                    .cursor_pointer()
+                    .child(node.add_label.clone().unwrap_or_else(|| "Add row".into()))
+                    .on_click(move |_, _, _| {
+                        let _ = sink.dispatch(
+                            list_id.clone(),
+                            "add",
+                            Some(action.clone()),
+                            Value::Null,
+                        );
+                    }),
+            );
         }
         editor.into_any_element()
     }
@@ -10342,10 +10351,10 @@ impl PythonIrShowcase {
             .filter(|key| !key.is_empty())
             .map(str::to_owned);
         let mut preview_fields = fields.clone();
-        if let Some(key) = &primary_key {
-            if !preview_fields.iter().any(|field| field == key) {
-                preview_fields.push(key.clone());
-            }
+        if let Some(key) = &primary_key
+            && !preview_fields.iter().any(|field| field == key)
+        {
+            preview_fields.push(key.clone());
         }
         let view_validation_error = supported_dataset_view(&node.data, true)
             .and_then(|view| {
@@ -10435,7 +10444,7 @@ impl PythonIrShowcase {
                 })
             })
             .unwrap_or((0, source_rows));
-        let requested_rows = (24_usize.saturating_add(node.virtualize.overscan as usize))
+        let requested_rows = 24_usize.saturating_add(node.virtualize.overscan)
             .min(gpui_python_runtime::dataset_frames::MAX_DATASET_PREVIEW_ROWS);
         let offset = self
             .dataset_table_offsets
@@ -10716,7 +10725,7 @@ impl PythonIrShowcase {
                             .text_color(theme.text_primary)
                             .child("Previous")
                             .on_click(move |_, _, cx| {
-                                let _ = next_entity.update(cx, |this, cx| {
+                                next_entity.update(cx, |this, cx| {
                                     this.dataset_table_offsets
                                         .insert(previous_table_id.clone(), previous_offset);
                                     cx.notify();
@@ -10733,7 +10742,7 @@ impl PythonIrShowcase {
                             .text_color(theme.text_primary)
                             .child("Next")
                             .on_click(move |_, _, cx| {
-                                let _ = entity.update(cx, |this, cx| {
+                                entity.update(cx, |this, cx| {
                                     this.dataset_table_offsets
                                         .insert(next_table_id.clone(), next_offset);
                                     cx.notify();
@@ -11236,19 +11245,19 @@ impl PythonIrShowcase {
                     .map_err(|error| error.to_string())?,
                 None => self
                     .dataset_frames
-                    .sample_xy_series(
+                    .sample_xy_series(XySeriesSampleRequest {
                         resource_id,
                         x_field,
                         y_field,
                         series_field,
                         color_field,
-                        None,
+                        key_field: None,
                         dash_field,
-                        None,
-                        view.truthy_filter_field,
-                        view.row_range,
-                        point_limit,
-                    )
+                        y0_field: None,
+                        predicate_field: view.truthy_filter_field,
+                        row_range: view.row_range,
+                        max_points: point_limit,
+                    })
                     .map_err(|error| error.to_string())?
                     .ok_or("awaiting completed dataset generation")?,
             };
@@ -11267,19 +11276,19 @@ impl PythonIrShowcase {
                         .map_err(|error| error.to_string())?,
                     None => self
                         .dataset_frames
-                        .sample_xy_series(
+                        .sample_xy_series(XySeriesSampleRequest {
                             resource_id,
                             x_field,
-                            y2_field,
+                            y_field: y2_field,
                             series_field,
                             color_field,
-                            None,
+                            key_field: None,
                             dash_field,
-                            None,
-                            view.truthy_filter_field,
-                            view.row_range,
-                            point_limit,
-                        )
+                            y0_field: None,
+                            predicate_field: view.truthy_filter_field,
+                            row_range: view.row_range,
+                            max_points: point_limit,
+                        })
                         .map_err(|error| error.to_string())?
                         .ok_or("awaiting completed dataset generation")?,
                 }
@@ -11443,88 +11452,88 @@ impl PythonIrShowcase {
                 .map_err(|error| error.to_string());
         }
 
-        if node.chart == "area" {
-            if let Some(y0_field) = roles.get("y0").and_then(Value::as_str) {
-                let mut series = match aggregated.as_ref().or(filtered.as_ref()) {
-                    Some(rows) => rows
-                        .sample_xy_series(x_field, y_field, None, None, None, None, Some(y0_field))
-                        .map_err(|error| error.to_string())?,
-                    None => self
-                        .dataset_frames
-                        .sample_xy_series(
-                            resource_id,
-                            x_field,
-                            y_field,
-                            None,
-                            None,
-                            None,
-                            None,
-                            Some(y0_field),
-                            view.truthy_filter_field,
-                            view.row_range,
-                            point_limit,
-                        )
-                        .map_err(|error| error.to_string())?
-                        .ok_or("awaiting completed dataset generation")?,
-                };
-                let first = series
-                    .first_mut()
-                    .ok_or("resource area chart has no finite values")?;
-                if first.y0.len() != first.x.len() {
-                    return Err("resource area chart y0 values are not aligned".into());
-                }
-                if view.sort_field.is_some() {
-                    let sort_axis = match view.sort_field {
-                        Some(field) if field == x_field => 0,
-                        Some(field) if field == y_field => 1,
-                        _ => {
-                            return Err(
-                                "DatasetView sort field must match chart x or y role".into()
-                            );
-                        }
-                    };
-                    let mut points = first
-                        .x
-                        .iter()
-                        .copied()
-                        .zip(first.y.iter().copied())
-                        .zip(first.y0.iter().copied())
-                        .map(|((x, y), y0)| (x, y, y0))
-                        .collect::<Vec<_>>();
-                    points.sort_by(|left, right| {
-                        let ordering = if sort_axis == 0 {
-                            left.0.total_cmp(&right.0)
-                        } else {
-                            left.1.total_cmp(&right.1)
-                        };
-                        if view.sort_descending {
-                            ordering.reverse()
-                        } else {
-                            ordering
-                        }
-                    });
-                    (first.x, first.y, first.y0) = points.into_iter().fold(
-                        (Vec::new(), Vec::new(), Vec::new()),
-                        |mut values, (x, y, y0)| {
-                            values.0.push(x);
-                            values.1.push(y);
-                            values.2.push(y0);
-                            values
-                        },
-                    );
-                }
-                let mut chart = area(&first.x, &first.y).y0(&first.y0).title(title);
-                chart = px_apply_area_presentation(chart, node);
-                if let Some(opacity) = node.opacity {
-                    chart = chart.opacity(opacity);
-                }
-                if let Some(ratio) = node.aspect_ratio {
-                    chart = chart.aspect_ratio(ratio);
-                }
-                return chart
-                    .resource_static_result(options)
-                    .map_err(|error| error.to_string());
+        if node.chart == "area"
+            && let Some(y0_field) = roles.get("y0").and_then(Value::as_str)
+        {
+            let mut series = match aggregated.as_ref().or(filtered.as_ref()) {
+                Some(rows) => rows
+                    .sample_xy_series(x_field, y_field, None, None, None, None, Some(y0_field))
+                    .map_err(|error| error.to_string())?,
+                None => self
+                    .dataset_frames
+                    .sample_xy_series(XySeriesSampleRequest {
+                        resource_id,
+                        x_field,
+                        y_field,
+                        series_field: None,
+                        color_field: None,
+                        key_field: None,
+                        dash_field: None,
+                        y0_field: Some(y0_field),
+                        predicate_field: view.truthy_filter_field,
+                        row_range: view.row_range,
+                        max_points: point_limit,
+                    })
+                    .map_err(|error| error.to_string())?
+                    .ok_or("awaiting completed dataset generation")?,
+            };
+            let first = series
+                .first_mut()
+                .ok_or("resource area chart has no finite values")?;
+            if first.y0.len() != first.x.len() {
+                return Err("resource area chart y0 values are not aligned".into());
             }
+            if view.sort_field.is_some() {
+                let sort_axis = match view.sort_field {
+                    Some(field) if field == x_field => 0,
+                    Some(field) if field == y_field => 1,
+                    _ => {
+                        return Err(
+                            "DatasetView sort field must match chart x or y role".into()
+                        );
+                    }
+                };
+                let mut points = first
+                    .x
+                    .iter()
+                    .copied()
+                    .zip(first.y.iter().copied())
+                    .zip(first.y0.iter().copied())
+                    .map(|((x, y), y0)| (x, y, y0))
+                    .collect::<Vec<_>>();
+                points.sort_by(|left, right| {
+                    let ordering = if sort_axis == 0 {
+                        left.0.total_cmp(&right.0)
+                    } else {
+                        left.1.total_cmp(&right.1)
+                    };
+                    if view.sort_descending {
+                        ordering.reverse()
+                    } else {
+                        ordering
+                    }
+                });
+                (first.x, first.y, first.y0) = points.into_iter().fold(
+                    (Vec::new(), Vec::new(), Vec::new()),
+                    |mut values, (x, y, y0)| {
+                        values.0.push(x);
+                        values.1.push(y);
+                        values.2.push(y0);
+                        values
+                    },
+                );
+            }
+            let mut chart = area(&first.x, &first.y).y0(&first.y0).title(title);
+            chart = px_apply_area_presentation(chart, node);
+            if let Some(opacity) = node.opacity {
+                chart = chart.opacity(opacity);
+            }
+            if let Some(ratio) = node.aspect_ratio {
+                chart = chart.aspect_ratio(ratio);
+            }
+            return chart
+                .resource_static_result(options)
+                .map_err(|error| error.to_string());
         }
 
         let (mut x, mut y) = if let Some(rows) = aggregated.as_ref().or(filtered.as_ref()) {
@@ -12140,7 +12149,7 @@ impl PythonIrShowcase {
                             .map_err(|error| error.to_string())?,
                         None => self
                             .dataset_frames
-                            .sample_xy_series(
+                            .sample_xy_series(XySeriesSampleRequest {
                                 resource_id,
                                 x_field,
                                 y_field,
@@ -12148,11 +12157,11 @@ impl PythonIrShowcase {
                                 color_field,
                                 key_field,
                                 dash_field,
-                                None,
-                                truthy_filter_field,
-                                view_range,
-                                point_limit,
-                            )
+                                y0_field: None,
+                                predicate_field: truthy_filter_field,
+                                row_range: view_range,
+                                max_points: point_limit,
+                            })
                             .map_err(|error| error.to_string())?
                             .ok_or("awaiting completed dataset generation")?,
                     };
@@ -12171,19 +12180,19 @@ impl PythonIrShowcase {
                                 .map_err(|error| error.to_string())?,
                             None => self
                                 .dataset_frames
-                                .sample_xy_series(
+                                .sample_xy_series(XySeriesSampleRequest {
                                     resource_id,
                                     x_field,
-                                    y2_field,
+                                    y_field: y2_field,
                                     series_field,
                                     color_field,
-                                    None,
+                                    key_field: None,
                                     dash_field,
-                                    None,
-                                    truthy_filter_field,
-                                    view_range,
-                                    point_limit,
-                                )
+                                    y0_field: None,
+                                    predicate_field: truthy_filter_field,
+                                    row_range: view_range,
+                                    max_points: point_limit,
+                                })
                                 .map_err(|error| error.to_string())?
                                 .ok_or("awaiting completed dataset generation")?,
                         }
@@ -12526,19 +12535,19 @@ impl PythonIrShowcase {
                             .map_err(|error| error.to_string())?,
                         None => self
                             .dataset_frames
-                            .sample_xy_series(
+                            .sample_xy_series(XySeriesSampleRequest {
                                 resource_id,
                                 x_field,
                                 y_field,
-                                None,
-                                None,
-                                None,
-                                None,
-                                Some(y0_field),
-                                truthy_filter_field,
-                                view_range,
-                                point_limit,
-                            )
+                                series_field: None,
+                                color_field: None,
+                                key_field: None,
+                                dash_field: None,
+                                y0_field: Some(y0_field),
+                                predicate_field: truthy_filter_field,
+                                row_range: view_range,
+                                max_points: point_limit,
+                            })
                             .map_err(|error| error.to_string())?
                             .ok_or("awaiting completed dataset generation")?,
                     };
@@ -13256,7 +13265,7 @@ impl PythonIrShowcase {
             let scroll = self
                 .table_scrolls
                 .entry(table_id.clone())
-                .or_insert_with(UniformListScrollHandle::new)
+                .or_default()
                 .clone();
             let focus_handle = self
                 .table_focus
@@ -13722,7 +13731,7 @@ impl PythonIrShowcase {
         &self,
         value: &Value,
         name: &str,
-    ) -> Result<Option<(Vec<f64>, Vec<usize>)>, String> {
+    ) -> SceneArray<f64> {
         if value.get("kind").and_then(Value::as_str) != Some("array_data") {
             return Ok(None);
         }
@@ -13768,7 +13777,7 @@ impl PythonIrShowcase {
         &self,
         value: &Value,
         name: &str,
-    ) -> Result<Option<(Vec<u64>, Vec<usize>)>, String> {
+    ) -> SceneArray<u64> {
         if value.get("kind").and_then(Value::as_str) != Some("array_data") {
             return Ok(None);
         }
@@ -13825,7 +13834,9 @@ impl PythonIrShowcase {
                 }
                 *points = Value::Array(
                     values
-                        .chunks_exact(3)
+                        .as_chunks::<3>()
+                        .0
+                        .iter()
                         .map(|point| serde_json::json!([point[0], point[1], point[2]]))
                         .collect(),
                 );
@@ -13845,7 +13856,9 @@ impl PythonIrShowcase {
             }
             *vertices = Value::Array(
                 values
-                    .chunks_exact(3)
+                    .as_chunks::<3>()
+                    .0
+                    .iter()
                     .map(|point| serde_json::json!([point[0], point[1], point[2]]))
                     .collect(),
             );
@@ -14043,7 +14056,7 @@ impl PythonIrShowcase {
             }
             _ => None,
         };
-        let host_export_callback: Option<Rc<dyn Fn(Result<String, gpui_px::ChartError>)>> = match (
+        let host_export_callback: Option<ChartExportCallback> = match (
             node.export_action.clone(),
             self.session.as_ref().map(|session| session.event_sink()),
         ) {
@@ -14208,7 +14221,7 @@ impl PythonIrShowcase {
         prepared: &gpui_python_runtime::native_mesh_plot::PreparedMeshPlot,
         retained_state: Option<Rc<RefCell<MeshPlotState>>>,
         selection_callback: Option<Rc<dyn Fn(Option<MeshPlotPick>)>>,
-        export_callback: Option<Rc<dyn Fn(Result<String, gpui_px::ChartError>)>>,
+        export_callback: Option<ChartExportCallback>,
     ) -> Result<(gpui::AnyElement, Rc<RefCell<MeshPlotState>>), String> {
         gpui_python_runtime::native_mesh_plot::build_prepared(
             spec,
@@ -15138,8 +15151,7 @@ impl PythonIrShowcase {
                         "pre_wrap" => gpui_pretext::WhiteSpaceMode::PreWrap,
                         _ => return Err("text layout white_space must be normal or pre_wrap".into()),
                     };
-                    let mut options = gpui_pretext::PrepareOptions::default();
-                    options.white_space = white_space;
+                    let options = gpui_pretext::PrepareOptions { white_space };
                     let budget_value = arguments.get("budget").and_then(Value::as_object);
                     let budget = gpui_pretext::TextBudget::new(
                         budget_value.and_then(|value| value.get("max_input_bytes")).and_then(Value::as_u64).unwrap_or(16 * 1024 * 1024) as usize,
@@ -16668,39 +16680,39 @@ impl PythonIrShowcase {
             return;
         };
         let sink = self.session.as_ref().map(|session| session.event_sink());
-        if config.with_theme {
-            if let Some(theme) = cx
+        if config.with_theme
+            && let Some(theme) = cx
                 .try_global::<ThemeState>()
                 .map(|state| state.theme.variant)
-                && self
-                    .observed_miniapp_theme
-                    .replace(theme)
-                    .is_some_and(|previous| previous != theme)
-                && let Some(sink) = &sink
-            {
-                let _ = sink.dispatch(
-                    "miniapp",
-                    "theme_changed",
-                    Some("miniapp_theme_changed".into()),
-                    serde_json::json!({"theme": theme.name()}),
-                );
-            }
+            && self
+                .observed_miniapp_theme
+                .replace(theme)
+                .is_some_and(|previous| previous != theme)
+            && let Some(sink) = &sink
+        {
+            let _ = sink.dispatch(
+                "miniapp",
+                "theme_changed",
+                Some("miniapp_theme_changed".into()),
+                serde_json::json!({"theme": theme.name()}),
+            );
         }
-        if config.with_i18n {
-            if let Some(language) = cx.try_global::<I18nState>().map(|state| state.language)
-                && self
-                    .observed_miniapp_language
-                    .replace(language)
-                    .is_some_and(|previous| previous != language)
-                && let Some(sink) = &sink
-            {
-                let _ = sink.dispatch(
-                    "miniapp",
-                    "language_changed",
-                    Some("miniapp_language_changed".into()),
-                    serde_json::json!({"language": language.code()}),
-                );
-            }
+        if config.with_i18n
+            && let Some(language) = cx
+                .try_global::<I18nState>()
+                .map(|state| state.language)
+            && self
+                .observed_miniapp_language
+                .replace(language)
+                .is_some_and(|previous| previous != language)
+            && let Some(sink) = &sink
+        {
+            let _ = sink.dispatch(
+                "miniapp",
+                "language_changed",
+                Some("miniapp_language_changed".into()),
+                serde_json::json!({"language": language.code()}),
+            );
         }
     }
 }

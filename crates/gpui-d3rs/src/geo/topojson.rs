@@ -2,6 +2,9 @@ use serde::Deserialize;
 
 use super::GeoJsonGeometry;
 
+/// Decoded `(id, rings)` polygon geometries collected from TopoJSON objects.
+type IdGeometries = Vec<(String, Vec<Vec<(f64, f64)>>)>;
+
 #[derive(Debug, Deserialize)]
 pub struct Transform {
     pub scale: [f64; 2],
@@ -365,7 +368,7 @@ fn feature_id(value: &Option<serde_json::Value>) -> String {
 
 fn collect_id_geometries(
     geom: &IdGeometry,
-    out: &mut Vec<(String, Vec<Vec<(f64, f64)>>)>,
+    out: &mut IdGeometries,
     decoded_arcs: &[Vec<(f64, f64)>],
     budget: &TopoJsonBudget,
     output_points: &mut usize,
@@ -444,7 +447,7 @@ pub fn parse_counties_with_budget(
     }
 
     let decoded_arcs = decode_arcs(&topology.arcs, &topology.transform);
-    let mut raw: Vec<(String, Vec<Vec<(f64, f64)>>)> = Vec::new();
+    let mut raw: IdGeometries = Vec::new();
     let mut output_points = 0usize;
     collect_id_geometries(
         &topology.objects.counties,
@@ -477,7 +480,7 @@ pub fn parse_county_states(json: &str) -> Result<Option<GeoJsonGeometry>, TopoJs
         None => return Ok(None),
     };
     let decoded_arcs = decode_arcs(&topology.arcs, &topology.transform);
-    let mut raw: Vec<(String, Vec<Vec<(f64, f64)>>)> = Vec::new();
+    let mut raw: IdGeometries = Vec::new();
     let mut output_points = 0usize;
     let budget = TopoJsonBudget::default();
     collect_id_geometries(states, &mut raw, &decoded_arcs, &budget, &mut output_points)?;
@@ -514,8 +517,7 @@ mod tests {
         );
         // Spot-check a known FIPS code keeps its geometry.
         assert!(counties.iter().any(|c| c.id == "04015"));
-        let states =
-            parse_county_states(json).expect("failed to parse states object");
+        let states = parse_county_states(json).expect("failed to parse states object");
         assert!(states.is_some(), "states object should decode");
     }
 

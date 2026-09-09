@@ -20,12 +20,15 @@ use std::sync::OnceLock;
 const COUNTIES_JSON: &str = include_str!("../../data/counties-albers-10m.json");
 const UNEMPLOYMENT_CSV: &str = include_str!("../../data/unemployment-x.csv");
 
+/// One polygon part as a list of rings of `(x, y)` points.
+type CountyRings = Vec<Vec<(f64, f64)>>;
+
 /// Decoded county polygons with FIPS ids, state polygons, and data bounds.
 struct CountyCache {
     /// (FIPS id, rings) per county polygon part.
-    features: Vec<(String, Vec<Vec<(f64, f64)>>)>,
+    features: Vec<(String, CountyRings)>,
     /// State polygons for the border overlay.
-    states: Vec<Vec<Vec<(f64, f64)>>>,
+    states: Vec<CountyRings>,
     /// (min_x, min_y, max_x, max_y) over all county rings.
     bbox: (f64, f64, f64, f64),
     /// FIPS id -> unemployment rate.
@@ -36,7 +39,12 @@ fn county_cache() -> &'static CountyCache {
     static CACHE: OnceLock<CountyCache> = OnceLock::new();
     CACHE.get_or_init(|| {
         let mut features = Vec::new();
-        let mut bbox = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+        let mut bbox = (
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        );
         if let Ok(counties) = d3rs::geo::parse_counties(COUNTIES_JSON) {
             for county in &counties {
                 if let GeoJsonGeometry::Polygon(rings) = &county.geometry {

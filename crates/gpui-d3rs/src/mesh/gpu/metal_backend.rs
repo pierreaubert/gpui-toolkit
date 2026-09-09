@@ -198,7 +198,9 @@ fn vertex_normals(upload: &MeshUpload) -> Vec<[f32; 3]> {
 fn metal_field_values(upload: &MeshUpload) -> Vec<f32> {
     upload
         .indices
-        .as_chunks::<3>().0.iter()
+        .as_chunks::<3>()
+        .0
+        .iter()
         .enumerate()
         .flat_map(|(cell, triangle)| {
             let cell_value = upload

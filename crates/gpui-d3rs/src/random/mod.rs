@@ -877,7 +877,7 @@ impl RandomBinomial {
 mod distribution_tests {
     use super::{
         RandomBates, RandomBernoulli, RandomBeta, RandomBinomial, RandomCauchy, RandomExponential,
-        RandomGamma, RandomGeometric, RandomInt, RandomIrwinHall, RandomLogistic, RandomLogNormal,
+        RandomGamma, RandomGeometric, RandomInt, RandomIrwinHall, RandomLogNormal, RandomLogistic,
         RandomNormal, RandomPareto, RandomPoisson, RandomUniform, RandomWeibull,
     };
 

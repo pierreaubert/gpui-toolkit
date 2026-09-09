@@ -1,7 +1,7 @@
 use crate::ShowcaseApp;
+use crate::showcase_modules::chart_colors;
 use d3rs::hierarchy::{HierarchyNode, TreeLayout};
 use gpui::*;
-use crate::showcase_modules::chart_colors;
 use gpui_ui_kit::theme::ThemeExt;
 
 pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {

@@ -31,7 +31,8 @@ pub use column::Column;
 pub use pagination_state::PaginationState;
 pub use sort_direction::SortDirection;
 use table_build::{
-    TablePaddings, build_body, build_footer_row, build_header_row, build_pagination_bar,
+    TableBodyParams, TablePaddings, build_body, build_footer_row, build_header_row,
+    build_pagination_bar,
 };
 pub use types::{SelectionMode, SortState, TableTheme};
 /// Table component
@@ -306,20 +307,25 @@ impl<T: 'static> Table<T> {
             cx,
         );
         let body = build_body(
-            &self.rows,
-            &self.columns,
-            &self.id,
-            selection_mode,
-            self.focused_index.filter(|index| *index < self.rows.len()),
-            &selected_indices,
-            &on_selection_change,
-            self.alternating_rows,
-            self.virtual_window
-                .unwrap_or_else(|| DataVirtualWindow::full(self.rows.len()))
-                .with_total(self.rows.len()),
-            self.virtual_row_height,
-            &theme,
-            &pad,
+            TableBodyParams {
+                rows: &self.rows,
+                columns: &self.columns,
+                table_id: &self.id,
+                selection_mode,
+                focused_index: self
+                    .focused_index
+                    .filter(|index| *index < self.rows.len()),
+                selected_indices: &selected_indices,
+                on_selection_change: &on_selection_change,
+                alternating_rows: self.alternating_rows,
+                virtual_window: self
+                    .virtual_window
+                    .unwrap_or_else(|| DataVirtualWindow::full(self.rows.len()))
+                    .with_total(self.rows.len()),
+                virtual_row_height: self.virtual_row_height,
+                theme: &theme,
+                pad: &pad,
+            },
             window,
             cx,
         );

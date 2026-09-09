@@ -390,26 +390,22 @@ pub fn parse_svg_path_stroke(d: &str, bounds: Bounds<Pixels>, width: f32) -> Opt
 
     // Subdivide one absolute cubic Bézier into line segments.
     let cubic = |builder: &mut PathBuilder,
-                     cx: f32,
-                     cy: f32,
-                     x1: f32,
-                     y1: f32,
-                     x2: f32,
-                     y2: f32,
-                     x: f32,
-                     y: f32| {
+                 cx: f32,
+                 cy: f32,
+                 x1: f32,
+                 y1: f32,
+                 x2: f32,
+                 y2: f32,
+                 x: f32,
+                 y: f32| {
         let steps = 16;
         for i in 1..=steps {
             let t = i as f32 / steps as f32;
             let u = 1.0 - t;
-            let px_val = u * u * u * cx
-                + 3.0 * u * u * t * x1
-                + 3.0 * u * t * t * x2
-                + t * t * t * x;
-            let py_val = u * u * u * cy
-                + 3.0 * u * u * t * y1
-                + 3.0 * u * t * t * y2
-                + t * t * t * y;
+            let px_val =
+                u * u * u * cx + 3.0 * u * u * t * x1 + 3.0 * u * t * t * x2 + t * t * t * x;
+            let py_val =
+                u * u * u * cy + 3.0 * u * u * t * y1 + 3.0 * u * t * t * y2 + t * t * t * y;
             builder.line_to(origin + point(gpui::px(px_val), gpui::px(py_val)));
         }
     };

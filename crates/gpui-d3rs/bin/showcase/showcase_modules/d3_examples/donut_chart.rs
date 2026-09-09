@@ -62,7 +62,12 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             (p_outer.0 as f32, p_outer.1 as f32),
             (p_label.0 as f32, p_label.1 as f32),
         ]);
-        slice_labels.push((result.slices[i].name.clone(), p_label.0, p_label.1, dx >= 0.0));
+        slice_labels.push((
+            result.slices[i].name.clone(),
+            p_label.0,
+            p_label.1,
+            dx >= 0.0,
+        ));
     }
 
     let colors: Vec<Hsla> = (0..scheme.len())

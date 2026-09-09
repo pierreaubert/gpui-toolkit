@@ -2302,8 +2302,11 @@ impl WgpuHeadlessRenderer {
             let source = &mapped[y * padded_row_bytes as usize..][..row_bytes as usize];
             let destination = &mut pixels[y * row_bytes as usize..][..row_bytes as usize];
             if bgra {
-                for (source, destination) in
-        source.as_chunks::<4>().0.iter().zip(destination.as_chunks_mut::<4>().0.iter_mut())
+                for (source, destination) in source
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(destination.as_chunks_mut::<4>().0.iter_mut())
                 {
                     destination.copy_from_slice(&[source[2], source[1], source[0], source[3]]);
                 }

@@ -1344,7 +1344,9 @@ impl NativePxMeshPickIndex {
             "positions",
         )?;
         let positions = position_values
-            .as_chunks::<3>().0.iter()
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|value| [value[0], value[1], value[2]])
             .collect::<Vec<_>>();
 
@@ -1355,7 +1357,9 @@ impl NativePxMeshPickIndex {
             "triangles",
         )?;
         let triangles = triangle_values
-            .as_chunks::<3>().0.iter()
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|value| {
                 Ok([
                     u32::try_from(value[0])
@@ -5001,7 +5005,10 @@ fn descending_f64(a: f64, b: f64) -> Ordering {
     b.partial_cmp(&a).unwrap_or(Ordering::Equal)
 }
 
-fn chord_sort_order(value: &str) -> PyResult<Option<fn(f64, f64) -> Ordering>> {
+/// Comparator selecting chord layout order.
+type ChordSortFn = fn(f64, f64) -> Ordering;
+
+fn chord_sort_order(value: &str) -> PyResult<Option<ChordSortFn>> {
     match value {
         "none" => Ok(None),
         "ascending" => Ok(Some(ascending_f64)),
@@ -6900,6 +6907,8 @@ fn native_sankey_error(error: D3SankeyLayoutError) -> NativeSankeyError {
 
 #[pyfunction]
 #[pyo3(signature = (node_names, links, width, height, margins, extent, node_width, node_padding, iterations, node_align, input_order, checked))]
+// Arity is the public Python call signature; grouping would break callers.
+#[allow(clippy::too_many_arguments)]
 fn sankey_layout(
     py: Python<'_>,
     node_names: Vec<String>,
@@ -8391,6 +8400,8 @@ fn validate_geo_path_config(digits: usize, point_radius: f64) -> PyResult<()> {
 
 #[pyfunction]
 #[pyo3(signature = (geometry_kind, coordinates, projection_kind, digits=3, point_radius=4.5, scale=None, translate=None, center=None, rotate=None, parallels=None))]
+// Arity is the public Python call signature; grouping would break callers.
+#[allow(clippy::too_many_arguments)]
 fn geo_path_render(
     py: Python<'_>,
     geometry_kind: &str,
@@ -8415,6 +8426,8 @@ fn geo_path_render(
 
 #[pyfunction]
 #[pyo3(signature = (geometry_kind, coordinates, projection_kind, digits=3, point_radius=4.5, scale=None, translate=None, center=None, rotate=None, parallels=None))]
+// Arity is the public Python call signature; grouping would break callers.
+#[allow(clippy::too_many_arguments)]
 fn geo_path_bounds(
     py: Python<'_>,
     geometry_kind: &str,
@@ -8439,6 +8452,8 @@ fn geo_path_bounds(
 
 #[pyfunction]
 #[pyo3(signature = (geometry_kind, coordinates, projection_kind, digits=3, point_radius=4.5, scale=None, translate=None, center=None, rotate=None, parallels=None))]
+// Arity is the public Python call signature; grouping would break callers.
+#[allow(clippy::too_many_arguments)]
 fn geo_path_centroid(
     py: Python<'_>,
     geometry_kind: &str,

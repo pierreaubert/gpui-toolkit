@@ -59,7 +59,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         builder = builder.close_path();
         d3_paths.push(builder.build());
         let t = 0.3 + (b as f64 + 1.0) / bands as f64 * 0.6;
-        all_colors.push(chart_colors::ink_rgba(&ui_theme, pos_scheme.get(t).to_rgba()));
+        all_colors.push(chart_colors::ink_rgba(
+            &ui_theme,
+            pos_scheme.get(t).to_rgba(),
+        ));
     }
 
     // Negative bands (mirror)
@@ -74,7 +77,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         builder = builder.close_path();
         d3_paths.push(builder.build());
         let t = 0.3 + (b as f64 + 1.0) / bands as f64 * 0.6;
-        all_colors.push(chart_colors::ink_rgba(&ui_theme, neg_scheme.get(t).to_rgba()));
+        all_colors.push(chart_colors::ink_rgba(
+            &ui_theme,
+            neg_scheme.get(t).to_rgba(),
+        ));
     }
 
     div()

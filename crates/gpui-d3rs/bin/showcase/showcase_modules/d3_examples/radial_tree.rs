@@ -29,9 +29,7 @@ use gpui_ui_kit::theme::ThemeExt;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-fn convert(
-    node: &flare_data::HierarchyNode,
-) -> Rc<RefCell<D3HierarchyNode<FlareNode>>> {
+fn convert(node: &flare_data::HierarchyNode) -> Rc<RefCell<D3HierarchyNode<FlareNode>>> {
     let d3 = D3HierarchyNode::new(FlareNode {
         name: node.name.clone(),
         value: node.value.unwrap_or(0) as f64,

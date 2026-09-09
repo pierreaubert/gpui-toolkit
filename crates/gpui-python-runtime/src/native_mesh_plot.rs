@@ -27,6 +27,15 @@ use gpui_px::{
 };
 use gpui_ui_kit::plot_toolbar::PlotToolbarAction;
 
+/// Decoded `(values, shape)` numeric array reference.
+type ShapedNumbers = Result<Option<(Vec<f64>, Vec<usize>)>, String>;
+/// Decoded `(values, shape)` unsigned array reference.
+type ShapedUnsigned = Result<Option<(Vec<u64>, Vec<usize>)>, String>;
+/// Decoded `(vertices, triangles)` mesh geometry.
+type DecodedGeometry = Result<(Arc<[[f64; 3]]>, Arc<[[u32; 3]]>), String>;
+/// Decoded `(samples, validity mask)` scalar field.
+type DecodedField = Result<(Arc<[f64]>, Option<Arc<[bool]>>), String>;
+
 fn toolbar_action(value: &str) -> Result<PlotToolbarAction, String> {
     match value {
         "fit" => Ok(PlotToolbarAction::Fit),
@@ -591,7 +600,7 @@ fn array_numbers(
     value: &Value,
     arrays: &DatasetFrameStore,
     name: &str,
-) -> Result<Option<(Vec<f64>, Vec<usize>)>, String> {
+) -> ShapedNumbers {
     let Some(reference) = array_resource_ref(value, name)? else {
         return Ok(None);
     };
@@ -609,7 +618,7 @@ fn array_unsigned(
     value: &Value,
     arrays: &DatasetFrameStore,
     name: &str,
-) -> Result<Option<(Vec<u64>, Vec<usize>)>, String> {
+) -> ShapedUnsigned {
     let Some(reference) = array_resource_ref(value, name)? else {
         return Ok(None);
     };
@@ -651,7 +660,7 @@ pub fn decode_geometry(
     geometry: &Value,
     store: &MeshFrameStore,
     arrays: Option<&DatasetFrameStore>,
-) -> Result<(Arc<[[f64; 3]]>, Arc<[[u32; 3]]>), String> {
+) -> DecodedGeometry {
     if geometry.get("resource_id").is_some() {
         return Err(
             "native mesh plot geometry resource_id is unsupported; provide separate positions and triangles resource handles"
@@ -686,12 +695,16 @@ pub fn decode_geometry(
                 return Err("geometry.positions ArrayData values must be finite".into());
             }
             let positions: Arc<[[f64; 3]]> = positions
-                .as_chunks::<3>().0.iter()
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .map(|point| [point[0], point[1], point[2]])
                 .collect::<Vec<_>>()
                 .into();
             let triangles = triangles
-                .as_chunks::<3>().0.iter()
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .map(|triangle| {
                     let a = u32::try_from(triangle[0])
                         .map_err(|_| "mesh triangle index exceeds u32".to_string())?;
@@ -766,7 +779,7 @@ pub fn decode_field(
     field: &Value,
     store: &MeshFrameStore,
     arrays: Option<&DatasetFrameStore>,
-) -> Result<(Arc<[f64]>, Option<Arc<[bool]>>), String> {
+) -> DecodedField {
     let values = if field.get("resource_id").is_some() {
         if let Some(arrays) = arrays
             && let Some((values, shape)) = array_numbers(field, arrays, "field")?

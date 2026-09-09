@@ -179,7 +179,12 @@ mod tests {
 
     #[test]
     fn tint_keeps_near_and_far_dots_visible_on_both_themes() {
-        let tint = Rgba { r: 0.4, g: 0.6, b: 1.0, a: 1.0 };
+        let tint = Rgba {
+            r: 0.4,
+            g: 0.6,
+            b: 1.0,
+            a: 1.0,
+        };
         for dark in [false, true] {
             let background = if dark { 0.0 } else { 1.0 };
             // Near/large dots (`white` ≈ 0, darkest ink) render near-full
@@ -201,9 +206,8 @@ mod tests {
             );
             // Depth ordering is monotonic: nearer ink is always more tinted.
             let mid = solid_rgba(&tint_brush(tint, 0.5, None, dark));
-            let dist = |c: [f32; 4]| {
-                (c[0] - tint.r).abs() + (c[1] - tint.g).abs() + (c[2] - tint.b).abs()
-            };
+            let dist =
+                |c: [f32; 4]| (c[0] - tint.r).abs() + (c[1] - tint.g).abs() + (c[2] - tint.b).abs();
             assert!(
                 dist(near) <= dist(mid) && dist(mid) <= dist(far),
                 "tint strength must follow ink depth (dark={dark})"

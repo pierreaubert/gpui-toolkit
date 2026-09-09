@@ -42,12 +42,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .filter(|c| c.r > 15.0)
         .map(|c| {
             if c.is_leaf {
-                (
-                    Some(c.name.clone()),
-                    format!("{:.0}", c.value),
-                    c.x,
-                    c.y,
-                )
+                (Some(c.name.clone()), format!("{:.0}", c.value), c.x, c.y)
             } else {
                 (None, c.name.clone(), c.x, c.y)
             }

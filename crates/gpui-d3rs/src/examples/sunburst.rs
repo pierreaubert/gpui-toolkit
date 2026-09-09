@@ -265,7 +265,11 @@ fn partition_node(
         let arc_path = arc_gen.generate(&datum);
 
         // Depth-1 nodes found their group; deeper nodes inherit it.
-        let group = if depth == 1 { name.clone() } else { ancestor.clone() };
+        let group = if depth == 1 {
+            name.clone()
+        } else {
+            ancestor.clone()
+        };
         result.push(SunburstSlice {
             name,
             depth,

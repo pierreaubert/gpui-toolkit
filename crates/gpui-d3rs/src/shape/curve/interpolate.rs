@@ -300,7 +300,13 @@ pub(super) fn interpolate_bump(points: &[Point], horizontal: bool) -> Vec<Point>
             (Point::new(p0.x, my), Point::new(p1.x, my))
         };
         for j in 1..=subdivisions {
-            result.push(cubic_point(&p0, &c0, &c1, &p1, j as f64 / subdivisions as f64));
+            result.push(cubic_point(
+                &p0,
+                &c0,
+                &c1,
+                &p1,
+                j as f64 / subdivisions as f64,
+            ));
         }
     }
 

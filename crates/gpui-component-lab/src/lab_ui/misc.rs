@@ -16,6 +16,9 @@ use std::fmt::Write as _;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
+/// Cached lab id segments keyed by parts hash: `(segments, label)` per entry.
+type LabIdCache = HashMap<u64, Vec<(Box<[String]>, SharedString)>>;
+
 type VecPairCache = Mutex<HashMap<usize, (Arc<[f64]>, Arc<[f64]>)>>;
 type VecF64Cache = Mutex<HashMap<(usize, usize), Arc<[f64]>>>;
 
@@ -303,7 +306,7 @@ pub(super) fn treemap_story_data() -> TreemapNode {
 }
 
 thread_local! {
-    static LAB_ID_CACHE: RefCell<HashMap<u64, Vec<(Box<[String]>, SharedString)>>> = RefCell::new(HashMap::new());
+    static LAB_ID_CACHE: RefCell<LabIdCache> = RefCell::new(HashMap::new());
 }
 
 fn lab_id_hash(parts: &[&str]) -> u64 {

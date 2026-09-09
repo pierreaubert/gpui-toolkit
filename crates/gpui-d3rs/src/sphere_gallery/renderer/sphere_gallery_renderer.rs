@@ -2,10 +2,10 @@ use super::super::mesh::{GalleryVertex, generate_sphere_mesh};
 use super::super::shaders;
 use super::Uniforms;
 use super::sphere_gallery_config::SphereGalleryConfig;
-use crate::gputext::billboard::{BillboardPass, WorldLabel, render_billboards};
 #[cfg(feature = "gpu-2d")]
 use crate::gpu2d::Gpu2DContext;
 use crate::gpu3d::Camera3D;
+use crate::gputext::billboard::{BillboardPass, WorldLabel, render_billboards};
 use glam::Mat4;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;

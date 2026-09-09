@@ -882,7 +882,9 @@ fn expand_cell_upload(upload: &MeshUpload) -> MeshUpload {
     // list so wireframe indices never address the old vertex space.
     expanded.edge_indices = expanded
         .indices
-        .as_chunks::<3>().0.iter()
+        .as_chunks::<3>()
+        .0
+        .iter()
         .flat_map(|triangle| {
             [
                 triangle[0],
