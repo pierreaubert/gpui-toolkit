@@ -41,6 +41,10 @@ pub struct Button {
     size: ButtonSize,
     disabled: bool,
     selected: bool,
+    /// Disclosure expanded state (`aria-expanded`). `None` (default) omits
+    /// the state so plain buttons and toggle buttons keep selected/pressed
+    /// semantics; set it for disclosure controls like accordion headers.
+    expanded: Option<bool>,
     full_width: bool,
     icon_left: Option<SharedString>,
     icon_right: Option<SharedString>,
@@ -61,6 +65,7 @@ impl Button {
             size: ButtonSize::default(),
             disabled: false,
             selected: false,
+            expanded: None,
             full_width: false,
             icon_left: None,
             icon_right: None,
@@ -93,6 +98,15 @@ impl Button {
     /// Set button selected state (for toggle buttons)
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
+        self
+    }
+
+    /// Set disclosure expanded state (`aria-expanded`) for controls that
+    /// show/hide a section (e.g. accordion headers, disclosure triangles).
+    /// Unlike [`Self::selected`], this does not affect visuals, only
+    /// accessibility semantics.
+    pub fn expanded(mut self, expanded: bool) -> Self {
+        self.expanded = Some(expanded);
         self
     }
 
@@ -268,9 +282,12 @@ impl Button {
             .aria_label
             .clone()
             .unwrap_or_else(|| self.label.clone());
-        let native_props = AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Button))
+        let mut native_props = AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Button))
             .maybe_state(self.disabled, AriaState::Disabled)
             .maybe_state(self.selected, AriaState::Pressed(true));
+        if let Some(expanded) = self.expanded {
+            native_props = native_props.state(AriaState::Expanded(expanded));
+        }
         let (bg, bg_hover, text_color, border_color) =
             Self::compute_colors(self.variant, self.selected, theme);
 
@@ -323,15 +340,19 @@ impl Button {
 impl RenderOnce for Button {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         // Register in accessibility tree
+        let mut access_props = AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Button))
+            .maybe_state(self.disabled, AriaState::Disabled)
+            .maybe_state(self.selected, AriaState::Pressed(true));
+        if let Some(expanded) = self.expanded {
+            access_props = access_props.state(AriaState::Expanded(expanded));
+        }
         cx.register_accessible(AccessibilityNode {
             element_id: self.id.clone(),
             label: self
                 .aria_label
                 .clone()
                 .unwrap_or_else(|| self.label.clone()),
-            props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Button))
-                .maybe_state(self.disabled, AriaState::Disabled)
-                .maybe_state(self.selected, AriaState::Pressed(true)),
+            props: access_props,
         });
 
         // Resolve design and focus handle first, before borrowing the theme,

@@ -113,6 +113,14 @@ fn refill_line_points_if_reusable(
     Ok(true)
 }
 
+/// Element id scope tags distinguishing the primary line from each axis'
+/// series. Every series rendered from the plot-area loop needs a distinct id:
+/// the Vello element's default `#[track_caller]` identity is otherwise
+/// identical for all series and retained backend state collides.
+fn line_series_element_id(axis_tag: &'static str, index: usize) -> ElementId {
+    ElementId::from((axis_tag, index))
+}
+
 fn render_line_selected<XS, YS>(
     x_scale: &XS,
     y_scale: &YS,
@@ -120,13 +128,14 @@ fn render_line_selected<XS, YS>(
     config: &LineConfig,
     renderer: Renderer2D,
     backend: VelloBackend,
+    series_id: ElementId,
 ) -> AnyElement
 where
     XS: Scale<f64, f64> + 'static,
     YS: Scale<f64, f64> + 'static,
 {
     let config = config.clone().renderer_2d(renderer).vello_backend(backend);
-    d3rs::shape::render_line_selected(x_scale, y_scale, data, &config)
+    d3rs::shape::render_line_selected_with_id(x_scale, y_scale, data, &config, series_id)
 }
 
 #[cfg(test)]
@@ -167,6 +176,28 @@ mod streaming_cache_tests {
             chart
                 .replace_primary_data_shared(Arc::from([1.0]), Arc::from([2.0, 3.0]))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn series_element_ids_are_distinct_per_axis_and_index() {
+        // Regression guard: identical element ids across series collapse
+        // retained Vello backend state so only one series paints.
+        assert_ne!(
+            line_series_element_id("px-line-series", 0),
+            line_series_element_id("px-line-series", 1)
+        );
+        assert_ne!(
+            line_series_element_id("px-line-series", 0),
+            line_series_element_id("px-line-series-y2", 0)
+        );
+        assert_ne!(
+            line_series_element_id("px-line-series", 0),
+            line_series_element_id("px-line-primary", 0)
+        );
+        assert_eq!(
+            line_series_element_id("px-line-series", 2),
+            line_series_element_id("px-line-series", 2)
         );
     }
 
@@ -1028,7 +1059,7 @@ impl LineChart {
                 axis_theme,
             ));
 
-        for (series_data, series_config) in series_data_configs {
+        for (index, (series_data, series_config)) in series_data_configs.iter().enumerate() {
             plot_area = plot_area.child(render_line_selected(
                 x_scale,
                 y_scale,
@@ -1036,6 +1067,7 @@ impl LineChart {
                 series_config,
                 self.renderer_2d,
                 self.vello_backend,
+                line_series_element_id("px-line-series", index),
             ));
         }
 
@@ -1047,10 +1079,12 @@ impl LineChart {
                 primary_config,
                 self.renderer_2d,
                 self.vello_backend,
+                line_series_element_id("px-line-primary", 0),
             ));
         }
 
-        for (series_data, series_config) in secondary_series_data_configs {
+        for (index, (series_data, series_config)) in secondary_series_data_configs.iter().enumerate()
+        {
             plot_area = plot_area.child(render_line_selected(
                 x_scale,
                 y2_scale,
@@ -1058,6 +1092,7 @@ impl LineChart {
                 series_config,
                 self.renderer_2d,
                 self.vello_backend,
+                line_series_element_id("px-line-series-y2", index),
             ));
         }
 

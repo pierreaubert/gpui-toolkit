@@ -209,14 +209,14 @@ use calloop::channel::Event;
 pub struct ChannelError(calloop::ping::PingError);
 
 impl std::fmt::Display for ChannelError {
-    #[cfg_attr(feature = "nightly_coverage", coverage(off))]
+    #[cfg_attr(all(feature = "nightly_coverage", coverage), coverage(off))]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(&self.0, f)
     }
 }
 
 impl std::error::Error for ChannelError {
-    #[cfg_attr(feature = "nightly_coverage", coverage(off))]
+    #[cfg_attr(all(feature = "nightly_coverage", coverage), coverage(off))]
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&self.0)
     }

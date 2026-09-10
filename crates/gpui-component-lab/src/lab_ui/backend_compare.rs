@@ -233,8 +233,21 @@ mod backend_compare_tests {
 
     #[test]
     fn compare_runner_survives_missing_gpu() {
-        // No adapter in CI: result still carries the CPU image and an error.
+        // Simulate the missing-GPU path deterministically instead of relying
+        // on CI runner hardware: headless Windows drivers can abort the
+        // process inside native graphics init rather than failing gracefully.
+        // No other test in this binary touches the GPU snapshot path, so no
+        // concurrent snapshot call can observe the override.
+        let previous = std::env::var_os("GPUI_TOOLKIT_NO_GPU_SNAPSHOT");
+        // SAFETY: the override is set and restored within this test, and no
+        // other thread in this binary reads the variable concurrently.
+        unsafe { std::env::set_var("GPUI_TOOLKIT_NO_GPU_SNAPSHOT", "1") };
         let result = run_backend_compare("strokes", 1.0);
+        match previous {
+            // SAFETY: same rationale as above.
+            Some(value) => unsafe { std::env::set_var("GPUI_TOOLKIT_NO_GPU_SNAPSHOT", value) },
+            None => unsafe { std::env::remove_var("GPUI_TOOLKIT_NO_GPU_SNAPSHOT") },
+        }
         assert!(result.stats.is_some() || result.gpu_error.is_some());
     }
 }

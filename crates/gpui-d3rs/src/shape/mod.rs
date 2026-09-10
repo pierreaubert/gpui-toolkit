@@ -87,9 +87,12 @@ pub use line::{
     CurveType, LineConfig, LinePoint, LineRenderError, StrokeDashArray, validate_line_inputs,
 };
 #[cfg(feature = "vello-gpui")]
-pub use line::{LineSceneGeometry, line_chart_scene, line_scene_geometry, render_line_vello};
+pub use line::{
+    LineSceneGeometry, line_chart_scene, line_scene_geometry, render_line_vello,
+    render_line_vello_with_id,
+};
 #[cfg(feature = "gpui")]
-pub use line::{render_line, render_line_selected, try_render_line};
+pub use line::{render_line, render_line_selected, render_line_selected_with_id, try_render_line};
 #[cfg(feature = "vello-gpui")]
 pub use scatter::render_scatter_vello;
 #[cfg(feature = "vello-gpui")]

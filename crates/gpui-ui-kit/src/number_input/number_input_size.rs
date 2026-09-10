@@ -1,3 +1,5 @@
+use gpui::{Rems, rems};
+
 /// Number input size variants
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum NumberInputSize {
@@ -59,6 +61,26 @@ impl NumberInputSize {
             Self::Lg => 12.0,
         }
     }
+
+    /// Rem equivalents of [`Self::height`], [`Self::button_width`],
+    /// [`Self::font_size`], and [`Self::padding`] (divided by the default
+    /// 16 px rem). Pixel-identical at 1x zoom and scaling with font zoom via
+    /// `window.set_rem_size()`.
+    pub(super) fn height_rems(&self) -> Rems {
+        rems(self.height() / 16.0)
+    }
+
+    pub(super) fn button_width_rems(&self) -> Rems {
+        rems(self.button_width() / 16.0)
+    }
+
+    pub(super) fn font_size_rems(&self) -> Rems {
+        rems(self.font_size() / 16.0)
+    }
+
+    pub(super) fn padding_rems(&self) -> Rems {
+        rems(self.padding() / 16.0)
+    }
 }
 
 #[cfg(test)]
@@ -96,5 +118,14 @@ mod tests {
         assert_eq!(NumberInputSize::Md.button_width(), 28.0);
         assert_eq!(NumberInputSize::Lg.font_size(), 15.0);
         assert_eq!(NumberInputSize::Sm.padding(), 4.0);
+    }
+
+    #[test]
+    fn number_input_size_rems_match_px_at_default_rem() {
+        // Default GPUI rem is 16 px: rem values must reproduce the px table.
+        assert_eq!(NumberInputSize::Md.height_rems().0, 32.0 / 16.0);
+        assert_eq!(NumberInputSize::Md.button_width_rems().0, 28.0 / 16.0);
+        assert_eq!(NumberInputSize::Md.font_size_rems().0, 13.0 / 16.0);
+        assert_eq!(NumberInputSize::Md.padding_rems().0, 8.0 / 16.0);
     }
 }

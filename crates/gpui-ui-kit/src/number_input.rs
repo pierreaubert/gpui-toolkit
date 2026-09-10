@@ -110,6 +110,7 @@ pub struct NumberInput {
     focus_handle: Option<FocusHandle>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
+    scroll_requires_alt: bool,
 }
 
 impl NumberInput {
@@ -132,6 +133,7 @@ impl NumberInput {
             focus_handle: None,
             aria_label: None,
             aria_role: None,
+            scroll_requires_alt: false,
         }
     }
 
@@ -269,6 +271,15 @@ impl NumberInput {
     /// Override the default ARIA role (Spinbutton)
     pub fn aria_role(mut self, role: AriaRole) -> Self {
         self.aria_role = Some(role);
+        self
+    }
+
+    /// Require Alt/Option for wheel adjustment; ordinary wheel events bubble
+    /// to a containing scrollport. Defaults to false, in which case the wheel
+    /// adjusts the value only on Alt-wheel or when the field is focused and
+    /// otherwise propagates. Mirrors `Potentiometer::scroll_requires_alt`.
+    pub fn scroll_requires_alt(mut self, required: bool) -> Self {
+        self.scroll_requires_alt = required;
         self
     }
 
@@ -579,6 +590,14 @@ impl NumberInputEntity {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Plain page scroll must reach the containing scrollport: only consume
+        // the wheel for Alt-wheel, or — unless strict Alt-only mode is set —
+        // when the field itself holds keyboard focus.
+        if event.modifiers.alt {
+            // Alt-wheel always adjusts.
+        } else if self.props.scroll_requires_alt || !self.focus_handle.is_focused(window) {
+            return;
+        }
         cx.stop_propagation();
 
         let delta_y: f32 = match event.delta {
@@ -656,9 +675,11 @@ impl Render for NumberInputEntity {
         let default_theme = NumberInputTheme::from(global_theme);
         let theme = props.theme.as_ref().unwrap_or(&default_theme);
 
-        let height = props.size.height();
-        let button_width = props.size.button_width();
-        let padding = props.size.padding();
+        // Rem-based so numerals, row height, and padding scale with font
+        // zoom identically to surrounding labels.
+        let height = props.size.height_rems();
+        let button_width = props.size.button_width_rems();
+        let padding = props.size.padding_rems();
         let disabled = props.disabled;
         let current_value = props.value;
         let decimals = props.decimals;
@@ -708,7 +729,7 @@ impl Render for NumberInputEntity {
             .debug_selector(move || input_debug_id)
             .flex()
             .items_center()
-            .h(px(height))
+            .h(height)
             .rounded_md()
             .border_1()
             .border_color(if editing {
@@ -746,7 +767,7 @@ impl Render for NumberInputEntity {
             .flex()
             .items_center()
             .justify_center()
-            .w(px(button_width))
+            .w(button_width)
             .h_full()
             .bg(button_bg)
             .text_color(button_text)
@@ -813,7 +834,7 @@ impl Render for NumberInputEntity {
             .items_center()
             .justify_center()
             .h_full()
-            .px(px(padding))
+            .px(padding)
             .text_color(value_text_color)
             .track_focus(&self.focus_handle)
             .focusable()
@@ -823,7 +844,7 @@ impl Render for NumberInputEntity {
             value_field = value_field.bg(bg);
         }
 
-        value_field = value_field.text_size(px(props.size.font_size()));
+        value_field = value_field.text_size(props.size.font_size_rems());
 
         if !disabled {
             value_field = value_field
@@ -852,7 +873,7 @@ impl Render for NumberInputEntity {
             .flex()
             .items_center()
             .justify_center()
-            .w(px(button_width))
+            .w(button_width)
             .h_full()
             .bg(button_bg)
             .text_color(button_text)

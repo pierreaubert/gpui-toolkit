@@ -80,6 +80,7 @@ pub struct VerticalSlider {
     focus_handle: Option<FocusHandle>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
+    scroll_requires_alt: bool,
     /// Cached formatted label with keyboard shortcut indicator.
     formatted_label: SharedString,
     /// Cached formatted value display.
@@ -120,6 +121,7 @@ impl VerticalSlider {
             focus_handle: None,
             aria_label: None,
             aria_role: None,
+            scroll_requires_alt: false,
             formatted_label: SharedString::default(),
             formatted_value: SharedString::default(),
             formatted_min: format_value_abbrev(0.0),
@@ -299,6 +301,14 @@ impl VerticalSlider {
         self
     }
 
+    /// Require Alt/Option for wheel adjustment; ordinary wheel events bubble
+    /// to a containing scrollport. Defaults to false for compatibility.
+    /// Mirrors `Potentiometer::scroll_requires_alt`.
+    pub fn scroll_requires_alt(mut self, required: bool) -> Self {
+        self.scroll_requires_alt = required;
+        self
+    }
+
     /// Return non-rendering accessibility metadata for this audio parameter.
     pub fn accessibility_summary(&self) -> AudioAccessibilitySummary {
         let label = self
@@ -475,6 +485,7 @@ struct SliderHandlers {
     focus_handle: Option<FocusHandle>,
     element_id: ElementId,
     disabled: bool,
+    scroll_requires_alt: bool,
 }
 
 impl VerticalSlider {
@@ -849,7 +860,11 @@ fn wire_container_handlers(mut container: Stateful<Div>, h: &SliderHandlers) -> 
         let current_value_scroll = h.current_value.clone();
         let config_scroll = h.config.clone();
         let commit_scroll = h.on_commit.clone();
+        let scroll_requires_alt = h.scroll_requires_alt;
         container = container.on_scroll_wheel(move |event, window, cx| {
+            if scroll_requires_alt && !event.modifiers.alt {
+                return;
+            }
             cx.stop_propagation();
             let val = current_value_scroll.get();
             if let Some(new_value) =
@@ -1031,7 +1046,11 @@ fn wire_track_drag_handlers(mut track: Stateful<Div>, h: &SliderHandlers) -> Sta
         let current_value_track_scroll = h.current_value.clone();
         let config_track_scroll = h.config.clone();
         let commit_track_scroll = h.on_commit.clone();
+        let scroll_requires_alt_track = h.scroll_requires_alt;
         track = track.on_scroll_wheel(move |event, window, cx| {
+            if scroll_requires_alt_track && !event.modifiers.alt {
+                return;
+            }
             cx.stop_propagation();
             let val = current_value_track_scroll.get();
             if let Some(new_value) =
@@ -1234,6 +1253,7 @@ impl RenderOnce for VerticalSlider {
             focus_handle: Some(focus_handle.clone()),
             element_id: element_id.clone(),
             disabled,
+            scroll_requires_alt: self.scroll_requires_alt,
         };
 
         container = wire_container_handlers(container, &handlers);

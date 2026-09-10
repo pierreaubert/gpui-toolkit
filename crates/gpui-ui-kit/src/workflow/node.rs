@@ -8,7 +8,7 @@ use gpui::prelude::{
     FluentBuilder as _, InteractiveElement, IntoElement, ParentElement, RenderOnce,
     StatefulInteractiveElement, Styled,
 };
-use gpui::{AnyElement, App, ElementId, FontWeight, MouseButton, SharedString, Window, div, px};
+use gpui::{AnyElement, App, ElementId, FontWeight, MouseButton, SharedString, Window, div, px, rems};
 
 /// Trait for custom node content rendering
 pub trait NodeContent: 'static {
@@ -28,6 +28,8 @@ impl NodeContent for DefaultNodeContent {
     fn render(&self, node: &WorkflowNodeData, cx: &mut App) -> AnyElement {
         let theme = cx.theme();
         div()
+            .min_w_0()
+            .overflow_hidden()
             .p_2()
             .text_sm()
             .text_color(theme.text_primary)
@@ -233,8 +235,10 @@ impl RenderOnce for WorkflowNode {
                     .py_1()
                     .bg(theme.node_header)
                     .rounded_t(px(theme.node_border_radius - 2.0))
-                    .text_size(px(theme.node_header_height * 0.45)) // Scale text with header
-                    .line_height(px(theme.node_header_height * 0.55))
+                    // Rem-based (pixel-identical at 1x zoom) so the title
+                    // honors user font zoom instead of staying px-fixed.
+                    .text_size(rems(theme.node_header_height * 0.45 / 16.0))
+                    .line_height(rems(theme.node_header_height * 0.55 / 16.0))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(theme.node_text)
                     // Allow text to wrap, limit to 2 lines with ellipsis
@@ -276,10 +280,13 @@ impl RenderOnce for WorkflowNode {
                                     .child(port)
                             }))
                     })
-                    // Main content
+                    // Main content (min_w_0 lets long content shrink
+                    // inside the fixed node width instead of overflowing it)
                     .child(
                         div()
                             .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
                             .p_2()
                             .child(if let Some(content) = self.content {
                                 content.render(&self.data, cx)

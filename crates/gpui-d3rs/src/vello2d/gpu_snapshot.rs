@@ -110,12 +110,23 @@ fn create_device() -> Result<SnapshotDevice, SnapshotError> {
 /// Returns premultiplied RGBA8 (vello stores straight alpha; converted on
 /// readback). Blocks the
 /// calling thread on device creation (once), rendering, and readback.
+///
+/// Setting `GPUI_TOOLKIT_NO_GPU_SNAPSHOT=1` reports [`SnapshotError::NoAdapter`]
+/// without touching wgpu: headless CI drivers (notably the Windows basic
+/// render driver) can abort the process inside native graphics init instead
+/// of failing gracefully, and no in-process API can convert that into `Err`.
 pub fn snapshot_scene_gpu(
     scene: &ChartScene,
     width: u32,
     height: u32,
     scale: f32,
 ) -> Result<Vec<u8>, SnapshotError> {
+    if matches!(
+        std::env::var("GPUI_TOOLKIT_NO_GPU_SNAPSHOT").as_deref(),
+        Ok("1")
+    ) {
+        return Err(SnapshotError::NoAdapter);
+    }
     let width = width.max(1);
     let height = height.max(1);
     SNAPSHOT_STATE.with(|state| {

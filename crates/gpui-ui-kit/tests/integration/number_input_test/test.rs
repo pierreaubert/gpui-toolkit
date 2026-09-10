@@ -757,7 +757,8 @@ async fn test_number_input_scroll_wheel(cx: &mut TestAppContext) {
     if let Some(bounds) = cx.debug_bounds("change-test-input") {
         let center = bounds.center();
 
-        // Simulate scroll up (negative Y delta) -> Increase value
+        // Plain wheel without focus must propagate to the page scrollport:
+        // the value stays untouched.
         cx.simulate_event(ScrollWheelEvent {
             position: center,
             delta: ScrollDelta::Lines(point(0.0, -1.0)),
@@ -766,7 +767,30 @@ async fn test_number_input_scroll_wheel(cx: &mut TestAppContext) {
         });
         cx.run_until_parked();
 
-        assert_eq!(*value.borrow(), 55.0, "Scroll up should increment value");
+        assert_eq!(
+            *value.borrow(),
+            50.0,
+            "Plain unfocused wheel must not change the value"
+        );
+
+        // Alt-wheel adjusts even without focus.
+        cx.simulate_event(ScrollWheelEvent {
+            position: center,
+            delta: ScrollDelta::Lines(point(0.0, -1.0)),
+            modifiers: Modifiers {
+                alt: true,
+                ..Default::default()
+            },
+            touch_phase: TouchPhase::Moved,
+        });
+        cx.run_until_parked();
+
+        assert_eq!(*value.borrow(), 55.0, "Alt-wheel up should increment value");
+
+        // Click to focus, then plain wheel adjusts.
+        cx.simulate_mouse_down(center, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_up(center, MouseButton::Left, Modifiers::default());
+        cx.run_until_parked();
 
         // Simulate scroll down (positive Y delta) -> Decrease value
         cx.simulate_event(ScrollWheelEvent {
@@ -777,7 +801,11 @@ async fn test_number_input_scroll_wheel(cx: &mut TestAppContext) {
         });
         cx.run_until_parked();
 
-        assert_eq!(*value.borrow(), 50.0, "Scroll down should decrement value");
+        assert_eq!(
+            *value.borrow(),
+            50.0,
+            "Focused scroll down should decrement value"
+        );
     }
 }
 

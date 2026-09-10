@@ -13,12 +13,39 @@ use crate::accessibility::{
 };
 use crate::theme::ThemeExt;
 use crate::{ComponentTheme, ComponentVariant};
-use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
+};
 use gpui::{
-    App, Div, ElementId, MouseButton, Pixels, Rgba, SharedString, Stateful, Window, div, px,
+    App, Div, ElementId, FocusHandle, MouseButton, Pixels, Rgba, SharedString, Stateful, Window,
+    div, px,
 };
 use gpui_design::DesignSystem;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+thread_local! {
+    static RADIO_GROUP_FOCUS_HANDLES: RefCell<HashMap<ElementId, FocusHandle>> =
+        RefCell::new(HashMap::new());
+}
+
+const MAX_RADIO_GROUP_FOCUS_HANDLES: usize = 1024;
+
+fn radio_group_focus_handle(id: &ElementId, cx: &mut App) -> FocusHandle {
+    RADIO_GROUP_FOCUS_HANDLES.with(|handles| {
+        let mut handles = handles.borrow_mut();
+        while handles.len() > MAX_RADIO_GROUP_FOCUS_HANDLES {
+            if let Some(key) = handles.keys().next().cloned() {
+                handles.remove(&key);
+            }
+        }
+        handles
+            .entry(id.clone())
+            .or_insert_with(|| cx.focus_handle())
+            .clone()
+    })
+}
 
 /// Theme colors for radio group styling
 #[derive(Debug, Clone, ComponentTheme)]
@@ -129,6 +156,7 @@ pub struct RadioGroup {
     on_change: Option<Box<dyn Fn(SharedString, &mut Window, &mut App) + 'static>>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
+    focus_handle: Option<FocusHandle>,
 }
 
 impl RadioGroup {
@@ -146,6 +174,7 @@ impl RadioGroup {
             on_change: None,
             aria_label: None,
             aria_role: None,
+            focus_handle: None,
         }
     }
 
@@ -219,6 +248,13 @@ impl RadioGroup {
         self
     }
 
+    /// Set an explicit focus handle for keyboard navigation. When omitted,
+    /// one is created at render time so the group stays Tab-reachable.
+    pub fn focus_handle(mut self, focus_handle: FocusHandle) -> Self {
+        self.focus_handle = Some(focus_handle);
+        self
+    }
+
     /// Index of the selected option, if it is still present.
     pub fn selected_index(&self) -> Option<usize> {
         self.selected.as_ref().and_then(|selected| {
@@ -264,6 +300,12 @@ impl RadioGroup {
             .flex()
             .flex_none()
             .gap(gap);
+        // Keyboard focus: without a tracked focus handle the `on_key_down`
+        // handler below can never fire. Disabled groups leave the Tab order.
+        if let Some(focus_handle) = self.focus_handle.clone() {
+            let focus_handle = focus_handle.tab_stop(!self.disabled);
+            container = container.track_focus(&focus_handle).focusable();
+        }
         container = match self.orientation {
             RadioGroupOrientation::Vertical => container.flex_col(),
             RadioGroupOrientation::Horizontal => container.flex_row().flex_wrap(),
@@ -320,6 +362,11 @@ impl RadioGroup {
                 .child(circle_el)
                 .child(
                     div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
                         .text_color(if option_disabled {
                             theme.disabled_label
                         } else {
@@ -374,6 +421,7 @@ impl RadioGroup {
                     && let Some(next) = step_enabled_index(&options, selected_index, direction)
                     && let Some(option) = options.get(next)
                 {
+                    cx.stop_propagation();
                     handler(option.value.clone(), window, cx);
                 }
             });
@@ -426,10 +474,18 @@ impl RenderOnce for RadioGroup {
                 .maybe_state(self.disabled, AriaState::Disabled),
         });
 
+        // Resolve a stable focus handle so the group is Tab-reachable and the
+        // arrow/Space/Enter handler can fire across re-renders.
+        let mut this = self;
+        if this.focus_handle.is_none() {
+            let handle = radio_group_focus_handle(&this.id, cx);
+            this.focus_handle = Some(handle);
+        }
+
         let global_theme = cx.theme();
         let radio_theme = RadioGroupTheme::from(global_theme);
-        let design = crate::design::resolve_design(self.design.clone(), cx);
-        self.build_with_theme_and_design(&radio_theme, &design)
+        let design = crate::design::resolve_design(this.design.clone(), cx);
+        this.build_with_theme_and_design(&radio_theme, &design)
     }
 }
 

@@ -13,6 +13,11 @@ categories.workspace = true
 name = "gpui_linux"
 path = "src/gpui_linux.rs"
 
+[lints.rust]
+# `coverage` is set by rustc only under nightly `-Zcoverage`; declaring it
+# keeps `unexpected_cfgs` quiet on stable where the cfg is always false.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage)"] }
+
 [features]
 default = ["wayland", "x11"]
 nightly_coverage = []

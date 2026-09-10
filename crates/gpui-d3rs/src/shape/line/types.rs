@@ -441,3 +441,59 @@ where
     }
     render_line(x_scale, y_scale, data, config).into_any_element()
 }
+
+/// Render a line through the Vello scene painter with an explicit element id.
+///
+/// Use this when several lines are built from one call site (e.g. one element
+/// per data series): the default `#[track_caller]` identity would be identical
+/// for every series, so retained backend state collides and only one series
+/// paints. The canvas (`PathBuilder`) path needs no id.
+#[cfg(feature = "vello-gpui")]
+pub fn render_line_vello_with_id<XS, YS, ID>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[LinePoint],
+    config: &LineConfig,
+    backend: crate::vello2d::RasterBackend,
+    id: ID,
+) -> impl IntoElement + use<XS, YS, ID>
+where
+    XS: Scale<f64, f64> + 'static,
+    YS: Scale<f64, f64> + 'static,
+    ID: Into<ElementId>,
+{
+    let geometry = line_scene_geometry(x_scale, y_scale, data, config);
+    let config = config.clone();
+    crate::vello2d::VelloChartElement::with_builder(move |width, height| {
+        line_chart_scene(&geometry, &config, width, height)
+    })
+    .id(id)
+    .backend(backend)
+    .absolute()
+}
+
+/// Dispatch a line through the renderer selected on [`LineConfig`], with an
+/// explicit element id for the Vello path. See [`render_line_vello_with_id`].
+#[cfg(feature = "gpui")]
+pub fn render_line_selected_with_id<XS, YS>(
+    x_scale: &XS,
+    y_scale: &YS,
+    data: &[LinePoint],
+    config: &LineConfig,
+    id: impl Into<ElementId>,
+) -> AnyElement
+where
+    XS: Scale<f64, f64> + 'static,
+    YS: Scale<f64, f64> + 'static,
+{
+    #[cfg(feature = "vello-gpui")]
+    if config.renderer_2d.is_vello() {
+        return render_line_vello_with_id(x_scale, y_scale, data, config, config.vello_backend, id)
+            .into_any_element();
+    }
+    #[cfg(not(feature = "vello-gpui"))]
+    {
+        let _ = id;
+    }
+    render_line(x_scale, y_scale, data, config).into_any_element()
+}

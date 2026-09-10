@@ -2,13 +2,42 @@
 //!
 //! Collapsible content sections with support for both vertical and horizontal orientations.
 
-use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
+use crate::accessibility::{
+    AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState,
+    apply_native_accessibility,
+};
 use crate::theme::{ThemeExt, glow_shadow};
-use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
+};
 use gpui::{
-    App, Div, ElementId, FontWeight, Hsla, MouseButton, SharedString, Stateful,
+    App, Div, ElementId, FocusHandle, FontWeight, Hsla, MouseButton, SharedString, Stateful,
     TransformationMatrix, Window, canvas, div, px,
 };
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+thread_local! {
+    static ACCORDION_FOCUS_HANDLES: RefCell<HashMap<String, FocusHandle>> =
+        RefCell::new(HashMap::new());
+}
+
+const MAX_ACCORDION_FOCUS_HANDLES: usize = 1024;
+
+fn accordion_header_focus_handle(key: &str, cx: &mut App) -> FocusHandle {
+    ACCORDION_FOCUS_HANDLES.with(|handles| {
+        let mut handles = handles.borrow_mut();
+        while handles.len() > MAX_ACCORDION_FOCUS_HANDLES {
+            if let Some(old) = handles.keys().next().cloned() {
+                handles.remove(&old);
+            }
+        }
+        handles
+            .entry(key.to_string())
+            .or_insert_with(|| cx.focus_handle())
+            .clone()
+    })
+}
 
 mod accordion_item;
 mod misc;
@@ -33,6 +62,10 @@ pub struct Accordion {
     bordered: bool,
     rounded: bool,
     content_padding: bool,
+    /// Per-header focus handles resolved at render time (keyed by header
+    /// element id). Empty when built without a render context; headers then
+    /// stay mouse-only as before.
+    header_focus: HashMap<String, FocusHandle>,
 }
 
 impl Accordion {
@@ -50,6 +83,7 @@ impl Accordion {
             bordered: true,
             rounded: true,
             content_padding: true,
+            header_focus: HashMap::new(),
         }
     }
 
@@ -141,6 +175,7 @@ impl Accordion {
                 bordered,
                 rounded,
                 content_padding,
+                header_focus,
                 ..
             } = self;
             let on_change = on_change.map(|h| std::rc::Rc::new(h));
@@ -152,6 +187,7 @@ impl Accordion {
                 bordered,
                 rounded,
                 content_padding,
+                header_focus,
             );
         }
 
@@ -163,6 +199,7 @@ impl Accordion {
                 bordered,
                 rounded,
                 content_padding,
+                header_focus,
                 ..
             } = self;
             let on_change = on_change.map(|h| std::rc::Rc::new(h));
@@ -174,9 +211,11 @@ impl Accordion {
                 bordered,
                 rounded,
                 content_padding,
+                header_focus,
             );
         }
 
+        let header_focus = self.header_focus;
         let on_change = self.on_change.map(|h| std::rc::Rc::new(h));
         let mut container = div().flex().flex_col().w_full().min_w_0();
         if self.bordered {
@@ -191,6 +230,7 @@ impl Accordion {
             let item_id = item.id.clone();
             let is_first = idx == 0;
 
+            let item_focus = header_focus.get(&item_id.to_string()).cloned();
             let header = Self::build_header_static(
                 item_id,
                 item.title,
@@ -201,6 +241,7 @@ impl Accordion {
                 true,
                 &theme,
                 on_change.clone(),
+                item_focus,
             );
             let mut item_wrapper = div().w_full().child(header);
 
@@ -229,6 +270,10 @@ impl Accordion {
     }
 
     /// Build horizontal layout: tab headers on top, full-width content below
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "horizontal layout threads per-item focus handles alongside theme state"
+    )]
     fn build_horizontal_layout_static(
         items: Vec<AccordionItem>,
         expanded: Vec<SharedString>,
@@ -237,6 +282,7 @@ impl Accordion {
         bordered: bool,
         rounded: bool,
         content_padding: bool,
+        header_focus: HashMap<String, FocusHandle>,
     ) -> Div {
         let mut container = div().flex().flex_col().w_full().min_w_0();
         if bordered {
@@ -253,6 +299,7 @@ impl Accordion {
             let is_expanded = expanded.contains(&item.id);
             let item_id = item.id.clone();
 
+            let item_focus = header_focus.get(&item_id.to_string()).cloned();
             let header = Self::build_header_static(
                 item_id,
                 item.title,
@@ -263,6 +310,7 @@ impl Accordion {
                 false,
                 &theme,
                 on_change.clone(),
+                item_focus,
             );
             headers_container = headers_container.child(header);
 
@@ -299,7 +347,9 @@ impl Accordion {
         is_vertical: bool,
         theme: &AccordionTheme,
         on_change: Option<AccordionChangeHandler>,
+        focus_handle: Option<FocusHandle>,
     ) -> Stateful<Div> {
+        let header_label = title.clone();
         let mut header = div()
             .id(SharedString::from(format!("accordion-header-{}", item_id)))
             .flex()
@@ -341,12 +391,30 @@ impl Accordion {
                     .shadow(glow_shadow(hover_bg))
             });
 
-            if let Some(handler) = on_change {
+            if let Some(handler) = on_change.clone() {
                 let id = item_id.clone();
                 let new_state = !is_expanded;
                 header = header.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
                     (handler)(&id, new_state, window, cx);
                 });
+            }
+
+            // Keyboard acceptance: Tab-reachable header with Enter/Space
+            // toggle mirroring the mouse handler. Without a tracked focus
+            // handle (static builds) the header stays mouse-only as before.
+            if let Some(focus_handle) = focus_handle {
+                header = header.track_focus(&focus_handle).focusable();
+                if let Some(handler) = on_change {
+                    let id = item_id.clone();
+                    let new_state = !is_expanded;
+                    header = header.on_key_down(move |event, window, cx| {
+                        let key = event.keystroke.key.as_str();
+                        if matches!(key, "enter" | "space" | " ") {
+                            cx.stop_propagation();
+                            (handler)(&id, new_state, window, cx);
+                        }
+                    });
+                }
             }
         }
 
@@ -395,7 +463,7 @@ impl Accordion {
         } else {
             "▲"
         };
-        header.child(
+        let header = header.child(
             div()
                 .text_xs()
                 .line_height(px(20.0))
@@ -406,10 +474,18 @@ impl Accordion {
                     theme.indicator_color
                 })
                 .child(indicator),
-        )
+        );
+        let header_props = AriaProps::with_role(AriaRole::Button)
+            .state(AriaState::Expanded(is_expanded))
+            .maybe_state(disabled, AriaState::Disabled);
+        apply_native_accessibility(header, header_label, &header_props)
     }
 
     /// Build side layout: vertical tab bars split around the active content
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "side layout threads per-item focus handles alongside theme state"
+    )]
     fn build_side_layout_static(
         items: Vec<AccordionItem>,
         expanded: Vec<SharedString>,
@@ -418,6 +494,7 @@ impl Accordion {
         bordered: bool,
         rounded: bool,
         content_padding: bool,
+        header_focus: HashMap<String, FocusHandle>,
     ) -> Div {
         let active_index = items
             .iter()
@@ -457,6 +534,7 @@ impl Accordion {
                 right_count == 0
             };
 
+            let item_focus = header_focus.get(&item_id.to_string()).cloned();
             let tab = Self::build_side_tab_static(
                 item_id,
                 item.title,
@@ -466,6 +544,7 @@ impl Accordion {
                 !goes_left,
                 &theme,
                 on_change.clone(),
+                item_focus,
             );
 
             if goes_left {
@@ -507,7 +586,9 @@ impl Accordion {
         rail_on_right: bool,
         theme: &AccordionTheme,
         on_change: Option<AccordionChangeHandler>,
+        focus_handle: Option<FocusHandle>,
     ) -> Stateful<Div> {
+        let tab_label = title.clone();
         let mut header = div()
             .id(SharedString::from(format!(
                 "accordion-header-side-{}",
@@ -543,12 +624,28 @@ impl Accordion {
                     .shadow(glow_shadow(hover_bg))
             });
 
-            if let Some(handler) = on_change {
+            if let Some(handler) = on_change.clone() {
                 let id = item_id.clone();
                 let new_state = !is_expanded;
                 header = header.on_mouse_up(MouseButton::Left, move |_event, window, cx| {
                     (handler)(&id, new_state, window, cx);
                 });
+            }
+
+            // Keyboard acceptance, mirroring the header builder.
+            if let Some(focus_handle) = focus_handle {
+                header = header.track_focus(&focus_handle).focusable();
+                if let Some(handler) = on_change {
+                    let id = item_id.clone();
+                    let new_state = !is_expanded;
+                    header = header.on_key_down(move |event, window, cx| {
+                        let key = event.keystroke.key.as_str();
+                        if matches!(key, "enter" | "space" | " ") {
+                            cx.stop_propagation();
+                            (handler)(&id, new_state, window, cx);
+                        }
+                    });
+                }
             }
         }
 
@@ -578,7 +675,7 @@ impl Accordion {
             rail.left_0()
         };
 
-        header.child(rail).child(
+        let header = header.child(rail).child(
             canvas(
                 move |_bounds, _window, _cx| label_svg,
                 move |bounds, label_svg, window, cx| {
@@ -594,7 +691,11 @@ impl Accordion {
             )
             .w(px(18.0))
             .h(label_height),
-        )
+        );
+        let tab_props = AriaProps::with_role(AriaRole::Button)
+            .state(AriaState::Expanded(is_expanded))
+            .maybe_state(disabled, AriaState::Disabled);
+        apply_native_accessibility(header, tab_label, &tab_props)
     }
 }
 
@@ -613,9 +714,23 @@ impl RenderOnce for Accordion {
             props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Group)),
         });
 
+        // Resolve stable per-header focus handles so headers are Tab-reachable
+        // and Enter/Space can toggle them across re-renders.
+        let mut this = self;
+        let ids: Vec<String> = this
+            .items
+            .iter()
+            .map(|item| item.id.to_string())
+            .collect();
+        for id in ids {
+            this.header_focus
+                .entry(id.clone())
+                .or_insert_with(|| accordion_header_focus_handle(&id, cx));
+        }
+
         let global_theme = cx.theme();
         let accordion_theme = AccordionTheme::from(global_theme);
-        self.build_with_theme(&accordion_theme)
+        this.build_with_theme(&accordion_theme)
     }
 }
 
