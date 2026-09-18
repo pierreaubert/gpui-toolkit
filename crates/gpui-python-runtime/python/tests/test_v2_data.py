@@ -1396,7 +1396,11 @@ class V2DataTests(unittest.TestCase):
             publication = os.path.join(directory, frame["filename"])
             with open(publication, "rb") as stream:
                 self.assertEqual(stream.read(), b"abcd")
-            self.assertEqual(os.stat(publication).st_mode & 0o777, 0o600)
+            # Windows ACLs ignore the POSIX mode passed to os.open, so the
+            # publication keeps default permissions there. Enforce the
+            # restrictive mode only where POSIX bits are meaningful.
+            if os.name != "nt":
+                self.assertEqual(os.stat(publication).st_mode & 0o777, 0o600)
             self.assertEqual(context.outstanding_resource_bytes, 4)
             context._acknowledge_resource_frame({
                 "resource_id": "mmap-points",
