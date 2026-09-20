@@ -97,10 +97,17 @@ jobs:
       # cmdline-tools); android-actions/setup-android@v3 additionally runs
       # `sdkmanager tools`, but Google removed the obsolete `tools` package,
       # so the action fails. Use the preinstalled SDK directly instead.
+      # NOTE: GITHUB_PATH only affects subsequent steps, so export PATH in
+      # this step too before calling sdkmanager.
       - name: Use preinstalled Android SDK
         if: matrix.platform == 'android'
         run: |
-          echo "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          sdk_bin="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin"
+          if [ ! -d "$sdk_bin" ]; then
+            sdk_bin="$(ls -d "${ANDROID_SDK_ROOT}"/cmdline-tools/*/bin | sort -V | tail -n 1)"
+          fi
+          export PATH="$sdk_bin:${ANDROID_SDK_ROOT}/platform-tools:$PATH"
+          echo "$sdk_bin" >> "$GITHUB_PATH"
           echo "${ANDROID_SDK_ROOT}/platform-tools" >> "$GITHUB_PATH"
           yes | sdkmanager --licenses >/dev/null
 

@@ -9,7 +9,7 @@ aggregate_crate = "gpui-toolkit"
 aggregate_feature = "all"
 rustdoc_inventory = "python-rustdoc-inventory.json"
 rustdoc_packages = ["gpui-d3rs", "gpui-px"]
-rustdoc_inventory_digest = "878c614d933bbe83b0015c21fbc7b34cca3f58ad823173f77354a6a564556df0"
+rustdoc_inventory_digest = "16cf50e23d234088c86d6304d8d2de74b5f4fab5aaa1783cdb610ba795d76405"
 # Stable 2.0 cannot be declared while full rustdoc-inventory classification and
 # the remaining targeted-crate inventory waves are open.
 release_ready = false
@@ -22758,6 +22758,62 @@ tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
 
 [[rustdoc_classification]]
 package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_selected_with_id"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_selected_with_id#parameter:0:x_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_selected_with_id#parameter:1:y_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_selected_with_id#parameter:2:data"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_selected_with_id#parameter:3:config"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_selected_with_id#parameter:4:id"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_selected_with_id#return"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
 rustdoc_id = "d3rs::shape::line::types::render_line_vello"
 python_path = "gpui_toolkit.d3rs"
 disposition = "host-owned"
@@ -22807,6 +22863,70 @@ tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
 [[rustdoc_classification]]
 package = "gpui-d3rs"
 rustdoc_id = "d3rs::shape::line::types::render_line_vello#return"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello_with_id"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello_with_id#parameter:0:x_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello_with_id#parameter:1:y_scale"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello_with_id#parameter:2:data"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello_with_id#parameter:3:config"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello_with_id#parameter:4:backend"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello_with_id#parameter:5:id"
+python_path = "gpui_toolkit.d3rs"
+disposition = "host-owned"
+rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
+tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[rustdoc_classification]]
+package = "gpui-d3rs"
+rustdoc_id = "d3rs::shape::line::types::render_line_vello_with_id#return"
 python_path = "gpui_toolkit.d3rs"
 disposition = "host-owned"
 rationale = "GPUI line rendering, scale integration, and Vello scene emission remain host-owned runtime operations; typed geometry and validation records are retained in the capability manifest."
