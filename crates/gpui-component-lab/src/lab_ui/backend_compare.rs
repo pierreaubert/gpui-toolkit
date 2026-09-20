@@ -9,11 +9,14 @@
 use d3rs::vello2d::kurbo::{Rect, Stroke};
 use d3rs::vello2d::peniko::{Brush, Color};
 use d3rs::vello2d::{
-    ChartScene, CpuRasterizer, PixelDiff, compare_rgba, diff_image_rgba, snapshot_scene_gpu,
+    ChartScene, CpuRasterizer, PixelDiff, SnapshotError, compare_rgba, diff_image_rgba,
+    snapshot_scene_gpu,
 };
 use gpui::RenderImage;
 use image::{Frame, RgbaImage};
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 /// Logical scene size for every compare preset.
@@ -160,6 +163,28 @@ fn display_image(mut rgba: Vec<u8>, width: u32, height: u32) -> Arc<RenderImage>
     Arc::new(RenderImage::new(vec![Frame::new(image)]))
 }
 
+/// Test-only override forcing the missing-GPU path in [`run_backend_compare`]
+/// without mutating the process environment (Rust 2024 `std::env::set_var` is
+/// `unsafe`, and the workspace unsafe policy forbids `unsafe` outside explicit
+/// FFI boundaries). Only exists in test builds.
+#[cfg(test)]
+static FORCE_NO_GPU_SNAPSHOT: AtomicBool = AtomicBool::new(false);
+
+/// [`snapshot_scene_gpu`], honoring the test-only FORCE_NO_GPU_SNAPSHOT
+/// override before consulting the process environment.
+fn snapshot_for_compare(
+    scene: &ChartScene,
+    width: u32,
+    height: u32,
+    scale: f32,
+) -> Result<Vec<u8>, SnapshotError> {
+    #[cfg(test)]
+    if FORCE_NO_GPU_SNAPSHOT.load(Ordering::Relaxed) {
+        return Err(SnapshotError::NoAdapter);
+    }
+    snapshot_scene_gpu(scene, width, height, scale)
+}
+
 /// Render `preset` through both rasterizers at `scale` and compare.
 /// `gpu_ms` only covers a successful snapshot; failures record `gpu_error`.
 pub(super) fn run_backend_compare(preset: &str, scale: f32) -> BackendCompareResult {
@@ -173,7 +198,7 @@ pub(super) fn run_backend_compare(preset: &str, scale: f32) -> BackendCompareRes
     let cpu_ms = cpu_start.elapsed().as_secs_f64() * 1000.0;
 
     let gpu_start = Instant::now();
-    let gpu_pixels = snapshot_scene_gpu(&scene, width, height, scale);
+    let gpu_pixels = snapshot_for_compare(&scene, width, height, scale);
     let gpu_ms = gpu_start.elapsed().as_secs_f64() * 1000.0;
 
     let cpu = display_image(cpu_pixels.clone(), width, height);
@@ -207,8 +232,9 @@ pub(super) fn run_backend_compare(preset: &str, scale: f32) -> BackendCompareRes
 
 #[cfg(test)]
 mod backend_compare_tests {
-    use super::{compare_preset_scene, run_backend_compare};
+    use super::{FORCE_NO_GPU_SNAPSHOT, compare_preset_scene, run_backend_compare};
     use d3rs::vello2d::CpuRasterizer;
+    use std::sync::atomic::Ordering;
 
     #[test]
     fn presets_build_non_empty_scenes() {
@@ -236,18 +262,14 @@ mod backend_compare_tests {
         // Simulate the missing-GPU path deterministically instead of relying
         // on CI runner hardware: headless Windows drivers can abort the
         // process inside native graphics init rather than failing gracefully.
-        // No other test in this binary touches the GPU snapshot path, so no
-        // concurrent snapshot call can observe the override.
-        let previous = std::env::var_os("GPUI_TOOLKIT_NO_GPU_SNAPSHOT");
-        // SAFETY: the override is set and restored within this test, and no
-        // other thread in this binary reads the variable concurrently.
-        unsafe { std::env::set_var("GPUI_TOOLKIT_NO_GPU_SNAPSHOT", "1") };
+        // The override is an atomic flag rather than an environment mutation:
+        // Rust 2024 `std::env::set_var` is `unsafe`, and the workspace unsafe
+        // policy forbids it outside explicit FFI boundaries. No other test in
+        // this binary touches the GPU snapshot path, so no concurrent snapshot
+        // call can observe the override.
+        FORCE_NO_GPU_SNAPSHOT.store(true, Ordering::Relaxed);
         let result = run_backend_compare("strokes", 1.0);
-        match previous {
-            // SAFETY: same rationale as above.
-            Some(value) => unsafe { std::env::set_var("GPUI_TOOLKIT_NO_GPU_SNAPSHOT", value) },
-            None => unsafe { std::env::remove_var("GPUI_TOOLKIT_NO_GPU_SNAPSHOT") },
-        }
+        FORCE_NO_GPU_SNAPSHOT.store(false, Ordering::Relaxed);
         assert!(result.stats.is_some() || result.gpu_error.is_some());
     }
 }

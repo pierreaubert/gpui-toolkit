@@ -40,6 +40,8 @@ perf_report := "target/qa/perf/report.md"
 # for a material slowdown above the observed envelope.
 perf_threshold := "20"
 perf_noise_floor_ns := "150"
+# testing mbx
+cargo := "mbx"
 
 # ----------------------------------------------------------------------
 # TEST / QA
@@ -47,37 +49,37 @@ perf_noise_floor_ns := "150"
 
 [group('check')]
 check:
-	cargo check --workspace --all-targets --all-features --tests
+	{{cargo}} check --workspace --all-targets --all-features --tests
 
 [group('lint')]
 lint: lint-host
 
 [group('lint')]
 lint-host:
- RUST_MIN_STACK=33554432 cargo clippy --workspace --all-targets {{features}} -- -D warnings -A clippy::chunks_exact_to_as_chunks -A clippy::needless_late_init -A clippy::obfuscated_if_else -A clippy::let_and_return -A clippy::unnecessary_cast -A clippy::items_after_test_module -A clippy::type_complexity -A clippy::collapsible_if -A clippy::collapsible_match -A clippy::enum_variant_names -A clippy::needless_borrow -A clippy::op_ref -A clippy::ptr_arg -A clippy::too_many_arguments -A clippy::unwrap_or_default
+ RUST_MIN_STACK=33554432 {{cargo}} clippy --workspace --all-targets {{features}} -- -D warnings -A clippy::chunks_exact_to_as_chunks -A clippy::needless_late_init -A clippy::obfuscated_if_else -A clippy::let_and_return -A clippy::unnecessary_cast -A clippy::items_after_test_module -A clippy::type_complexity -A clippy::collapsible_if -A clippy::collapsible_match -A clippy::enum_variant_names -A clippy::needless_borrow -A clippy::op_ref -A clippy::ptr_arg -A clippy::too_many_arguments -A clippy::unwrap_or_default
 
 [group('lint')]
 lint-all: lint-host lint-ios-rust
 
 [group('lint')]
 lint-ios-rust:
-	RUSTFLAGS="-D warnings" cargo build -p gpui-showcase-ios --target aarch64-apple-ios-sim --release {{features}}
+	RUSTFLAGS="-D warnings" {{cargo}} build -p gpui-showcase-ios --target aarch64-apple-ios-sim --release {{features}}
 
 alias clippy := lint
 
 [group('test')]
 test-examples:
 	@echo "Building gpui-ui-kit examples..."
-	cargo build --examples -p gpui-ui-kit {{features}}
+	{{cargo}} build --examples -p gpui-ui-kit {{features}}
 	@echo "All gpui-ui-kit examples compiled successfully"
 
 [group('test')]
 ntest:
-	cargo nextest run --profile ci --release --no-fail-fast --workspace {{features}}
+	{{cargo}} nextest run --profile ci --release --no-fail-fast --workspace {{features}}
 
 [group('qa')]
 qa-miri:
-	cargo miri test -p gpui-pretext --lib --tests
+	{{cargo}} miri test -p gpui-pretext --lib --tests
 
 [group('qa')]
 qa-fuzz:
@@ -86,37 +88,37 @@ qa-fuzz:
 [group('qa')]
 qa-gpui-conformance:
 	mkdir -p target/gpui-conformance
-	cargo test -p gpui-design-tools {{features}}
-	cargo test -p gpui-component-lab {{features}}
-	cargo run -p gpui-design-tools --bin gpui-validate-design-tokens {{features}} -- --report-json target/gpui-conformance/design-tokens.json --report-markdown target/gpui-conformance/design-tokens.md
-	cargo run -p gpui-component-lab --bin gpui-component-lab {{features}} -- --conformance --report-json target/gpui-conformance/component-lab.json --report-markdown target/gpui-conformance/component-lab.md
+	{{cargo}} test -p gpui-design-tools {{features}}
+	{{cargo}} test -p gpui-component-lab {{features}}
+	{{cargo}} run -p gpui-design-tools --bin gpui-validate-design-tokens {{features}} -- --report-json target/gpui-conformance/design-tokens.json --report-markdown target/gpui-conformance/design-tokens.md
+	{{cargo}} run -p gpui-component-lab --bin gpui-component-lab {{features}} -- --conformance --report-json target/gpui-conformance/component-lab.json --report-markdown target/gpui-conformance/component-lab.md
 
 # Compile and exercise deterministic Apple host-boundary contracts. This is
 # separate from simulator/DAW runtime gates, which still require a real host.
 [group('qa')]
 qa-apple-host-contracts:
-	cargo test -p gpui-au
+	{{cargo}} test -p gpui-au
 	clang -fsyntax-only -x c crates/gpui-au/include/gpui_au.h
-	cargo check -p gpui-ios --tests --target aarch64-apple-ios-sim
+	{{cargo}} check -p gpui-ios --tests --target aarch64-apple-ios-sim
 
 [group('qa')]
 qa-gpui-obvious: qa-gpui-conformance
-	cargo test -p gpui-ui-kit-macros {{features}}
+	{{cargo}} test -p gpui-ui-kit-macros {{features}}
 	# gpui-builder intentionally has no optional workspace feature surface.
 	# Do not forward the aggregate feature list used by its consumers.
-	cargo test -p gpui-builder
-	cargo check -p gpui-builder
-	cargo test -p gpui-audio-kit {{features}} -- --test-threads=1
+	{{cargo}} test -p gpui-builder
+	{{cargo}} check -p gpui-builder
+	{{cargo}} test -p gpui-audio-kit {{features}} -- --test-threads=1
 	# gpui-ui-kit has no gpu-2d/gpu-3d feature; exercise those via gpui-d3rs.
-	cargo test -p gpui-ui-kit {{features}}
-	cargo test -p gpui-ui-kit {{features}} --features bench --test allocation_contracts -- --test-threads=1
-	cargo test -p gpui-ui-kit {{features}} --features bench --test text_input_corpus
-	cargo test -p gpui-d3rs {{features}}
+	{{cargo}} test -p gpui-ui-kit {{features}}
+	{{cargo}} test -p gpui-ui-kit {{features}} --features bench --test allocation_contracts -- --test-threads=1
+	{{cargo}} test -p gpui-ui-kit {{features}} --features bench --test text_input_corpus
+	{{cargo}} test -p gpui-d3rs {{features}}
 	# MeshPlot allocation contracts use a process-global allocator; keep this
 	# package serial so unrelated test-thread startup allocations cannot pollute
 	# the zero-allocation hot-path assertions.
-	cargo test -p gpui-px {{features}} -- --test-threads=1
-	cargo tree -p gpui-design-tools {{features}}
+	{{cargo}} test -p gpui-px {{features}} -- --test-threads=1
+	{{cargo}} tree -p gpui-design-tools {{features}}
 	python3 scripts/qa_desktop_accessibility.py --output-json target/qa/accessibility/desktop-evidence.json --output-markdown target/qa/accessibility/desktop-evidence.md
 
 # ----------------------------------------------------------------------
@@ -177,7 +179,7 @@ qa-scripts:
 [group('qa')]
 [macos]
 qa-native-ui-macos:
-	cargo build -p gpui-builder --features showcase --bin layout-showcase
+	{{cargo}} build -p gpui-builder --features showcase --bin layout-showcase
 	bash scripts/run_macos_native_ui_smoke.sh
 
 [group('qa')]
@@ -198,9 +200,9 @@ qa-native-ui-local: qa-native-ui-macos qa-native-ui-utm-linux qa-native-ui-utm-w
 [group('qa')]
 qa-api:
 	python3 scripts/qa_docs_policy.py
-	cargo check {{public_core_packages}} --lib --no-default-features
-	RUSTDOCFLAGS="-D warnings" cargo doc {{public_core_packages}} --lib --no-deps --no-default-features
-	cargo test -p gpui-scaffolder scaffolded_project_passes_cargo_check
+	{{cargo}} check {{public_core_packages}} --lib --no-default-features
+	RUSTDOCFLAGS="-D warnings" {{cargo}} doc {{public_core_packages}} --lib --no-deps --no-default-features
+	{{cargo}} test -p gpui-scaffolder scaffolded_project_passes_cargo_check
 
 # Freeze the all-feature public Rust surface that Python v2 must classify.
 # rustdoc JSON currently requires nightly even though normal builds remain stable.
@@ -214,8 +216,8 @@ qa-python-rustdoc-inventory:
 # two GPUI-free packages pass a locked package verification.
 [group('qa')]
 qa-release-contract: qa-api
-	cargo package --locked -p gpui-profiler
-	cargo package --locked -p gpui-ui-kit-macros
+	{{cargo}} package --locked -p gpui-profiler
+	{{cargo}} package --locked -p gpui-ui-kit-macros
 
 # Build release assets locally and offline. This never tags, pushes, publishes,
 # signs, or uploads; those remain explicit maintainer actions.
@@ -236,7 +238,7 @@ check-version:
 # report-only metadata.
 [group('qa')]
 qa-deps:
-	cargo deny check
+	{{cargo}} deny check
 	python3 scripts/qa_zed_source_check.py
 
 # Property-based non-regression. If no proptest tests exist, this exits cleanly.
@@ -319,8 +321,8 @@ qa-cov:
 	# gpui_macos clipboard tests require a live pasteboard service and are not
 	# part of the measured source set; keep them out of the portable coverage
 	# lane while retaining their separate host QA gate.
-	cargo llvm-cov --workspace --exclude gpui-scaffolder --exclude gpui_macos --all-targets --html --output-dir target/qa/cov/html {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
-	cargo llvm-cov --workspace --exclude gpui-scaffolder --exclude gpui_macos --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	{{cargo}} llvm-cov --workspace --exclude gpui-scaffolder --exclude gpui_macos --all-targets --html --output-dir target/qa/cov/html {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	{{cargo}} llvm-cov --workspace --exclude gpui-scaffolder --exclude gpui_macos --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
 	@echo "Coverage report: target/qa/cov/html/index.html"
 
 # Open the HTML coverage report (macOS).
@@ -333,7 +335,7 @@ qa-cov-html: qa-cov
 qa-cov-check:
 	@echo "Running coverage gate (threshold {{cov_threshold}}%)..."
 	mkdir -p target/qa/cov
-	cargo llvm-cov --workspace --exclude gpui-scaffolder --exclude gpui_macos --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	{{cargo}} llvm-cov --workspace --exclude gpui-scaffolder --exclude gpui_macos --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
 	python3 scripts/qa_cov_check.py --summary {{cov_summary}} --threshold {{cov_threshold}} --output {{cov_report}} --ignore-regex '{{cov_ignore_regex}}'
 
 # Update the committed performance baseline. Run intentionally after benchmarking.
@@ -358,23 +360,23 @@ alias build := prod
 
 [group('format')]
 fmt:
-	cargo fmt --all
+	{{cargo}} fmt --all
 
 [group('build')]
 dev:
-	cargo build --workspace {{features}}
+	{{cargo}} build --workspace {{features}}
 
 [group('build')]
 prod: prod-workspace
 
 [group('build')]
 prod-workspace:
-	cargo build --release --workspace {{features}}
+	{{cargo}} build --release --workspace {{features}}
 
 # Build the Python package, including its bundled native host.
 [group('build')]
 build-python:
-	cargo build --release -p gpui-python-runtime --features showcase --bin gpui-python-host
+	{{cargo}} build --release -p gpui-python-runtime --features showcase --bin gpui-python-host
 	python3 scripts/build_python_package.py --host target/release/gpui-python-host
 
 # ----------------------------------------------------------------------
@@ -388,43 +390,43 @@ demo: demo-audio-kit demo-builder demo-component-lab demo-d3rs demo-px demo-pyth
 
 [group('demo')]
 demo-audio-kit:
-	cargo build --release --examples -p gpui-audio-kit {{features}}
+	{{cargo}} build --release --examples -p gpui-audio-kit {{features}}
 
 [group('demo')]
 demo-ui-kit:
-	cargo build --release --examples -p gpui-ui-kit {{features}}
+	{{cargo}} build --release --examples -p gpui-ui-kit {{features}}
 
 [group('demo')]
 demo-builder:
-	cargo build --release --bin layout-showcase -p gpui-builder {{features}} --features showcase
+	{{cargo}} build --release --bin layout-showcase -p gpui-builder {{features}} --features showcase
 
 [group('demo')]
 demo-component-lab:
-	cargo build --release --bin gpui-component-lab -p gpui-component-lab {{features}}
+	{{cargo}} build --release --bin gpui-component-lab -p gpui-component-lab {{features}}
 
 [group('demo')]
 demo-d3rs:
-	cargo build --release --example d3rs-showcase -p gpui-d3rs {{features}}
-	cargo build --release --example d3rs-spinorama -p gpui-d3rs {{features}}
-	cargo build --release --examples -p gpui-d3rs {{features}}
+	{{cargo}} build --release --example d3rs-showcase -p gpui-d3rs {{features}}
+	{{cargo}} build --release --example d3rs-spinorama -p gpui-d3rs {{features}}
+	{{cargo}} build --release --examples -p gpui-d3rs {{features}}
 
 [group('demo')]
 demo-px:
-	cargo build --release --bin px-showcase -p gpui-px {{features}}
-	cargo build --release --bin px-spinorama -p gpui-px {{features}}
-	cargo build --release --examples -p gpui-px {{features}}
+	{{cargo}} build --release --bin px-showcase -p gpui-px {{features}}
+	{{cargo}} build --release --bin px-spinorama -p gpui-px {{features}}
+	{{cargo}} build --release --examples -p gpui-px {{features}}
 
 [group('demo')]
 demo-python:
-	cargo build --release --bin gpui-python-showcase -p gpui-python-runtime {{features}} --features showcase
+	{{cargo}} build --release --bin gpui-python-showcase -p gpui-python-runtime {{features}} --features showcase
 
 [group('demo')]
 demo-showcase:
-	cargo build --release --bin gpui-showcase -p gpui-showcase
+	{{cargo}} build --release --bin gpui-showcase -p gpui-showcase
 
 [group('demo')]
 demo-themes:
-	cargo build --release --bin theme-showcase -p gpui-themes {{features}}
+	{{cargo}} build --release --bin theme-showcase -p gpui-themes {{features}}
 
 # Build all maintained examples.
 [group('examples')]
@@ -434,44 +436,44 @@ examples: examples-audio-kit examples-builder examples-d3rs examples-px examples
 [group('examples')]
 examples-audio-kit:
 	@echo "Building gpui-audio-kit examples..."
-	cargo build --examples -p gpui-audio-kit {{features}}
+	{{cargo}} build --examples -p gpui-audio-kit {{features}}
 	@echo "gpui-audio-kit examples compiled successfully"
 
 [group('examples')]
 examples-builder:
 	@echo "Building gpui-builder examples..."
-	cargo build --examples -p gpui-builder {{features}}
+	{{cargo}} build --examples -p gpui-builder {{features}}
 	@echo "gpui-builder examples compiled successfully"
 
 [group('examples')]
 examples-d3rs:
 	@echo "Building gpui-d3rs examples..."
-	cargo build --examples -p gpui-d3rs {{features}}
+	{{cargo}} build --examples -p gpui-d3rs {{features}}
 	@echo "gpui-d3rs examples compiled successfully"
 
 [group('examples')]
 examples-px:
 	@echo "Building gpui-px examples..."
-	cargo build --examples -p gpui-px {{features}}
+	{{cargo}} build --examples -p gpui-px {{features}}
 	@echo "gpui-px examples compiled successfully"
 
 [group('examples')]
 examples-ui-kit:
 	@echo "Building all gpui-ui-kit examples..."
-	cargo build --examples -p gpui-ui-kit {{features}}
+	{{cargo}} build --examples -p gpui-ui-kit {{features}}
 	@echo "All gpui-ui-kit examples compiled successfully"
 
 # Run the renderer-only QR example.
 [group('examples')]
 [macos]
 run-qr-debug:
-	cargo run -p gpui-ui-kit --example qr_debug {{features}}
+	{{cargo}} run -p gpui-ui-kit --example qr_debug {{features}}
 
 [group('examples')]
 [linux]
 [windows]
 run-qr-debug:
-	cargo run -p gpui-ui-kit --example qr_debug {{features}}
+	{{cargo}} run -p gpui-ui-kit --example qr_debug {{features}}
 
 # ----------------------------------------------------------------------
 # IOS
@@ -489,12 +491,12 @@ alias ios-hot-reload := showcase-hot-reload
 # Build Showcase iOS Rust static library for simulator.
 [group('ios')]
 showcase-rust-sim:
-	cargo build -p gpui-showcase-ios --target aarch64-apple-ios-sim --release {{features}}
+	{{cargo}} build -p gpui-showcase-ios --target aarch64-apple-ios-sim --release {{features}}
 
 # Build Showcase iOS Rust static library for device.
 [group('ios')]
 showcase-rust-device:
-	cargo build -p gpui-showcase-ios --target aarch64-apple-ios --release {{features}}
+	{{cargo}} build -p gpui-showcase-ios --target aarch64-apple-ios --release {{features}}
 
 # Build Showcase iOS Rust lib and copy it to the Xcode project.
 [group('ios')]
@@ -611,12 +613,12 @@ alias tvos-build-device := showcase-tvos-build-device
 # Build Showcase tvOS Rust static library for simulator.
 [group('tvos')]
 showcase-tvos-rust-sim:
-	TVOS_DEPLOYMENT_TARGET=15.0 cargo +nightly build -p gpui-showcase-tvos --target aarch64-apple-tvos-sim --release {{features}} -Zbuild-std
+	TVOS_DEPLOYMENT_TARGET=15.0 {{cargo}} +nightly build -p gpui-showcase-tvos --target aarch64-apple-tvos-sim --release {{features}} -Zbuild-std
 
 # Build Showcase tvOS Rust static library for device.
 [group('tvos')]
 showcase-tvos-rust-device:
-	TVOS_DEPLOYMENT_TARGET=15.0 cargo +nightly build -p gpui-showcase-tvos --target aarch64-apple-tvos --release {{features}} -Zbuild-std
+	TVOS_DEPLOYMENT_TARGET=15.0 {{cargo}} +nightly build -p gpui-showcase-tvos --target aarch64-apple-tvos --release {{features}} -Zbuild-std
 
 # Build Showcase tvOS Rust lib and copy it next to the mobile Xcode assets.
 [group('tvos')]
@@ -722,9 +724,9 @@ tvos-device: showcase-tvos-build-device
 # ANDROID
 # ----------------------------------------------------------------------
 #
-# Android requires the Rust Android target plus cargo-ndk:
+# Android requires the Rust Android target plus {{cargo}}-ndk:
 #   rustup target add aarch64-linux-android
-#   cargo install cargo-ndk
+#   {{cargo}} install {{cargo}}-ndk
 #   sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
 # Build an APK with:
 #   just android-apk
@@ -742,7 +744,7 @@ showcase-android-check:
 	CC_aarch64_linux_android="{{android_sdk_root}}/ndk/{{android_ndk_version}}/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android35-clang" \
 		CXX_aarch64_linux_android="{{android_sdk_root}}/ndk/{{android_ndk_version}}/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android35-clang++" \
 		AR_aarch64_linux_android="{{android_sdk_root}}/ndk/{{android_ndk_version}}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar" \
-		cargo check -p gpui-showcase-android --target aarch64-linux-android {{features}}
+		{{cargo}} check -p gpui-showcase-android --target aarch64-linux-android {{features}}
 
 # Build Showcase Android Rust shared library for arm64 devices/emulators.
 [group('android')]
@@ -750,7 +752,7 @@ showcase-android-rust:
 		ANDROID_HOME="{{android_sdk_root}}" \
 		ANDROID_SDK_ROOT="{{android_sdk_root}}" \
 		ANDROID_NDK_HOME="{{android_sdk_root}}/ndk/{{android_ndk_version}}" \
-		cargo ndk -t arm64-v8a -P 26 -o crates/gpui-showcase/android/gradle/app/src/main/jniLibs build -p gpui-showcase-android --release {{features}}
+		{{cargo}} ndk -t arm64-v8a -P 26 -o crates/gpui-showcase/android/gradle/app/src/main/jniLibs build -p gpui-showcase-android --release {{features}}
 
 # Build Showcase Android Rust shared library and copy it into Gradle jniLibs.
 [group('android')]
@@ -801,7 +803,7 @@ qa-android-emulator serial='': showcase-android-apk
 
 [group('maintenance')]
 clean:
-	cargo clean
+	{{cargo}} clean
 	find . -name '*~' -exec rm {} \; -print
 
 [group('maintenance')]
@@ -810,7 +812,7 @@ update: update-rust update-pre-commit
 [group('maintenance')]
 update-rust:
 	rustup update
-	cargo update
+	{{cargo}} update
 
 [group('maintenance')]
 update-pre-commit:
@@ -833,4 +835,4 @@ download-once:
 [group('qa')]
 qa-mesh-cvd-color-scale:
 	@echo "Running MeshPlot color-vision-deficiency regression..."
-	cargo test -p gpui-px --lib color_scale::tests::named_scales_remain_distinguishable_under_cvd_simulations
+	{{cargo}} test -p gpui-px --lib color_scale::tests::named_scales_remain_distinguishable_under_cvd_simulations
