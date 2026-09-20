@@ -2,10 +2,10 @@
   "crates": [
     {
       "crate_version": "0.9.19",
-      "digest": "64823b82b60cca8ffdc4c6f548a35dadaeb82145048e7d43a0c099e1cc7c31cd",
+      "digest": "d55829d65ff9451d50abd5860c0c2154daa17371842e5c46e3d443f78560d6bc",
       "package": "gpui-d3rs",
       "rustdoc_format_version": 61,
-      "symbol_count": 10245,
+      "symbol_count": 10260,
       "symbols": [
         {
           "deprecated": false,
@@ -187286,6 +187286,263 @@
         },
         {
           "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_selected_with_id",
+          "kind": "function",
+          "package": "gpui-d3rs",
+          "signature": {
+            "generic_parameters": 3,
+            "is_async": false,
+            "is_unsafe": false,
+            "parameters": [
+              {
+                "name": "x_scale",
+                "type": {
+                  "borrowed_ref": {
+                    "is_mutable": false,
+                    "lifetime": null,
+                    "type": {
+                      "generic": "XS"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "y_scale",
+                "type": {
+                  "borrowed_ref": {
+                    "is_mutable": false,
+                    "lifetime": null,
+                    "type": {
+                      "generic": "YS"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "data",
+                "type": {
+                  "borrowed_ref": {
+                    "is_mutable": false,
+                    "lifetime": null,
+                    "type": {
+                      "slice": {
+                        "resolved_path": {
+                          "args": null,
+                          "path": "d3rs::shape::line::line_point::LinePoint"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "name": "config",
+                "type": {
+                  "borrowed_ref": {
+                    "is_mutable": false,
+                    "lifetime": null,
+                    "type": {
+                      "resolved_path": {
+                        "args": null,
+                        "path": "d3rs::shape::line::line_config::LineConfig"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "name": "id",
+                "type": {
+                  "impl_trait": [
+                    {
+                      "trait_bound": {
+                        "generic_params": [],
+                        "modifier": "none",
+                        "trait": {
+                          "args": {
+                            "angle_bracketed": {
+                              "args": [
+                                {
+                                  "type": {
+                                    "resolved_path": {
+                                      "args": null,
+                                      "path": "gpui::window::ElementId"
+                                    }
+                                  }
+                                }
+                              ],
+                              "constraints": []
+                            }
+                          },
+                          "path": "core::convert::Into"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "return": {
+              "resolved_path": {
+                "args": null,
+                "path": "gpui::element::AnyElement"
+              }
+            }
+          },
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          }
+        },
+        {
+          "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_selected_with_id#parameter:0:x_scale",
+          "kind": "parameter",
+          "name": "x_scale",
+          "owner": "d3rs::shape::line::types::render_line_selected_with_id",
+          "package": "gpui-d3rs",
+          "position": 0,
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          },
+          "type": {
+            "borrowed_ref": {
+              "is_mutable": false,
+              "lifetime": null,
+              "type": {
+                "generic": "XS"
+              }
+            }
+          }
+        },
+        {
+          "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_selected_with_id#parameter:1:y_scale",
+          "kind": "parameter",
+          "name": "y_scale",
+          "owner": "d3rs::shape::line::types::render_line_selected_with_id",
+          "package": "gpui-d3rs",
+          "position": 1,
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          },
+          "type": {
+            "borrowed_ref": {
+              "is_mutable": false,
+              "lifetime": null,
+              "type": {
+                "generic": "YS"
+              }
+            }
+          }
+        },
+        {
+          "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_selected_with_id#parameter:2:data",
+          "kind": "parameter",
+          "name": "data",
+          "owner": "d3rs::shape::line::types::render_line_selected_with_id",
+          "package": "gpui-d3rs",
+          "position": 2,
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          },
+          "type": {
+            "borrowed_ref": {
+              "is_mutable": false,
+              "lifetime": null,
+              "type": {
+                "slice": {
+                  "resolved_path": {
+                    "args": null,
+                    "path": "d3rs::shape::line::line_point::LinePoint"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_selected_with_id#parameter:3:config",
+          "kind": "parameter",
+          "name": "config",
+          "owner": "d3rs::shape::line::types::render_line_selected_with_id",
+          "package": "gpui-d3rs",
+          "position": 3,
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          },
+          "type": {
+            "borrowed_ref": {
+              "is_mutable": false,
+              "lifetime": null,
+              "type": {
+                "resolved_path": {
+                  "args": null,
+                  "path": "d3rs::shape::line::line_config::LineConfig"
+                }
+              }
+            }
+          }
+        },
+        {
+          "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_selected_with_id#parameter:4:id",
+          "kind": "parameter",
+          "name": "id",
+          "owner": "d3rs::shape::line::types::render_line_selected_with_id",
+          "package": "gpui-d3rs",
+          "position": 4,
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          },
+          "type": {
+            "impl_trait": [
+              {
+                "trait_bound": {
+                  "generic_params": [],
+                  "modifier": "none",
+                  "trait": {
+                    "args": {
+                      "angle_bracketed": {
+                        "args": [
+                          {
+                            "type": {
+                              "resolved_path": {
+                                "args": null,
+                                "path": "gpui::window::ElementId"
+                              }
+                            }
+                          }
+                        ],
+                        "constraints": []
+                      }
+                    },
+                    "path": "core::convert::Into"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_selected_with_id#return",
+          "kind": "return",
+          "owner": "d3rs::shape::line::types::render_line_selected_with_id",
+          "package": "gpui-d3rs",
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          },
+          "type": {
+            "resolved_path": {
+              "args": null,
+              "path": "gpui::element::AnyElement"
+            }
+          }
+        },
+        {
+          "deprecated": false,
           "id": "d3rs::shape::line::types::render_line_vello",
           "kind": "function",
           "package": "gpui-d3rs",
@@ -187527,6 +187784,282 @@
                   },
                   {
                     "param": "YS"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_vello_with_id",
+          "kind": "function",
+          "package": "gpui-d3rs",
+          "signature": {
+            "generic_parameters": 3,
+            "is_async": false,
+            "is_unsafe": false,
+            "parameters": [
+              {
+                "name": "x_scale",
+                "type": {
+                  "borrowed_ref": {
+                    "is_mutable": false,
+                    "lifetime": null,
+                    "type": {
+                      "generic": "XS"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "y_scale",
+                "type": {
+                  "borrowed_ref": {
+                    "is_mutable": false,
+                    "lifetime": null,
+                    "type": {
+                      "generic": "YS"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "data",
+                "type": {
+                  "borrowed_ref": {
+                    "is_mutable": false,
+                    "lifetime": null,
+                    "type": {
+                      "slice": {
+                        "resolved_path": {
+                          "args": null,
+                          "path": "d3rs::shape::line::line_point::LinePoint"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "name": "config",
+                "type": {
+                  "borrowed_ref": {
+                    "is_mutable": false,
+                    "lifetime": null,
+                    "type": {
+                      "resolved_path": {
+                        "args": null,
+                        "path": "d3rs::shape::line::line_config::LineConfig"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "name": "backend",
+                "type": {
+                  "resolved_path": {
+                    "args": null,
+                    "path": "d3rs::vello2d::element::RasterBackend"
+                  }
+                }
+              },
+              {
+                "name": "id",
+                "type": {
+                  "generic": "ID"
+                }
+              }
+            ],
+            "return": {
+              "impl_trait": [
+                {
+                  "trait_bound": {
+                    "generic_params": [],
+                    "modifier": "none",
+                    "trait": {
+                      "args": null,
+                      "path": "gpui::element::IntoElement"
+                    }
+                  }
+                },
+                {
+                  "use": [
+                    {
+                      "param": "XS"
+                    },
+                    {
+                      "param": "YS"
+                    },
+                    {
+                      "param": "ID"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          }
+        },
+        {
+          "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_vello_with_id#parameter:0:x_scale",
+          "kind": "parameter",
+          "name": "x_scale",
+          "owner": "d3rs::shape::line::types::render_line_vello_with_id",
+          "package": "gpui-d3rs",
+          "position": 0,
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          },
+          "type": {
+            "borrowed_ref": {
+              "is_mutable": false,
+              "lifetime": null,
+              "type": {
+                "generic": "XS"
+              }
+            }
+          }
+        },
+        {
+          "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_vello_with_id#parameter:1:y_scale",
+          "kind": "parameter",
+          "name": "y_scale",
+          "owner": "d3rs::shape::line::types::render_line_vello_with_id",
+          "package": "gpui-d3rs",
+          "position": 1,
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          },
+          "type": {
+            "borrowed_ref": {
+              "is_mutable": false,
+              "lifetime": null,
+              "type": {
+                "generic": "YS"
+              }
+            }
+          }
+        },
+        {
+          "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_vello_with_id#parameter:2:data",
+          "kind": "parameter",
+          "name": "data",
+          "owner": "d3rs::shape::line::types::render_line_vello_with_id",
+          "package": "gpui-d3rs",
+          "position": 2,
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          },
+          "type": {
+            "borrowed_ref": {
+              "is_mutable": false,
+              "lifetime": null,
+              "type": {
+                "slice": {
+                  "resolved_path": {
+                    "args": null,
+                    "path": "d3rs::shape::line::line_point::LinePoint"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_vello_with_id#parameter:3:config",
+          "kind": "parameter",
+          "name": "config",
+          "owner": "d3rs::shape::line::types::render_line_vello_with_id",
+          "package": "gpui-d3rs",
+          "position": 3,
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          },
+          "type": {
+            "borrowed_ref": {
+              "is_mutable": false,
+              "lifetime": null,
+              "type": {
+                "resolved_path": {
+                  "args": null,
+                  "path": "d3rs::shape::line::line_config::LineConfig"
+                }
+              }
+            }
+          }
+        },
+        {
+          "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_vello_with_id#parameter:4:backend",
+          "kind": "parameter",
+          "name": "backend",
+          "owner": "d3rs::shape::line::types::render_line_vello_with_id",
+          "package": "gpui-d3rs",
+          "position": 4,
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          },
+          "type": {
+            "resolved_path": {
+              "args": null,
+              "path": "d3rs::vello2d::element::RasterBackend"
+            }
+          }
+        },
+        {
+          "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_vello_with_id#parameter:5:id",
+          "kind": "parameter",
+          "name": "id",
+          "owner": "d3rs::shape::line::types::render_line_vello_with_id",
+          "package": "gpui-d3rs",
+          "position": 5,
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          },
+          "type": {
+            "generic": "ID"
+          }
+        },
+        {
+          "deprecated": false,
+          "id": "d3rs::shape::line::types::render_line_vello_with_id#return",
+          "kind": "return",
+          "owner": "d3rs::shape::line::types::render_line_vello_with_id",
+          "package": "gpui-d3rs",
+          "source": {
+            "file": "crates/gpui-d3rs/src/shape/line/types.rs"
+          },
+          "type": {
+            "impl_trait": [
+              {
+                "trait_bound": {
+                  "generic_params": [],
+                  "modifier": "none",
+                  "trait": {
+                    "args": null,
+                    "path": "gpui::element::IntoElement"
+                  }
+                }
+              },
+              {
+                "use": [
+                  {
+                    "param": "XS"
+                  },
+                  {
+                    "param": "YS"
+                  },
+                  {
+                    "param": "ID"
                   }
                 ]
               }
@@ -292017,7 +292550,7 @@
       "target_family": "apple-darwin"
     }
   ],
-  "digest": "878c614d933bbe83b0015c21fbc7b34cca3f58ad823173f77354a6a564556df0",
+  "digest": "16cf50e23d234088c86d6304d8d2de74b5f4fab5aaa1783cdb610ba795d76405",
   "generator": "scripts/generate_python_rustdoc_inventory.py",
   "packages": [
     "gpui-d3rs",

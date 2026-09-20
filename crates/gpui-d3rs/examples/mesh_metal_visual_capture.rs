@@ -4,20 +4,32 @@
 //! `mesh_wgpu_visual_capture`, allowing the release QA wrapper to compare the
 //! renderer backends without substituting high-level component-lab captures.
 
-#![cfg(target_os = "macos")]
+// The Metal-only items below are gated per-item (not crate-wide) so the
+// example still compiles on Linux/Windows CI, where only the stub `main`
+// reporting "requires macOS" is built.
+#![cfg_attr(
+    not(target_os = "macos"),
+    expect(
+        dead_code,
+        unused_imports,
+        reason = "non-macOS builds compile only the stub main; the helpers exist for the macOS capture path"
+    )
+)]
 
 use d3rs::gpu3d::Camera3D;
-use d3rs::mesh::gpu::{
-    GeometryRevision, MeshColorConfig, MeshSceneElement, MeshSceneState, MetalMeshRenderer,
-};
+use d3rs::mesh::gpu::{GeometryRevision, MeshColorConfig, MeshSceneElement, MeshSceneState};
+#[cfg(target_os = "macos")]
+use d3rs::mesh::gpu::MetalMeshRenderer;
 use d3rs::mesh::{
     CoordinateAxis, MeshTopology, RevolveSpec, ScalarAssociation, ScalarField, TriangleMesh,
     prepare_upload, revolve, revolve_field,
 };
+#[cfg(target_os = "macos")]
 use gpui::{
     AnyWindowHandle, AppContext, Context, HeadlessAppContext, ParentElement, Platform, Render,
     Styled, Window, div, px, size,
 };
+#[cfg(target_os = "macos")]
 use gpui_macos::{MacPlatform, metal_renderer::MetalHeadlessRenderer};
 use image::RgbaImage;
 use std::cell::RefCell;
@@ -90,11 +102,13 @@ const EXPANDED_CASES: &[CaptureCase] = &[
     },
 ];
 
+#[cfg(target_os = "macos")]
 struct SceneView {
     state: Rc<RefCell<MeshSceneState>>,
     custom_id: gpui::CustomDrawId,
 }
 
+#[cfg(target_os = "macos")]
 impl Render for SceneView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl gpui::IntoElement {
         div()
@@ -253,6 +267,7 @@ fn scene_for(id: &str) -> Result<(MeshSceneState, bool, Camera3D), String> {
     Ok((state, true, camera))
 }
 
+#[cfg(target_os = "macos")]
 fn capture_case(id: &str) -> Result<RgbaImage, String> {
     if MetalHeadlessRenderer::try_new().is_none() {
         return Err("Metal adapter unavailable".into());
@@ -334,6 +349,7 @@ fn write_manifest(dir: &Path, rows: &[String]) -> Result<(), String> {
     fs::write(dir.join("manifest.json"), manifest).map_err(|error| error.to_string())
 }
 
+#[cfg(target_os = "macos")]
 fn main() -> Result<(), String> {
     let dir = output_dir();
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;

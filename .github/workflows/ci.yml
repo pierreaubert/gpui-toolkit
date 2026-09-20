@@ -50,6 +50,15 @@ jobs:
           RUSTFLAGS: -D warnings
         run: cargo check --workspace --all-targets --features autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
 
+      # The Windows basic render driver can abort the process inside native
+      # graphics init instead of failing gracefully; snapshot_scene_gpu
+      # documents GPUI_TOOLKIT_NO_GPU_SNAPSHOT=1 for exactly this case, and
+      # the GPU snapshot tests skip gracefully on NoAdapter.
+      - name: Disable GPU snapshots on headless Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "GPUI_TOOLKIT_NO_GPU_SNAPSHOT=1" >> "$GITHUB_ENV"
+
       - name: Test portable workspace
         # Scaffolder contract tests invoke Apple/nightly targets and belong to
         # dedicated platform lanes, not the portable desktop matrix.
@@ -84,9 +93,16 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install Android SDK and NDK
+      # ubuntu-latest runners preinstall the Android SDK (including
+      # cmdline-tools); android-actions/setup-android@v3 additionally runs
+      # `sdkmanager tools`, but Google removed the obsolete `tools` package,
+      # so the action fails. Use the preinstalled SDK directly instead.
+      - name: Use preinstalled Android SDK
         if: matrix.platform == 'android'
-        uses: android-actions/setup-android@v3
+        run: |
+          echo "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "${ANDROID_SDK_ROOT}/platform-tools" >> "$GITHUB_PATH"
+          yes | sdkmanager --licenses >/dev/null
 
       - name: Install pinned Android NDK
         if: matrix.platform == 'android'
