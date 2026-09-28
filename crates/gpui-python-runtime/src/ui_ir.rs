@@ -2627,7 +2627,7 @@ impl PxChartV2Node {
 
     fn validate_chart_actions(&self) -> Result<(), UiIrError> {
         if (self.viewport_action.is_some()
-            && !matches!(self.chart.as_str(), "scatter" | "line" | "surface"))
+            && !matches!(self.chart.as_str(), "scatter" | "line" | "surface" | "bar"))
             || (self.selection_action.is_some()
                 && !matches!(self.chart.as_str(), "treemap" | "scatter" | "line"))
         {
@@ -4124,8 +4124,15 @@ mod tests {
         let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
         assert!(node.validate().is_ok());
 
+        // Bar charts interact in category index space; the host slices the
+        // visible categories from the retained x domain.
+        let mut bar = value.clone();
+        bar["chart"] = serde_json::json!("bar");
+        let node: PxChartV2Node = serde_json::from_value(bar).unwrap();
+        assert!(node.validate().is_ok());
+
         let mut unsupported = value;
-        unsupported["chart"] = serde_json::json!("bar");
+        unsupported["chart"] = serde_json::json!("pie");
         let node: PxChartV2Node = serde_json::from_value(unsupported).unwrap();
         assert!(matches!(
             node.validate(),

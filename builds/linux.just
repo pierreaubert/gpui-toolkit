@@ -5,7 +5,7 @@
 [group('install')]
 install-linux-root:
 	sudo apt update
-	sudo DEBIAN_FRONTEND=noninteractive apt -y install perl curl git build-essential gcc g++ pkg-config cmake ninja-build ca-certificates libssl-dev libsqlite3-dev libglib2.0-dev libxkbcommon-x11-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev libclang-dev libv4l-dev patchelf
+	sudo DEBIAN_FRONTEND=noninteractive apt -y install perl curl git build-essential gcc g++ pkg-config cmake ninja-build clang mold ca-certificates libssl-dev libsqlite3-dev libglib2.0-dev libxkbcommon-x11-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev libclang-dev libv4l-dev patchelf
 
 [group('install')]
 install-linux: install-linux-root

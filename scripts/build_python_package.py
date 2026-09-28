@@ -47,7 +47,6 @@ def main() -> int:
                 "pip",
                 "wheel",
                 "--no-deps",
-                "--no-build-isolation",
                 "--wheel-dir",
                 str(args.output),
                 str(ROOT),

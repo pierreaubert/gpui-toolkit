@@ -45,32 +45,46 @@ cargo run -p gpui-python-runtime --features showcase --bin gpui-python-host -- p
 
 ## 3. How `demo_app.py` fits together
 
-- `App(title=..., sections=[...])` is the whole window and needs at least one
-  `section(id, label, content)`; each section becomes a sidebar entry.
-- `ui.vstack / hstack / text / metric / button / section_header` are layout
-  and widgets. Any widget Python later updates needs a stable `id`.
+- `App(title=..., sections=[...], miniapp=MiniAppConfig(...))` is the whole
+  window and needs at least one `section(id, label, content)`; each section
+  becomes a sidebar entry. `miniapp=` runs the app inside the native miniapp
+  shell: `MiniAppConfig(title, width, height, with_theme=True)` enables window
+  chrome plus the shell theme switcher starting from `initial_theme`.
+- `ui.vstack / hstack / text / metric / button / badge / card / select /
+  progress / divider / section_header` are layout and widgets. Any widget
+  Python later updates needs a stable `id`.
 - `data.Dataset.from_mapping({...}, id="demo-wave")` holds chart data as a
   host-owned resource. Declare every live resource on the app:
-  `app.resources = (wave,)`, otherwise the chart has nothing to bind.
+  `app.resources = (wave, peaks)`, otherwise a chart has nothing to bind.
 - `px.line("demo-line").data(wave).x("x").y("y")...` builds a native line
   chart. `.series(...)` / `.color(...)` name the columns holding series names
-  and per-series colors. Sibling builders: `px.bar`, `px.scatter`, `px.area`,
+  and per-series colors. `px.bar("demo-peaks").data(peaks).x("series")...`
+  summarizes the same data. Sibling builders: `px.scatter`, `px.area`,
   `px.boxplot`, `px.pie`, `px.donut`, `px.heatmap`, `px.contour`.
 
 ## 4. Interact: the action loop
 
-Press **Click me**. The Clicks metric increments through this round-trip:
+Press **Click me**. The Clicks metric increments and the goal bar fills
+through this round-trip:
 
 1. Native click → Python `DemoApp.on_action`, with `event.action` matching the
    button's `action="demo_bump"`.
 2. `context.acknowledge(event)` confirms the event.
 3. `context.patch([{"op": "set", "id": "demo-clicks", "property": "value",
-   "value": ...}], request_id=event.id)` re-renders one widget. Passing
-   `request_id=event.id` lets the host discard the patch if a newer event
-   already superseded it.
+   "value": ...}], request_id=event.id)` re-renders patched widgets (one op
+   per widget id). Passing `request_id=event.id` lets the host discard the
+   patch if a newer event already superseded it.
 
 All input controls (`ui.slider`, `ui.text_input`, …) follow the same loop and
-carry their new value in `event.payload`.
+carry their new value in `event.payload`. The Appearance picker works the
+same way: `action="demo_theme"` arrives with
+`payload == {"value": <theme>}`, the app validates it against
+`THEME_OPTIONS`, stores it, and patches the Theme metric. Patched values
+must match the node schema: metric `value` is a string, so the Clicks patch
+sends `str(self.clicks)` — a raw integer fails host validation and the
+session drops to the error screen. Flipping the shell theme switcher sends
+`action="miniapp_theme_changed"` with the shell display name; the demo maps
+it back to a theme id so the picker and metric stay in sync.
 
 ## 5. Iterate
 
@@ -81,10 +95,12 @@ produces — handy for debugging layout and data issues):
 GPUI_TOOLKIT_DUMP_IR=1 python demo_app.py
 ```
 
-Add a second chart section with one line, reusing the same dataset pattern:
+Add a third chart with one line, reusing the same dataset pattern.
+Give it a stable id, bind a declared resource, and append it to the chart
+section's `vstack` children:
 
 ```python
-px.bar("demo-bar").data(wave).x("series").y("y").title("Totals")
+px.area("demo-area").data(wave).x("x").y("y").series("series").title("Area")
 ```
 
 ## 6. Keep going: larger examples

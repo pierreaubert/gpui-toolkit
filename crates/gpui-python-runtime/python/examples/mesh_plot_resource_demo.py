@@ -120,33 +120,17 @@ def build_app() -> App:
     )
 
 
-def _should_run_native_host() -> bool:
-    return any(
-        os.environ.get(name)
-        for name in (
-            "GPUI_TOOLKIT_DUMP_IR",
-            "GPUI_TOOLKIT_SESSION",
-            "GPUI_TOOLKIT_HOST",
-            "GPUI_TOOLKIT_QA_CLOSE_AFTER_SECS",
-            "GPUI_TOOLKIT_QA_SELECTION_LOG",
-            "GPUI_TOOLKIT_QA_AUTO_SELECT",
-            "GPUI_TOOLKIT_QA_HOST_SELECTION_LOG",
-            "GPUI_TOOLKIT_QA_POINTER_TRACE",
-            "GPUI_TOOLKIT_QA_HIT_TRACE",
-            "GPUI_TOOLKIT_QA_INNER_HIT_TRACE",
-            "GPUI_TOOLKIT_QA_RENDER_TRACE",
-            "GPUI_TOOLKIT_QA_LIVE_HIT_TRACE",
-            "GPUI_TOOLKIT_QA_POINTER_POINTS",
-        )
-    )
-
-
 def main() -> None:
+    # Running the file opens a window: App.run() serves the host session
+    # when GPUI_TOOLKIT_SESSION=1 and otherwise execs the bundled native
+    # host. The GPUI_TOOLKIT_QA_* variables are still read while building
+    # the app above; only GPUI_TOOLKIT_DUMP_IR=1 prints the JSON spec
+    # instead of launching.
     app = build_app()
-    if _should_run_native_host():
-        app.run()
-    else:
+    if os.environ.get("GPUI_TOOLKIT_DUMP_IR") == "1":
         print(json.dumps(app.to_spec(), indent=2))
+    else:
+        app.run()
 
 
 if __name__ == "__main__":

@@ -1502,7 +1502,7 @@ class ChartBuilder:
     def on_viewport_change(self, action: str | None) -> "ChartBuilder":
         if action is not None and not action:
             raise ValueError("viewport action must be non-empty or None")
-        if action is not None and self.chart not in {"scatter", "line", "surface"}:
+        if action is not None and self.chart not in {"scatter", "line", "surface", "bar"}:
             raise ValueError(f"{self.chart} chart does not support viewport events")
         return replace(self, _viewport_action=action)
 
@@ -1967,8 +1967,8 @@ class ChartBuilder:
         """Query the retained host viewport for an interactive cartesian chart."""
         if not request_id.strip():
             raise ValueError("viewport query request id must be non-empty")
-        if self.chart not in {"scatter", "line"}:
-            raise ValueError("viewport queries are only supported by scatter and line charts")
+        if self.chart not in {"scatter", "line", "bar"}:
+            raise ValueError("viewport queries are only supported by scatter, line, and bar charts")
         if self._viewport_action in {UNSET, None} and self._selection_action in {UNSET, None}:
             raise ValueError(
                 "viewport queries require on_viewport_change or on_selection_change so the host retains interaction state"

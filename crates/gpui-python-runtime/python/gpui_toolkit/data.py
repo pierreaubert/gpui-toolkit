@@ -347,6 +347,399 @@ class DataBinding:
         return {"kind": "data_binding", "source": self.source.to_spec(), "roles": dict(self.roles)}
 
 
+# ---------------------------------------------------------------------------
+# Built-in Arrow IPC stream encoding.
+#
+# Dataset publication needs Arrow IPC bytes even when neither pyarrow nor the
+# compiled ``gpui_toolkit._native`` extension is installed (both stay
+# optional so declarations install dependency-free). This encoder covers
+# exactly the logical types the native ``dataset_arrow_ipc`` accepts — null,
+# bool, int64, float64, and utf8 (dictionary-typed columns already hold
+# plain strings after normalization) — as a single-record-batch stream the
+# host reads with a standard IPC stream reader. Nested, temporal, and opaque
+# values still require pyarrow.
+# ---------------------------------------------------------------------------
+
+_IPC_METADATA_VERSION_V5 = 4
+_IPC_HEADER_SCHEMA = 1
+_IPC_HEADER_RECORD_BATCH = 3
+
+_IPC_TYPE_NULL = 1
+_IPC_TYPE_INT = 2
+_IPC_TYPE_FLOATING_POINT = 3
+_IPC_TYPE_UTF8 = 5
+_IPC_TYPE_BOOL = 6
+
+_IPC_FLOATING_POINT_DOUBLE = 2
+
+
+class _IpcFlatBuilder:
+    """Minimal forward-assembling FlatBuffers writer for Arrow IPC envelopes.
+
+    Only the node types an IPC schema/record-batch envelope needs are
+    supported: fixed-width scalars, strings, uoffset vectors, and inline
+    struct vectors. FlatBuffers offsets are unsigned forward references, so
+    every object is reserved before its children are placed and slots are
+    backpatched once the child positions are known. Tables are finalized
+    with :meth:`table_end` immediately after their slots are filled so the
+    inline table length stays exact. The root table is built first. Four
+    bytes for the root pointer are reserved up front so builder positions
+    already match the finished message layout; :meth:`finish` patches the
+    root offset into them. Reserving (instead of prepending) matters for
+    alignment: readers verify 8-byte scalar alignment, and a trailing
+    prepend would shift every 8-aligned builder position by four.
+    """
+
+    def __init__(self) -> None:
+        self.buf = bytearray(b"\x00\x00\x00\x00")
+
+    def _pad_to(self, alignment: int) -> None:
+        pad = (-len(self.buf)) % alignment
+        if pad:
+            self.buf += b"\x00" * pad
+
+    def set_bytes(self, pos: int, payload: bytes) -> None:
+        """Write an inline scalar payload into a reserved slot."""
+        if len(payload) not in (1, 2, 4, 8):
+            raise DataTransportError(
+                f"IPC table slot has unsupported width {len(payload)}"
+            )
+        self.buf[pos : pos + len(payload)] = payload
+
+    def set_struct(self, pos: int, blob: bytes) -> None:
+        """Write one FieldNode/Buffer struct into a reserved vector element."""
+        if len(blob) != 16:
+            raise DataTransportError("IPC struct element must be 16 bytes")
+        self.buf[pos : pos + 16] = blob
+
+    def set_forward_ref(self, slot: int, target: int) -> None:
+        """Store an unsigned forward offset from ``slot`` to ``target``."""
+        value = target - slot
+        if value < 0 or value > 0xFFFFFFFF:
+            raise DataTransportError("IPC forward reference out of range")
+        struct.pack_into("<I", self.buf, slot, value)
+
+    def table_begin(
+        self, widths: list[tuple[int, int]]
+    ) -> tuple[int, dict[int, int], int]:
+        """Reserve a table; ``widths`` maps field ids to slot widths.
+
+        Returns the table position, slot positions, and inline end. The
+        inline end is captured here because children placed afterwards must
+        not leak into the table length recorded in the vtable.
+        """
+        # FlatBuffers readers verify scalar alignment, so a table holding an
+        # 8-byte slot (e.g. Message.bodyLength) must itself start 8-aligned.
+        # This mirrors the C++ builder's max-field-alignment tracking.
+        start_align = 4
+        for _, width in widths:
+            if width > start_align:
+                start_align = width
+        self._pad_to(start_align)
+        table_pos = len(self.buf)
+        self.buf += b"\x00\x00\x00\x00"
+        slots: dict[int, int] = {}
+        for field_id, width in sorted(widths):
+            if width not in (1, 2, 4, 8):
+                raise DataTransportError(
+                    f"IPC table slot {field_id} has unsupported width {width}"
+                )
+            self._pad_to(width)
+            slots[field_id] = len(self.buf)
+            self.buf += b"\x00" * width
+        return table_pos, slots, len(self.buf)
+
+    def table_end(self, table_pos: int, slots: dict[int, int], inline_end: int) -> None:
+        """Append the vtable and backpatch the table's vtable offset.
+
+        The stored offset is ``table_pos - vtable_pos``: readers subtract
+        it from the table position, so the vtable may sit on either side.
+        """
+        table_len = inline_end - table_pos
+        self._pad_to(2)
+        vtable_pos = len(self.buf)
+        max_id = max(slots) if slots else -1
+        self.buf += struct.pack("<HH", 4 + 2 * (max_id + 1), table_len)
+        for field_id in range(max_id + 1):
+            self.buf += struct.pack("<H", slots[field_id] - table_pos if field_id in slots else 0)
+        struct.pack_into("<i", self.buf, table_pos, table_pos - vtable_pos)
+
+    def scalar_table(self, fields: list[tuple[int, bytes]]) -> int:
+        """Encode a table with only inline scalar payloads, in one step."""
+        table_pos, slots, inline_end = self.table_begin(
+            [(field_id, len(payload)) for field_id, payload in fields]
+        )
+        for field_id, payload in fields:
+            self.set_bytes(slots[field_id], payload)
+        self.table_end(table_pos, slots, inline_end)
+        return table_pos
+
+    def string(self, value: str) -> int:
+        """Encode a UTF-8 string object."""
+        data = value.encode("utf-8")
+        self._pad_to(4)
+        pos = len(self.buf)
+        self.buf += struct.pack("<I", len(data)) + data + b"\x00"
+        return pos
+
+    def vector_begin(self, count: int, stride: int, align: int) -> tuple[int, int]:
+        """Reserve a vector header plus ``count`` elements of ``stride`` bytes.
+
+        Returns the vector position and the first element slot; element
+        slots are filled with :meth:`set_forward_ref` (uoffset vectors) or
+        :meth:`set_bytes` (inline struct vectors) once children are placed.
+        """
+        pad = (-(len(self.buf) + 4)) % align
+        if pad:
+            self.buf += b"\x00" * pad
+        pos = len(self.buf)
+        self.buf += struct.pack("<I", count)
+        first = len(self.buf)
+        self.buf += b"\x00" * (count * stride)
+        return pos, first
+
+    def finish(self, root: int) -> bytes:
+        """Patch the root pointer reserved up front and return the message."""
+        if not 0 < root < len(self.buf):
+            raise DataTransportError("IPC envelope root is out of range")
+        struct.pack_into("<I", self.buf, 0, root)
+        return bytes(self.buf)
+
+
+def _ipc_pad(buffer: bytes) -> bytes:
+    """Pad a message body buffer to the IPC 8-byte boundary."""
+    return buffer + b"\x00" * ((-len(buffer)) % 8)
+
+
+def _ipc_validity(values: Sequence[Any]) -> tuple[bytes, int]:
+    """Pack the LSB-first validity bitmap; returns bitmap and null count."""
+    bitmap = bytearray()
+    bits = 0
+    nulls = 0
+    for index, value in enumerate(values):
+        if value is None:
+            nulls += 1
+        else:
+            bits |= 1 << (index % 8)
+        if index % 8 == 7:
+            bitmap.append(bits)
+            bits = 0
+    if len(values) % 8:
+        bitmap.append(bits)
+    return bytes(bitmap), nulls
+
+
+def _ipc_encode_column(
+    dataset_id: str, name: str, logical: str, values: Sequence[Any]
+) -> tuple[int, list[tuple[int, bytes]], list[bytes], int]:
+    """Encode one column; returns type id, type slots, body buffers, nulls."""
+    error = DataTransportError(
+        f"built-in dataset transport does not support logical type {logical!r} "
+        f"in column {name!r}; install pyarrow for nested or temporal values"
+    )
+    if logical == "null":
+        return _IPC_TYPE_NULL, [], [], len(values)
+    if logical == "bool":
+        bits = 0
+        data = bytearray()
+        for index, value in enumerate(values):
+            if value is None:
+                pass
+            elif value is True:
+                bits |= 1 << (index % 8)
+            elif value is not False:
+                raise DataTransportError(
+                    f"dataset {dataset_id!r} column {name!r} value at row {index} "
+                    f"is incompatible with bool"
+                )
+            if index % 8 == 7:
+                data.append(bits)
+                bits = 0
+        if len(values) % 8:
+            data.append(bits)
+        validity, nulls = _ipc_validity(values)
+        buffers = [validity if nulls else b"", bytes(data)]
+        return _IPC_TYPE_BOOL, [], buffers, nulls
+    if logical == "int64":
+        packed: list[int] = []
+        for index, value in enumerate(values):
+            if value is None:
+                packed.append(0)
+            elif isinstance(value, int) and not isinstance(value, bool):
+                if not -(1 << 63) <= value < (1 << 63):
+                    raise DataTransportError(
+                        f"dataset {dataset_id!r} column {name!r} value at row {index} "
+                        f"is out of int64 range"
+                    )
+                packed.append(value)
+            else:
+                raise DataTransportError(
+                    f"dataset {dataset_id!r} column {name!r} value at row {index} "
+                    f"is incompatible with int64"
+                )
+        validity, nulls = _ipc_validity(values)
+        data_blob = struct.pack(f"<{len(packed)}q", *packed)
+        buffers = [validity if nulls else b"", data_blob]
+        return (
+            _IPC_TYPE_INT,
+            [(0, struct.pack("<i", 64)), (1, b"\x01")],
+            buffers,
+            nulls,
+        )
+    if logical == "float64":
+        doubles: list[float] = []
+        for index, value in enumerate(values):
+            if value is None:
+                doubles.append(0.0)
+            elif isinstance(value, float):
+                doubles.append(value)
+            elif isinstance(value, int) and not isinstance(value, bool):
+                try:
+                    doubles.append(float(value))
+                except OverflowError as overflow:
+                    raise DataTransportError(
+                        f"dataset {dataset_id!r} column {name!r} value at row {index} "
+                        f"is incompatible with float64"
+                    ) from overflow
+            else:
+                raise DataTransportError(
+                    f"dataset {dataset_id!r} column {name!r} value at row {index} "
+                    f"is incompatible with float64"
+                )
+        validity, nulls = _ipc_validity(values)
+        try:
+            data = struct.pack(f"<{len(doubles)}d", *doubles)
+        except (struct.error, OverflowError) as error:
+            raise DataTransportError(
+                f"dataset {dataset_id!r} column {name!r} cannot encode float64"
+            ) from error
+        buffers = [validity if nulls else b"", data]
+        return (
+            _IPC_TYPE_FLOATING_POINT,
+            [(0, struct.pack("<h", _IPC_FLOATING_POINT_DOUBLE))],
+            buffers,
+            nulls,
+        )
+    if logical in ("utf8", "dictionary"):
+        encoded: list[bytes] = []
+        for index, value in enumerate(values):
+            if value is None:
+                encoded.append(b"")
+            elif isinstance(value, str):
+                encoded.append(value.encode("utf-8"))
+            else:
+                raise DataTransportError(
+                    f"dataset {dataset_id!r} column {name!r} value at row {index} "
+                    f"is incompatible with utf8"
+                )
+        offsets = bytearray()
+        cursor = 0
+        for blob in encoded:
+            offsets += struct.pack("<i", cursor)
+            cursor += len(blob)
+        offsets += struct.pack("<i", cursor)
+        validity, nulls = _ipc_validity(values)
+        body_buffers = [bytes(offsets), b"".join(encoded)]
+        buffers = [validity if nulls else b"", *body_buffers]
+        return _IPC_TYPE_UTF8, [], buffers, nulls
+    raise error
+
+
+def _ipc_message(metadata: bytes, body: bytes) -> bytes:
+    """Frame one stream message; the metadata length includes its padding."""
+    padded = len(metadata) + (-len(metadata) % 8)
+    return (
+        struct.pack("<i", -1)
+        + struct.pack("<i", padded)
+        + metadata
+        + b"\x00" * (padded - len(metadata))
+        + body
+    )
+
+
+def _builtin_dataset_arrow_ipc(
+    dataset_id: str, columns: list[tuple[str, str, Sequence[Any]]]
+) -> bytes:
+    """Encode one record batch as an Arrow IPC stream without dependencies."""
+    counts = {len(values) for _, _, values in columns}
+    if len(counts) > 1:
+        raise DataTransportError(
+            f"dataset {dataset_id!r} columns have mismatched lengths"
+        )
+    row_count = next(iter(counts), 0)
+    encoded = [
+        (name, *_ipc_encode_column(dataset_id, name, logical, values), len(values))
+        for name, logical, values in columns
+    ]
+    body = bytearray()
+    nodes: list[bytes] = []
+    buffers: list[bytes] = []
+    for _, _, _, blobs, nulls, count in encoded:
+        nodes.append(struct.pack("<qq", count, nulls))
+        for blob in blobs:
+            buffers.append(struct.pack("<qq", len(body), len(blob)))
+            body += _ipc_pad(blob)
+    schema_builder = _IpcFlatBuilder()
+    message_pos, message_slots, message_end = schema_builder.table_begin(
+        [(0, 2), (1, 1), (2, 4), (3, 8)]
+    )
+    schema_pos, schema_slots, schema_end = schema_builder.table_begin([(1, 4)])
+    fields_pos, fields_first = schema_builder.vector_begin(len(encoded), 4, 4)
+    for index, (name, type_id, slots, _, _, _) in enumerate(encoded):
+        field_pos, field_slots, field_end = schema_builder.table_begin(
+            [(0, 4), (1, 1), (2, 1), (3, 4)]
+        )
+        name_pos = schema_builder.string(name)
+        type_pos = schema_builder.scalar_table(slots)
+        schema_builder.set_forward_ref(field_slots[0], name_pos)
+        schema_builder.set_bytes(field_slots[1], b"\x01")
+        schema_builder.set_bytes(field_slots[2], bytes([type_id]))
+        schema_builder.set_forward_ref(field_slots[3], type_pos)
+        schema_builder.table_end(field_pos, field_slots, field_end)
+        schema_builder.set_forward_ref(fields_first + 4 * index, field_pos)
+    schema_builder.set_forward_ref(schema_slots[1], fields_pos)
+    schema_builder.table_end(schema_pos, schema_slots, schema_end)
+    schema_builder.set_bytes(
+        message_slots[0], struct.pack("<h", _IPC_METADATA_VERSION_V5)
+    )
+    schema_builder.set_bytes(message_slots[1], bytes([_IPC_HEADER_SCHEMA]))
+    schema_builder.set_forward_ref(message_slots[2], schema_pos)
+    schema_builder.set_bytes(message_slots[3], struct.pack("<q", 0))
+    schema_builder.table_end(message_pos, message_slots, message_end)
+    schema_metadata = schema_builder.finish(message_pos)
+    batch_builder = _IpcFlatBuilder()
+    batch_message_pos, batch_message_slots, batch_message_end = batch_builder.table_begin(
+        [(0, 2), (1, 1), (2, 4), (3, 8)]
+    )
+    batch_pos, batch_slots, batch_end = batch_builder.table_begin([(0, 8), (1, 4), (2, 4)])
+    nodes_pos, nodes_first = batch_builder.vector_begin(len(nodes), 16, 8)
+    for index, blob in enumerate(nodes):
+        batch_builder.set_struct(nodes_first + 16 * index, blob)
+    buffers_pos, buffers_first = batch_builder.vector_begin(len(buffers), 16, 8)
+    for index, blob in enumerate(buffers):
+        batch_builder.set_struct(buffers_first + 16 * index, blob)
+    batch_builder.set_bytes(batch_slots[0], struct.pack("<q", row_count))
+    batch_builder.set_forward_ref(batch_slots[1], nodes_pos)
+    batch_builder.set_forward_ref(batch_slots[2], buffers_pos)
+    batch_builder.table_end(batch_pos, batch_slots, batch_end)
+    batch_builder.set_bytes(
+        batch_message_slots[0], struct.pack("<h", _IPC_METADATA_VERSION_V5)
+    )
+    batch_builder.set_bytes(
+        batch_message_slots[1], bytes([_IPC_HEADER_RECORD_BATCH])
+    )
+    batch_builder.set_forward_ref(batch_message_slots[2], batch_pos)
+    batch_builder.set_bytes(batch_message_slots[3], struct.pack("<q", len(body)))
+    batch_builder.table_end(batch_message_pos, batch_message_slots, batch_message_end)
+    batch_metadata = batch_builder.finish(batch_message_pos)
+    end_of_stream = struct.pack("<ii", -1, 0)
+    return (
+        _ipc_message(schema_metadata, b"")
+        + _ipc_message(batch_metadata, bytes(body))
+        + end_of_stream
+    )
+
+
 class Dataset:
     """Mutable, revisioned columnar data with immutable declarations around it."""
 
@@ -536,40 +929,51 @@ class Dataset:
         return {"kind": "dataset", "id": self.id, "generation": self.generation, "schema": list(self.schema), "column_types": self.column_types, "schema_fingerprint": self.schema_fingerprint, "row_count": self.row_count, "key": self.key}
 
     def to_arrow_ipc(self) -> bytes:
-        """Encode this generation as Arrow IPC without values in UI IR."""
+        """Encode this generation as Arrow IPC without values in UI IR.
+
+        Prefers pyarrow, then the compiled ``gpui_toolkit._native``
+        extension, then the dependency-free built-in encoder for flat
+        logical types (null, bool, int64, float64, utf8).
+        """
         self._ensure_open()
         try:
             import pyarrow as pa  # type: ignore[import-not-found]
         except ImportError:
+            pass
+        else:
             try:
-                from . import _native
-
-                columns = [
-                    (name, self.column_types[name], list(values))
-                    for name, values in self._columns.items()
-                ]
-                return bytes(_native.dataset_arrow_ipc(columns))
-            except (ImportError, AttributeError) as error:
+                table = pa.Table.from_pydict(
+                    {name: list(values) for name, values in self._columns.items()}
+                )
+                sink = pa.BufferOutputStream()
+                with pa.ipc.new_stream(sink, table.schema) as writer:
+                    writer.write_table(table)
+                return sink.getvalue().to_pybytes()
+            except (TypeError, ValueError, pa.ArrowException) as error:
                 raise DataTransportError(
-                    "Arrow IPC publication requires the gpui-toolkit native wheel "
-                    "or optional dependency pyarrow"
-                ) from error
-            except (TypeError, ValueError) as error:
-                raise DataTransportError(
-                    f"dataset {self.id!r} built-in IPC encoding failed: {error}"
+                    f"dataset {self.id!r} cannot encode Arrow IPC: {error}"
                 ) from error
         try:
-            table = pa.Table.from_pydict(
-                {name: list(values) for name, values in self._columns.items()}
-            )
-            sink = pa.BufferOutputStream()
-            with pa.ipc.new_stream(sink, table.schema) as writer:
-                writer.write_table(table)
-            return sink.getvalue().to_pybytes()
-        except (TypeError, ValueError, pa.ArrowException) as error:
+            from . import _native
+
+            columns = [
+                (name, self.column_types[name], list(values))
+                for name, values in self._columns.items()
+            ]
+            return bytes(_native.dataset_arrow_ipc(columns))
+        except (ImportError, AttributeError):
+            pass
+        except (TypeError, ValueError) as error:
             raise DataTransportError(
-                f"dataset {self.id!r} cannot encode Arrow IPC: {error}"
+                f"dataset {self.id!r} built-in IPC encoding failed: {error}"
             ) from error
+        return _builtin_dataset_arrow_ipc(
+            self.id,
+            [
+                (name, self.column_types[name], list(values))
+                for name, values in self._columns.items()
+            ],
+        )
 
     def arrow_ipc_chunks(self, *, max_bytes: int = 16 * 1024 * 1024) -> tuple[bytes, ...]:
         """Return bounded IPC chunks in deterministic sequence order."""

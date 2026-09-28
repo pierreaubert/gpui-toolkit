@@ -341,15 +341,15 @@ def build_app() -> App:
 
 
 def main() -> None:
+    # Like the tutorial app, running the file opens a window: App.run()
+    # serves the host session when GPUI_TOOLKIT_SESSION=1 and otherwise
+    # execs the bundled native host. Only GPUI_TOOLKIT_DUMP_IR=1 prints
+    # the JSON spec instead of launching.
     app = build_app()
-    if (
-        os.environ.get("GPUI_TOOLKIT_DUMP_IR") == "1"
-        or os.environ.get("GPUI_TOOLKIT_SESSION") == "1"
-        or bool(os.environ.get("GPUI_TOOLKIT_HOST"))
-    ):
-        app.run()
-    else:
+    if os.environ.get("GPUI_TOOLKIT_DUMP_IR") == "1":
         print(json.dumps(app.to_spec(), indent=2))
+    else:
+        app.run()
 
 
 if __name__ == "__main__":

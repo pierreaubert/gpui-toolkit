@@ -1,5 +1,19 @@
 [env]
 MACOSX_DEPLOYMENT_TARGET = "15.0"
+# Disabled: -Zthreads is nightly-only and the pinned toolchain is stable
+# 1.92.0, so any cargo invocation fails while this is set. (Uncomment to
+# restore: RUSTFLAGS = "-Zthreads=8".)
+# RUSTFLAGS = "-Zthreads=8"
+
+[build]
+# jobs intentionally unset: cargo defaults to the logical CPU count
+# (14 on macOS, 64 on the Linux EPYC), which is what we want per host.
+# Disabled: sccache is not installed in this environment; re-enable where
+# the wrapper exists. (Uncomment to restore: rustc-wrapper = "sccache".)
+# rustc-wrapper = "sccache"
+# NOTE: no global rustflags here on purpose: `-Ctarget-cpu=native` would
+# leak into the wasm32-unknown-unknown builds below. Native-only flags live
+# under their target tables.
 
 [target.x86_64-apple-darwin]
 rustflags = [
@@ -12,9 +26,17 @@ rustflags = [
   "-C", "target-feature=+neon",
 ]
 
+# ----------------------------------------------------------------------
+# Linux x86 use mold
+# ----------------------------------------------------------------------
+
 [target.x86_64-unknown-linux-gnu]
+# Use mold for lightning-fast parallel linking
+linker = "clang"
 rustflags = [
-  "-C", "target-feature=+sse,+sse2,+sse3,+ssse3,+sse4.1,+sse4.2,+avx,+avx2",
+  "-C", "link-arg=-fuse-ld=mold",  # Force the mold linker
+  "-C", "target-cpu=native",
+  "-C", "symbol-mangling-version=v0", # Faster mangling, better demangling
 ]
 
 [target.aarch64-unknown-linux-gnu]
@@ -59,4 +81,22 @@ rustflags = [
   # wasm-bindgen's thread-id injection requires an exported immutable
   # `__heap_base` global; LLD tree-shakes it unless explicitly exported.
   "-C", "link-arg=--export=__heap_base",
+]
+
+# ----------------------------------------------------------------------
+# Linux MUSL
+# ----------------------------------------------------------------------
+
+# Linux ARM64 musl configuration (static linking)
+[target.aarch64-unknown-linux-musl]
+rustflags = [
+  "-C", "target-feature=+crt-static",
+  "-C", "target-feature=+neon",
+]
+
+# Linux x86_64 musl configuration (static linking)
+[target.x86_64-unknown-linux-musl]
+rustflags = [
+  "-C", "target-feature=+crt-static",
+  "-C", "target-feature=+sse,+sse2,+sse3,+ssse3,+sse4.1,+sse4.2,+avx,+avx2",
 ]

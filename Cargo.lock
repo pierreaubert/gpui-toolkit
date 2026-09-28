@@ -3128,7 +3128,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-px"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "autoeq",
  "criterion",
@@ -3185,7 +3185,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-release-gates"
-version = "0.9.29"
+version = "0.9.30"
 
 [[package]]
 name = "gpui-scaffolder"

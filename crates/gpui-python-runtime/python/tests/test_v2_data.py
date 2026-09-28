@@ -1,4 +1,5 @@
 import builtins
+import struct
 import unittest
 from unittest.mock import patch
 import contextlib
@@ -1328,26 +1329,142 @@ class V2DataTests(unittest.TestCase):
         self.assertNotIn(b"arrow-bytes", stream.getvalue().encode())
         self.assertEqual(dataset.max_bytes, 8)
 
-    def test_live_dataset_binding_uses_native_or_requires_an_adapter(self) -> None:
+    def test_live_dataset_binding_encodes_without_pyarrow(self) -> None:
+        # The dependency-free built-in IPC encoder replaced the old
+        # contract where a missing pyarrow/native adapter made live binding
+        # impossible: every flat column type now publishes batches.
         real_import = builtins.__import__
 
-        def without_pyarrow(name, *args, **kwargs):
-            if name == "pyarrow":
-                raise ImportError("no pyarrow")
+        def without_adapters(name, *args, **kwargs):
+            if name in ("pyarrow", "gpui_toolkit._native"):
+                raise ImportError(f"no {name}")
             return real_import(name, *args, **kwargs)
 
-        with patch("builtins.__import__", side_effect=without_pyarrow):
-            if native.AVAILABLE:
-                stream = ArrayBinaryStdout()
-                with patch("gpui_toolkit.app.sys.stdout", stream):
-                    SessionContext().bind_dataset(self.events)
-                self.assertIn(b'"type":"dataset_frame"', stream.buffer.getvalue())
-            else:
-                # A descriptor alone cannot claim a live binding because the
-                # host would never receive batches.
-                with contextlib.redirect_stdout(io.StringIO()):
-                    with self.assertRaises(data.DataTransportError):
-                        SessionContext().bind_dataset(self.events)
+        with patch("builtins.__import__", side_effect=without_adapters):
+            stream = ArrayBinaryStdout()
+            with patch("gpui_toolkit.app.sys.stdout", stream):
+                SessionContext().bind_dataset(self.events)
+            frames = stream.buffer.getvalue()
+            self.assertIn(b'"type":"dataset_frame"', frames)
+            self.assertIn(b"\xff\xff\xff\xff", frames)
+
+    def test_builtin_arrow_ipc_encodes_flat_types_without_adapters(self) -> None:
+        real_import = builtins.__import__
+
+        def without_adapters(name, *args, **kwargs):
+            if name in ("pyarrow", "gpui_toolkit._native"):
+                raise ImportError(f"no {name}")
+            return real_import(name, *args, **kwargs)
+
+        dataset = data.Dataset.from_mapping(
+            {
+                "flag": [True, None, False],
+                "count": [1, None, -7],
+                "value": [0.5, None, float("nan")],
+                "label": ["left", None, "right"],
+                "code": data.Categorical(codes=[0, None, 1], categories=["a", "b"]),
+                "empty": [None, None, None],
+            },
+            id="builtin-ipc",
+        )
+        self.assertEqual(
+            dataset.column_types,
+            {
+                "flag": "bool",
+                "count": "int64",
+                "value": "float64",
+                "label": "utf8",
+                "code": "dictionary",
+                "empty": "null",
+            },
+        )
+        with patch("builtins.__import__", side_effect=without_adapters):
+            payload = dataset.to_arrow_ipc()
+            chunks = dataset.arrow_ipc_chunks(max_bytes=64)
+        self.assertEqual(payload[:4], b"\xff\xff\xff\xff")
+        self.assertEqual(payload[-8:], b"\xff\xff\xff\xff\x00\x00\x00\x00")
+        self.assertGreater(len(payload), 128)
+        self.assertIn(struct.pack("<d", float("nan")), payload)
+        self.assertEqual(b"".join(chunks), payload)
+        self.assertTrue(all(len(chunk) <= 64 for chunk in chunks))
+
+    def test_builtin_arrow_ipc_round_trips_through_pyarrow(self) -> None:
+        # The built-in encoder must emit bytes a standard IPC reader
+        # accepts: pyarrow decodes here as an independent oracle while the
+        # encoding itself runs with both adapters blocked. This guards the
+        # FlatBuffers envelope (table alignment, buffer inventory) rather
+        # than just the stream framing asserted above.
+        try:
+            import pyarrow as pa
+            import pyarrow.ipc as arrow_ipc
+        except ImportError:
+            self.skipTest("pyarrow is not installed")
+        real_import = builtins.__import__
+
+        def without_adapters(name, *args, **kwargs):
+            if name in ("pyarrow", "gpui_toolkit._native"):
+                raise ImportError(f"no {name}")
+            return real_import(name, *args, **kwargs)
+
+        mapping = {
+            "flag": [True, None, False, True],
+            "count": [1, None, -7, 2**40],
+            "value": [0.5, None, float("nan"), -3.25],
+            "label": ["left", None, "right", ""],
+            "code": data.Categorical(
+                codes=[0, None, 1, 0], categories=["a", "b"]
+            ),
+            "empty": [None, None, None, None],
+        }
+        dataset = data.Dataset.from_mapping(mapping, id="builtin-ipc-oracle")
+        with patch("builtins.__import__", side_effect=without_adapters):
+            payload = dataset.to_arrow_ipc()
+        table = arrow_ipc.open_stream(pa.BufferReader(payload)).read_all()
+        self.assertEqual(table.num_rows, 4)
+        for column, values in mapping.items():
+            if column == "code":
+                self.assertEqual(
+                    table.column(column).to_pylist(), ["a", None, "b", "a"]
+                )
+                continue
+            for have, want in zip(table.column(column).to_pylist(), values):
+                if want is None:
+                    self.assertIsNone(have)
+                elif isinstance(want, float) and want != want:  # NaN
+                    self.assertNotEqual(have, have)
+                else:
+                    self.assertEqual(have, want)
+        reference = pa.Table.from_pydict(
+            {key: list(value) for key, value in mapping.items() if key != "code"}
+        )
+        self.assertTrue(
+            table.schema.field("count").type.equals(reference.schema.field("count").type)
+        )
+        self.assertTrue(
+            table.schema.field("value").type.equals(reference.schema.field("value").type)
+        )
+        self.assertTrue(
+            table.schema.field("label").type.equals(reference.schema.field("label").type)
+        )
+
+    def test_builtin_arrow_ipc_rejects_unsupported_types(self) -> None:
+        import datetime
+
+        real_import = builtins.__import__
+
+        def without_adapters(name, *args, **kwargs):
+            if name in ("pyarrow", "gpui_toolkit._native"):
+                raise ImportError(f"no {name}")
+            return real_import(name, *args, **kwargs)
+
+        dataset = data.Dataset.from_mapping(
+            {"when": [datetime.datetime(2026, 1, 1), None]},
+            id="builtin-ipc-temporal",
+        )
+        self.assertEqual(dataset.column_types, {"when": "temporal"})
+        with patch("builtins.__import__", side_effect=without_adapters):
+            with self.assertRaises(data.DataTransportError):
+                dataset.to_arrow_ipc()
 
     def test_bound_resource_republishes_generation_without_ui_patch(self) -> None:
         output = io.StringIO()

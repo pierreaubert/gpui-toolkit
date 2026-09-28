@@ -132,6 +132,28 @@ fn write_qa_json_artifact(variable: &str, value: &Value) {
     );
 }
 
+fn append_qa_json_line(variable: &str, value: &Value) {
+    let Some(destination) = env::var_os(variable).map(PathBuf::from) else {
+        return;
+    };
+    if let Some(parent) = destination.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(destination)
+    else {
+        return;
+    };
+    use std::io::Write as _;
+    let mut line = serde_json::to_vec(value).unwrap_or_else(|_| b"{}\n".to_vec());
+    if line.last() != Some(&b'\n') {
+        line.push(b'\n');
+    }
+    let _ = file.write_all(&line);
+}
+
 fn mesh_selection_payload(pick: &MeshPlotPick) -> Value {
     serde_json::json!({
         "plot_id": pick.plot_id,
@@ -2926,10 +2948,10 @@ mod mesh_resource_decode_tests {
         configured.validate().unwrap();
         let options = gpui_px::StaticSvgOptions::new(400.0, 300.0);
         let base_svg = showcase
-            .resource_chart_svg(&base, options)
+            .resource_chart_svg(&base, options, &Theme::default())
             .expect("base isoline SVG");
         let (configured_svg, summary) = showcase
-            .resource_chart_export_result(&configured, options)
+            .resource_chart_export_result(&configured, options, &Theme::default())
             .expect("configured isoline SVG and native summary");
         assert!(configured_svg.starts_with("<svg"));
         assert_ne!(base_svg, configured_svg);
@@ -2939,7 +2961,7 @@ mod mesh_resource_decode_tests {
         assert!(summary["accessible_value_text"].is_string());
         assert_eq!(
             showcase
-                .resource_chart_accessibility_summary(&configured)
+                .resource_chart_accessibility_summary(&configured, &Theme::default())
                 .expect("metadata-only native summary"),
             summary
         );
@@ -5805,17 +5827,268 @@ fn px_hex_color(value: &str, fallback: u32) -> u32 {
         .unwrap_or(fallback)
 }
 
-fn px_resource_series_color(value: Option<&str>, index: usize) -> u32 {
-    const PALETTE: [u32; 10] = [
-        0x1f77b4, 0xff7f0e, 0x2ca02c, 0xd62728, 0x9467bd, 0x8c564b, 0xe377c2, 0x7f7f7f, 0xbcbd22,
-        0x17becf,
-    ];
-    px_hex_color(value.unwrap_or(""), PALETTE[index % PALETTE.len()])
+/// Relative-luminance weights (Rec. 709) for the shell background check.
+const PX_LUMINANCE_WEIGHTS: [f32; 3] = [0.2126, 0.7152, 0.0722];
+/// Golden-angle hue step, spreading series hues evenly without a table.
+const PX_SERIES_HUE_STEP: f32 = 0.618_034;
+/// Minimum series saturation so rotated hues stay vivid on any shell.
+const PX_SERIES_MIN_SATURATION: f32 = 0.55;
+/// Series lightness per shell brightness, picked for contrast: light enough
+/// to read on dark shells, dark enough to read on light shells.
+const PX_SERIES_LIGHT_ON_DARK: f32 = 0.62;
+const PX_SERIES_LIGHT_ON_LIGHT: f32 = 0.45;
+
+/// Whether the shell theme needs light-on-dark chart defaults.
+fn px_theme_is_dark(theme: &Theme) -> bool {
+    let bg = theme.background;
+    PX_LUMINANCE_WEIGHTS[0] * bg.r + PX_LUMINANCE_WEIGHTS[1] * bg.g + PX_LUMINANCE_WEIGHTS[2] * bg.b
+        < 0.5
+}
+
+fn px_rgb_to_hsl(color: Rgba) -> (f32, f32, f32) {
+    let (red, green, blue) = (color.r, color.g, color.b);
+    let max = red.max(green).max(blue);
+    let min = red.min(green).min(blue);
+    let light = (max + min) / 2.0;
+    if (max - min).abs() < f32::EPSILON {
+        return (0.0, 0.0, light);
+    }
+    let delta = max - min;
+    let sat = if light > 0.5 {
+        delta / (2.0 - max - min)
+    } else {
+        delta / (max + min)
+    };
+    let hue = if (max - red).abs() < f32::EPSILON {
+        (green - blue) / delta + if green < blue { 6.0 } else { 0.0 }
+    } else if (max - green).abs() < f32::EPSILON {
+        (blue - red) / delta + 2.0
+    } else {
+        (red - green) / delta + 4.0
+    } / 6.0;
+    (hue, sat, light)
+}
+
+fn px_hsl_to_u32(hue: f32, sat: f32, light: f32) -> u32 {
+    let chroma = (1.0 - (2.0 * light - 1.0).abs()) * sat;
+    let sector = hue.rem_euclid(1.0) * 6.0;
+    let x = chroma * (1.0 - ((sector % 2.0) - 1.0).abs());
+    let (red, green, blue) = match sector as u32 {
+        0 => (chroma, x, 0.0),
+        1 => (x, chroma, 0.0),
+        2 => (0.0, chroma, x),
+        3 => (0.0, x, chroma),
+        4 => (x, 0.0, chroma),
+        _ => (chroma, 0.0, x),
+    };
+    let mix = light - chroma / 2.0;
+    let channel = |value: f32| ((value + mix).clamp(0.0, 1.0) * 255.0).round() as u32;
+    (channel(red) << 16) | (channel(green) << 8) | channel(blue)
+}
+
+/// Theme-derived categorical palette, used whenever the user did not
+/// specify series colors. Hues rotate from the accent by the golden angle
+/// so every shell variant gets distinct series; lightness is picked for
+/// contrast against the shell background.
+fn px_theme_series_palette(theme: &Theme) -> [u32; 10] {
+    let (hue, sat, _) = px_rgb_to_hsl(theme.accent);
+    let sat = sat.max(PX_SERIES_MIN_SATURATION);
+    let light = if px_theme_is_dark(theme) {
+        PX_SERIES_LIGHT_ON_DARK
+    } else {
+        PX_SERIES_LIGHT_ON_LIGHT
+    };
+    std::array::from_fn(|index| px_hsl_to_u32(hue + index as f32 * PX_SERIES_HUE_STEP, sat, light))
+}
+
+fn px_resource_series_color(value: Option<&str>, index: usize, theme: &Theme) -> u32 {
+    let fallback = px_theme_series_palette(theme)[index % 10];
+    px_hex_color(value.unwrap_or(""), fallback)
+}
+
+fn px_rgba_to_u32(color: Rgba) -> u32 {
+    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u32;
+    (channel(color.r) << 16) | (channel(color.g) << 8) | channel(color.b)
+}
+
+#[cfg(test)]
+fn px_u32_to_rgba(color: u32) -> Rgba {
+    Rgba {
+        r: ((color >> 16) & 0xff) as f32 / 255.0,
+        g: ((color >> 8) & 0xff) as f32 / 255.0,
+        b: (color & 0xff) as f32 / 255.0,
+        a: 1.0,
+    }
+}
+
+#[cfg(test)]
+mod px_theme_tests {
+    use super::{
+        px_bar_theme, px_hsl_to_u32, px_line_theme, px_resource_series_color, px_rgb_to_hsl,
+        px_rgba_to_u32, px_scatter_theme, px_theme_is_dark, px_theme_series_palette,
+        px_u32_to_rgba,
+    };
+    use gpui::rgb;
+    use gpui_ui_kit::theme::Theme;
+
+    fn channel_sum(color: u32) -> u32 {
+        ((color >> 16) & 0xff) + ((color >> 8) & 0xff) + (color & 0xff)
+    }
+
+    #[test]
+    fn hsl_primaries_encode() {
+        assert_eq!(px_hsl_to_u32(0.0, 0.0, 0.0), 0x000000);
+        assert_eq!(px_hsl_to_u32(0.0, 0.0, 1.0), 0xffffff);
+        assert_eq!(px_hsl_to_u32(0.0, 1.0, 0.5), 0xff0000);
+        assert_eq!(px_hsl_to_u32(1.0 / 3.0, 1.0, 0.5), 0x00ff00);
+        assert_eq!(px_hsl_to_u32(2.0 / 3.0, 1.0, 0.5), 0x0000ff);
+    }
+
+    #[test]
+    fn rgba_channels_round_trip_through_u32() {
+        let color = rgb(0x60a5fa);
+        assert_eq!(px_rgba_to_u32(color), 0x60a5fa);
+        let back = px_u32_to_rgba(0x60a5fa);
+        assert!((back.r - color.r).abs() < 0.005);
+        assert!((back.g - color.g).abs() < 0.005);
+        assert!((back.b - color.b).abs() < 0.005);
+    }
+
+    #[test]
+    fn shell_brightness_selects_readable_branch() {
+        assert!(px_theme_is_dark(&Theme::dark()));
+        assert!(px_theme_is_dark(&Theme::midnight()));
+        assert!(!px_theme_is_dark(&Theme::light()));
+        assert!(!px_theme_is_dark(&Theme::carbon_white()));
+    }
+
+    #[test]
+    fn series_palette_starts_at_accent_and_spreads() {
+        for theme in [
+            Theme::dark(),
+            Theme::light(),
+            Theme::midnight(),
+            Theme::forest(),
+        ] {
+            let palette = px_theme_series_palette(&theme);
+            let distinct: std::collections::HashSet<u32> = palette.into_iter().collect();
+            assert_eq!(distinct.len(), 10, "palette entries must differ");
+            let (accent_hue, _, _) = px_rgb_to_hsl(theme.accent);
+            let (first_hue, _, _) = px_rgb_to_hsl(px_u32_to_rgba(palette[0]));
+            let drift = (first_hue - accent_hue)
+                .abs()
+                .min(1.0 - (first_hue - accent_hue).abs());
+            assert!(drift < 0.05, "first series hue follows the accent");
+        }
+    }
+
+    #[test]
+    fn series_palette_lightness_follows_shell_brightness() {
+        let base = Theme::dark();
+        let dark_shell = Theme {
+            background: rgb(0x101010),
+            ..base.clone()
+        };
+        let light_shell = Theme {
+            background: rgb(0xf0f0f0),
+            ..base
+        };
+        assert!(px_theme_is_dark(&dark_shell));
+        assert!(!px_theme_is_dark(&light_shell));
+        let dark_entry = px_theme_series_palette(&dark_shell)[3];
+        let light_entry = px_theme_series_palette(&light_shell)[3];
+        assert!(
+            channel_sum(dark_entry) > channel_sum(light_entry),
+            "dark shells get lighter series colors"
+        );
+    }
+
+    #[test]
+    fn chart_chrome_follows_shell_theme() {
+        let theme = Theme::midnight();
+        let bar = px_bar_theme(&theme);
+        assert_eq!(bar.plot_background, theme.surface);
+        assert_eq!(bar.title_color, theme.text_primary);
+        let line = px_line_theme(&theme);
+        assert_eq!(line.plot_background, theme.surface);
+        assert_eq!(line.grid_color.a, theme.border.a * 0.6);
+        let scatter = px_scatter_theme(&theme);
+        assert_eq!(scatter.plot_background, theme.surface);
+        assert_eq!(scatter.axis_label_color, theme.text_secondary);
+    }
+
+    #[test]
+    fn explicit_series_color_wins_over_palette() {
+        let theme = Theme::dark();
+        assert_eq!(
+            px_resource_series_color(Some("#ff0000"), 0, &theme),
+            0xff0000
+        );
+        assert_eq!(
+            px_resource_series_color(None, 0, &theme),
+            px_theme_series_palette(&theme)[0]
+        );
+    }
+}
+
+/// Resolve a theme option id to its variant. Returns `None` for unknown ids
+/// so callers can decide between a fallback and leaving the theme alone.
+fn python_theme_variant(value: &str) -> Option<ThemeVariant> {
+    match value.to_ascii_lowercase().as_str() {
+        "light" => Some(ThemeVariant::Light),
+        "midnight" => Some(ThemeVariant::Midnight),
+        "forest" => Some(ThemeVariant::Forest),
+        "black_and_white" => Some(ThemeVariant::BlackAndWhite),
+        "onyx" => Some(ThemeVariant::Onyx),
+        "carbon_white" => Some(ThemeVariant::CarbonWhite),
+        "carbon_gray_10" => Some(ThemeVariant::CarbonGray10),
+        "carbon_gray_90" => Some(ThemeVariant::CarbonGray90),
+        "carbon_gray_100" => Some(ThemeVariant::CarbonGray100),
+        "dark" => Some(ThemeVariant::Dark),
+        _ => None,
+    }
+}
+
+/// Chart chrome follows the shell theme; explicit user colors still win
+/// because they are applied afterwards at each construction site.
+fn px_bar_theme(theme: &Theme) -> gpui_px::BarTheme {
+    gpui_px::BarTheme {
+        plot_background: theme.surface,
+        title_color: theme.text_primary,
+        legend_text_color: theme.text_secondary,
+        axis_line_color: theme.border,
+        axis_label_color: theme.text_secondary,
+    }
+}
+
+fn px_line_theme(theme: &Theme) -> gpui_px::ChartTheme {
+    gpui_px::ChartTheme {
+        plot_background: theme.surface,
+        grid_color: Rgba {
+            a: theme.border.a * 0.6,
+            ..theme.border
+        },
+        axis_line_color: theme.border,
+        axis_label_color: theme.text_secondary,
+        title_color: theme.text_primary,
+        legend_text_color: theme.text_secondary,
+    }
+}
+
+fn px_scatter_theme(theme: &Theme) -> gpui_px::ScatterTheme {
+    gpui_px::ScatterTheme {
+        plot_background: theme.surface,
+        title_color: theme.text_primary,
+        legend_text_color: theme.text_secondary,
+        axis_line_color: theme.border,
+        axis_label_color: theme.text_secondary,
+    }
 }
 
 fn px_apply_pie_presentation(
     mut chart: gpui_px::PieChart,
     node: &PxChartV2Node,
+    theme: &Theme,
 ) -> gpui_px::PieChart {
     if let Some(values) = &node.colors {
         let colors = values
@@ -5823,6 +6096,8 @@ fn px_apply_pie_presentation(
             .map(|color| px_hex_color(color, 0))
             .collect::<Vec<_>>();
         chart = chart.colors(&colors);
+    } else {
+        chart = chart.colors(&px_theme_series_palette(theme));
     }
     if let Some(angle) = node.pad_angle {
         chart = chart.pad_angle(angle);
@@ -6025,11 +6300,18 @@ impl_px_resource_chart_static_result_with_metadata!(
 fn px_apply_treemap_presentation(
     mut chart: gpui_px::Treemap,
     node: &PxChartV2Node,
+    theme: &Theme,
 ) -> gpui_px::Treemap {
     if let Some(values) = &node.colors {
         let colors = values
             .iter()
             .map(|color| d3rs::color::D3Color::from_hex(px_hex_color(color, 0)))
+            .collect::<Vec<_>>();
+        chart = chart.color_scheme(d3rs::color::ColorScheme::new(colors));
+    } else {
+        let colors = px_theme_series_palette(theme)
+            .into_iter()
+            .map(d3rs::color::D3Color::from_hex)
             .collect::<Vec<_>>();
         chart = chart.color_scheme(d3rs::color::ColorScheme::new(colors));
     }
@@ -6042,9 +6324,12 @@ fn px_apply_treemap_presentation(
 fn px_apply_area_presentation(
     mut chart: gpui_px::AreaChart,
     node: &PxChartV2Node,
+    theme: &Theme,
 ) -> gpui_px::AreaChart {
     if let Some(color) = node.fill_color.as_deref() {
         chart = chart.color(px_hex_color(color, 0));
+    } else {
+        chart = chart.color(px_rgba_to_u32(theme.accent));
     }
     if let Some(curve) = node.curve.as_deref() {
         chart = chart.curve(px_area_curve(curve));
@@ -6061,7 +6346,9 @@ fn px_apply_area_presentation(
 fn px_apply_scatter_primary(
     mut chart: gpui_px::ScatterChart,
     node: &PxChartV2Node,
+    theme: &Theme,
 ) -> gpui_px::ScatterChart {
+    chart = chart.theme(px_scatter_theme(theme));
     if let Some(color) = node.primary_color.as_deref() {
         chart = chart.color(px_hex_color(color, 0));
     }
@@ -6074,7 +6361,9 @@ fn px_apply_scatter_primary(
 fn px_apply_line_primary(
     mut chart: gpui_px::LineChart,
     node: &PxChartV2Node,
+    theme: &Theme,
 ) -> gpui_px::LineChart {
+    chart = chart.theme(px_line_theme(theme));
     if let Some(color) = node.primary_color.as_deref() {
         chart = chart.color(px_hex_color(color, 0));
     }
@@ -6087,7 +6376,12 @@ fn px_apply_line_primary(
     chart
 }
 
-fn px_apply_bar_primary(mut chart: gpui_px::BarChart, node: &PxChartV2Node) -> gpui_px::BarChart {
+fn px_apply_bar_primary(
+    mut chart: gpui_px::BarChart,
+    node: &PxChartV2Node,
+    theme: &Theme,
+) -> gpui_px::BarChart {
+    chart = chart.theme(px_bar_theme(theme));
     if let Some(color) = node.primary_color.as_deref() {
         chart = chart.color(px_hex_color(color, 0));
     }
@@ -6119,11 +6413,41 @@ macro_rules! px_dense_axes {
 fn px_apply_isoline_presentation(
     chart: gpui_px::IsolineChart,
     node: &PxChartV2Node,
+    theme: &Theme,
 ) -> gpui_px::IsolineChart {
     let mut chart = px_dense_axes!(chart, node);
     if let Some(color) = node.stroke_color.as_deref() {
         chart = chart.color(px_hex_color(color, 0));
+    } else {
+        chart = chart.color(px_rgba_to_u32(theme.accent));
     }
+    chart
+}
+
+/// Boxplot part defaults follow the shell theme unless the user set an
+/// explicit part color: filled box in accent, median line in primary text,
+/// whiskers in secondary text, outliers in warning.
+fn px_apply_boxplot_presentation(
+    mut chart: gpui_px::BoxPlotChart,
+    node: &PxChartV2Node,
+    theme: &Theme,
+) -> gpui_px::BoxPlotChart {
+    chart = chart.box_color(px_hex_color(
+        node.box_color.as_deref().unwrap_or(""),
+        px_rgba_to_u32(theme.accent),
+    ));
+    chart = chart.median_color(px_hex_color(
+        node.median_color.as_deref().unwrap_or(""),
+        px_rgba_to_u32(theme.text_primary),
+    ));
+    chart = chart.whisker_color(px_hex_color(
+        node.whisker_color.as_deref().unwrap_or(""),
+        px_rgba_to_u32(theme.text_secondary),
+    ));
+    chart = chart.outlier_color(px_hex_color(
+        node.outlier_color.as_deref().unwrap_or(""),
+        px_rgba_to_u32(theme.warning),
+    ));
     chart
 }
 
@@ -6739,6 +7063,10 @@ pub(super) struct PythonIrShowcase {
     pub(super) spec_cache: TypedSpecCache,
     pub(super) table_cells: HashMap<(usize, usize), (String, SharedString)>,
     form_focus: HashMap<String, FocusHandle>,
+    /// Host-owned select dropdown open state, keyed by Python node id. The
+    /// retained `Select` widget is rebuilt every frame, so without this the
+    /// trigger could never open the popup (and it could never close).
+    select_open: Rc<RefCell<HashMap<String, bool>>>,
     color_pickers: HashMap<String, Entity<ColorPickerView>>,
     color_picker_subscriptions: HashMap<String, Subscription>,
     color_picker_actions: HashMap<String, Option<String>>,
@@ -6852,6 +7180,7 @@ impl PythonIrShowcase {
             spec_cache: TypedSpecCache::new(),
             table_cells: HashMap::new(),
             form_focus: HashMap::new(),
+            select_open: Rc::new(RefCell::new(HashMap::new())),
             color_pickers: HashMap::new(),
             color_picker_subscriptions: HashMap::new(),
             color_picker_actions: HashMap::new(),
@@ -7545,6 +7874,10 @@ impl PythonIrShowcase {
             .id("python-showcase-content")
             .flex_1()
             .h_full()
+            // Automatic minimums would clamp the flexed size back up to the
+            // content size and the container could never overflow to scroll.
+            .min_w_0()
+            .min_h_0()
             .bg(theme.background)
             .p(px(ds.spacing.section_gap * 1.5))
             .child(content)
@@ -7555,8 +7888,27 @@ impl PythonIrShowcase {
                 .track_scroll(&scroll_handle)
                 .on_scroll_wheel(move |event, window, _cx| {
                     let delta = event.delta.pixel_delta(window.line_height());
-                    let next_y = scroll_handle.offset().y - delta.y;
+                    let offset = scroll_handle.offset();
+                    let max = scroll_handle.max_offset();
+                    let bounds = scroll_handle.bounds();
+                    let viewport = window.bounds().size;
+                    let next_y = offset.y - delta.y;
                     persisted_scroll.set_scroll_y((-next_y.as_f32()).max(0.0));
+                    append_qa_json_line(
+                        "GPUI_TOOLKIT_QA_SCROLL_TRACE",
+                        &serde_json::json!({
+                            "container": "python-showcase-content",
+                            "host_build": "viewport-root-1",
+                            "delta": [delta.x.as_f32(), delta.y.as_f32()],
+                            "offset": [offset.x.as_f32(), offset.y.as_f32()],
+                            "max_offset": [max.x.as_f32(), max.y.as_f32()],
+                            "bounds": [
+                                bounds.size.width.as_f32(),
+                                bounds.size.height.as_f32()
+                            ],
+                            "window": [viewport.width.as_f32(), viewport.height.as_f32()],
+                        }),
+                    );
                 })
         } else {
             content
@@ -8556,8 +8908,12 @@ impl PythonIrShowcase {
         spectrum.into_any_element()
     }
 
-    fn render_select(&self, node: &SelectNode, theme: &Theme, ds: &DesignSystem) -> AnyElement {
+    fn render_select(&mut self, node: &SelectNode, theme: &Theme, ds: &DesignSystem) -> AnyElement {
         let id = node.id.clone();
+        // The Select widget is rebuilt every frame, so open state lives here.
+        // Without the toggle handler below the trigger could never open it.
+        let open_state = self.select_open.clone();
+        let is_open = open_state.borrow().get(&id).copied().unwrap_or(false);
         let choices: Vec<(String, Value)> = node
             .options
             .iter()
@@ -8578,14 +8934,37 @@ impl PythonIrShowcase {
             .options(options)
             .selected(select_wire_value(&node.value))
             .disabled(node.disabled)
-            .aria_label(node.label.clone().unwrap_or_else(|| id.clone()));
+            .aria_label(node.label.clone().unwrap_or_else(|| id.clone()))
+            .is_open(is_open);
         if let Some(label) = &node.label {
             select = select.label(label.clone());
         }
+        {
+            let toggle_id = id.clone();
+            let toggle_state = open_state.clone();
+            select = select.on_toggle(move |open, window, _| {
+                toggle_state.borrow_mut().insert(toggle_id.clone(), open);
+                window.refresh();
+            });
+        }
         if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
             let node_id = node.id.clone();
-            let action = node.action.clone();
-            select = select.on_change(move |value, _, _| {
+            // A `theme:`-prefixed action lets an in-app picker drive the
+            // shell theme (mirroring the `select:` section-navigation
+            // prefix). The host switches its ThemeState and still dispatches
+            // the stripped action so Python app state stays in sync.
+            let (apply_theme, action) = match node.action.clone() {
+                Some(action) => match action.strip_prefix("theme:") {
+                    Some(stripped) => (true, Some(stripped.to_string())),
+                    None => (false, Some(action)),
+                },
+                None => (false, None),
+            };
+            select = select.on_change(move |value, window, app| {
+                if apply_theme && let Some(variant) = python_theme_variant(value.as_ref()) {
+                    app.set_global(ThemeState::with_variant(variant));
+                    window.refresh();
+                }
                 let selected = choices
                     .iter()
                     .find(|(wire_value, _)| wire_value == value.as_ref())
@@ -10817,25 +11196,55 @@ impl PythonIrShowcase {
         Some(state)
     }
 
+    /// Visible category window for an interactive bar chart. The px bar
+    /// renderer maps category `i` to index space `[i, i + 1]`, so an active x
+    /// domain selects whole categories by slot intersection. Always keeps at
+    /// least one category so deep zooms degrade to a single bar.
+    fn bar_visible_range(x_min: f64, x_max: f64, categories: usize) -> (usize, usize) {
+        if categories == 0 {
+            return (0, 0);
+        }
+        let (lo, hi) = if x_min <= x_max {
+            (x_min, x_max)
+        } else {
+            (x_max, x_min)
+        };
+        let mut start = (lo.floor() as usize).min(categories.saturating_sub(1));
+        let mut end = (hi.ceil() as usize).clamp(start + 1, categories);
+        if end <= start {
+            end = (start + 1).min(categories);
+        }
+        if start >= end {
+            start = end.saturating_sub(1);
+        }
+        (start, end)
+    }
+
     fn resource_chart_svg(
         &self,
         node: &PxChartV2Node,
         options: gpui_px::StaticSvgOptions,
+        theme: &Theme,
     ) -> Result<String, String> {
-        self.resource_chart_export_result(node, options)
+        self.resource_chart_export_result(node, options, theme)
             .map(|(svg, _summary)| svg)
     }
 
-    fn resource_chart_accessibility_summary(&self, node: &PxChartV2Node) -> Result<Value, String> {
-        self.resource_chart_static_result(node, None)
+    fn resource_chart_accessibility_summary(
+        &self,
+        node: &PxChartV2Node,
+        theme: &Theme,
+    ) -> Result<Value, String> {
+        self.resource_chart_static_result(node, None, theme)
             .map(|(_svg, results)| results.accessibility)
     }
 
     fn resource_chart_metadata(
         &self,
         node: &PxChartV2Node,
+        theme: &Theme,
     ) -> Result<PxResourceChartResults, String> {
-        self.resource_chart_static_result(node, None)
+        self.resource_chart_static_result(node, None, theme)
             .map(|(_svg, results)| results)
     }
 
@@ -10843,8 +11252,9 @@ impl PythonIrShowcase {
         &self,
         node: &PxChartV2Node,
         options: gpui_px::StaticSvgOptions,
+        theme: &Theme,
     ) -> Result<(String, Value), String> {
-        let (svg, results) = self.resource_chart_static_result(node, Some(options))?;
+        let (svg, results) = self.resource_chart_static_result(node, Some(options), theme)?;
         Ok((
             svg.ok_or("resource chart export did not produce SVG")?,
             results.accessibility,
@@ -10855,6 +11265,7 @@ impl PythonIrShowcase {
         &self,
         node: &PxChartV2Node,
         options: Option<gpui_px::StaticSvgOptions>,
+        theme: &Theme,
     ) -> Result<(Option<String>, PxResourceChartResults), String> {
         let binding_source = node
             .data
@@ -10949,7 +11360,7 @@ impl PythonIrShowcase {
                 .title(title)
                 .tiling_method(method)
                 .padding(node.padding.unwrap_or(1.0));
-            chart = px_apply_treemap_presentation(chart, node);
+            chart = px_apply_treemap_presentation(chart, node, theme);
             if let Some(ratio) = node.aspect_ratio {
                 chart = chart.aspect_ratio(ratio);
             }
@@ -11019,7 +11430,7 @@ impl PythonIrShowcase {
                 }
                 "isoline" => {
                     let mut chart = isoline(&z, grid_width, grid_height).title(title);
-                    chart = px_apply_isoline_presentation(chart, node);
+                    chart = px_apply_isoline_presentation(chart, node, theme);
                     if let Some(opacity) = node.opacity {
                         chart = chart.opacity(opacity);
                     }
@@ -11121,8 +11532,8 @@ impl PythonIrShowcase {
                 let mut chart = bar(&grouped.categories, &first.values)
                     .title(title)
                     .label(first.label.clone())
-                    .color(px_resource_series_color(first.color.as_deref(), 0));
-                chart = px_apply_bar_primary(chart, node);
+                    .color(px_resource_series_color(first.color.as_deref(), 0, theme));
+                chart = px_apply_bar_primary(chart, node, theme);
                 if let Some(gap) = node.bar_gap {
                     chart = chart.bar_gap(gap);
                 }
@@ -11145,7 +11556,7 @@ impl PythonIrShowcase {
                     chart = chart.add_series(
                         &series.values,
                         Some(series.label.clone()),
-                        px_resource_series_color(series.color.as_deref(), index),
+                        px_resource_series_color(series.color.as_deref(), index, theme),
                         1.0,
                     );
                 }
@@ -11173,7 +11584,7 @@ impl PythonIrShowcase {
             return match node.chart.as_str() {
                 "bar" => {
                     let mut chart = bar(&labels, &values).title(title);
-                    chart = px_apply_bar_primary(chart, node);
+                    chart = px_apply_bar_primary(chart, node, theme);
                     if let Some(gap) = node.bar_gap {
                         chart = chart.bar_gap(gap);
                     }
@@ -11196,7 +11607,7 @@ impl PythonIrShowcase {
                 }
                 "pie" => {
                     let mut chart = pie(&values).labels(&labels).title(title);
-                    chart = px_apply_pie_presentation(chart, node);
+                    chart = px_apply_pie_presentation(chart, node, theme);
                     if let Some(hole) = node.hole {
                         chart = chart.hole(hole);
                     }
@@ -11207,7 +11618,7 @@ impl PythonIrShowcase {
                 }
                 "donut" => {
                     let mut chart = donut(&values).labels(&labels).title(title);
-                    chart = px_apply_pie_presentation(chart, node);
+                    chart = px_apply_pie_presentation(chart, node, theme);
                     if let Some(hole) = node.hole {
                         chart = chart.hole(hole);
                     }
@@ -11336,9 +11747,9 @@ impl PythonIrShowcase {
                 let mut chart = scatter(&first.x, &first.y)
                     .title(title)
                     .label(first.label.clone())
-                    .color(px_resource_series_color(first.color.as_deref(), 0))
+                    .color(px_resource_series_color(first.color.as_deref(), 0, theme))
                     .point_radius(node.point_radius.unwrap_or(5.0));
-                chart = px_apply_scatter_primary(chart, node);
+                chart = px_apply_scatter_primary(chart, node, theme);
                 if let Some(opacity) = node.opacity {
                     chart = chart.opacity(opacity);
                 }
@@ -11362,7 +11773,7 @@ impl PythonIrShowcase {
                         &item.x,
                         &item.y,
                         Some(item.label.clone()),
-                        px_resource_series_color(item.color.as_deref(), index),
+                        px_resource_series_color(item.color.as_deref(), index, theme),
                         node.point_radius.unwrap_or(5.0),
                         1.0,
                     );
@@ -11374,8 +11785,8 @@ impl PythonIrShowcase {
             let mut chart = line(&first.x, &first.y)
                 .title(title)
                 .label(first.label.clone())
-                .color(px_resource_series_color(first.color.as_deref(), 0));
-            chart = px_apply_line_primary(chart, node);
+                .color(px_resource_series_color(first.color.as_deref(), 0, theme));
+            chart = px_apply_line_primary(chart, node, theme);
             if let Some(curve) = node.curve.as_deref() {
                 chart = chart.curve(px_curve(curve));
             }
@@ -11426,7 +11837,7 @@ impl PythonIrShowcase {
                     &item.x,
                     &item.y,
                     Some(item.label.clone()),
-                    px_resource_series_color(item.color.as_deref(), index),
+                    px_resource_series_color(item.color.as_deref(), index, theme),
                     2.0,
                     1.0,
                 );
@@ -11439,7 +11850,7 @@ impl PythonIrShowcase {
                     &item.x,
                     &item.y,
                     Some(format!("{} (y2)", item.label)),
-                    px_resource_series_color(item.color.as_deref(), series.len() + index),
+                    px_resource_series_color(item.color.as_deref(), series.len() + index, theme),
                     2.0,
                     1.0,
                 );
@@ -11524,7 +11935,7 @@ impl PythonIrShowcase {
                 );
             }
             let mut chart = area(&first.x, &first.y).y0(&first.y0).title(title);
-            chart = px_apply_area_presentation(chart, node);
+            chart = px_apply_area_presentation(chart, node, theme);
             if let Some(opacity) = node.opacity {
                 chart = chart.opacity(opacity);
             }
@@ -11621,7 +12032,7 @@ impl PythonIrShowcase {
         match node.chart.as_str() {
             "scatter" => {
                 let mut chart = scatter(&x, &y).title(title);
-                chart = px_apply_scatter_primary(chart, node);
+                chart = px_apply_scatter_primary(chart, node, theme);
                 if let Some(radius) = node.point_radius {
                     chart = chart.point_radius(radius);
                 }
@@ -11647,7 +12058,7 @@ impl PythonIrShowcase {
             }
             "line" => {
                 let mut chart = line(&x, &y).title(title);
-                chart = px_apply_line_primary(chart, node);
+                chart = px_apply_line_primary(chart, node, theme);
                 if let Some(curve) = node.curve.as_deref() {
                     chart = chart.curve(px_curve(curve));
                 }
@@ -11694,7 +12105,7 @@ impl PythonIrShowcase {
             }
             "area" => {
                 let mut chart = area(&x, &y).title(title);
-                chart = px_apply_area_presentation(chart, node);
+                chart = px_apply_area_presentation(chart, node, theme);
                 if let Some(opacity) = node.opacity {
                     chart = chart.opacity(opacity);
                 }
@@ -11705,18 +12116,7 @@ impl PythonIrShowcase {
             }
             "box_plot" => {
                 let mut chart = boxplot(&x, &y).title(title);
-                if let Some(color) = node.box_color.as_deref() {
-                    chart = chart.box_color(px_hex_color(color, 0));
-                }
-                if let Some(color) = node.median_color.as_deref() {
-                    chart = chart.median_color(px_hex_color(color, 0));
-                }
-                if let Some(color) = node.whisker_color.as_deref() {
-                    chart = chart.whisker_color(px_hex_color(color, 0));
-                }
-                if let Some(color) = node.outlier_color.as_deref() {
-                    chart = chart.outlier_color(px_hex_color(color, 0));
-                }
+                chart = px_apply_boxplot_presentation(chart, node, theme);
                 if let Some(opacity) = node.box_opacity {
                     chart = chart.box_opacity(opacity);
                 }
@@ -11910,7 +12310,7 @@ impl PythonIrShowcase {
                     .size(640.0, 320.0)
                     .apply_resource_sizing(node)
                     .apply_resource_renderer(node);
-                chart = px_apply_treemap_presentation(chart, node);
+                chart = px_apply_treemap_presentation(chart, node, theme);
                 if let (Some(action), Some(sink)) = (
                     node.selection_action.clone(),
                     self.session.as_ref().map(|session| session.event_sink()),
@@ -11973,16 +12373,36 @@ impl PythonIrShowcase {
                         .series
                         .first()
                         .ok_or("categorical resource chart has no finite series values")?;
+                    let edges: Vec<f64> = (0..=grouped.categories.len())
+                        .map(|index| index as f64)
+                        .collect();
+                    let all_values: Vec<f64> = grouped
+                        .series
+                        .iter()
+                        .flat_map(|series| series.values.iter().copied())
+                        .collect();
+                    let interaction =
+                        self.resource_chart_interaction(node, &edges, &all_values, cx);
+                    let mut view = (0, grouped.categories.len());
+                    let mut y_domain = None;
+                    if let Some(state) = interaction.as_ref() {
+                        let x = state.x_domain();
+                        view = Self::bar_visible_range(x.0, x.1, grouped.categories.len());
+                        y_domain = Some(state.y_domain());
+                    }
                     let title = node.title.clone().unwrap_or_else(|| node.chart.clone());
-                    let mut chart = bar(&grouped.categories, &first.values)
-                        .title(title)
-                        .label(first.label.clone())
-                        .color(px_resource_series_color(first.color.as_deref(), 0))
-                        .annotations(px_annotation_nodes(&node.annotations))
-                        .size(640.0, 320.0)
-                        .apply_resource_sizing(node)
-                        .apply_resource_renderer(node);
-                    chart = px_apply_bar_primary(chart, node);
+                    let mut chart = bar(
+                        &grouped.categories[view.0..view.1],
+                        &first.values[view.0..view.1],
+                    )
+                    .title(title)
+                    .label(first.label.clone())
+                    .color(px_resource_series_color(first.color.as_deref(), 0, theme))
+                    .annotations(px_annotation_nodes(&node.annotations))
+                    .size(640.0, 320.0)
+                    .apply_resource_sizing(node)
+                    .apply_resource_renderer(node);
+                    chart = px_apply_bar_primary(chart, node, theme);
                     if let Some(gap) = node.bar_gap {
                         chart = chart.bar_gap(gap);
                     }
@@ -11998,14 +12418,15 @@ impl PythonIrShowcase {
                     if node.y_log.unwrap_or(false) {
                         chart = chart.y_scale(gpui_px::ScaleType::Log);
                     }
-                    if let Some([min, max]) = node.y_range {
+                    let y_range = y_domain.map(|(lo, hi)| [lo, hi]).or(node.y_range);
+                    if let Some([min, max]) = y_range {
                         chart = chart.y_range(min, max);
                     }
                     for (index, series) in grouped.series.iter().enumerate().skip(1) {
                         chart = chart.add_series(
-                            &series.values,
+                            &series.values[view.0..view.1],
                             Some(series.label.clone()),
-                            px_resource_series_color(series.color.as_deref(), index),
+                            px_resource_series_color(series.color.as_deref(), index, theme),
                             1.0,
                         );
                     }
@@ -12015,6 +12436,9 @@ impl PythonIrShowcase {
                     return chart
                         .build()
                         .map(IntoElement::into_any_element)
+                        .map(|chart| {
+                            wrap_resource_chart_interaction(&node.id, chart, interaction.clone())
+                        })
                         .map_err(|error| error.to_string());
                 }
                 let (categories, values) = match aggregated.as_ref().or(filtered.as_ref()) {
@@ -12037,16 +12461,27 @@ impl PythonIrShowcase {
                 if categories.is_empty() {
                     return Err("categorical resource chart has no finite values".into());
                 }
+                // Category edges in px index space align the retained
+                // interaction domains with the rendered bar slots.
+                let edges: Vec<f64> = (0..=categories.len()).map(|index| index as f64).collect();
+                let interaction = self.resource_chart_interaction(node, &edges, &values, cx);
+                let mut view = (0, categories.len());
+                let mut y_domain = None;
+                if let Some(state) = interaction.as_ref() {
+                    let x = state.x_domain();
+                    view = Self::bar_visible_range(x.0, x.1, categories.len());
+                    y_domain = Some(state.y_domain());
+                }
                 let title = node.title.clone().unwrap_or_else(|| node.chart.clone());
                 return match node.chart.as_str() {
                     "bar" => {
-                        let mut chart = bar(&categories, &values)
+                        let mut chart = bar(&categories[view.0..view.1], &values[view.0..view.1])
                             .title(title)
                             .annotations(px_annotation_nodes(&node.annotations))
                             .size(640.0, 320.0)
                             .apply_resource_sizing(node)
                             .apply_resource_renderer(node);
-                        chart = px_apply_bar_primary(chart, node);
+                        chart = px_apply_bar_primary(chart, node, theme);
                         if let Some(gap) = node.bar_gap {
                             chart = chart.bar_gap(gap);
                         }
@@ -12062,7 +12497,8 @@ impl PythonIrShowcase {
                         if node.y_log.unwrap_or(false) {
                             chart = chart.y_scale(gpui_px::ScaleType::Log);
                         }
-                        if let Some([min, max]) = node.y_range {
+                        let y_range = y_domain.map(|(lo, hi)| [lo, hi]).or(node.y_range);
+                        if let Some([min, max]) = y_range {
                             chart = chart.y_range(min, max);
                         }
                         if let Some(position) = node.legend_position.as_deref() {
@@ -12071,11 +12507,18 @@ impl PythonIrShowcase {
                         chart
                             .build()
                             .map(IntoElement::into_any_element)
+                            .map(|chart| {
+                                wrap_resource_chart_interaction(
+                                    &node.id,
+                                    chart,
+                                    interaction.clone(),
+                                )
+                            })
                             .map_err(|error| error.to_string())
                     }
                     "pie" => {
                         let mut chart = pie(&values).labels(&categories).title(title);
-                        chart = px_apply_pie_presentation(chart, node);
+                        chart = px_apply_pie_presentation(chart, node, theme);
                         if let Some(hole) = node.hole {
                             chart = chart.hole(hole);
                         }
@@ -12089,7 +12532,7 @@ impl PythonIrShowcase {
                     }
                     "donut" => {
                         let mut chart = donut(&values).labels(&categories).title(title);
-                        chart = px_apply_pie_presentation(chart, node);
+                        chart = px_apply_pie_presentation(chart, node, theme);
                         if let Some(hole) = node.hole {
                             chart = chart.hole(hole);
                         }
@@ -12334,13 +12777,13 @@ impl PythonIrShowcase {
                         let mut chart = scatter(&first.x, &first.y)
                             .title(title)
                             .label(first.label.clone())
-                            .color(px_resource_series_color(first.color.as_deref(), 0))
+                            .color(px_resource_series_color(first.color.as_deref(), 0, theme))
                             .annotations(px_annotation_nodes(&node.annotations))
                             .point_radius(node.point_radius.unwrap_or(5.0))
                             .size(640.0, 320.0)
                             .apply_resource_sizing(node)
                             .apply_resource_renderer(node);
-                        chart = px_apply_scatter_primary(chart, node);
+                        chart = px_apply_scatter_primary(chart, node, theme);
                         if let Some(opacity) = node.opacity {
                             chart = chart.opacity(opacity);
                         }
@@ -12364,7 +12807,7 @@ impl PythonIrShowcase {
                                 &item.x,
                                 &item.y,
                                 Some(item.label.clone()),
-                                px_resource_series_color(item.color.as_deref(), index),
+                                px_resource_series_color(item.color.as_deref(), index, theme),
                                 node.point_radius.unwrap_or(5.0),
                                 1.0,
                             );
@@ -12390,12 +12833,12 @@ impl PythonIrShowcase {
                         let mut chart = line(&first.x, &first.y)
                             .title(title)
                             .label(first.label.clone())
-                            .color(px_resource_series_color(first.color.as_deref(), 0))
+                            .color(px_resource_series_color(first.color.as_deref(), 0, theme))
                             .annotations(px_annotation_nodes(&node.annotations))
                             .size(640.0, 320.0)
                             .apply_resource_sizing(node)
                             .apply_resource_renderer(node);
-                        chart = px_apply_line_primary(chart, node);
+                        chart = px_apply_line_primary(chart, node, theme);
                         if let (Some(action), Some(sink)) = (
                             node.legend_action.clone(),
                             self.session.as_ref().map(|session| session.event_sink()),
@@ -12454,7 +12897,7 @@ impl PythonIrShowcase {
                                 &item.x,
                                 &item.y,
                                 Some(item.label.clone()),
-                                px_resource_series_color(item.color.as_deref(), index),
+                                px_resource_series_color(item.color.as_deref(), index, theme),
                                 2.0,
                                 1.0,
                             );
@@ -12476,6 +12919,7 @@ impl PythonIrShowcase {
                                 px_resource_series_color(
                                     item.color.as_deref(),
                                     series.len() + index,
+                                    theme,
                                 ),
                                 2.0,
                                 1.0,
@@ -12603,7 +13047,7 @@ impl PythonIrShowcase {
                         .size(640.0, 320.0)
                         .apply_resource_sizing(node)
                         .apply_resource_renderer(node);
-                    chart = px_apply_area_presentation(chart, node);
+                    chart = px_apply_area_presentation(chart, node, theme);
                     if let Some(opacity) = node.opacity {
                         chart = chart.opacity(opacity);
                     }
@@ -12765,7 +13209,7 @@ impl PythonIrShowcase {
                     }
                     "isoline" => {
                         let mut chart = isoline(&z, width, height);
-                        chart = px_apply_isoline_presentation(chart, node);
+                        chart = px_apply_isoline_presentation(chart, node, theme);
                         if let Some(opacity) = node.opacity {
                             chart = chart.opacity(opacity);
                         }
@@ -12920,7 +13364,7 @@ impl PythonIrShowcase {
                         .size(640.0, 320.0)
                         .apply_resource_sizing(node)
                         .apply_resource_renderer(node);
-                    chart = px_apply_scatter_primary(chart, node);
+                    chart = px_apply_scatter_primary(chart, node, theme);
                     if let Some(radius) = node.point_radius {
                         chart = chart.point_radius(radius);
                     }
@@ -12963,7 +13407,7 @@ impl PythonIrShowcase {
                         .size(640.0, 320.0)
                         .apply_resource_sizing(node)
                         .apply_resource_renderer(node);
-                    chart = px_apply_line_primary(chart, node);
+                    chart = px_apply_line_primary(chart, node, theme);
                     if let (Some(action), Some(sink)) = (
                         node.legend_action.clone(),
                         self.session.as_ref().map(|session| session.event_sink()),
@@ -13034,7 +13478,7 @@ impl PythonIrShowcase {
                         .size(640.0, 320.0)
                         .apply_resource_sizing(node)
                         .apply_resource_renderer(node);
-                    chart = px_apply_area_presentation(chart, node);
+                    chart = px_apply_area_presentation(chart, node, theme);
                     if let Some(opacity) = node.opacity {
                         chart = chart.opacity(opacity);
                     }
@@ -13048,18 +13492,7 @@ impl PythonIrShowcase {
                 }
                 "box_plot" => {
                     let mut chart = boxplot(&x, &y).title(title);
-                    if let Some(color) = node.box_color.as_deref() {
-                        chart = chart.box_color(px_hex_color(color, 0));
-                    }
-                    if let Some(color) = node.median_color.as_deref() {
-                        chart = chart.median_color(px_hex_color(color, 0));
-                    }
-                    if let Some(color) = node.whisker_color.as_deref() {
-                        chart = chart.whisker_color(px_hex_color(color, 0));
-                    }
-                    if let Some(color) = node.outlier_color.as_deref() {
-                        chart = chart.outlier_color(px_hex_color(color, 0));
-                    }
+                    chart = px_apply_boxplot_presentation(chart, node, theme);
                     if let Some(opacity) = node.box_opacity {
                         chart = chart.box_opacity(opacity);
                     }
@@ -13085,7 +13518,7 @@ impl PythonIrShowcase {
                 }
                 "pie" => {
                     let mut chart = pie(&y).title(title);
-                    chart = px_apply_pie_presentation(chart, node);
+                    chart = px_apply_pie_presentation(chart, node, theme);
                     if let Some(hole) = node.hole {
                         chart = chart.hole(hole);
                     }
@@ -13099,7 +13532,7 @@ impl PythonIrShowcase {
                 }
                 "donut" => {
                     let mut chart = donut(&y).title(title);
-                    chart = px_apply_pie_presentation(chart, node);
+                    chart = px_apply_pie_presentation(chart, node, theme);
                     if let Some(hole) = node.hole {
                         chart = chart.hole(hole);
                     }
@@ -13119,7 +13552,7 @@ impl PythonIrShowcase {
                         .size(640.0, 320.0)
                         .apply_resource_sizing(node)
                         .apply_resource_renderer(node);
-                    chart = px_apply_bar_primary(chart, node);
+                    chart = px_apply_bar_primary(chart, node, theme);
                     if let Some(gap) = node.bar_gap {
                         chart = chart.bar_gap(gap);
                     }
@@ -14572,7 +15005,7 @@ impl PythonIrShowcase {
                     let node: PxChartV2Node = serde_json::from_value(chart_value.clone())
                         .map_err(|error| format!("invalid resource chart summary payload: {error}"))?;
                     node.validate().map_err(|error| error.to_string())?;
-                    let summary = self.resource_chart_accessibility_summary(&node)?;
+                    let summary = self.resource_chart_accessibility_summary(&node, &cx.theme())?;
                     Ok(serde_json::json!({
                         "ok": true,
                         "chart_id": node.id,
@@ -14600,7 +15033,7 @@ impl PythonIrShowcase {
                             node.chart
                         ));
                     }
-                    let results = self.resource_chart_metadata(&node)?;
+                    let results = self.resource_chart_metadata(&node, &cx.theme())?;
                     Ok(serde_json::json!({
                         "ok": true,
                         "chart_id": node.id,
@@ -14625,7 +15058,7 @@ impl PythonIrShowcase {
                         .map_err(|error| format!("invalid resource chart export payload: {error}"))?;
                     node.validate().map_err(|error| error.to_string())?;
                     let options = px_static_svg_options(&arguments)?;
-                    let svg = self.resource_chart_svg(&node, options)?;
+                    let svg = self.resource_chart_svg(&node, options, &cx.theme())?;
                     if svg.len() > 4 * 1024 * 1024 {
                         return Err("resource chart SVG exceeds 4 MiB limit".into());
                     }
@@ -16644,18 +17077,7 @@ impl PythonIrShowcase {
         self.presentation
             .set_window_size(config.width, config.height);
         if config.with_theme {
-            let variant = match config.initial_theme.to_ascii_lowercase().as_str() {
-                "light" => ThemeVariant::Light,
-                "midnight" => ThemeVariant::Midnight,
-                "forest" => ThemeVariant::Forest,
-                "black_and_white" => ThemeVariant::BlackAndWhite,
-                "onyx" => ThemeVariant::Onyx,
-                "carbon_white" => ThemeVariant::CarbonWhite,
-                "carbon_gray_10" => ThemeVariant::CarbonGray10,
-                "carbon_gray_90" => ThemeVariant::CarbonGray90,
-                "carbon_gray_100" => ThemeVariant::CarbonGray100,
-                _ => ThemeVariant::Dark,
-            };
+            let variant = python_theme_variant(&config.initial_theme).unwrap_or(ThemeVariant::Dark);
             cx.set_global(ThemeState::with_variant(variant));
             self.observed_miniapp_theme = Some(variant);
         }
@@ -16840,8 +17262,13 @@ impl Render for PythonIrShowcase {
 
         self.schedule_qa_pointer_event(window, cx);
 
+        // Percentage sizes do not resolve against the window root, so the
+        // content column would size to its content and never scroll. Mirror
+        // MiniAppShell and pin the root to the explicit drawable area.
+        let viewport = window.viewport_size();
         div()
-            .size_full()
+            .w(px(viewport.width.as_f32()))
+            .h(px(viewport.height.as_f32()))
             .relative()
             .flex()
             .flex_col()
@@ -16850,9 +17277,149 @@ impl Render for PythonIrShowcase {
                     .flex()
                     .flex_row()
                     .flex_1()
+                    // Like the scroll container below: without a zero
+                    // minimum the row clamps to the content height and the
+                    // content column can never overflow to scroll.
+                    .min_h_0()
                     .child(self.render_sidebar(&theme, &ds, cx))
                     .child(self.render_content(&theme, &ds, cx)),
             )
             .children(self.render_effect_ui(&theme, &ds, cx))
+    }
+}
+
+#[cfg(all(test, target_os = "macos", feature = "native-qa"))]
+mod native_content_scroll_tests {
+    use gpui::{
+        AnyWindowHandle, AppContext, Context, HeadlessAppContext, InputEvent, InteractiveElement,
+        IntoElement, Modifiers, MouseMoveEvent, ParentElement, Render, ScrollDelta, ScrollHandle,
+        ScrollWheelEvent, StatefulInteractiveElement, Styled, TouchPhase, Window, div, point, px,
+        size,
+    };
+    use gpui_macos::metal_renderer::MetalHeadlessRenderer;
+    use std::sync::Arc;
+
+    struct ScrollProbe {
+        scroll: ScrollHandle,
+    }
+
+    impl Render for ScrollProbe {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let scroll_handle = self.scroll.clone();
+            // Modifier-for-modifier mirror of the scroll container built by
+            // PythonIrShowcase::render_content: bounded flex row child with a
+            // tracked overflow-y handler plus a persist-only wheel listener.
+            div().size_full().flex().flex_col().child(
+                div().flex().flex_row().flex_1().min_h_0().child(
+                    div()
+                        .id("native-scroll-probe-content")
+                        .flex_1()
+                        .h_full()
+                        .min_w_0()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .track_scroll(&scroll_handle)
+                        .on_scroll_wheel(move |event, window, _cx| {
+                            let delta = event.delta.pixel_delta(window.line_height());
+                            let next_y = scroll_handle.offset().y - delta.y;
+                            let _ = (-next_y.as_f32()).max(0.0);
+                        })
+                        .child(div().w_full().h(px(2000.0))),
+                ),
+            )
+        }
+    }
+
+    #[test]
+    fn native_wheel_scroll_moves_tracked_content_offset() {
+        if MetalHeadlessRenderer::try_new().is_none() {
+            eprintln!("native scroll QA skipped: no compatible Metal device");
+            return;
+        }
+        let text_system = Arc::new(gpui::NoopTextSystem::new());
+        let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+            Some(Box::new(MetalHeadlessRenderer::new()))
+        });
+
+        let scroll = ScrollHandle::new();
+        let window = cx
+            .open_window(size(px(600.0), px(400.0)), {
+                let scroll = scroll.clone();
+                move |_window, app| app.new(|_cx| ScrollProbe { scroll })
+            })
+            .expect("open native scroll probe window");
+        let any_window: AnyWindowHandle = window.into();
+        cx.update_window(any_window, |_, window, app| {
+            let _ = window.draw(app);
+        })
+        .expect("initial native scroll probe draw");
+        cx.update_window(any_window, |_, window, app| {
+            window.dispatch_event(
+                MouseMoveEvent {
+                    position: point(px(300.0), px(200.0)),
+                    pressed_button: None,
+                    modifiers: Modifiers::default(),
+                }
+                .to_platform_input(),
+                app,
+            );
+        })
+        .expect("dispatch native scroll probe hover");
+        cx.run_until_parked();
+        cx.update_window(any_window, |_, window, app| {
+            window.dispatch_event(
+                ScrollWheelEvent {
+                    position: point(px(300.0), px(200.0)),
+                    delta: ScrollDelta::Lines(point(0.0, -3.0)),
+                    modifiers: Modifiers::default(),
+                    touch_phase: TouchPhase::Moved,
+                }
+                .to_platform_input(),
+                app,
+            );
+        })
+        .expect("dispatch native scroll probe wheel");
+        cx.run_until_parked();
+
+        let offset_y = scroll.offset().y;
+        assert!(
+            offset_y < px(0.0),
+            "wheel over tracked content should scroll, offset.y={offset_y:?}",
+        );
+        cx.update_window(any_window, |_, window, _app| window.remove_window())
+            .expect("close native scroll probe window");
+        cx.run_until_parked();
+    }
+}
+
+#[cfg(test)]
+mod bar_visible_range_tests {
+    use super::PythonIrShowcase;
+
+    #[::core::prelude::v1::test]
+    fn full_domain_keeps_every_category() {
+        assert_eq!(PythonIrShowcase::bar_visible_range(0.0, 5.0, 5), (0, 5));
+    }
+
+    #[::core::prelude::v1::test]
+    fn zoomed_domain_selects_intersecting_slots() {
+        assert_eq!(PythonIrShowcase::bar_visible_range(1.2, 3.7, 5), (1, 4));
+    }
+
+    #[::core::prelude::v1::test]
+    fn out_of_range_domains_clamp_to_edges() {
+        assert_eq!(PythonIrShowcase::bar_visible_range(-10.0, 100.0, 5), (0, 5));
+        assert_eq!(PythonIrShowcase::bar_visible_range(3.5, 100.0, 5), (3, 5));
+    }
+
+    #[::core::prelude::v1::test]
+    fn deep_zoom_keeps_a_single_category() {
+        assert_eq!(PythonIrShowcase::bar_visible_range(2.4, 2.6, 5), (2, 3));
+        assert_eq!(PythonIrShowcase::bar_visible_range(2.0, 2.0, 5), (2, 3));
+    }
+
+    #[::core::prelude::v1::test]
+    fn empty_categories_select_nothing() {
+        assert_eq!(PythonIrShowcase::bar_visible_range(0.0, 1.0, 0), (0, 0));
     }
 }

@@ -1000,6 +1000,11 @@ pub(super) mod interactive_chart {
 
                         // Trigger re-render
                         window.refresh();
+                        // The wheel zoomed the plot: consume the gesture so
+                        // an enclosing scroll container does not scroll too.
+                        // Outside the plot area the event keeps bubbling and
+                        // the page scrolls (see the early return above).
+                        cx.stop_propagation();
                     }
                 })
         }

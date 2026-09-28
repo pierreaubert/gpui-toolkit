@@ -1,5 +1,8 @@
+import contextlib
 import importlib.util
+import io
 import json
+import os
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -16,6 +19,18 @@ def load_example(name: str):
     module = importlib.util.module_from_spec(module_spec)
     module_spec.loader.exec_module(module)
     return module
+
+
+def _clean_example_env(extra=None):
+    """Ambient env without GPUI_TOOLKIT_* overrides, plus test extras."""
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("GPUI_TOOLKIT_")
+    }
+    if extra:
+        env.update(extra)
+    return env
 
 
 class PythonExampleTests(unittest.TestCase):
@@ -74,6 +89,42 @@ class PythonExampleTests(unittest.TestCase):
         json.dumps(revolve_spec)
         json.dumps(resource_spec)
 
+    def test_example_mains_launch_native_host_by_default(self):
+        for name in (
+            "chart_gallery.py",
+            "mesh_plot_demo.py",
+            "mesh_plot_revolve_demo.py",
+            "mesh_plot_resource_demo.py",
+            "spinorama_demo.py",
+            "surface3d_demo.py",
+        ):
+            with self.subTest(example=name):
+                module = load_example(name)
+                with patch.dict(os.environ, _clean_example_env(), clear=True):
+                    with patch.object(module.App, "run") as run_mock:
+                        module.main()
+                run_mock.assert_called_once_with()
+
+    def test_example_mains_dump_spec_on_request(self):
+        for name in (
+            "chart_gallery.py",
+            "mesh_plot_demo.py",
+            "mesh_plot_revolve_demo.py",
+            "mesh_plot_resource_demo.py",
+            "spinorama_demo.py",
+            "surface3d_demo.py",
+        ):
+            with self.subTest(example=name):
+                module = load_example(name)
+                env = _clean_example_env({"GPUI_TOOLKIT_DUMP_IR": "1"})
+                with patch.dict(os.environ, env, clear=True):
+                    with patch.object(module.App, "run") as run_mock:
+                        stream = io.StringIO()
+                        with contextlib.redirect_stdout(stream):
+                            module.main()
+                run_mock.assert_not_called()
+                json.loads(stream.getvalue())
+
     def test_resource_mesh_qa_variables_launch_native_host(self):
         resource = load_example("mesh_plot_resource_demo.py")
         qa_variables = (
@@ -90,8 +141,11 @@ class PythonExampleTests(unittest.TestCase):
         )
         for variable in qa_variables:
             with self.subTest(variable=variable):
-                with patch.dict("os.environ", {variable: "1"}, clear=True):
-                    self.assertTrue(resource._should_run_native_host())
+                env = _clean_example_env({variable: "1"})
+                with patch.dict(os.environ, env, clear=True):
+                    with patch.object(resource.App, "run") as run_mock:
+                        resource.main()
+                run_mock.assert_called_once_with()
 
 
 if __name__ == "__main__":
