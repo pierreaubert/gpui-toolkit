@@ -1,7 +1,8 @@
 //! 3D Surface plot module for isometric and projected surface visualization
 //!
 //! This module provides surface plotting capabilities using 2D projection of 3D data.
-//! Surfaces are rendered using GPUI's native paint API via painter's algorithm.
+//! Geometry and projection are available without a rendering feature. With the
+//! `gpui` feature, surfaces use the native paint API and painter's algorithm.
 //!
 //! # Features
 //!
@@ -16,6 +17,9 @@
 //! # Example
 //!
 //! ```rust,no_run
+//! # fn main() {
+//! # #[cfg(feature = "gpui")]
+//! # {
 //! use d3rs::surface::{SurfaceData, SurfaceConfig, render_surface, ColorScaleType};
 //!
 //! // Create surface from a mathematical function
@@ -42,11 +46,16 @@
 //!     600.0,
 //!     400.0,
 //! );
+//! # }
+//! # }
 //! ```
 //!
 //! # Logarithmic Axis Example
 //!
 //! ```rust,no_run
+//! # fn main() {
+//! # #[cfg(feature = "gpui")]
+//! # {
 //! use d3rs::surface::{SurfaceData, SurfaceConfig, render_surface};
 //!
 //! // Frequency response plot with logarithmic X-axis (20 Hz to 20 kHz)
@@ -68,26 +77,20 @@
 //! );
 //!
 //! let element = render_surface(&freq_response, SurfaceConfig::new(), 800.0, 400.0);
+//! # }
+//! # }
 //! ```
 
-#[cfg(any(test, feature = "gpui"))]
 mod camera;
-#[cfg(any(test, feature = "gpui"))]
 mod data;
-#[cfg(any(test, feature = "gpui"))]
 mod mesh;
-#[cfg(any(test, feature = "gpui"))]
 mod projection;
 #[cfg(all(feature = "gpui", not(test)))]
 mod render;
 
-#[cfg(any(test, feature = "gpui"))]
 pub use camera::{SurfaceCamera, SurfaceCameraLimits};
-#[cfg(any(test, feature = "gpui"))]
 pub use data::{SurfaceData, SurfacePoint3D};
-#[cfg(any(test, feature = "gpui"))]
 pub use mesh::{SurfaceMesh, Triangle};
-#[cfg(any(test, feature = "gpui"))]
 pub use projection::{
     Camera2D, IsometricProjection, ObliqueProjection, OrthographicProjection,
     PerspectiveProjection, Projection, ProjectionType,
