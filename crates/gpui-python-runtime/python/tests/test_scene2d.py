@@ -197,6 +197,82 @@ class Scene2DSchemaTests(unittest.TestCase):
 
 
 class Scene2DEventTests(unittest.TestCase):
+    def test_action_failure_reports_context_and_exception_with_stderr_traceback(self):
+        class BrokenApp(App):
+            def on_action(self, event, context):
+                raise TypeError("duplicate surface_id")
+
+        app = BrokenApp(sections=[section("home", "Home", {})])
+        output, diagnostics = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(diagnostics):
+            app._handle_action(Event("failed-1", 1, "zip-board", "click", "zip_control"),
+                               SessionContext())
+        error = json.loads(output.getvalue())
+        self.assertEqual((error["type"], error["code"], error["request_id"]),
+                         ("error", "action_failed", "failed-1"))
+        for detail in ("click", "zip-board", "zip_control", "TypeError", "duplicate surface_id"):
+            self.assertIn(detail, error["message"])
+        self.assertIn("Traceback (most recent call last)", diagnostics.getvalue())
+        self.assertIn("on_action", diagnostics.getvalue())
+
+    def test_session_dispatch_preserves_specialized_surface_events(self):
+        class Recorder(App):
+            def __init__(self):
+                super().__init__(sections=[section("home", "Home", {})], serial_reducer=True)
+                self.inputs = []
+
+            def on_scene2d_event(self, event, context):
+                self.inputs.append((event.id, event.surface_id, event.input))
+                context.acknowledge(event)
+
+        inputs = [
+            {"type": "pointer", "phase": "down", "device": "mouse",
+             "contact_id": 1, "timestamp_ns": 1, "position": {"x": 4, "y": 8},
+             "buttons": ["left"], "modifiers": []},
+            {"type": "key", "phase": "down", "key": "5", "repeat": False,
+             "modifiers": [], "timestamp_ns": 2},
+            {"type": "lifecycle", "reason": "focus_lost", "timestamp_ns": 3},
+            {"type": "activate", "id": "cell-1", "timestamp_ns": 4},
+            {"type": "transition_complete", "id": "cell-1",
+             "completion_id": "move-1", "timestamp_ns": 5},
+        ]
+        messages = [{"type": "initialize", "session_version": 1, "capabilities": []}]
+        for index, value in enumerate(inputs):
+            messages.append({"type": "event", "id": f"input-{index}", "sequence": index,
+                             "node_id": "board", "event": "scene2d.event",
+                             "payload": {"event": value}})
+        messages.extend([
+            {"type": "event", "id": "cancel", "sequence": 5, "node_id": "board",
+             "event": "scene2d.cancel_all", "payload": {"reason": "outbound_overflow"}},
+            {"type": "shutdown"},
+        ])
+        app = Recorder()
+        output = io.StringIO()
+        with patch.object(sys, "stdin", io.StringIO("".join(
+                json.dumps(message) + "\n" for message in messages))), \
+                contextlib.redirect_stdout(output):
+            app.serve()
+
+        self.assertEqual([item[0] for item in app.inputs],
+                         [f"input-{index}" for index in range(5)] + ["cancel"])
+        self.assertTrue(all(item[1] == "board" for item in app.inputs))
+        self.assertEqual([type(item[2]) for item in app.inputs], [
+            Scene2DPointerInput, Scene2DKeyInput, Scene2DLifecycleInput,
+            Scene2DActivateInput, Scene2DTransitionCompleteInput, Scene2DLifecycleInput,
+        ])
+        wire = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertFalse([message for message in wire if message["type"] == "error"])
+        self.assertEqual([message["request_id"] for message in wire
+                          if message["type"] == "acknowledged"],
+                         [item[0] for item in app.inputs])
+
+        # Queue-overflow recovery also creates an unspecialized cancellation.
+        with contextlib.redirect_stdout(io.StringIO()):
+            app._handle_action(Event("raw-cancel", 6, "board", "scene2d.cancel_all",
+                                     payload={"reason": "reducer_overflow"}), SessionContext())
+        self.assertEqual(app.inputs[-1][0], "raw-cancel")
+        self.assertEqual(app.inputs[-1][2].reason, "reducer_overflow")
+
     def test_pointer_key_lifecycle_and_cancel_all_specialize(self):
         pointer = specialize({
             "id": "p1", "sequence": 1, "node_id": "zip-board",

@@ -256,6 +256,10 @@ held input after overflow. Reducers should publish model-derived UI and scene
 changes together before returning. Accessibility activation of a semantic
 button or grid cell uses the same typed scene event path.
 
+Handler exceptions report `action_failed` with the event, node, action, and
+exception type/message. The exception description is limited to 1,024
+characters. Python stderr receives the full traceback for diagnosis.
+
 `App.tick_interval` can seed an elapsed-time schedule. A reducer can adjust or
 cancel it later with `SessionContext.set_tick_interval(seconds_or_none)`. The
 host owns its monotonic timer, pauses delivery for inactive sections and
