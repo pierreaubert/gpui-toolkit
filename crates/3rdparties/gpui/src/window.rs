@@ -10,15 +10,15 @@ use crate::{
     Keystroke, KeystrokeEvent, LayoutId, LineLayoutIndex, Modifiers, ModifiersChangedEvent,
     MonochromeSprite, MouseButton, MouseEvent, MouseMoveEvent, MouseUpEvent, Path, Pixels,
     PlatformAtlas, PlatformDisplay, PlatformInput, PlatformInputHandler, PlatformWindow, Point,
-    PolychromeSprite, Priority, PromptButton, PromptLevel, Quad, Render, RenderGlyphParams,
-    RenderImage, RenderImageParams, RenderSvgParams, Replay, ResizeEdge, SMOOTH_SVG_SCALE_FACTOR,
-    SUBPIXEL_VARIANTS_X, SUBPIXEL_VARIANTS_Y, ScaledPixels, Scene, Shadow, SharedString, Size,
-    StrikethroughStyle, Style, SubpixelSprite, SubscriberSet, Subscription, SystemWindowTab,
-    SystemWindowTabController, TabStopMap, TaffyLayoutEngine, Task, TextRenderingMode, TextStyle,
-    TextStyleRefinement, ThermalState, TransformationMatrix, Underline, UnderlineStyle,
-    WindowAppearance, WindowBackgroundAppearance, WindowBounds, WindowControls, WindowDecorations,
-    WindowOptions, WindowParams, WindowTextSystem, point, prelude::*, profiler, px, rems, size,
-    transparent_black,
+    PointerEvent, PointerPhase, PolychromeSprite, Priority, PromptButton, PromptLevel, Quad,
+    Render, RenderGlyphParams, RenderImage, RenderImageParams, RenderSvgParams, Replay, ResizeEdge,
+    SMOOTH_SVG_SCALE_FACTOR, SUBPIXEL_VARIANTS_X, SUBPIXEL_VARIANTS_Y, ScaledPixels, Scene, Shadow,
+    SharedString, Size, StrikethroughStyle, Style, SubpixelSprite, SubscriberSet, Subscription,
+    SystemWindowTab, SystemWindowTabController, TabStopMap, TaffyLayoutEngine, Task,
+    TextRenderingMode, TextStyle, TextStyleRefinement, ThermalState, TransformationMatrix,
+    Underline, UnderlineStyle, WindowAppearance, WindowBackgroundAppearance, WindowBounds,
+    WindowControls, WindowDecorations, WindowOptions, WindowParams, WindowTextSystem, point,
+    prelude::*, profiler, px, rems, size, transparent_black,
 };
 
 use anyhow::{Context as _, Result, anyhow};
@@ -653,6 +653,20 @@ type FrameCallback = Box<dyn FnOnce(&mut Window, &mut App)>;
 pub(crate) type AnyMouseListener =
     Box<dyn FnMut(&dyn Any, DispatchPhase, &mut Window, &mut App) + 'static>;
 
+pub(crate) type AnyPointerListener =
+    Box<dyn FnMut(&PointerEvent, DispatchPhase, &mut Window, &mut App) + 'static>;
+
+pub(crate) struct PointerListenerEntry {
+    pub(crate) target: GlobalElementId,
+    pub(crate) listener: AnyPointerListener,
+}
+
+#[derive(Clone)]
+struct DirectPointerCapture {
+    target: GlobalElementId,
+    last_event: PointerEvent,
+}
+
 #[derive(Clone)]
 pub(crate) struct CursorStyleRequest {
     pub(crate) hitbox_id: Option<HitboxId>,
@@ -901,6 +915,7 @@ pub(crate) struct Frame {
     pub(crate) element_states: FxHashMap<(GlobalElementId, TypeId), ElementStateBox>,
     accessed_element_states: Vec<(GlobalElementId, TypeId)>,
     pub(crate) mouse_listeners: Vec<Option<AnyMouseListener>>,
+    pub(crate) pointer_listeners: Vec<Option<PointerListenerEntry>>,
     pub(crate) dispatch_tree: DispatchTree,
     pub(crate) scene: Scene,
     pub(crate) hitboxes: Vec<Hitbox>,
@@ -932,6 +947,7 @@ pub(crate) struct PrepaintStateIndex {
 pub(crate) struct PaintIndex {
     scene_index: usize,
     mouse_listeners_index: usize,
+    pointer_listeners_index: usize,
     input_handlers_index: usize,
     cursor_styles_index: usize,
     accessed_element_states_index: usize,
@@ -948,6 +964,7 @@ impl Frame {
             element_states: FxHashMap::default(),
             accessed_element_states: Vec::new(),
             mouse_listeners: Vec::new(),
+            pointer_listeners: Vec::new(),
             dispatch_tree,
             scene: Scene::default(),
             hitboxes: Vec::new(),
@@ -973,6 +990,7 @@ impl Frame {
         self.element_states.clear();
         self.accessed_element_states.clear();
         self.mouse_listeners.clear();
+        self.pointer_listeners.clear();
         self.dispatch_tree.clear();
         self.scene.clear();
         self.input_handlers.clear();
@@ -1133,6 +1151,11 @@ pub struct Window {
     /// The hitbox that has captured the pointer, if any.
     /// While captured, mouse events route to this hitbox regardless of hit testing.
     captured_hitbox: Option<HitboxId>,
+    /// Direct touch and pen captures are independent from the mouse capture.
+    direct_pointer_captures: FxHashMap<u64, DirectPointerCapture>,
+    current_pointer_event: Option<PointerEvent>,
+    current_pointer_target: Option<GlobalElementId>,
+    direct_pointer_hit_test: HitTest,
     #[cfg(any(feature = "inspector", debug_assertions))]
     inspector: Option<Entity<Inspector>>,
     pub(crate) a11y: A11y,
@@ -1837,6 +1860,10 @@ impl Window {
             client_inset: None,
             image_cache_stack: Vec::new(),
             captured_hitbox: None,
+            direct_pointer_captures: FxHashMap::default(),
+            current_pointer_event: None,
+            current_pointer_target: None,
+            direct_pointer_hit_test: HitTest::default(),
             #[cfg(any(feature = "inspector", debug_assertions))]
             inspector: None,
             a11y: A11y::new(
@@ -1860,6 +1887,8 @@ impl Window {
 pub struct DispatchEventResult {
     pub propagate: bool,
     pub default_prevented: bool,
+    /// Whether a direct-pointer down handler claimed this contact for capture.
+    pub direct_pointer_captured: bool,
 }
 
 /// Indicates which region of the window is visible. Content falling outside of this mask will not be
@@ -2721,6 +2750,64 @@ impl Window {
         self.captured_hitbox = Some(hitbox_id);
     }
 
+    /// Captures the current direct touch or pen contact for this interactive element.
+    ///
+    /// This succeeds only while handling that contact's down event. The capture
+    /// is keyed by the element's stable global ID, so it survives frame redraws
+    /// and continues routing moves and termination events outside its bounds.
+    pub fn capture_direct_pointer(&mut self, pointer_id: u64) -> bool {
+        let Some(event) = self.current_pointer_event.as_ref() else {
+            return false;
+        };
+        let Some(target) = self.current_pointer_target.clone() else {
+            return false;
+        };
+        if event.pointer_id != pointer_id || event.phase != PointerPhase::Down {
+            return false;
+        }
+        self.direct_pointer_captures.insert(
+            pointer_id,
+            DirectPointerCapture {
+                target,
+                last_event: event.clone(),
+            },
+        );
+        true
+    }
+
+    /// Cancels active direct contacts, delivering cancel to their captured elements.
+    pub fn cancel_direct_pointers(&mut self, cx: &mut App) {
+        let cancels = self
+            .direct_pointer_captures
+            .values()
+            .map(|capture| {
+                let mut event = capture.last_event.clone();
+                event.phase = PointerPhase::Cancel;
+                event
+            })
+            .collect::<Vec<_>>();
+        for event in cancels {
+            self.dispatch_pointer_event(event, cx, false);
+        }
+    }
+
+    pub(crate) fn direct_pointer_is_hit(&self, hitbox_id: HitboxId) -> bool {
+        let Some(event) = self.current_pointer_event.as_ref() else {
+            return false;
+        };
+        if let Some(capture) = self.direct_pointer_captures.get(&event.pointer_id) {
+            return self
+                .current_pointer_target
+                .as_ref()
+                .is_some_and(|target| capture.target == *target);
+        }
+        self.direct_pointer_hit_test
+            .ids
+            .iter()
+            .take(self.direct_pointer_hit_test.hover_hitbox_count)
+            .any(|id| *id == hitbox_id)
+    }
+
     /// Releases any active pointer capture.
     pub fn release_pointer(&mut self) {
         self.captured_hitbox = None;
@@ -2812,6 +2899,7 @@ impl Window {
         self.layout_engine.as_mut().unwrap().clear();
         self.text_system().finish_frame();
         self.next_frame.finish(&mut self.rendered_frame);
+        self.cancel_disappeared_direct_pointers(cx);
 
         self.invalidator.set_phase(DrawPhase::Focus);
         let previous_focus_path = self.rendered_frame.focus_path();
@@ -2845,6 +2933,10 @@ impl Window {
             self.focus_listeners
                 .clone()
                 .retain(&(), |listener| listener(&event, self, cx));
+        }
+
+        if previous_window_active && !current_window_active {
+            self.cancel_direct_pointers(cx);
         }
 
         debug_assert!(self.rendered_entity_stack.is_empty());
@@ -3255,6 +3347,7 @@ impl Window {
         PaintIndex {
             scene_index: self.next_frame.scene.len(),
             mouse_listeners_index: self.next_frame.mouse_listeners.len(),
+            pointer_listeners_index: self.next_frame.pointer_listeners.len(),
             input_handlers_index: self.next_frame.input_handlers.len(),
             cursor_styles_index: self.next_frame.cursor_styles.len(),
             accessed_element_states_index: self.next_frame.accessed_element_states.len(),
@@ -3279,6 +3372,12 @@ impl Window {
         self.next_frame.mouse_listeners.extend(
             self.rendered_frame.mouse_listeners
                 [range.start.mouse_listeners_index..range.end.mouse_listeners_index]
+                .iter_mut()
+                .map(|listener| listener.take()),
+        );
+        self.next_frame.pointer_listeners.extend(
+            self.rendered_frame.pointer_listeners
+                [range.start.pointer_listeners_index..range.end.pointer_listeners_index]
                 .iter_mut()
                 .map(|listener| listener.take()),
         );
@@ -4536,6 +4635,24 @@ impl Window {
         )));
     }
 
+    /// Registers a direct touch or pen listener on the current element for the next frame.
+    ///
+    /// This is an internal building block for [`InteractiveElement`](crate::InteractiveElement).
+    /// Callbacks remain separate from mouse and gesture listeners.
+    pub(crate) fn on_pointer_event(
+        &mut self,
+        target: GlobalElementId,
+        listener: impl FnMut(&PointerEvent, DispatchPhase, &mut Window, &mut App) + 'static,
+    ) {
+        self.invalidator.debug_assert_paint();
+        self.next_frame
+            .pointer_listeners
+            .push(Some(PointerListenerEntry {
+                target,
+                listener: Box::new(listener),
+            }));
+    }
+
     /// Register a key event listener on this node for the next frame. The type of event
     /// is determined by the first parameter of the given listener. When the next frame is rendered
     /// the listener will be cleared.
@@ -4744,6 +4861,7 @@ impl Window {
                 self.modifiers = pinch.modifiers;
                 PlatformInput::Pinch(pinch)
             }
+            PlatformInput::Pointer(pointer) => PlatformInput::Pointer(pointer),
             // Translate dragging and dropping of external files from the operating system
             // to internal drag and drop events.
             PlatformInput::FileDrop(file_drop) => match file_drop {
@@ -4789,10 +4907,13 @@ impl Window {
             PlatformInput::KeyDown(_) | PlatformInput::KeyUp(_) => event,
         };
 
+        let mut direct_pointer_captured = false;
         if let Some(any_mouse_event) = event.mouse_event() {
             self.dispatch_mouse_event(any_mouse_event, cx);
         } else if let Some(any_key_event) = event.keyboard_event() {
             self.dispatch_key_event(any_key_event, cx);
+        } else if let PlatformInput::Pointer(pointer) = &event {
+            direct_pointer_captured = self.dispatch_pointer_event(pointer.clone(), cx, true);
         }
 
         if self.invalidator.update_count() > update_count_before {
@@ -4808,6 +4929,7 @@ impl Window {
         DispatchEventResult {
             propagate: cx.propagate_event,
             default_prevented: self.default_prevented,
+            direct_pointer_captured,
         }
     }
 
@@ -4866,6 +4988,84 @@ impl Window {
         // Auto-release pointer capture on mouse up
         if event.is::<MouseUpEvent>() && self.captured_hitbox.is_some() {
             self.captured_hitbox = None;
+        }
+    }
+
+    fn dispatch_pointer_event(
+        &mut self,
+        event: PointerEvent,
+        cx: &mut App,
+        allow_redraw: bool,
+    ) -> bool {
+        if allow_redraw && self.invalidator.is_dirty() {
+            self.draw(cx).clear();
+        }
+
+        cx.propagate_event = true;
+        self.default_prevented = false;
+
+        let captured = self.direct_pointer_captures.contains_key(&event.pointer_id);
+        self.direct_pointer_hit_test = if captured {
+            HitTest::default()
+        } else {
+            self.rendered_frame.hit_test(event.position)
+        };
+        self.current_pointer_event = Some(event.clone());
+
+        let mut listeners = mem::take(&mut self.rendered_frame.pointer_listeners);
+        for phase in [DispatchPhase::Capture, DispatchPhase::Bubble] {
+            if phase == DispatchPhase::Bubble && !cx.propagate_event {
+                break;
+            }
+            let iter: Box<dyn Iterator<Item = &mut Option<PointerListenerEntry>>> = match phase {
+                DispatchPhase::Capture => Box::new(listeners.iter_mut()),
+                DispatchPhase::Bubble => Box::new(listeners.iter_mut().rev()),
+            };
+            for slot in iter {
+                let Some(entry) = slot.as_mut() else {
+                    continue;
+                };
+                self.current_pointer_target = Some(entry.target.clone());
+                (entry.listener)(&event, phase, self, cx);
+                self.current_pointer_target = None;
+                if !cx.propagate_event {
+                    break;
+                }
+            }
+        }
+        self.current_pointer_target = None;
+        self.current_pointer_event = None;
+        self.rendered_frame.pointer_listeners = listeners;
+
+        if let Some(capture) = self.direct_pointer_captures.get_mut(&event.pointer_id) {
+            capture.last_event = event.clone();
+        }
+        let claimed = self.direct_pointer_captures.contains_key(&event.pointer_id);
+        if matches!(event.phase, PointerPhase::Up | PointerPhase::Cancel) {
+            self.direct_pointer_captures.remove(&event.pointer_id);
+        }
+        event.phase == PointerPhase::Down && claimed
+    }
+
+    fn cancel_disappeared_direct_pointers(&mut self, cx: &mut App) {
+        let retained_targets = self
+            .next_frame
+            .pointer_listeners
+            .iter()
+            .filter_map(|listener| listener.as_ref().map(|listener| listener.target.clone()))
+            .collect::<FxHashSet<_>>();
+        let cancels = self
+            .direct_pointer_captures
+            .iter()
+            .filter(|(_, capture)| !retained_targets.contains(&capture.target))
+            .map(|(_, capture)| {
+                let mut event = capture.last_event.clone();
+                event.phase = PointerPhase::Cancel;
+                event
+            })
+            .collect::<Vec<_>>();
+        for event in cancels {
+            self.dispatch_pointer_event(event, cx, false);
         }
     }
 

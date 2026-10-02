@@ -66,6 +66,7 @@ pub enum TranslationKey {
     SectionCommandPalette,
     SectionAccessibility,
     SectionThinkingOrbs,
+    SectionScene2d,
 
     // Component labels
     LabelVariants,

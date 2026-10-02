@@ -1,4 +1,5 @@
 from typing import Any
+from .scene2d import GridCell
 
 class Event:
     id: str
@@ -7,6 +8,7 @@ class Event:
     event: str
     action: str | None
     payload: dict[str, Any] | None
+    def __init__(self, id: str, sequence: int, node_id: str, event: str, action: str | None = ..., payload: dict[str, Any] | None = ...) -> None: ...
     @property
     def kind(self) -> str: ...
     @classmethod
@@ -75,6 +77,68 @@ class Viewport(Event):
 class ValueChange(Event):
     @property
     def value(self) -> Any: ...
+
+class Scene2DPointerInput:
+    phase: str
+    device: str
+    contact_id: int
+    timestamp_ns: int
+    x: float
+    y: float
+    buttons: tuple[str, ...]
+    modifiers: tuple[str, ...]
+    hit_id: str | None
+    cell: GridCell | None
+    def __init__(self, phase: str, device: str, contact_id: int, timestamp_ns: int, x: float, y: float, buttons: tuple[str, ...] = ..., modifiers: tuple[str, ...] = ..., hit_id: str | None = ..., cell: GridCell | None = ...) -> None: ...
+    @classmethod
+    def from_wire(cls, value: dict[str, Any]) -> Scene2DPointerInput: ...
+
+class Scene2DKeyInput:
+    phase: str
+    key: str
+    repeat: bool
+    modifiers: tuple[str, ...]
+    timestamp_ns: int
+    def __init__(self, phase: str, key: str, repeat: bool, modifiers: tuple[str, ...], timestamp_ns: int) -> None: ...
+    @classmethod
+    def from_wire(cls, value: dict[str, Any]) -> Scene2DKeyInput: ...
+
+class Scene2DLifecycleInput:
+    reason: str
+    timestamp_ns: int
+    def __init__(self, reason: str, timestamp_ns: int) -> None: ...
+
+class Scene2DTransitionCompleteInput:
+    id: str
+    completion_id: str
+    timestamp_ns: int
+    def __init__(self, id: str, completion_id: str, timestamp_ns: int) -> None: ...
+
+class Scene2DActivateInput:
+    id: str
+    timestamp_ns: int
+    hit_id: str | None
+    cell: GridCell | None
+    def __init__(self, id: str, timestamp_ns: int, hit_id: str | None = ..., cell: GridCell | None = ...) -> None: ...
+
+class Scene2DEvent(Event):
+    surface_id: str
+    input: Scene2DPointerInput | Scene2DKeyInput | Scene2DLifecycleInput | Scene2DTransitionCompleteInput | Scene2DActivateInput | None
+    def __init__(self, id: str, sequence: int, node_id: str, event: str, action: str | None = ..., payload: dict[str, Any] | None = ..., surface_id: str = ..., input: Scene2DPointerInput | Scene2DKeyInput | Scene2DLifecycleInput | Scene2DTransitionCompleteInput | Scene2DActivateInput | None = ...) -> None: ...
+    @classmethod
+    def from_event(cls, event: Event) -> Scene2DEvent: ...
+
+class Scene2DTick:
+    elapsed_ns: int
+    frame: int
+    surface_id: str
+    def __init__(self, elapsed_ns: int, frame: int, surface_id: str = ...) -> None: ...
+    @classmethod
+    def from_event(cls, event: Event) -> Scene2DTick: ...
+    @property
+    def elapsed_seconds(self) -> float: ...
+
+def specialize(message: dict[str, Any]) -> Event: ...
 
 ChartSelection = Selection
 ChartViewport = Viewport

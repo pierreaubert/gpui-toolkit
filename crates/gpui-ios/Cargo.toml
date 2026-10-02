@@ -29,6 +29,7 @@ urlencoding = []
 
 [dependencies]
 anyhow = { workspace = true }
+accesskit = "0.24.0"
 log = { workspace = true, features = ["kv_unstable_serde", "serde"] }
 parking_lot = { workspace = true }
 futures = { workspace = true }

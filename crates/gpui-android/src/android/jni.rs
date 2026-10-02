@@ -154,6 +154,52 @@ pub fn get_string(env: &mut jni::Env<'_>, obj: &JObject<'_>) -> String {
     jstr.to_string()
 }
 
+/// Read a string extra from the Activity's launch Intent.
+///
+/// This is intended for app startup configuration. Missing extras and JNI
+/// failures return `None`; the helper does not mutate process environment or
+/// retain the Intent beyond the call.
+pub fn launch_intent_string_extra(name: &str) -> Option<String> {
+    with_env(|env| {
+        let activity = activity(env)?;
+        let intent = env
+            .call_method(
+                &activity,
+                jni::jni_str!("getIntent"),
+                jni::jni_sig!("()Landroid/content/Intent;"),
+                &[],
+            )
+            .and_then(|value| value.l())
+            .map_err(|error| {
+                env.exception_clear();
+                error.to_string()
+            })?;
+        if intent.is_null() {
+            return Ok(None);
+        }
+        let key = env.new_string(name).map_err(|error| error.to_string())?;
+        let value = env
+            .call_method(
+                &intent,
+                jni::jni_str!("getStringExtra"),
+                jni::jni_sig!("(Ljava/lang/String;)Ljava/lang/String;"),
+                &[JValue::Object(&key)],
+            )
+            .and_then(|value| value.l())
+            .map_err(|error| {
+                env.exception_clear();
+                error.to_string()
+            })?;
+        if value.is_null() {
+            Ok(None)
+        } else {
+            Ok(Some(get_string(env, &value)))
+        }
+    })
+    .ok()
+    .flatten()
+}
+
 /// Extension trait for converting `jni::errors::Result<T>` to `Result<T, String>`.
 pub(crate) trait JniExt<T> {
     fn e(self) -> Result<T, String>;
@@ -437,6 +483,10 @@ fn motion_kind(action: android_activity::input::MotionAction) -> crate::event_st
     }
 }
 
+fn finite_pressure(value: f32) -> Option<f32> {
+    value.is_finite().then(|| value.clamp(0.0, 1.0))
+}
+
 /// Process input events from the `AndroidApp` and dispatch them to the window.
 fn process_input_events(app: &AndroidApp) {
     let platform = match PLATFORM.get() {
@@ -530,11 +580,35 @@ fn process_input_events(app: &AndroidApp) {
                                 };
                                 let pointer = motion_event.pointer_at_index(i);
 
+                                let history = pointer
+                                    .history()
+                                    .map(|sample| crate::android::HistoricalTouchPoint {
+                                        timestamp_ns: sample.event_time().max(0) as u64,
+                                        x: sample.x(),
+                                        y: sample.y(),
+                                        pressure: finite_pressure(sample.pressure()),
+                                    })
+                                    .collect();
+                                let tool = match pointer.tool_type() {
+                                    android_activity::input::ToolType::Finger => {
+                                        crate::android::TouchTool::Finger
+                                    }
+                                    android_activity::input::ToolType::Stylus
+                                    | android_activity::input::ToolType::Eraser => {
+                                        crate::android::TouchTool::Stylus
+                                    }
+                                    _ => crate::android::TouchTool::Other,
+                                };
+
                                 let touch = crate::android::TouchPoint {
                                     id: pointer.pointer_id(),
                                     x: pointer.x(),
                                     y: pointer.y(),
                                     action: touch_action,
+                                    timestamp_ns: motion_event.event_time().max(0) as u64,
+                                    tool,
+                                    pressure: finite_pressure(pointer.pressure()),
+                                    history,
                                 };
 
                                 log::debug!(
@@ -1642,7 +1716,9 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiActivity_nativeAccessibilityAc
     node_id: i64,
     action: i32,
 ) -> u8 {
-    u8::from(node_id >= 0 && crate::accessibility::perform_action(node_id as u64, action))
+    // Java forwards the AccessKit ID as a jlong bit pattern so the full u64
+    // range survives JNI even when its signed representation is negative.
+    u8::from(crate::accessibility::perform_action(node_id as u64, action))
 }
 
 /// JNI bridge: receive a media action from `GpuiMediaSession` system controls.

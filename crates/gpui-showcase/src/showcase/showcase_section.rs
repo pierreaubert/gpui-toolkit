@@ -49,6 +49,8 @@ pub enum ShowcaseSection {
     Accessibility,
     AudioVisuals,
     ThinkingOrbs,
+    Scene2d,
+    Games,
 }
 
 impl ShowcaseSection {
@@ -103,6 +105,8 @@ impl ShowcaseSection {
             ShowcaseSection::Accessibility,
             ShowcaseSection::AudioVisuals,
             ShowcaseSection::ThinkingOrbs,
+            ShowcaseSection::Scene2d,
+            ShowcaseSection::Games,
         ]
     }
 
@@ -152,6 +156,8 @@ impl ShowcaseSection {
             ShowcaseSection::Accessibility => "Accessibility",
             ShowcaseSection::AudioVisuals => "Audio Visuals",
             ShowcaseSection::ThinkingOrbs => "Thinking Orbs",
+            ShowcaseSection::Scene2d => "Scene2D",
+            ShowcaseSection::Games => "Games",
         }
     }
 

@@ -1,0 +1,98 @@
+[
+  {
+    "schema_version": 1,
+    "game": "zip",
+    "device": "sdk_gphone64_arm64",
+    "serial": "emulator-5554",
+    "api_level": "36",
+    "abi": "arm64-v8a",
+    "process_id": 5176,
+    "pixel_width": 1080,
+    "pixel_height": 2424,
+    "screenshot": "android-zip.png",
+    "pixel_sha256": "144955fd20f11e5f7358a4c873583e28fb74cf4bc3dbcd1f233466da31eb2a8a",
+    "accessibility": "android-zip-accessibility.xml",
+    "accessible_cells": 25,
+    "accessible_nodes": 37,
+    "checks_passed": true,
+    "interaction_scope": [
+      "launch",
+      "pixel-capture",
+      "accessibility-hierarchy"
+    ],
+    "finger_input_measured": false,
+    "input_to_present_measured": false
+  },
+  {
+    "schema_version": 1,
+    "game": "queens",
+    "device": "sdk_gphone64_arm64",
+    "serial": "emulator-5554",
+    "api_level": "36",
+    "abi": "arm64-v8a",
+    "process_id": 5260,
+    "pixel_width": 1080,
+    "pixel_height": 2424,
+    "screenshot": "android-queens.png",
+    "pixel_sha256": "957daac650f4316603dabd84f81f407407eb284221cd01f6c26fc2fc064a2049",
+    "accessibility": "android-queens-accessibility.xml",
+    "accessible_cells": 64,
+    "accessible_nodes": 70,
+    "checks_passed": true,
+    "interaction_scope": [
+      "launch",
+      "pixel-capture",
+      "accessibility-hierarchy"
+    ],
+    "finger_input_measured": false,
+    "input_to_present_measured": false
+  },
+  {
+    "schema_version": 1,
+    "game": "sudoku",
+    "device": "sdk_gphone64_arm64",
+    "serial": "emulator-5554",
+    "api_level": "36",
+    "abi": "arm64-v8a",
+    "process_id": 5342,
+    "pixel_width": 1080,
+    "pixel_height": 2424,
+    "screenshot": "android-sudoku.png",
+    "pixel_sha256": "6d9ec082b9fd3c8053ddad0024e38dffd299045c79797b64cad83c507e8f71b9",
+    "accessibility": "android-sudoku-accessibility.xml",
+    "accessible_cells": 81,
+    "accessible_nodes": 117,
+    "checks_passed": true,
+    "interaction_scope": [
+      "launch",
+      "pixel-capture",
+      "accessibility-hierarchy"
+    ],
+    "finger_input_measured": false,
+    "input_to_present_measured": false
+  },
+  {
+    "schema_version": 1,
+    "game": "tetris",
+    "device": "sdk_gphone64_arm64",
+    "serial": "emulator-5554",
+    "api_level": "36",
+    "abi": "arm64-v8a",
+    "process_id": 5422,
+    "pixel_width": 1080,
+    "pixel_height": 2424,
+    "screenshot": "android-tetris.png",
+    "pixel_sha256": "f4fc2d965610f129f65f335b500f34937268f1332fa94c179b92296eabe8c882",
+    "accessibility": "android-tetris-accessibility.xml",
+    "accessible_cells": 200,
+    "accessible_nodes": 216,
+    "checks_passed": true,
+    "interaction_scope": [
+      "launch",
+      "pixel-capture",
+      "accessibility-hierarchy"
+    ],
+    "finger_input_measured": false,
+    "input_to_present_measured": false
+  }
+]

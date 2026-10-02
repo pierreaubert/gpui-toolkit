@@ -6,6 +6,7 @@
 use crate::audio_stream::AudioFrame;
 use crate::dataset_frames::{DatasetFrame, MappedDatasetFrame};
 use crate::mesh_frames::MeshFrame;
+use crate::scene2d::{Scene2DPatch, Scene2DScene};
 use crate::ui_ir::PythonAppIr;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -27,6 +28,10 @@ pub const DEFAULT_HOST_CAPABILITIES: &[&str] = &[
     "tables",
     "charts",
     "scene3d",
+    "scene2d",
+    "scene2d_pointer_input",
+    "scene2d_keyboard_input",
+    "scene2d_tick_schedule",
     "state_store",
     "audio_binary_frames",
     "meshplot",
@@ -101,13 +106,16 @@ pub struct WindowMetadata {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UiEvent {
     pub id: String,
-    pub sequence: u64,
     pub node_id: String,
     pub event: String,
     #[serde(default)]
     pub action: Option<String>,
     #[serde(default)]
     pub payload: Value,
+    /// Kept last on the wire so the background writer can assign an ordered
+    /// sequence without rescanning or serializing a potentially large payload
+    /// while holding its nonblocking queue lock.
+    pub sequence: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -250,6 +258,18 @@ pub enum PatchOp {
     ResetMeshPlotViewport {
         plot_id: String,
         generation: u64,
+    },
+    /// Replace a surface's complete Scene2D snapshot inside this UI transaction.
+    #[serde(rename = "scene2d_replace")]
+    Scene2DReplace {
+        id: String,
+        scene: Scene2DScene,
+    },
+    /// Apply an object-ID delta to a surface inside this UI transaction.
+    #[serde(rename = "scene2d_patch")]
+    Scene2DPatch {
+        id: String,
+        patch: Scene2DPatch,
     },
 }
 
@@ -538,6 +558,10 @@ pub enum PythonMessage {
     Error(ProtocolError),
     Heartbeat {
         id: String,
+    },
+    /// Change the host-owned monotonic tick interval; `None` disables ticks.
+    TickSchedule {
+        interval: Option<f64>,
     },
 }
 

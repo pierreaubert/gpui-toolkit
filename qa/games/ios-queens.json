@@ -1,0 +1,38 @@
+{
+  "app_installed": true,
+  "app_launched": true,
+  "bundle_id": "org.spinorama.gpui-showcase",
+  "capture_transport": "apple-simctl",
+  "device_name": "iPhone 16e",
+  "device_udid": "F616510B-9E85-4195-AB59-9E00A4C9E4DE",
+  "interaction_scope": [
+    "build",
+    "install",
+    "launch",
+    "pixel-capture"
+  ],
+  "launch_pid": 25627,
+  "manual_required": [
+    "touch-navigation",
+    "text-input-ime",
+    "VoiceOver",
+    "rotation",
+    "device-run"
+  ],
+  "pixel_artifact": "ios-queens.png",
+  "pixel_capture": true,
+  "pixel_height": 2532,
+  "pixel_sha256": "87135ffcf9f0a72206d97abfa30549278c521daeda234b190051ea29d33a7e53",
+  "pixel_unique_colors": 663,
+  "pixel_width": 1170,
+  "platform": "ios",
+  "report_type": "gpui-apple-simulator-smoke",
+  "runtime": "iOS 18 6",
+  "schema_version": 1,
+  "source_dirty": true,
+  "source_revision": "5b7250585c8b0522c6147e38f119194a8dc6a0fb",
+  "toolchains": {
+    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28) binary: rustc commit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4 commit-date: 2026-09-28 host: aarch64-apple-darwin release: 1.99.0 LLVM version: 23.1.1",
+    "xcode": "Xcode 27.0 Build version 27A266a"
+  }
+}

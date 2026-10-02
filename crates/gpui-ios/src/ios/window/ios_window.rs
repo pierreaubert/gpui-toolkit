@@ -31,6 +31,7 @@ use objc::{
 };
 use parking_lot::Mutex;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, UiKitDisplayHandle, UiKitWindowHandle};
+use std::collections::HashSet;
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
@@ -122,6 +123,9 @@ pub(crate) struct IosWindow {
     /// Per-touch gesture state machine — distinguishes taps from scroll drags.
     /// Keyed by the UITouch pointer address.
     pub(super) touch_states: RefCell<TouchStateMap>,
+    /// Contacts claimed by an independent GPUI surface; these never enter
+    /// the compatibility mouse, scroll, or pinch state machine.
+    pub(super) direct_claimed_touches: RefCell<HashSet<usize>>,
     /// UIKit can be re-entered by application code invoked from an input
     /// callback. Retain and defer nested touches until their active state map
     /// is no longer borrowed.
@@ -359,6 +363,7 @@ impl IosWindow {
                 modifiers: Cell::new(Modifiers::default()),
                 touch_pressed: Cell::new(false),
                 touch_states: RefCell::new(TouchStateMap::new()),
+                direct_claimed_touches: RefCell::new(HashSet::new()),
                 touch_dispatching: Cell::new(false),
                 pending_touches: RefCell::new(VecDeque::new()),
                 pinch_state: RefCell::new(PinchState::default()),
@@ -942,6 +947,7 @@ impl IosWindow {
         };
         self.bounds.set(new_bounds);
         self.scale_factor.set(new_scale);
+        crate::accessibility::update_accesskit_scale_factor(new_scale);
 
         unsafe {
             // Update the Metal layer's contentsScale so the drawable has the correct pixel dimensions.
@@ -1014,6 +1020,20 @@ impl PlatformWindow for IosWindow {
 
     fn resize(&mut self, _size: Size<Pixels>) {
         // iOS windows cannot be resized programmatically
+    }
+
+    fn a11y_init(&self, callbacks: gpui::A11yCallbacks) {
+        crate::accessibility::init_accesskit(callbacks, self.scale_factor.get());
+    }
+
+    fn a11y_tree_update(&self, tree_update: accesskit::TreeUpdate) {
+        crate::accessibility::update_accesskit_tree(tree_update, self.scale_factor.get());
+    }
+
+    fn a11y_update_window_bounds(&self) {
+        if !crate::accessibility::update_accesskit_scale_factor(self.scale_factor.get()) {
+            crate::ios::ffi::gpui_ios_refresh_accessibility();
+        }
     }
 
     fn scale_factor(&self) -> f32 {

@@ -13,8 +13,8 @@ use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::wizard::StepStatus;
 use gpui_ui_kit::workflow::{WorkflowCanvas, WorkflowGraph};
 use gpui_ui_kit::{
-    AnimatedQrCode, Divider, Heading, PaginationState, Sidebar, SidebarSide, SortDirection,
-    SortState, Text,
+    AnimatedQrCode, Divider, Heading, PaginationState, Scene2DState, Sidebar, SidebarSide,
+    SortDirection, SortState, Text,
 };
 use std::collections::HashSet;
 use std::sync::OnceLock;
@@ -122,7 +122,6 @@ fn showcase_layout_for_width(width: f32) -> ShowcaseLayout {
     }
 }
 
-#[cfg(target_family = "wasm")]
 fn normalized_section_key(value: &str) -> String {
     value
         .chars()
@@ -131,9 +130,36 @@ fn normalized_section_key(value: &str) -> String {
         .collect()
 }
 
-#[cfg(target_family = "wasm")]
+#[cfg(target_os = "android")]
+fn launch_intent_extra(name: &str) -> Option<String> {
+    gpui_android::android::jni::launch_intent_string_extra(name)
+}
+
+pub(crate) fn initial_game_name() -> Option<String> {
+    #[cfg(target_family = "wasm")]
+    {
+        None
+    }
+    #[cfg(all(not(target_family = "wasm"), target_os = "android"))]
+    {
+        launch_intent_extra("game").or_else(|| std::env::var("GPUI_GAMES_GAME").ok())
+    }
+    #[cfg(all(not(target_family = "wasm"), not(target_os = "android")))]
+    {
+        std::env::var("GPUI_GAMES_GAME").ok()
+    }
+}
+
 fn initial_section() -> ShowcaseSection {
-    if let Some(requested) = gpui_miniapp::web_query_param("section") {
+    #[cfg(target_family = "wasm")]
+    let requested = gpui_miniapp::web_query_param("section");
+    #[cfg(all(not(target_family = "wasm"), target_os = "android"))]
+    let requested =
+        launch_intent_extra("section").or_else(|| std::env::var("GPUI_SHOWCASE_SECTION").ok());
+    #[cfg(all(not(target_family = "wasm"), not(target_os = "android")))]
+    let requested = std::env::var("GPUI_SHOWCASE_SECTION").ok();
+
+    if let Some(requested) = requested {
         let requested = normalized_section_key(&requested);
         if let Some(section) = ShowcaseSection::all()
             .iter()
@@ -263,6 +289,11 @@ pub struct Showcase {
     pub accessibility_terms: bool,
     pub accessibility_dark: bool,
     pub accessibility_volume: f32,
+    #[cfg(target_os = "ios")]
+    status_bar_style: Option<gpui_ios::StatusBarContentStyle>,
+    // Retained native Scene2D showcase surface.
+    pub scene2d_selected: usize,
+    pub scene2d_state: Scene2DState,
     // Tooltip hover state
     pub tooltip_hovered: Option<&'static str>,
     // Popover open state
@@ -286,6 +317,7 @@ pub struct Showcase {
     content_entity: Entity<ShowcaseContent>,
     audio_visuals_entity: Entity<AudioVisuals>,
     thinking_orbs_entity: Entity<ThinkingOrbsLab>,
+    games_entity: Entity<sections::games::GamesShowcase>,
 }
 
 #[derive(Clone)]
@@ -321,6 +353,12 @@ impl Showcase {
         let content_entity = cx.new(|_cx| ShowcaseContent::new(parent.clone()));
         let audio_visuals_entity = cx.new(|_cx| AudioVisuals::new());
         let thinking_orbs_entity = cx.new(ThinkingOrbsLab::new);
+        let games_entity = cx.new(sections::games::GamesShowcase::new);
+        let current_section = initial_section();
+        let game_is_active = current_section == ShowcaseSection::Games;
+        games_entity.update(cx, |games, cx| games.set_active(game_is_active, cx));
+        let scene2d_state = Scene2DState::new(sections::render_scene2d::demo_scene(12))
+            .expect("the built-in Scene2D showcase is valid");
 
         Self {
             toggle_on: true,
@@ -419,14 +457,15 @@ impl Showcase {
             accessibility_terms: true,
             accessibility_dark: true,
             accessibility_volume: 75.0,
+            #[cfg(target_os = "ios")]
+            status_bar_style: None,
+            scene2d_selected: 12,
+            scene2d_state,
             tooltip_hovered: None,
             popover_open: None,
             animated_qr_tiny: None,
             animated_qr_small: None,
-            #[cfg(target_family = "wasm")]
-            current_section: initial_section(),
-            #[cfg(not(target_family = "wasm"))]
-            current_section: ShowcaseSection::default(),
+            current_section,
             embedded: false,
             entity: Some(entity),
             self_handle,
@@ -436,12 +475,16 @@ impl Showcase {
             content_entity,
             audio_visuals_entity,
             thinking_orbs_entity,
+            games_entity,
         }
     }
 
     pub fn embedded_section(section: ShowcaseSection, cx: &mut Context<Self>) -> Self {
         let mut showcase = Self::new(cx);
         showcase.current_section = section;
+        showcase.games_entity.update(cx, |games, cx| {
+            games.set_active(section == ShowcaseSection::Games, cx)
+        });
         showcase.ensure_animated_qr(section, cx);
         showcase.embedded = true;
         showcase
@@ -470,6 +513,9 @@ impl Showcase {
         }
         self.ensure_animated_qr(section, cx);
         self.current_section = section;
+        self.games_entity.update(cx, |games, cx| {
+            games.set_active(section == ShowcaseSection::Games, cx)
+        });
         self.content_entity.update(cx, |content, cx| {
             content
                 .scroll_handle
@@ -496,6 +542,7 @@ impl Render for Showcase {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let current_section = self.current_section;
         let embedded = self.embedded;
+        let games_fullscreen = current_section == ShowcaseSection::Games;
         let compact = showcase_layout_for_width(window.viewport_size().width.as_f32())
             == ShowcaseLayout::Compact;
         let (safe_top, safe_left, safe_bottom, safe_right) = platform_safe_area_insets();
@@ -549,6 +596,19 @@ impl Render for Showcase {
             let theme = cx.theme();
             (theme.background, theme.text_secondary)
         };
+        #[cfg(target_os = "ios")]
+        {
+            let luminance = bg_color.r * 0.2126 + bg_color.g * 0.7152 + bg_color.b * 0.0722;
+            let style = if luminance < 0.52 {
+                gpui_ios::StatusBarContentStyle::Light
+            } else {
+                gpui_ios::StatusBarContentStyle::Dark
+            };
+            if self.status_bar_style != Some(style) {
+                gpui_ios::ios::set_status_bar_style(style);
+                self.status_bar_style = Some(style);
+            }
+        }
 
         if embedded {
             return div()
@@ -575,22 +635,29 @@ impl Render for Showcase {
             .pl(px(safe_left))
             .on_key_down(cx.listener(Self::handle_key_down));
 
-        let content = div()
+        let mut content = div()
             .flex_1()
             .flex()
             .flex_col()
             .min_w_0()
             .min_h_0()
-            .overflow_hidden()
+            .overflow_hidden();
+        if !games_fullscreen {
+            content = content.child(self.header_entity.clone());
+        }
+        let content = content
             // These views own their layout-defining styles: the sidebar has a
             // fixed width and the header derives its height from padding and
             // contents. `AnyView::cached` only uses the supplied refinement
             // during layout, so caching them with partial styles collapses
             // their slots while their descendants still paint.
-            .child(self.header_entity.clone())
             .child(self.content_entity.clone());
 
-        if compact {
+        if games_fullscreen && compact {
+            root.flex_col().child(content)
+        } else if games_fullscreen {
+            root.child(content)
+        } else if compact {
             root.flex_col()
                 .child(self.sidebar_entity.clone())
                 .child(content)
@@ -658,6 +725,8 @@ impl Showcase {
             ShowcaseSection::Accordion => self.render_accordion_section(cx).into_any_element(),
             ShowcaseSection::Wizard => self.render_wizard_section(cx).into_any_element(),
             ShowcaseSection::Workflow => self.render_workflow_section(cx).into_any_element(),
+            ShowcaseSection::Scene2d => self.render_scene2d_section(cx).into_any_element(),
+            ShowcaseSection::Games => self.games_entity.clone().into_any_element(),
             ShowcaseSection::QrCode => self.render_qr_section(cx).into_any_element(),
             ShowcaseSection::ContextMenu => self.render_context_menu_section(cx).into_any_element(),
             ShowcaseSection::Popover => self.render_popover_section(cx).into_any_element(),
@@ -1072,29 +1141,32 @@ impl Render for ShowcaseContent {
             let current_group = section.group();
             let theme = cx.theme();
 
-            let group_info = div()
-                .mb_4()
-                .p_4()
-                .bg(theme.surface)
-                .border_1()
-                .border_color(theme.border)
-                .rounded(px(6.0))
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(
-                    div()
-                        .text_xs()
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(theme.text_muted)
-                        .child(current_group.label()),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(theme.text_muted)
-                        .child(current_group.description()),
-                );
+            let games_fullscreen = section == ShowcaseSection::Games;
+            let group_info = (!games_fullscreen).then(|| {
+                div()
+                    .mb_4()
+                    .p_4()
+                    .bg(theme.surface)
+                    .border_1()
+                    .border_color(theme.border)
+                    .rounded(px(6.0))
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(theme.text_muted)
+                            .child(current_group.label()),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(theme.text_muted)
+                            .child(current_group.description()),
+                    )
+            });
 
             let scroll_handle = self.scroll_handle.clone();
             let log_handle = scroll_handle.clone();
@@ -1133,15 +1205,28 @@ impl Render for ShowcaseContent {
                     ));
                 });
 
-            let content = if compact {
+            let content = if games_fullscreen {
+                content.p_2()
+            } else if compact {
                 content.p_4()
             } else {
                 content.p_8().pt_4()
             };
-
-            content
-                .child(group_info.flex_shrink_0())
-                .child(div().w_full().flex_shrink_0().child(section_content))
+            let content = if let Some(group_info) = group_info {
+                content.child(group_info.flex_shrink_0())
+            } else {
+                content
+            };
+            let section_content = if games_fullscreen {
+                div()
+                    .w_full()
+                    .flex_1()
+                    .min_h_0()
+                    .child(section_content)
+            } else {
+                div().w_full().flex_shrink_0().child(section_content)
+            };
+            content.child(section_content)
         }) {
             Ok(element) => element.into_any_element(),
             Err(_) => div().into_any_element(),

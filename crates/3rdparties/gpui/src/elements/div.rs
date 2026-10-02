@@ -15,7 +15,6 @@
 //! and Tailwind-like styling that you can use to build your own custom elements. Div is
 //! constructed by combining these two systems into an all-in-one element.
 
-use crate::PinchEvent;
 use crate::{
     Action, AnyDrag, AnyElement, AnyTooltip, AnyView, App, Bounds, ClickEvent, DispatchPhase,
     Display, Element, ElementId, Entity, EntityId, FocusHandle, Global, GlobalElementId, Hitbox,
@@ -26,6 +25,7 @@ use crate::{
     StyleRefinement, Styled, Task, TooltipId, Visibility, Window, WindowControlArea, point, px,
     size,
 };
+use crate::{PinchEvent, PointerEvent, PointerPhase};
 use collections::HashMap;
 use gpui_util::ResultExt;
 use refineable::Refineable;
@@ -301,6 +301,70 @@ impl Interactivity {
             .push(Box::new(move |event, phase, hitbox, window, cx| {
                 if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
                     (listener)(event, window, cx);
+                }
+            }));
+    }
+
+    /// Bind a direct touch or pen contact start to this element.
+    pub fn on_pointer_down(
+        &mut self,
+        listener: impl Fn(&PointerEvent, &mut Window, &mut App) + 'static,
+    ) {
+        self.pointer_down_listeners
+            .push(Box::new(move |event, phase, hitbox, window, cx| {
+                if phase == DispatchPhase::Bubble
+                    && event.phase == PointerPhase::Down
+                    && window.direct_pointer_is_hit(hitbox.id)
+                {
+                    listener(event, window, cx);
+                }
+            }));
+    }
+
+    /// Bind direct touch or pen movement to this element.
+    pub fn on_pointer_move(
+        &mut self,
+        listener: impl Fn(&PointerEvent, &mut Window, &mut App) + 'static,
+    ) {
+        self.pointer_move_listeners
+            .push(Box::new(move |event, phase, hitbox, window, cx| {
+                if phase == DispatchPhase::Bubble
+                    && event.phase == PointerPhase::Move
+                    && window.direct_pointer_is_hit(hitbox.id)
+                {
+                    listener(event, window, cx);
+                }
+            }));
+    }
+
+    /// Bind direct touch or pen contact end to this element.
+    pub fn on_pointer_up(
+        &mut self,
+        listener: impl Fn(&PointerEvent, &mut Window, &mut App) + 'static,
+    ) {
+        self.pointer_up_listeners
+            .push(Box::new(move |event, phase, hitbox, window, cx| {
+                if phase == DispatchPhase::Bubble
+                    && event.phase == PointerPhase::Up
+                    && window.direct_pointer_is_hit(hitbox.id)
+                {
+                    listener(event, window, cx);
+                }
+            }));
+    }
+
+    /// Bind platform-cancelled direct touch or pen contacts to this element.
+    pub fn on_pointer_cancel(
+        &mut self,
+        listener: impl Fn(&PointerEvent, &mut Window, &mut App) + 'static,
+    ) {
+        self.pointer_cancel_listeners
+            .push(Box::new(move |event, phase, hitbox, window, cx| {
+                if phase == DispatchPhase::Bubble
+                    && event.phase == PointerPhase::Cancel
+                    && window.direct_pointer_is_hit(hitbox.id)
+                {
+                    listener(event, window, cx);
                 }
             }));
     }
@@ -932,6 +996,42 @@ pub trait InteractiveElement: Sized {
         self
     }
 
+    /// Bind a direct touch or pen contact start to this element.
+    fn on_pointer_down(
+        mut self,
+        listener: impl Fn(&PointerEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.interactivity().on_pointer_down(listener);
+        self
+    }
+
+    /// Bind direct touch or pen movement to this element.
+    fn on_pointer_move(
+        mut self,
+        listener: impl Fn(&PointerEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.interactivity().on_pointer_move(listener);
+        self
+    }
+
+    /// Bind direct touch or pen contact end to this element.
+    fn on_pointer_up(
+        mut self,
+        listener: impl Fn(&PointerEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.interactivity().on_pointer_up(listener);
+        self
+    }
+
+    /// Bind platform-cancelled direct touch or pen contacts to this element.
+    fn on_pointer_cancel(
+        mut self,
+        listener: impl Fn(&PointerEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.interactivity().on_pointer_cancel(listener);
+        self
+    }
+
     /// Bind the given callback to the mouse drag event of the given type. Note that this
     /// will be called for all move events, inside or outside of this element, as long as the
     /// drag was started with this element under the mouse. Useful for implementing draggable
@@ -1539,6 +1639,9 @@ pub(crate) type MousePressureListener =
 pub(crate) type MouseMoveListener =
     Box<dyn Fn(&MouseMoveEvent, DispatchPhase, &Hitbox, &mut Window, &mut App) + 'static>;
 
+pub(crate) type PointerListener =
+    Box<dyn Fn(&PointerEvent, DispatchPhase, &Hitbox, &mut Window, &mut App) + 'static>;
+
 pub(crate) type ScrollWheelListener =
     Box<dyn Fn(&ScrollWheelEvent, DispatchPhase, &Hitbox, &mut Window, &mut App) + 'static>;
 
@@ -1921,6 +2024,10 @@ pub struct Interactivity {
     pub(crate) mouse_up_listeners: Vec<MouseUpListener>,
     pub(crate) mouse_pressure_listeners: Vec<MousePressureListener>,
     pub(crate) mouse_move_listeners: Vec<MouseMoveListener>,
+    pub(crate) pointer_down_listeners: Vec<PointerListener>,
+    pub(crate) pointer_move_listeners: Vec<PointerListener>,
+    pub(crate) pointer_up_listeners: Vec<PointerListener>,
+    pub(crate) pointer_cancel_listeners: Vec<PointerListener>,
     pub(crate) scroll_wheel_listeners: Vec<ScrollWheelListener>,
     pub(crate) pinch_listeners: Vec<PinchListener>,
     pub(crate) key_down_listeners: Vec<KeyDownListener>,
@@ -2172,6 +2279,10 @@ impl Interactivity {
             || !self.mouse_pressure_listeners.is_empty()
             || !self.mouse_down_listeners.is_empty()
             || !self.mouse_move_listeners.is_empty()
+            || !self.pointer_down_listeners.is_empty()
+            || !self.pointer_move_listeners.is_empty()
+            || !self.pointer_up_listeners.is_empty()
+            || !self.pointer_cancel_listeners.is_empty()
             || !self.click_listeners.is_empty()
             || !self.aux_click_listeners.is_empty()
             || !self.scroll_wheel_listeners.is_empty()
@@ -2328,6 +2439,9 @@ impl Interactivity {
                                                 element_state.as_mut(),
                                                 window,
                                                 cx,
+                                            );
+                                            self.paint_pointer_listeners(
+                                                global_id, hitbox, window, cx,
                                             );
                                             self.paint_scroll_listener(hitbox, &style, window, cx);
                                         }
@@ -2948,6 +3062,57 @@ impl Interactivity {
                     }
                 });
             }
+        }
+    }
+
+    fn paint_pointer_listeners(
+        &mut self,
+        global_id: Option<&GlobalElementId>,
+        hitbox: &Hitbox,
+        window: &mut Window,
+        _cx: &mut App,
+    ) {
+        let Some(target) = global_id.cloned() else {
+            return;
+        };
+
+        if let Some(focus_handle) = self.tracked_focus_handle.clone() {
+            let hitbox = hitbox.clone();
+            window.on_pointer_event(target.clone(), move |event, phase, window, cx| {
+                if phase == DispatchPhase::Bubble
+                    && event.phase == PointerPhase::Down
+                    && window.direct_pointer_is_hit(hitbox.id)
+                    && !window.default_prevented()
+                {
+                    window.focus(&focus_handle, cx);
+                    window.prevent_default();
+                }
+            });
+        }
+
+        for listener in self.pointer_down_listeners.drain(..) {
+            let hitbox = hitbox.clone();
+            window.on_pointer_event(target.clone(), move |event, phase, window, cx| {
+                listener(event, phase, &hitbox, window, cx);
+            });
+        }
+        for listener in self.pointer_move_listeners.drain(..) {
+            let hitbox = hitbox.clone();
+            window.on_pointer_event(target.clone(), move |event, phase, window, cx| {
+                listener(event, phase, &hitbox, window, cx);
+            });
+        }
+        for listener in self.pointer_up_listeners.drain(..) {
+            let hitbox = hitbox.clone();
+            window.on_pointer_event(target.clone(), move |event, phase, window, cx| {
+                listener(event, phase, &hitbox, window, cx);
+            });
+        }
+        for listener in self.pointer_cancel_listeners.drain(..) {
+            let hitbox = hitbox.clone();
+            window.on_pointer_event(target.clone(), move |event, phase, window, cx| {
+                listener(event, phase, &hitbox, window, cx);
+            });
         }
     }
 

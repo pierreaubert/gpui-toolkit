@@ -22,4 +22,5 @@ mod renderer;
 mod touch;
 mod types;
 
+pub use consts::set_status_bar_style;
 pub(crate) use ios_window::*;

@@ -222,14 +222,47 @@ pub struct AndroidKeyEvent {
     pub unicode_char: u32,
 }
 
+/// The input tool that produced an Android motion contact.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TouchTool {
+    /// Finger contact.
+    #[default]
+    Finger,
+    /// Stylus or eraser contact.
+    Stylus,
+    /// A mouse or unknown tool handled by the compatibility path.
+    Other,
+}
+
+/// A coalesced historical sample for one Android pointer.
+#[derive(Clone, Debug, Default)]
+pub struct HistoricalTouchPoint {
+    /// Monotonic sample timestamp in nanoseconds.
+    pub timestamp_ns: u64,
+    /// Physical-pixel x coordinate.
+    pub x: f32,
+    /// Physical-pixel y coordinate.
+    pub y: f32,
+    /// Contact pressure when supported.
+    pub pressure: Option<f32>,
+}
+
 /// A single touch point from `AInputEvent`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TouchPoint {
     pub id: i32,
     pub x: f32,
     pub y: f32,
     /// `AMOTION_EVENT_ACTION_*` action masked to a single pointer.
     pub action: u32,
+    /// Monotonic timestamp in nanoseconds.
+    pub timestamp_ns: u64,
+    /// Pointer tool kind.
+    pub tool: TouchTool,
+    /// Current contact pressure when supported.
+    pub pressure: Option<f32>,
+    /// Historical motion samples preserved from this MotionEvent.
+    pub history: Vec<HistoricalTouchPoint>,
 }
 
 // ── shared logging helper ─────────────────────────────────────────────────────

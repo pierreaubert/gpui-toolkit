@@ -9,6 +9,7 @@
 //! Keeping the predicates here (rather than inline in the loop) is what makes
 //! the loop's complexity testable: every branch below has a unit test.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 /// Frame-pump cadence used when momentum scrolling or a fling animation needs
@@ -72,11 +73,49 @@ pub enum MotionKind {
 pub const TOUCH_ACTION_DOWN: u32 = 0;
 pub const TOUCH_ACTION_UP: u32 = 1;
 pub const TOUCH_ACTION_MOVE: u32 = 2;
+/// Cancellation must remain distinct from a normal release for direct contacts.
+pub const TOUCH_ACTION_CANCEL: u32 = 3;
+
+/// Lifecycle stage for one independent contact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContactPhase {
+    /// A new contact began.
+    Down,
+    /// An active contact moved.
+    Move,
+    /// A contact ended normally.
+    Up,
+    /// The platform cancelled a contact.
+    Cancel,
+}
+
+/// Updates adapter-side gesture ownership and reports whether compatibility
+/// mouse/scroll/pinch synthesis must be suppressed for this sample.
+pub fn route_direct_contact(
+    claimed: &mut HashSet<i32>,
+    id: i32,
+    phase: ContactPhase,
+    captured_on_down: bool,
+) -> bool {
+    if phase == ContactPhase::Down {
+        claimed.remove(&id);
+        if captured_on_down {
+            claimed.insert(id);
+            return true;
+        }
+        return false;
+    }
+
+    let was_claimed = claimed.contains(&id);
+    if was_claimed && matches!(phase, ContactPhase::Up | ContactPhase::Cancel) {
+        claimed.remove(&id);
+    }
+    was_claimed
+}
 
 /// Decode one pointer slot of a motion event.
 ///
-/// * `Down` / `Up` / `Cancel` apply to every pointer slot (`Cancel` is
-///   delivered as `Up` so gestures terminate cleanly).
+/// * `Down` / `Up` / `Cancel` apply to every pointer slot.
 /// * `PointerDown` / `PointerUp` apply only to the slot at `pointer_index`.
 /// * `Move` applies to every slot.
 /// * `Other` (hover, scroll, button, …) is skipped.
@@ -86,7 +125,7 @@ pub fn decode_motion_slot(kind: MotionKind, pointer_index: usize, slot: usize) -
     match kind {
         MotionKind::Down => Some(TOUCH_ACTION_DOWN),
         MotionKind::Up => Some(TOUCH_ACTION_UP),
-        MotionKind::Cancel => Some(TOUCH_ACTION_UP),
+        MotionKind::Cancel => Some(TOUCH_ACTION_CANCEL),
         MotionKind::PointerDown => (slot == pointer_index).then_some(TOUCH_ACTION_DOWN),
         MotionKind::PointerUp => (slot == pointer_index).then_some(TOUCH_ACTION_UP),
         MotionKind::Move => Some(TOUCH_ACTION_MOVE),
@@ -183,10 +222,10 @@ mod tests {
                 decode_motion_slot(MotionKind::Move, 1, slot),
                 Some(TOUCH_ACTION_MOVE)
             );
-            // Cancel terminates the gesture as an up.
+            // Cancel remains distinct for direct contact cleanup.
             assert_eq!(
                 decode_motion_slot(MotionKind::Cancel, 1, slot),
-                Some(TOUCH_ACTION_UP)
+                Some(TOUCH_ACTION_CANCEL)
             );
         }
         // PointerDown/PointerUp dispatch only the changed pointer.
@@ -252,5 +291,77 @@ mod tests {
         // Zero-size bounds are still a real (changed) position.
         assert!(ime_anchor_changed(None, 0.0, 0.0, 0.0));
         assert!(!ime_anchor_changed(Some((0.0, 0.0, 0.0)), 0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn outside_contact_keeps_compatibility_gestures() {
+        let mut claims = HashSet::new();
+        assert!(!route_direct_contact(
+            &mut claims,
+            4,
+            ContactPhase::Down,
+            false
+        ));
+        assert!(!route_direct_contact(
+            &mut claims,
+            4,
+            ContactPhase::Move,
+            false
+        ));
+        assert!(!route_direct_contact(
+            &mut claims,
+            4,
+            ContactPhase::Up,
+            false
+        ));
+        assert!(claims.is_empty());
+    }
+
+    #[test]
+    fn owned_vertical_drag_and_two_contacts_suppress_synthesis_independently() {
+        let mut claims = HashSet::new();
+        assert!(route_direct_contact(
+            &mut claims,
+            1,
+            ContactPhase::Down,
+            true
+        ));
+        assert!(route_direct_contact(
+            &mut claims,
+            2,
+            ContactPhase::Down,
+            true
+        ));
+        assert!(route_direct_contact(
+            &mut claims,
+            1,
+            ContactPhase::Move,
+            false
+        ));
+        assert!(route_direct_contact(
+            &mut claims,
+            2,
+            ContactPhase::Move,
+            false
+        ));
+        assert!(route_direct_contact(
+            &mut claims,
+            1,
+            ContactPhase::Up,
+            false
+        ));
+        assert!(!route_direct_contact(
+            &mut claims,
+            1,
+            ContactPhase::Move,
+            false
+        ));
+        assert!(route_direct_contact(
+            &mut claims,
+            2,
+            ContactPhase::Cancel,
+            false
+        ));
+        assert!(claims.is_empty());
     }
 }

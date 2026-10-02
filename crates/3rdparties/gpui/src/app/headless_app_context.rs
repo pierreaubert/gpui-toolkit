@@ -161,6 +161,37 @@ impl HeadlessAppContext {
         app.update_window(window, f)
     }
 
+    /// Simulates resizing a headless test window through the platform resize
+    /// callback, updating the GPUI viewport and notifying layout observers.
+    pub fn simulate_window_resize(&self, window: AnyWindowHandle, size: Size<Pixels>) {
+        let mut test_window = {
+            let mut app = self.app.borrow_mut();
+            let window_state = app
+                .windows
+                .get_mut(window.id)
+                .and_then(Option::as_deref_mut)
+                .expect("headless resize target must be an open window");
+            window_state
+                .platform_window
+                .as_test()
+                .expect("headless resize target must use TestPlatform")
+                .clone()
+        };
+        test_window.simulate_resize(size);
+        self.dispatcher.run_until_parked();
+    }
+
+    /// Returns the last laid out bounds for an element marked with a debug selector.
+    pub fn debug_bounds(
+        &mut self,
+        window: AnyWindowHandle,
+        selector: &str,
+    ) -> Result<Option<Bounds<Pixels>>> {
+        self.update_window(window, |_, window, _| {
+            window.rendered_frame.debug_bounds.get(selector).copied()
+        })
+    }
+
     /// Captures a screenshot from a window.
     ///
     /// Requires that the context was created with a renderer factory that

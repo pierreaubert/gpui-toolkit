@@ -55,6 +55,7 @@ mod tooltip_test;
 // Component integration tests - Input Components
 mod keyboard_shortcut_label_test;
 mod popover_test;
+mod scene2d_test;
 mod search_bar_test;
 
 // Component integration tests - Data Display

@@ -1,5 +1,6 @@
 pub mod prelude;
 
+pub mod games;
 pub mod render_accessibility;
 pub mod render_accordion;
 pub mod render_alert;
@@ -26,6 +27,7 @@ pub mod render_notification;
 pub mod render_popover;
 pub mod render_progress;
 pub mod render_qr;
+pub mod render_scene2d;
 pub mod render_search_bar;
 pub mod render_settings_form;
 pub mod render_sidebar;

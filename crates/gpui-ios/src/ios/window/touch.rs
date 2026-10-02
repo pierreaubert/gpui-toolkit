@@ -11,7 +11,10 @@ use super::ios_window::IosWindow;
 #[cfg(target_os = "ios")]
 use super::register::input_diag_log;
 use super::types::{TouchState, TouchStateMap, pinch_geometry};
-use gpui::{DispatchEventResult, Modifiers, Pixels, PlatformInput, Point};
+use gpui::{
+    DispatchEventResult, Modifiers, Pixels, PlatformInput, Point, PointerDevice, PointerEvent,
+    PointerPhase,
+};
 use objc::{
     Message, msg_send,
     runtime::{Object, Sel},
@@ -128,8 +131,6 @@ impl IosWindow {
         let position = touch_location_in_view(touch, self.view);
         let phase = touch_phase(touch);
         let tap_count = touch_tap_count(touch);
-        let modifiers = self.modifiers.get();
-
         let logical_x: f32 = position.x.into();
         let logical_y: f32 = position.y.into();
 
@@ -137,6 +138,58 @@ impl IosWindow {
         self.dispatch_pointer_sample(touch, logical_x, logical_y);
 
         let touch_id: usize = unsafe { msg_send![touch, hash] };
+        let modifiers = self.modifiers.get();
+        let direct_phase = match phase {
+            UITouchPhase::Began => Some(PointerPhase::Down),
+            UITouchPhase::Moved => Some(PointerPhase::Move),
+            UITouchPhase::Ended => Some(PointerPhase::Up),
+            UITouchPhase::Cancelled => Some(PointerPhase::Cancel),
+            UITouchPhase::Stationary => None,
+        };
+        if let (Some(direct_phase), Some(device)) = (direct_phase, direct_touch_device(touch)) {
+            if direct_phase == PointerPhase::Down {
+                self.direct_claimed_touches.borrow_mut().remove(&touch_id);
+            }
+            let timestamp_seconds: f64 = unsafe { msg_send![touch, timestamp] };
+            let pressure = unsafe {
+                let force: f64 = msg_send![touch, force];
+                let maximum: f64 = msg_send![touch, maximumPossibleForce];
+                if maximum.is_finite() && maximum > 0.0 {
+                    let pressure = (force / maximum) as f32;
+                    pressure.is_finite().then(|| pressure.clamp(0.0, 1.0))
+                } else {
+                    None
+                }
+            };
+            let timestamp_ns = if timestamp_seconds.is_finite() && timestamp_seconds >= 0.0 {
+                (timestamp_seconds * 1_000_000_000.0).min(u64::MAX as f64) as u64
+            } else {
+                0
+            };
+            let pointer_phase = direct_phase;
+            let result = self.dispatch_input(PlatformInput::Pointer(PointerEvent {
+                phase: pointer_phase,
+                device,
+                pointer_id: touch_id as u64,
+                timestamp_ns,
+                position,
+                pressure,
+                buttons: Vec::new(),
+                modifiers,
+            }));
+            if pointer_phase == PointerPhase::Down && result.direct_pointer_captured {
+                self.direct_claimed_touches.borrow_mut().insert(touch_id);
+            }
+            let was_claimed = self.direct_claimed_touches.borrow().contains(&touch_id);
+            if was_claimed {
+                if matches!(pointer_phase, PointerPhase::Up | PointerPhase::Cancel) {
+                    self.direct_claimed_touches.borrow_mut().remove(&touch_id);
+                    self.touch_states.borrow_mut().remove(touch_id);
+                }
+                return;
+            }
+        }
+
         let mut states = self.touch_states.borrow_mut();
         let mut ts = states.get(touch_id).unwrap_or(TouchState::Idle);
 
@@ -644,5 +697,19 @@ impl IosWindow {
             self.dispatch_input(ended);
             self.request_forced_frame();
         }
+    }
+}
+
+fn direct_touch_device(touch: *mut Object) -> Option<PointerDevice> {
+    if touch.is_null() {
+        return None;
+    }
+    // SAFETY: UIKit passes a live UITouch during `handle_touch_inner`; `type`
+    // is a stable Objective-C selector on the supported iOS deployment target.
+    let touch_type: i64 = unsafe { msg_send![touch, type] };
+    match touch_type {
+        0 => Some(PointerDevice::Touch),
+        2 => Some(PointerDevice::Pen),
+        _ => None,
     }
 }

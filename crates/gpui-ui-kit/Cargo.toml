@@ -166,6 +166,9 @@ name = "qr_debug"
 name = "search_bar_debug"
 
 [[example]]
+name = "scene2d_debug"
+
+[[example]]
 name = "select_debug"
 
 [[example]]

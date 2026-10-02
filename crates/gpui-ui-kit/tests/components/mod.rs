@@ -61,6 +61,7 @@ mod confirm_dialog_test;
 mod popover_test;
 
 // Search & Input
+mod scene2d_test;
 mod search_bar_test;
 
 // Data Display

@@ -1,3 +1,4 @@
+use crate::scene2d::{Scene2DCache, Scene2DScene};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -130,6 +131,12 @@ pub struct PythonAppIr {
     /// its existing window; Python never receives a raw window handle.
     #[serde(default)]
     pub miniapp: Option<MiniAppShellConfig>,
+    /// Whether host events and ticks share one ordered reducer lane.
+    #[serde(default)]
+    pub serial_reducer: bool,
+    /// Initial foreground tick cadence in seconds, when the app needs one.
+    #[serde(default)]
+    pub tick_interval: Option<f64>,
     #[serde(default)]
     pub sections: Vec<UiSection>,
 }
@@ -155,6 +162,14 @@ impl PythonAppIr {
         {
             return Err(UiIrError::InvalidPatch {
                 message: "app width and height must be finite and positive when specified".into(),
+            });
+        }
+        if self
+            .tick_interval
+            .is_some_and(|interval| !interval.is_finite() || interval <= 0.0 || interval > 60.0)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "tick_interval must be finite and in 0..=60 seconds when specified".into(),
             });
         }
         if let Some(miniapp) = &self.miniapp {
@@ -364,6 +379,87 @@ fn apply_patch_op(tree: &mut Value, op: &crate::session::PatchOp) -> Result<(), 
                 ordered.push(children[index].clone());
             }
             *children = ordered;
+            Ok(())
+        }),
+        PatchOp::Scene2DReplace { id, scene } => with_node_mut(tree, id, |node| {
+            if node.get("kind").and_then(Value::as_str) != Some("scene2d") {
+                return Err(UiIrError::InvalidPatch {
+                    message: format!("node {id:?} is not a scene2d surface"),
+                });
+            }
+            let current: Scene2DScene = node
+                .get("scene")
+                .cloned()
+                .ok_or_else(|| UiIrError::InvalidPatch {
+                    message: format!("scene2d node {id:?} has no scene"),
+                })
+                .and_then(|value| {
+                    serde_json::from_value(value).map_err(|error| UiIrError::InvalidPatch {
+                        message: error.to_string(),
+                    })
+                })?;
+            let mut cache = Scene2DCache::default();
+            cache
+                .replace(current)
+                .and_then(|()| cache.replace(scene.clone()))
+                .map_err(|error| UiIrError::InvalidPatch {
+                    message: error.to_string(),
+                })?;
+            let object = node
+                .as_object_mut()
+                .ok_or_else(|| UiIrError::InvalidPatch {
+                    message: "scene2d node is not an object".into(),
+                })?;
+            object.insert(
+                "scene".into(),
+                serde_json::to_value(scene).map_err(|error| UiIrError::InvalidPatch {
+                    message: error.to_string(),
+                })?,
+            );
+            Ok(())
+        }),
+        PatchOp::Scene2DPatch { id, patch } => with_node_mut(tree, id, |node| {
+            if node.get("kind").and_then(Value::as_str) != Some("scene2d") {
+                return Err(UiIrError::InvalidPatch {
+                    message: format!("node {id:?} is not a scene2d surface"),
+                });
+            }
+            let current: Scene2DScene = node
+                .get("scene")
+                .cloned()
+                .ok_or_else(|| UiIrError::InvalidPatch {
+                    message: format!("scene2d node {id:?} has no scene"),
+                })
+                .and_then(|value| {
+                    serde_json::from_value(value).map_err(|error| UiIrError::InvalidPatch {
+                        message: error.to_string(),
+                    })
+                })?;
+            let mut cache = Scene2DCache::default();
+            cache
+                .replace(current)
+                .map_err(|error| UiIrError::InvalidPatch {
+                    message: error.to_string(),
+                })?;
+            cache
+                .apply_patch(patch)
+                .map_err(|error| UiIrError::InvalidPatch {
+                    message: error.to_string(),
+                })?;
+            let next = cache.scene().ok_or_else(|| UiIrError::InvalidPatch {
+                message: "scene2d cache lost its committed snapshot".into(),
+            })?;
+            let object = node
+                .as_object_mut()
+                .ok_or_else(|| UiIrError::InvalidPatch {
+                    message: "scene2d node is not an object".into(),
+                })?;
+            object.insert(
+                "scene".into(),
+                serde_json::to_value(next).map_err(|error| UiIrError::InvalidPatch {
+                    message: error.to_string(),
+                })?,
+            );
             Ok(())
         }),
         PatchOp::ReplaceMeshGeometry {
@@ -578,6 +674,8 @@ pub enum UiNode {
     /// Resource-backed gpui-px declaration; payload values travel separately.
     PxChartV2(PxChartV2Node),
     Scene3d(Scene3dNode),
+    #[serde(rename = "scene2d")]
+    Scene2D(Scene2DWidgetNode),
     MeshPlot(MeshPlotNode),
 }
 
@@ -615,6 +713,7 @@ impl UiNode {
             Self::Stepper(node) => node.validate(),
             Self::PxChartV2(node) => node.validate(),
             Self::Scene3d(node) => node.validate(),
+            Self::Scene2D(node) => node.validate(),
             Self::MeshPlot(node) => node.validate(),
             Self::TextInput(node) => node.validate(),
             Self::NumberInput(node) => node.validate(),
@@ -737,6 +836,7 @@ impl FormNode {
 fn child_contains_id(node: &UiNode, target: &str) -> bool {
     match node {
         UiNode::MeshPlot(_) => false,
+        UiNode::Scene2D(scene) => scene.id == target,
         UiNode::Vstack(stack) | UiNode::Hstack(stack) | UiNode::Wrap(stack) => stack
             .children
             .iter()
@@ -3661,6 +3761,47 @@ pub struct Scene3dNode {
     pub height: Option<f32>,
 }
 
+/// A Scene2D surface embedded in a Python UI tree.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Scene2DWidgetNode {
+    /// Stable UI identity used by scene patch operations.
+    pub id: String,
+    /// Validated drawing scene.
+    pub scene: Scene2DScene,
+    /// Optional requested width in logical UI units.
+    #[serde(default)]
+    pub width: Option<f32>,
+    /// Optional requested height in logical UI units.
+    #[serde(default)]
+    pub height: Option<f32>,
+}
+
+impl Scene2DWidgetNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "scene2d requires a stable id".into(),
+            });
+        }
+        if self
+            .width
+            .is_some_and(|value| !value.is_finite() || value <= 0.0)
+            || self
+                .height
+                .is_some_and(|value| !value.is_finite() || value <= 0.0)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "scene2d width and height must be positive and finite".into(),
+            });
+        }
+        self.scene
+            .validate()
+            .map_err(|error| UiIrError::InvalidPatch {
+                message: error.to_string(),
+            })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MeshPlotNode {
     pub id: String,
@@ -3727,6 +3868,7 @@ fn default_tone() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scene2d::Scene2DPatch;
 
     fn app_with_content(content: Value) -> PythonAppIr {
         serde_json::from_value(serde_json::json!({
@@ -3741,6 +3883,71 @@ mod tests {
             app_with_content(content).validate(),
             Err(UiIrError::InvalidPatch { .. })
         ));
+    }
+
+    #[test]
+    fn scene2d_patch_commits_in_revision_order_and_app_transactions_are_atomic() {
+        let mut app = app_with_content(serde_json::json!({
+            "kind": "scene2d",
+            "id": "board",
+            "scene": {
+                "version": 1,
+                "revision": 1,
+                "view_box": {"x": 0.0, "y": 0.0, "width": 32.0, "height": 32.0},
+                "nodes": [],
+                "input": {"pointer": true, "continuous": false, "capture": true, "keyboard": true}
+            }
+        }));
+        app.validate().expect("initial Scene2D app validates");
+
+        let scene_patch: Scene2DPatch = serde_json::from_value(serde_json::json!({
+            "base_revision": 1,
+            "revision": 2,
+            "upsert": [{
+                "id": "tile-1",
+                "hit_id": "cell-1",
+                "kind": {
+                    "type": "rect",
+                    "rect": {"x": 0.0, "y": 0.0, "width": 32.0, "height": 32.0},
+                    "fill": {"type": "solid", "color": {"r": 0.2, "g": 0.3, "b": 0.4, "a": 1.0}}
+                }
+            }]
+        }))
+        .expect("decode Scene2D delta");
+        app.apply_patch_ops(&[crate::session::PatchOp::Scene2DPatch {
+            id: "board".into(),
+            patch: scene_patch,
+        }])
+        .expect("apply Scene2D delta in the app transaction");
+        let UiNode::Scene2D(node) = app.sections[0].content.clone() else {
+            panic!("expected Scene2D app node");
+        };
+        assert_eq!(node.scene.revision, 2);
+        assert_eq!(node.scene.nodes[0].id, "tile-1");
+
+        let committed = app.clone();
+        let invalid_scene_patch: Scene2DPatch = serde_json::from_value(serde_json::json!({
+            "base_revision": 2,
+            "revision": 3,
+            "upsert": []
+        }))
+        .expect("decode next Scene2D delta");
+        let error = app.apply_patch_ops(&[
+            crate::session::PatchOp::Scene2DPatch {
+                id: "board".into(),
+                patch: invalid_scene_patch,
+            },
+            crate::session::PatchOp::Set {
+                id: "board".into(),
+                property: "width".into(),
+                value: Value::from(-1.0),
+            },
+        ]);
+        assert!(error.is_err());
+        assert_eq!(
+            app, committed,
+            "a failed mixed transaction leaves IR unchanged"
+        );
     }
 
     #[test]

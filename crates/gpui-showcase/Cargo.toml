@@ -23,12 +23,16 @@ gpui-design = { workspace = true, features = ["gpui"] }
 gpui-profiler = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+web-time = "1.1.0"
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 gpui-ios = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+gpui-android = { workspace = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 wasm-bindgen = "0.2"

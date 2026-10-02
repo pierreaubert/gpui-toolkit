@@ -14,6 +14,7 @@ pub enum ShowcaseGroup {
     Controls,
     MultiStep,
     Media,
+    Games,
 }
 
 impl ShowcaseGroup {
@@ -30,6 +31,7 @@ impl ShowcaseGroup {
             Self::Controls => "CONTROLS",
             Self::MultiStep => "MULTI-STEP",
             Self::Media => "MEDIA & VISUALS",
+            Self::Games => "GAMES",
         }
     }
 
@@ -46,6 +48,7 @@ impl ShowcaseGroup {
             ShowcaseGroup::Controls,
             ShowcaseGroup::MultiStep,
             ShowcaseGroup::Media,
+            ShowcaseGroup::Games,
         ]
     }
 
@@ -62,6 +65,7 @@ impl ShowcaseGroup {
             ShowcaseGroup::Controls => "Controls",
             ShowcaseGroup::MultiStep => "Multi-Step",
             ShowcaseGroup::Media => "Media & Visuals",
+            ShowcaseGroup::Games => "Games",
         }
     }
 
@@ -127,7 +131,9 @@ impl ShowcaseGroup {
                 ShowcaseSection::QrCode,
                 ShowcaseSection::ImageView,
                 ShowcaseSection::AudioVisuals,
+                ShowcaseSection::Scene2d,
             ],
+            ShowcaseGroup::Games => &[ShowcaseSection::Games],
         }
     }
 
@@ -219,6 +225,10 @@ Workflow is a node-and-edge graph editor for visual pipeline or flowchart buildi
 QR Code generates and renders a QR code from data. \
 Image View displays images with optional zoom, pan, and loading states. \
 Audio Visuals demonstrates Vello-backed spectrum, meters, potentiometers, and volume knobs."
+            }
+
+            ShowcaseGroup::Games => {
+                "Zip, Queens, Sudoku, and Tetris are playable native Scene2D games with keyboard, pointer, and touch controls."
             }
         }
     }

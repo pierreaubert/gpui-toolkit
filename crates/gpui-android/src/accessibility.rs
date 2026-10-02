@@ -16,6 +16,10 @@ struct AccessibilityTree {
     focus: Option<NodeId>,
 }
 
+fn encode_node_id(id: NodeId) -> String {
+    format!("{:016x}", id.0)
+}
+
 impl AccessibilityTree {
     fn apply(&mut self, update: TreeUpdate) {
         if update.tree_id != TreeId::ROOT {
@@ -60,14 +64,14 @@ impl AccessibilityTree {
                     .bounds()
                     .map(|bounds| json!([bounds.x0, bounds.y0, bounds.x1, bounds.y1]));
                 json!({
-                    "id": id.0,
+                    "id": encode_node_id(*id),
                     "role": format!("{:?}", node.role()),
                     "label": node.label(),
                     "value": node.value(),
                     "description": node.description(),
                     "disabled": node.is_disabled(),
                     "bounds": bounds,
-                    "children": node.children().iter().map(|child| child.0).collect::<Vec<_>>(),
+                    "children": node.children().iter().map(|child| encode_node_id(*child)).collect::<Vec<_>>(),
                     "click": node.supports_action(Action::Click),
                     "focus": node.supports_action(Action::Focus),
                     "increment": node.supports_action(Action::Increment),
@@ -76,8 +80,8 @@ impl AccessibilityTree {
             })
             .collect();
         json!({
-            "root": self.root.map(|id| id.0),
-            "focus": self.focus.map(|id| id.0),
+            "root": self.root.map(encode_node_id),
+            "focus": self.focus.map(encode_node_id),
             "nodes": nodes,
         })
         .to_string()
@@ -165,13 +169,13 @@ mod tests {
         });
         let snapshot: Value = serde_json::from_str(&tree.snapshot()).unwrap();
 
-        assert_eq!(snapshot["root"], 1);
-        assert_eq!(snapshot["focus"], 2);
+        assert_eq!(snapshot["root"], "0000000000000001");
+        assert_eq!(snapshot["focus"], "0000000000000002");
         let button = snapshot["nodes"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|node| node["id"] == 2)
+            .find(|node| node["id"] == "0000000000000002")
             .unwrap();
         assert_eq!(button["label"], "Play");
         assert_eq!(button["bounds"], json!([10.0, 20.0, 110.0, 70.0]));
@@ -211,11 +215,48 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .map(|node| node["id"].as_u64().unwrap())
+            .map(|node| node["id"].as_str().unwrap().to_owned())
             .collect::<Vec<_>>();
         assert_eq!(node_ids.len(), 2);
-        assert!(node_ids.contains(&root_id.0));
-        assert!(node_ids.contains(&retained_id.0));
-        assert!(!node_ids.contains(&removed_id.0));
+        assert!(node_ids.contains(&encode_node_id(root_id)));
+        assert!(node_ids.contains(&encode_node_id(retained_id)));
+        assert!(!node_ids.contains(&encode_node_id(removed_id)));
+    }
+
+    #[test]
+    fn snapshot_preserves_full_width_node_ids_and_click_actions() {
+        let root_id = NodeId(0x8000_0000_0000_0001);
+        let cell_id = NodeId(u64::MAX - 1);
+        let mut root = Node::new(Role::Window);
+        root.set_children(vec![cell_id]);
+        let mut cell = Node::new(Role::GridCell);
+        cell.set_label("Row 1, column 1");
+        cell.set_bounds(Rect::new(20.0, 30.0, 50.0, 60.0));
+        cell.add_action(Action::Click);
+
+        let mut tree = AccessibilityTree::default();
+        tree.apply(TreeUpdate {
+            nodes: vec![(root_id, root), (cell_id, cell)],
+            tree: Some(Tree::new(root_id)),
+            tree_id: TreeId::ROOT,
+            focus: cell_id,
+        });
+        let snapshot: Value = serde_json::from_str(&tree.snapshot()).unwrap();
+        let nodes = snapshot["nodes"].as_array().unwrap();
+        let cell = nodes
+            .iter()
+            .find(|node| node["id"] == encode_node_id(cell_id))
+            .expect("cell node survives unsigned ID serialization");
+        let root = nodes
+            .iter()
+            .find(|node| node["id"] == encode_node_id(root_id))
+            .expect("root node survives unsigned ID serialization");
+
+        assert_eq!(snapshot["root"], "8000000000000001");
+        assert_eq!(snapshot["focus"], "fffffffffffffffe");
+        assert_eq!(cell["label"], "Row 1, column 1");
+        assert_eq!(cell["bounds"], json!([20.0, 30.0, 50.0, 60.0]));
+        assert_eq!(cell["click"], true);
+        assert_eq!(root["children"][0], encode_node_id(cell_id));
     }
 }

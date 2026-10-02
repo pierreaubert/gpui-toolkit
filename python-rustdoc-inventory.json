@@ -237119,8 +237119,8 @@
       "target_family": "apple-darwin"
     },
     {
-      "crate_version": "0.9.13",
-      "digest": "7fda1ac566c23d42a708e5228aca332162f81cff813b05767c1b41c658011fae",
+      "crate_version": "0.9.14",
+      "digest": "f1008d8dcae5ded4d5faf8a1032cbcbca035da2a694e537a895e5267a9201af1",
       "package": "gpui-px",
       "rustdoc_format_version": 61,
       "symbol_count": 2418,
@@ -292550,7 +292550,7 @@
       "target_family": "apple-darwin"
     }
   ],
-  "digest": "16cf50e23d234088c86d6304d8d2de74b5f4fab5aaa1783cdb610ba795d76405",
+  "digest": "8ca5af4249ed82a742b9dd3978715a6e97ccf454c42dceb7c3b4624b6538610b",
   "generator": "scripts/generate_python_rustdoc_inventory.py",
   "packages": [
     "gpui-d3rs",

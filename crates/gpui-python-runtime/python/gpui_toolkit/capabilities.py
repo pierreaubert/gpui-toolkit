@@ -9,6 +9,10 @@ class Capability:
     python_path: str
 
 _ENTRIES = (
+    ('gpui-python-runtime.scene2d-declarations', 'declarative', 'gpui_toolkit.Scene2D'),
+    ('gpui-python-runtime.scene2d-input-events', 'event', 'gpui_toolkit.Scene2DEvent'),
+    ('gpui-python-runtime.serial-reducer', 'host-owned', 'gpui_toolkit.App.serial_reducer'),
+    ('gpui-python-runtime.elapsed-tick-schedule', 'host-owned', 'gpui_toolkit.SessionContext.set_tick_interval'),
     ('gpui-python-runtime.app', 'direct', 'gpui_toolkit.App'),
     ('gpui-python-runtime.v2-data', 'direct', 'gpui_toolkit.data'),
     ('gpui-python-runtime.resource-frame-ack', 'direct', 'gpui_toolkit.ResourceFrameAcknowledgement'),

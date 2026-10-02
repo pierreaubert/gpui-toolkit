@@ -411,7 +411,8 @@ public class GpuiActivity extends NativeActivity {
                 for (int index = 0; index < nodes.length(); index++) {
                     JSONObject node = nodes.getJSONObject(index);
                     if (node.has("id")) {
-                        nodesById.put(node.getLong("id"), node);
+                        nodesById.put(
+                                GpuiAccessibilityNodeId.fromJsonValue(node.get("id")), node);
                     }
                 }
                 for (Map.Entry<Long, JSONObject> entry : nodesById.entrySet()) {
@@ -420,7 +421,9 @@ public class GpuiActivity extends NativeActivity {
                         continue;
                     }
                     for (int index = 0; index < children.length(); index++) {
-                        parentIds.put(children.getLong(index), entry.getKey());
+                        parentIds.put(
+                                GpuiAccessibilityNodeId.fromJsonValue(children.get(index)),
+                                entry.getKey());
                     }
                 }
             }
@@ -440,6 +443,11 @@ public class GpuiActivity extends NativeActivity {
             if (existing != null) {
                 return existing;
             }
+            if (nextVirtualId <= 0) {
+                throw new IllegalStateException("Android accessibility virtual IDs are exhausted");
+            }
+            // AccessKit IDs are unsigned 64-bit values; Android's virtual
+            // view IDs are positive 32-bit integers, so keep an explicit map.
             int id = nextVirtualId++;
             virtualIds.put(nodeId, id);
             nodeIds.put(id, nodeId);
@@ -466,11 +474,13 @@ public class GpuiActivity extends NativeActivity {
                     info.setSource(host);
                     info.setVisibleToUser(true);
                     if (!snapshot.isNull("root")) {
-                    JSONObject root = findNode(snapshot.getLong("root"));
+                        JSONObject root = findNode(
+                                GpuiAccessibilityNodeId.fromJsonValue(snapshot.get("root")));
                         JSONArray children = root == null ? null : root.optJSONArray("children");
                         if (children != null) {
                             for (int index = 0; index < children.length(); index++) {
-                                info.addChild(host, virtualId(children.getLong(index)));
+                                info.addChild(host, virtualId(
+                                        GpuiAccessibilityNodeId.fromJsonValue(children.get(index))));
                             }
                         }
                     }
@@ -490,8 +500,10 @@ public class GpuiActivity extends NativeActivity {
                 info.setPackageName(host.getContext().getPackageName());
                 info.setSource(host, virtualViewId);
                 Long parent = findParent(nodeId);
-                long rootId = snapshot.optLong("root", -1);
-                if (parent == null || parent == rootId) {
+                Long rootId = snapshot.isNull("root")
+                        ? null
+                        : GpuiAccessibilityNodeId.fromJsonValue(snapshot.get("root"));
+                if (parent == null || (rootId != null && parent.equals(rootId))) {
                     info.setParent(host);
                 } else {
                     info.setParent(host, virtualId(parent));
@@ -513,6 +525,8 @@ public class GpuiActivity extends NativeActivity {
 
                 JSONArray bounds = node.optJSONArray("bounds");
                 if (bounds != null && bounds.length() == 4) {
+                    // The Android renderer sends physical pixels, matching
+                    // View bounds and getLocationOnScreen coordinates.
                     Rect parentBounds = new Rect(
                             (int) Math.floor(bounds.getDouble(0)),
                             (int) Math.floor(bounds.getDouble(1)),
@@ -528,7 +542,8 @@ public class GpuiActivity extends NativeActivity {
                 JSONArray children = node.optJSONArray("children");
                 if (children != null) {
                     for (int index = 0; index < children.length(); index++) {
-                        info.addChild(host, virtualId(children.getLong(index)));
+                        info.addChild(host, virtualId(
+                                GpuiAccessibilityNodeId.fromJsonValue(children.get(index))));
                     }
                 }
 

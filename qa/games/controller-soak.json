@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "scope": "headless native game controllers",
+  "duration_seconds": 600.01,
+  "game_switch_cycles": 10522,
+  "retained_surfaces": 6,
+  "peak_scene_nodes": 285,
+  "undo_history_limit": 256,
+  "result": "passed",
+  "checks": ["contact release", "lifecycle suspension", "bounded history", "unique scene IDs", "monotonic revisions", "bounded node counts"],
+  "framebuffer_measured": false,
+  "input_to_present_measured": false,
+  "command": "GPUI_GAMES_SOAK_SECONDS=600 cargo test -p gpui-showcase native_controller_soak_when_requested -- --nocapture"
+}
