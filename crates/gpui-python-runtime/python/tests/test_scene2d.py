@@ -69,7 +69,7 @@ class Scene2DSchemaTests(unittest.TestCase):
         self.assertEqual(wire["background"], expected)
         self.assertEqual(wire["nodes"][0]["kind"]["fill"], expected)
         replacement = Scene2D("gradient", 20, 20, revision=2)
-        self.assertIsNone(patch_op(scene, replacement)["background"])
+        self.assertIsNone(patch_op(scene, replacement)["patch"]["background"])
 
     def test_grid_pick_respects_gaps_and_returns_stable_cell_id(self):
         grid = GridSpec(3, 4, 10, 12, 20, 16, 3)
@@ -90,10 +90,11 @@ class Scene2DSchemaTests(unittest.TestCase):
             SceneRect("add", 20, 0, 10, 10, fill="#444"),
         ], revision=2)
         op = patch_op(old, current)
+        self.assertEqual(set(op), {"op", "id", "patch"})
         self.assertEqual(op["op"], "scene2d_patch")
-        self.assertEqual((op["base_revision"], op["revision"]), (1, 2))
-        self.assertEqual({node["id"] for node in op["upsert"]}, {"keep", "add"})
-        self.assertEqual(op["remove"], ["remove"])
+        self.assertEqual((op["patch"]["base_revision"], op["patch"]["revision"]), (1, 2))
+        self.assertEqual({node["id"] for node in op["patch"]["upsert"]}, {"keep", "add"})
+        self.assertEqual(op["patch"]["remove"], ["remove"])
         self.assertEqual(replace_op(current)["scene"]["revision"], 2)
         with self.assertRaises(ValueError):
             Scene2DPatch.between(old, Scene2D("board", 40, 20, revision=3))
@@ -102,18 +103,18 @@ class Scene2DSchemaTests(unittest.TestCase):
         old = Scene2D("board", 40, 20, grid=GridSpec(2, 2, 0, 0, 10, 10))
         current = Scene2D("board", 40, 20, grid=None, revision=2)
         op = patch_op(old, current)
-        self.assertIn("grid", op)
-        self.assertIsNone(op["grid"])
+        self.assertIn("grid", op["patch"])
+        self.assertIsNone(op["patch"]["grid"])
 
     def test_scene_patch_can_replace_or_clear_surface_semantics(self):
         old = Scene2D("board", 40, 20,
                       semantic=Scene2DSemantic("grid", "Old board"))
         changed = Scene2D("board", 40, 20, revision=2,
                           semantic=Scene2DSemantic("grid", "New board"))
-        self.assertEqual(patch_op(old, changed)["semantic"],
+        self.assertEqual(patch_op(old, changed)["patch"]["semantic"],
                          {"role": "grid", "label": "New board"})
         cleared = Scene2D("board", 40, 20, revision=2)
-        self.assertIsNone(patch_op(old, cleared)["semantic"])
+        self.assertIsNone(patch_op(old, cleared)["patch"]["semantic"])
 
     def test_invalid_scene_values_fail_before_serialization(self):
         with self.assertRaises(ValueError):
@@ -197,6 +198,93 @@ class Scene2DSchemaTests(unittest.TestCase):
 
 
 class Scene2DEventTests(unittest.TestCase):
+    def test_tick_schedule_uses_native_message_tag_and_can_be_disabled(self):
+        context = SessionContext()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            context.set_tick_interval(0.05)
+            context.set_tick_interval(None)
+        self.assertEqual([json.loads(line) for line in output.getvalue().splitlines()], [
+            {"type": "tick_schedule", "interval": 0.05},
+            {"type": "tick_schedule", "interval": None},
+        ])
+
+    def test_action_failure_reports_context_and_exception_with_stderr_traceback(self):
+        class BrokenApp(App):
+            def on_action(self, event, context):
+                raise TypeError("duplicate surface_id")
+
+        app = BrokenApp(sections=[section("home", "Home", {})])
+        output, diagnostics = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(diagnostics):
+            app._handle_action(Event("failed-1", 1, "zip-board", "click", "zip_control"),
+                               SessionContext())
+        error = json.loads(output.getvalue())
+        self.assertEqual((error["type"], error["code"], error["request_id"]),
+                         ("error", "action_failed", "failed-1"))
+        for detail in ("click", "zip-board", "zip_control", "TypeError", "duplicate surface_id"):
+            self.assertIn(detail, error["message"])
+        self.assertIn("Traceback (most recent call last)", diagnostics.getvalue())
+        self.assertIn("on_action", diagnostics.getvalue())
+
+    def test_session_dispatch_preserves_specialized_surface_events(self):
+        class Recorder(App):
+            def __init__(self):
+                super().__init__(sections=[section("home", "Home", {})], serial_reducer=True)
+                self.inputs = []
+
+            def on_scene2d_event(self, event, context):
+                self.inputs.append((event.id, event.surface_id, event.input))
+                context.acknowledge(event)
+
+        inputs = [
+            {"type": "pointer", "phase": "down", "device": "mouse",
+             "contact_id": 1, "timestamp_ns": 1, "position": {"x": 4, "y": 8},
+             "buttons": ["left"], "modifiers": []},
+            {"type": "key", "phase": "down", "key": "5", "repeat": False,
+             "modifiers": [], "timestamp_ns": 2},
+            {"type": "lifecycle", "reason": "focus_lost", "timestamp_ns": 3},
+            {"type": "activate", "id": "cell-1", "timestamp_ns": 4},
+            {"type": "transition_complete", "id": "cell-1",
+             "completion_id": "move-1", "timestamp_ns": 5},
+        ]
+        messages = [{"type": "initialize", "session_version": 1, "capabilities": []}]
+        for index, value in enumerate(inputs):
+            messages.append({"type": "event", "id": f"input-{index}", "sequence": index,
+                             "node_id": "board", "event": "scene2d.event",
+                             "payload": {"event": value}})
+        messages.extend([
+            {"type": "event", "id": "cancel", "sequence": 5, "node_id": "board",
+             "event": "scene2d.cancel_all", "payload": {"reason": "outbound_overflow"}},
+            {"type": "shutdown"},
+        ])
+        app = Recorder()
+        output = io.StringIO()
+        with patch.object(sys, "stdin", io.StringIO("".join(
+                json.dumps(message) + "\n" for message in messages))), \
+                contextlib.redirect_stdout(output):
+            app.serve()
+
+        self.assertEqual([item[0] for item in app.inputs],
+                         [f"input-{index}" for index in range(5)] + ["cancel"])
+        self.assertTrue(all(item[1] == "board" for item in app.inputs))
+        self.assertEqual([type(item[2]) for item in app.inputs], [
+            Scene2DPointerInput, Scene2DKeyInput, Scene2DLifecycleInput,
+            Scene2DActivateInput, Scene2DTransitionCompleteInput, Scene2DLifecycleInput,
+        ])
+        wire = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertFalse([message for message in wire if message["type"] == "error"])
+        self.assertEqual([message["request_id"] for message in wire
+                          if message["type"] == "acknowledged"],
+                         [item[0] for item in app.inputs])
+
+        # Queue-overflow recovery also creates an unspecialized cancellation.
+        with contextlib.redirect_stdout(io.StringIO()):
+            app._handle_action(Event("raw-cancel", 6, "board", "scene2d.cancel_all",
+                                     payload={"reason": "reducer_overflow"}), SessionContext())
+        self.assertEqual(app.inputs[-1][0], "raw-cancel")
+        self.assertEqual(app.inputs[-1][2].reason, "reducer_overflow")
+
     def test_pointer_key_lifecycle_and_cancel_all_specialize(self):
         pointer = specialize({
             "id": "p1", "sequence": 1, "node_id": "zip-board",

@@ -1,3 +1,6 @@
+#[path = "dev_api.rs"]
+mod dev_api;
+
 use super::host_state::PresentationStore;
 use super::misc::apply_size;
 use super::misc::badge_colors;
@@ -7856,6 +7859,8 @@ pub(super) struct PythonIrShowcase {
     close_handler_installed: bool,
     close_approved: bool,
     qa_pointer_task: Option<Task<()>>,
+    dev_api_task: Option<Task<()>>,
+    dev_api_bounds: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
 }
 
 #[derive(Clone)]
@@ -7967,6 +7972,8 @@ impl PythonIrShowcase {
             close_handler_installed: false,
             close_approved: false,
             qa_pointer_task: None,
+            dev_api_task: None,
+            dev_api_bounds: Rc::new(RefCell::new(HashMap::new())),
         }
     }
 
@@ -9342,7 +9349,12 @@ impl PythonIrShowcase {
         .bg(bg)
         .text_color(text)
         .cursor_pointer()
-        .child(node.label.clone());
+        .child(node.label.clone())
+        .when(env::var_os("GPUI_TOOLKIT_DEV_API").is_some(), |element| {
+            element.relative().child(
+                self.dev_bounds_element(node.id.clone().unwrap_or_else(|| node.label.clone())),
+            )
+        });
 
         if node.disabled {
             return element.into_any_element();
@@ -15219,6 +15231,11 @@ impl PythonIrShowcase {
             .rounded(px(ds.corners.md))
             .overflow_hidden()
             .child(surface);
+        if env::var_os("GPUI_TOOLKIT_DEV_API").is_some() {
+            container = container
+                .relative()
+                .child(self.dev_bounds_element(id.clone()));
+        }
         if let Some(message) = error.or_else(|| self.scene2d_errors.get(&id).cloned()) {
             container = container.child(
                 div()
@@ -18393,10 +18410,18 @@ fn collect_scene2d_ids(value: &Value, ids: &mut HashSet<String>) {
     {
         ids.insert(id.to_owned());
     }
-    if let Some(children) = value.get("children").and_then(Value::as_array) {
-        for child in children {
-            collect_scene2d_ids(child, ids);
+    match value {
+        Value::Object(object) => {
+            for child in object.values() {
+                collect_scene2d_ids(child, ids);
+            }
         }
+        Value::Array(values) => {
+            for child in values {
+                collect_scene2d_ids(child, ids);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -18447,6 +18472,7 @@ fn dispatch_scene2d_inputs(
 
 impl Render for PythonIrShowcase {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.start_dev_api(window, cx);
         self.observe_presentation(window, cx);
         self.observe_window_activation(window, cx);
         self.observe_window_close(window, cx);
@@ -18714,6 +18740,27 @@ mod scene2d_tick_ack_tests {
     use gpui_python_runtime::session::{DEFAULT_MAX_SESSION_MESSAGE_BYTES, parse_python_message};
     use std::io::Write;
     use std::sync::{Arc, Mutex};
+
+    #[::core::prelude::v1::test]
+    fn live_surface_scan_reaches_sections_cards_and_nested_container_content() {
+        let app = serde_json::json!({"sections": [
+            {"id": "first", "content": {"kind": "card", "children": [
+                {"kind": "scene2d", "id": "board"},
+                {"kind": "tabs", "tabs": [{"content": {"kind": "scene2d", "id": "controls"}}]},
+            ]}},
+            {"id": "second", "content": {"kind": "scene2d", "id": "inactive-board"}},
+        ]});
+        let mut ids = HashSet::new();
+        collect_scene2d_ids(&app, &mut ids);
+        assert_eq!(
+            ids,
+            HashSet::from(["board".into(), "controls".into(), "inactive-board".into()])
+        );
+        assert_eq!(
+            scene2d_surface_ids_in_section(&app, "first"),
+            vec!["board", "controls"]
+        );
+    }
 
     struct CapturedTickWriter(Arc<Mutex<Vec<u8>>>);
 

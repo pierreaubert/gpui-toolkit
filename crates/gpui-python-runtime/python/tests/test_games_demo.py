@@ -408,7 +408,7 @@ class Scene2DGameInputTests(unittest.TestCase):
         add_message = next(json.loads(line) for line in output.getvalue().splitlines()
                            if json.loads(line).get("type") == "patch")
         scene_patch = next(op for op in add_message["ops"] if op["op"] == "scene2d_patch")
-        clear_node = next(node for node in scene_patch["upsert"]
+        clear_node = next(node for node in scene_patch["patch"]["upsert"]
                           if node["id"] == "tetris-clear-19")
         self.assertEqual(clear_node["transition"]["duration_ms"], 320.0)
 
@@ -422,7 +422,7 @@ class Scene2DGameInputTests(unittest.TestCase):
         remove_message = next(json.loads(line) for line in output.getvalue().splitlines()
                               if json.loads(line).get("type") == "patch")
         removed = next(op for op in remove_message["ops"] if op["op"] == "scene2d_patch")
-        self.assertIn("tetris-clear-19", removed["remove"])
+        self.assertIn("tetris-clear-19", removed["patch"]["remove"])
         self.assertFalse(game.last_lock_cells)
 
     def test_main_launches_native_host_by_default(self):
@@ -805,7 +805,7 @@ class GamesAppDispatchTests(unittest.TestCase):
         self.assertEqual(app.zip_game.palette, "light")
         self.assertEqual(other_app.palette, "dark")
         zip_patch = next(op for op in scene_ops if op["id"] == "zip-board")
-        well = next(node for node in zip_patch["upsert"] if node["id"] == "zip-well")
+        well = next(node for node in zip_patch["patch"]["upsert"] if node["id"] == "zip-well")
         color = well["kind"]["fill"]["color"]
         self.assertAlmostEqual(color["r"], 232 / 255)
         self.assertAlmostEqual(color["g"], 238 / 255)
@@ -818,9 +818,9 @@ class GamesAppDispatchTests(unittest.TestCase):
         patch = next(message for message in messages if message.get("type") == "patch")
         board = next(op for op in patch["ops"]
                      if op.get("op") == "scene2d_patch" and op.get("id") == "queens-board")
-        self.assertNotIn("grid", board)
-        self.assertLess(len(board["upsert"]), previous_count)
-        self.assertGreater(len(board["upsert"]), 0)
+        self.assertNotIn("grid", board["patch"])
+        self.assertLess(len(board["patch"]["upsert"]), previous_count)
+        self.assertGreater(len(board["patch"]["upsert"]), 0)
 
     def test_malformed_cell_is_rejected(self):
         app = games.build_app()

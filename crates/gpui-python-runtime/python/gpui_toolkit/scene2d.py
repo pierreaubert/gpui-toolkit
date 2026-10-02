@@ -962,8 +962,7 @@ class Scene2DPatch:
         )
 
     def to_op(self) -> dict[str, Any]:
-        op: dict[str, Any] = {"op": "scene2d_patch", "id": self.id,
-                              "base_revision": self.base_revision, "revision": self.revision,
+        op: dict[str, Any] = {"base_revision": self.base_revision, "revision": self.revision,
                               "upsert": [dict(node) for node in self.upsert], "remove": list(self.remove)}
         if self.view_box is not None:
             op["view_box"] = dict(self.view_box)
@@ -975,7 +974,7 @@ class Scene2DPatch:
             op["background"] = None if self.background is None else dict(self.background)
         if self.semantic is not _UNSET:
             op["semantic"] = None if self.semantic is None else dict(self.semantic)
-        return op
+        return {"op": "scene2d_patch", "id": self.id, "patch": op}
 
 
 def replace_op(scene: Scene2D) -> dict[str, Any]:

@@ -11,6 +11,7 @@ import shutil
 import secrets
 import subprocess
 import sys
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event as ThreadEvent, Lock, RLock, Semaphore, Thread
 from contextlib import contextmanager, nullcontext
@@ -338,17 +339,24 @@ class App:
         try:
             with context.reducer_transaction(enabled=self.serial_reducer):
                 if event.event in {"scene2d.event", "scene2d.cancel_all"}:
-                    result = self.on_scene2d_event(Scene2DEvent.from_event(event), context)
+                    surface_event = (event if isinstance(event, Scene2DEvent)
+                                     else Scene2DEvent.from_event(event))
+                    result = self.on_scene2d_event(surface_event, context)
                 elif is_tick:
                     result = self.on_tick(Scene2DTick.from_event(event), context)
                 else:
                     result = self.on_action(event, context)
                 if inspect.isawaitable(result):
                     asyncio.run(result)
-        except Exception:
-            # Exception strings can contain secrets supplied by applications;
-            # retain correlation without leaking implementation data to UI logs.
-            context.error(event.id, "action_failed", "Python action handler failed")
+        except Exception as error:
+            description = "".join(traceback.format_exception_only(type(error), error)).strip()
+            action = f" (action {event.action!r})" if event.action else ""
+            context.error(
+                event.id, "action_failed",
+                f"Python handler failed for {event.event!r} on node {event.node_id!r}"
+                f"{action}: {description[:1024]}",
+            )
+            traceback.print_exc(file=sys.stderr)
         finally:
             if is_tick:
                 # A tick remains outstanding until an async reducer callback has
@@ -945,7 +953,7 @@ class SessionContext:
             or not 0.0 < float(interval) <= 60.0
         ):
             raise ValueError("tick interval must be finite and in (0, 60], or None")
-        self.send({"type": "scene2d.tick_schedule",
+        self.send({"type": "tick_schedule",
                    "interval": None if interval is None else float(interval)})
 
     @staticmethod

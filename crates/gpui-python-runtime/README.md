@@ -245,6 +245,8 @@ native host contain-fits that view box in the parent layout bounds. Python can
 publish a full `scene2d_replace` or a consecutive-revision `scene2d_patch`;
 `SessionContext.scene2d_patch(...)` can include related HUD operations in the
 same revisioned `context.patch` message.
+The wire operation nests its delta under `patch`:
+`{"op":"scene2d_patch","id":"board","patch":{"base_revision":1,"revision":2,"upsert":[],"remove":[]}}`.
 
 Pointer, focused-key, lifecycle, and elapsed-tick messages specialize to
 `Scene2DEvent` and `Scene2DTick`. `Scene2DInputConfig.keyboard=True` scopes key
@@ -255,6 +257,10 @@ The lane has bounded input admission, reserved lifecycle capacity, and clears
 held input after overflow. Reducers should publish model-derived UI and scene
 changes together before returning. Accessibility activation of a semantic
 button or grid cell uses the same typed scene event path.
+
+Handler exceptions report `action_failed` with the event, node, action, and
+exception type/message. The exception description is limited to 1,024
+characters. Python stderr receives the full traceback for diagnosis.
 
 `App.tick_interval` can seed an elapsed-time schedule. A reducer can adjust or
 cancel it later with `SessionContext.set_tick_interval(seconds_or_none)`. The
@@ -280,6 +286,49 @@ Python launcher runs CPython in a desktop child process, so `games_demo.py` is
 not bundled into the mobile showcase binaries. Mobile apps use the native Rust
 GPUI surface path in the existing iOS and Android backends; this delivery does
 not package a mobile Python interpreter.
+
+### Native input development API
+
+Enable the local file API when launching a host built from this checkout:
+
+```bash
+GPUI_TOOLKIT_DEV_API=/tmp/gpui-dev \
+  python3 crates/gpui-python-runtime/python/examples/games_demo.py
+python3 scripts/python_dev_api.py /tmp/gpui-dev '{"command":"select","section":"queens"}'
+python3 scripts/python_dev_api.py /tmp/gpui-dev '{"command":"click","surface":"queens-board","x":40,"y":40}'
+python3 scripts/python_dev_api.py /tmp/gpui-dev '{"command":"status"}'
+```
+
+The API is disabled by default. Each host needs its own directory; clients
+submit one request at a time. `scripts/python_dev_api.py` handles atomic files
+and response IDs. A successful input response means the input was sent;
+inspect subsequent `status` responses to check Python results.
+
+Commands:
+
+- `status`: current section, committed application revision and IR, surface
+  errors, captured Python stderr, and window bounds for surfaces and buttons.
+- `select`: select an application `section`.
+- `window_click`: send mouse down/up at window coordinates `x`, `y` through
+  GPUI's normal event dispatch, layout hit-testing, and Python callbacks.
+- `click`: send mouse down/up to a `surface` at logical scene coordinates
+  `x`, `y`. The retained native router computes hit IDs and grid cells.
+- `pointer`: route one surface sample with `phase` (`down`, `move`, `up`,
+  `cancel`), `device` (`mouse`, `touch`, `pen`), `contact_id`, `x`, and `y`.
+- `key`: route a surface `key` with `phase` (`down`, `up`).
+
+Run the live regression with a built host:
+
+```bash
+python3 scripts/python_games_smoke.py target/release/gpui-python-host
+```
+
+It opens a separate native window with temporary presentation state, clicks
+Queens, Zip, Sudoku, and Tetris through GPUI, checks scene patches and live
+ticks, exercises two touch contacts, changes the palette, and closes its host.
+The test fails on native session errors or Python stderr. Handler errors
+include the event, node, action, exception type, and exception message;
+the full traceback is captured in stderr and available through `status`.
 
 ## Platform Notes
 
