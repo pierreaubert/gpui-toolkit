@@ -83,7 +83,7 @@ pub mod selection;
 pub mod shape;
 #[cfg(all(feature = "gpu-3d", not(test)))]
 pub mod sphere_gallery;
-#[cfg(any(test, feature = "gpui"))]
+// Geometry and projection are also consumed by headless report backends.
 pub mod surface;
 #[cfg(all(feature = "gpui", not(test)))]
 pub mod text;
