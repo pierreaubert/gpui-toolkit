@@ -78,6 +78,33 @@ visible data set. `Table::virtual_viewport(...)` and
 before/after spacers; use `virtual_window_with_row_height(...)` when supplying a
 manual window that should keep the same scroll geometry.
 
+### Retained 2D Surface
+
+`GameSurface` paints a validated, ordered Scene2D display list directly with
+GPUI-native quads, paths, and shaped text. Stable node and hit IDs, a shared
+contain-fit transform, regular-grid picking, focused keyboard input, ordered
+pointer trajectories, semantic labels, and transform/opacity transitions make
+it useful for boards and custom diagrams. Keep game rules in the application
+and retain a `Scene2DState` when the scene changes over time.
+
+```rust
+use gpui_ui_kit::scene2d::{GameSurface, Scene2DScene, Scene2DState, SceneRect};
+
+let scene = Scene2DScene::new(SceneRect::new(0.0, 0.0, 320.0, 240.0));
+let state = Scene2DState::new(scene)?;
+let surface = GameSurface::from_state("board", state.clone())
+    .aria_label("Game board")
+    .on_input(|event, _window, _cx| {
+        // Route normalized pointer, key, and lifecycle events to application state.
+        let _ = event;
+    });
+```
+
+Use `state.replace_scene(...)` to publish a validated target, then notify the
+owning GPUI view. `Scene2DViewTransform` exposes the same forward and inverse
+coordinate mapping used by native painting. Run `cargo run -p gpui-ui-kit
+--example scene2d_debug` for an interactive drawing example.
+
 ### Visual Regression
 
 `gpui_ui_kit::ui_kit_visual_regression_manifest()` exposes the release screenshot

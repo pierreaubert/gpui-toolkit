@@ -11,6 +11,14 @@ use std::sync::{
 
 use std::collections::HashMap;
 
+#[path = "accessibility/accesskit_bridge.rs"]
+mod accesskit_bridge;
+
+#[cfg(any(target_os = "ios", target_os = "tvos"))]
+pub(crate) use accesskit_bridge::{
+    init_accesskit, update_accesskit_scale_factor, update_accesskit_tree,
+};
+
 type AccessibilityActionCallback =
     Box<dyn FnMut(&str, IosAccessibilityAction) -> bool + Send + 'static>;
 
@@ -510,9 +518,9 @@ pub fn dispatch_accessibility_action(id: &str, action: IosAccessibilityAction) -
         if ACCESSIBILITY_ACTION_CALLBACK_GENERATION.load(Ordering::Acquire) == generation {
             *action_callback_slot().lock().unwrap() = callback;
         }
-        handled
+        handled || accesskit_bridge::dispatch_accesskit_action(id, action)
     } else {
-        false
+        accesskit_bridge::dispatch_accesskit_action(id, action)
     }
 }
 

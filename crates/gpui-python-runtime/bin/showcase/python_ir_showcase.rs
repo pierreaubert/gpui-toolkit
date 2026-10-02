@@ -36,6 +36,7 @@ use gpui_python_runtime::native_mesh_plot::{
     decode_field as decode_mesh_field, decode_geometry as decode_mesh_geometry,
     decode_ids as decode_inline_ids,
 };
+use gpui_python_runtime::scene2d::SCENE2D_SCHEMA_VERSION;
 use gpui_python_runtime::session::{
     HostMessage, JobLogLine, JobRegistry, JobState, JobUpdate, LogSeverity, Patch, PatchOp,
     PythonMessage, SessionState,
@@ -46,10 +47,10 @@ use gpui_python_runtime::ui_ir::{
     BooleanInputNode, BreadcrumbsNode, ButtonNode, CardNode, ColorPickerNode, ConfirmDialogNode,
     ContextMenuNode, DialogNode, EmptyStateNode, FormNode, ListEditorNode, MenuBarNode,
     MenuItemNode, MenuNode, MeshPlotNode, MiniAppShellConfig, NumberInputNode, PathInputNode,
-    PopoverNode, ProgressNode, PxChartV2Node, PythonAppIr, Scene3dNode, SectionHeaderNode,
-    SelectNode, SimpleNode, SliderNode, SpinnerNode, StackNode, StepperNode, TableNode,
-    TableV2Node, TabsNode, TextInputNode, TextNode, ThinkingOrbNode, ToastNode, TooltipNode,
-    UiNode,
+    PopoverNode, ProgressNode, PxChartV2Node, PythonAppIr, Scene2DWidgetNode, Scene3dNode,
+    SectionHeaderNode, SelectNode, SimpleNode, SliderNode, SpinnerNode, StackNode, StepperNode,
+    TableNode, TableV2Node, TabsNode, TextInputNode, TextNode, ThinkingOrbNode, ToastNode,
+    TooltipNode, UiNode,
 };
 use gpui_ui_kit::color::Color;
 use gpui_ui_kit::data_navigation::{DataNavigationAction, DataNavigationState};
@@ -69,7 +70,7 @@ use gpui_ui_kit::{
     toggle::Toggle,
 };
 use gpui_ui_kit::{AriaProps, AriaRole, AriaState, apply_native_accessibility};
-use gpui_ui_kit::{OrbSize, OrbState, ThinkingOrb};
+use gpui_ui_kit::{GameSurface, OrbSize, OrbState, Scene2DState, ThinkingOrb};
 use serde::Deserialize;
 use serde_json::Value;
 use std::cell::RefCell;
@@ -84,7 +85,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 struct ElementIdHasher(std::collections::hash_map::DefaultHasher);
 
@@ -413,9 +414,10 @@ fn native_mesh_plot_options(
 #[cfg(all(test, target_os = "macos", feature = "native-qa"))]
 mod native_mesh_plot_tests {
     use super::{
-        Patch, PatchOp, PresentationStore, PythonIrShowcase, mesh_plot_resource_handles,
-        mesh_selection_event_payload,
+        Patch, PatchOp, PresentationStore, PythonIrShowcase, Scene2DWidgetNode, ThemeState,
+        ThemeVariant, UiNode, mesh_plot_resource_handles, mesh_selection_event_payload,
     };
+    use gpui::prelude::*;
     use gpui::{
         AnyWindowHandle, AppContext, Context, HeadlessAppContext, InputEvent, InteractiveElement,
         Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, ParentElement, Platform, Render,
@@ -427,10 +429,15 @@ mod native_mesh_plot_tests {
         MeshDtype, MeshFrame, MeshFrameKind, MeshFrameOutcome, MeshFrameStore,
     };
     use gpui_python_runtime::meshplot::MeshPlotSpec;
+    use gpui_python_runtime::ui_ir::PythonAppIr;
     use serde_json::Value;
     use std::cell::RefCell;
+    use std::fs;
+    use std::io::{self, Write};
+    use std::path::{Path, PathBuf};
     use std::rc::Rc;
     use std::sync::{Arc, Mutex, MutexGuard, atomic::Ordering};
+    use std::time::{Duration, Instant};
 
     // TIS/TSM keyboard-layout initialization can abort macOS test processes
     // when multiple native GPUI platforms are created concurrently. Use the
@@ -448,6 +455,115 @@ mod native_mesh_plot_tests {
         Arc::new(gpui::NoopTextSystem::new())
     }
 
+    fn native_mac_text_system() -> Arc<dyn gpui::PlatformTextSystem> {
+        let platform = gpui_macos::MacPlatform::new(true);
+        gpui::Platform::text_system(&platform)
+    }
+
+    fn games_qa_ir_paths(input: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+        let paths = if input.is_dir() {
+            vec![
+                ("light".to_string(), input.join("light.json")),
+                ("dark".to_string(), input.join("dark.json")),
+            ]
+        } else if let Some(dark_path) = std::env::var_os("GPUI_GAMES_QA_DARK_IR") {
+            vec![
+                ("light".to_string(), input.to_path_buf()),
+                ("dark".to_string(), PathBuf::from(dark_path)),
+            ]
+        } else {
+            let file_name = input
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| {
+                    "GPUI_GAMES_QA_IR must name a JSON file or fixture directory".to_string()
+                })?;
+            let parent = input.parent().unwrap_or_else(|| Path::new("."));
+            if file_name.to_ascii_lowercase().contains("dark") {
+                vec![
+                    ("light".to_string(), parent.join("light.json")),
+                    ("dark".to_string(), input.to_path_buf()),
+                ]
+            } else {
+                vec![
+                    ("light".to_string(), input.to_path_buf()),
+                    ("dark".to_string(), parent.join("dark.json")),
+                ]
+            }
+        };
+
+        for (theme, path) in &paths {
+            if !path.is_file() {
+                return Err(format!(
+                    "missing {theme} games App IR at {}; set GPUI_GAMES_QA_IR to a fixture directory or provide GPUI_GAMES_QA_DARK_IR",
+                    path.display()
+                ));
+            }
+        }
+        Ok(paths)
+    }
+
+    fn scene2d_counts(value: &Value) -> (usize, usize) {
+        fn visit(value: &Value, surfaces: &mut usize, nodes: &mut usize) {
+            match value {
+                Value::Object(object) => {
+                    let tag = object
+                        .get("kind")
+                        .or_else(|| object.get("type"))
+                        .and_then(Value::as_str);
+                    if tag == Some("scene2d")
+                        && let Some(scene_nodes) = object
+                            .get("scene")
+                            .and_then(|scene| scene.get("nodes"))
+                            .and_then(Value::as_array)
+                    {
+                        *surfaces += 1;
+                        *nodes += scene_nodes.len();
+                    }
+                    for child in object.values() {
+                        visit(child, surfaces, nodes);
+                    }
+                }
+                Value::Array(values) => {
+                    for child in values {
+                        visit(child, surfaces, nodes);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut surfaces = 0;
+        let mut nodes = 0;
+        visit(value, &mut surfaces, &mut nodes);
+        (surfaces, nodes)
+    }
+
+    fn scene2d_text_count(value: &Value) -> usize {
+        fn visit(value: &Value, count: &mut usize) {
+            match value {
+                Value::Object(object) => {
+                    if object.get("type").and_then(Value::as_str) == Some("text") {
+                        *count += 1;
+                    }
+                    for child in object.values() {
+                        visit(child, count);
+                    }
+                }
+                Value::Array(values) => {
+                    for child in values {
+                        visit(child, count);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut count = 0;
+        visit(value, &mut count);
+        count
+    }
+
     fn native_metal_required() -> bool {
         matches!(std::env::var("QA_NATIVE_REQUIRED").as_deref(), Ok("1"))
             || matches!(std::env::var("QA_METAL_REQUIRED").as_deref(), Ok("1"))
@@ -462,6 +578,597 @@ mod native_mesh_plot_tests {
             eprintln!("native Metal QA skipped: no compatible Metal device");
             false
         }
+    }
+
+    struct CapturedPipe(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for CapturedPipe {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0
+                .lock()
+                .map_err(|_| io::Error::other("captured pipe lock poisoned"))?
+                .extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct NativePythonScene2DView {
+        showcase: PythonIrShowcase,
+        node: Scene2DWidgetNode,
+    }
+
+    impl Render for NativePythonScene2DView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            self.showcase.render_scene2d(
+                &self.node,
+                &gpui_ui_kit::theme::Theme::default(),
+                &gpui_design::DesignSystem::neutral(),
+            )
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn native_metal_python_scene2d_renders_and_routes_semantic_hit_events() {
+        let _platform_guard = native_platform_lock();
+        if !native_metal_available() {
+            return;
+        }
+        let app_ir: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "title": "Scene2D host integration",
+            "sections": [{
+                "id": "game",
+                "label": "Game",
+                "content": {
+                    "kind": "scene2d",
+                    "id": "board",
+                    "width": 100.0,
+                    "height": 100.0,
+                    "scene": {
+                        "version": 1,
+                        "revision": 1,
+                        "view_box": {"x": 0.0, "y": 0.0, "width": 100.0, "height": 100.0},
+                        "background": {"type": "solid", "color": {"r": 0.04, "g": 0.07, "b": 0.10, "a": 1.0}},
+                        "nodes": [{
+                            "id": "target",
+                            "hit_id": "target-hit",
+                            "kind": {
+                                "type": "rect",
+                                "rect": {"x": 0.0, "y": 0.0, "width": 50.0, "height": 100.0},
+                                "fill": {"type": "solid", "color": {"r": 1.0, "g": 0.0, "b": 0.0, "a": 1.0}},
+                                "stroke": null
+                            }
+                        }],
+                        "input": {"pointer": true, "continuous": false, "capture": true, "keyboard": true}
+                    }
+                }
+            }]
+        }))
+        .expect("deserialize Python Scene2D App IR");
+        app_ir.validate().expect("validate Python Scene2D App IR");
+        let UiNode::Scene2D(node) = app_ir.sections[0].content.clone() else {
+            panic!("deserialized app should contain a native Scene2D node");
+        };
+        let mut changed_target = node.scene.nodes[0].clone();
+
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let event_sink = super::super::python::test_event_sink(CapturedPipe(captured.clone()));
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase.scene2d_event_sink = Some(event_sink.clone());
+        let text_system = native_text_system();
+        let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+            Some(Box::new(MetalHeadlessRenderer::new()))
+        });
+        let window = cx
+            .open_window(size(px(80.0), px(100.0)), move |_window, app| {
+                app.new(|_cx| NativePythonScene2DView { showcase, node })
+            })
+            .expect("open native Python Scene2D host window");
+        let any_window: AnyWindowHandle = window.into();
+        cx.update_window(any_window, |_, window, app| {
+            let _ = window.draw(app);
+        })
+        .expect("draw deserialized Python Scene2D through the runtime host");
+
+        let screenshot = cx
+            .capture_screenshot(any_window)
+            .expect("capture actual native Scene2D framebuffer");
+        let scale_factor = cx
+            .update_window(any_window, |_, window, _| window.scale_factor())
+            .expect("read native Scene2D device scale");
+        if let Ok(path) = std::env::var("SCENE2D_HOST_SCREENSHOT_PATH") {
+            let path = PathBuf::from(path);
+            let initial_path = path.with_file_name(format!(
+                "{}-initial.ppm",
+                path.file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .unwrap_or("scene2d-host")
+            ));
+            let (width, height) = screenshot.dimensions();
+            let mut ppm = format!("P6\n{width} {height}\n255\n").into_bytes();
+            for pixel in screenshot.pixels() {
+                ppm.extend_from_slice(&pixel.0[..3]);
+            }
+            fs::write(&initial_path, ppm).expect("save initial Scene2D host framebuffer");
+        }
+        let red_bounds: Option<(u32, u32, u32, u32)> = screenshot
+            .enumerate_pixels()
+            .filter(|(_, _, pixel)| pixel.0[0] > 200 && pixel.0[1] < 40 && pixel.0[2] < 40)
+            .map(|(x, y, _)| (x, y))
+            .fold(None, |bounds, (x, y)| {
+                Some(match bounds {
+                    Some((min_x, min_y, max_x, max_y)) => {
+                        (min_x.min(x), min_y.min(y), max_x.max(x), max_y.max(y))
+                    }
+                    None => (x, y, x, y),
+                })
+            });
+        eprintln!(
+            "responsive Scene2D initial framebuffer is {}x{} at scale {}, red bounds {:?}",
+            screenshot.width(),
+            screenshot.height(),
+            scale_factor,
+            red_bounds
+        );
+        let red_pixel = screenshot
+            .get_pixel(
+                (25.0 * scale_factor).round() as u32,
+                (50.0 * scale_factor).round() as u32,
+            )
+            .0;
+        let board_background_pixel = screenshot
+            .get_pixel(
+                (60.0 * scale_factor).round() as u32,
+                (50.0 * scale_factor).round() as u32,
+            )
+            .0;
+        assert!(
+            red_pixel[0] > 200 && red_pixel[1] < 40 && red_pixel[2] < 40,
+            "responsive Scene2D red node should paint the left-center pixel, got {:?}",
+            red_pixel
+        );
+        assert!(
+            board_background_pixel[2] > board_background_pixel[0]
+                && board_background_pixel[2] < 150,
+            "narrow layout should preserve the aspect fit and paint the board background, got {:?}",
+            board_background_pixel
+        );
+
+        let gpui_python_runtime::scene2d::Scene2DNodeKind::Rect { rect, fill, .. } =
+            &mut changed_target.kind
+        else {
+            panic!("Scene2D fixture should remain a rectangle");
+        };
+        rect.width = 25.0;
+        *fill = Some(gpui_python_runtime::scene2d::Scene2DBrush::Solid {
+            color: gpui_python_runtime::scene2d::Scene2DColor {
+                r: 0.0,
+                g: 0.2,
+                b: 1.0,
+                a: 1.0,
+            },
+        });
+        let mut patched_ir = app_ir.clone();
+        patched_ir
+            .apply_patch_ops(&[gpui_python_runtime::session::PatchOp::Scene2DPatch {
+                id: "board".into(),
+                patch: gpui_python_runtime::scene2d::Scene2DPatch {
+                    base_revision: 1,
+                    revision: 2,
+                    upsert: vec![changed_target],
+                    remove: Vec::new(),
+                    view_box: None,
+                    grid: None,
+                    input: None,
+                    semantic: None,
+                    background: None,
+                },
+            }])
+            .expect("apply a revisioned Scene2D Python patch");
+        let UiNode::Scene2D(patched_node) = patched_ir.sections[0].content.clone() else {
+            panic!("patched App IR should retain its Scene2D node");
+        };
+        window
+            .update(&mut cx, |view, _window, cx| {
+                view.node = patched_node;
+                cx.notify();
+            })
+            .expect("publish the patched Python Scene2D snapshot");
+        cx.update_window(any_window, |_, window, app| {
+            let _ = window.draw(app);
+        })
+        .expect("draw the newer Python Scene2D snapshot");
+        let patched_screenshot = cx
+            .capture_screenshot(any_window)
+            .expect("capture patched native Scene2D framebuffer");
+        let patched_blue_pixel = patched_screenshot
+            .get_pixel(
+                (10.0 * scale_factor).round() as u32,
+                (50.0 * scale_factor).round() as u32,
+            )
+            .0;
+        let patched_background_pixel = patched_screenshot
+            .get_pixel(
+                (30.0 * scale_factor).round() as u32,
+                (50.0 * scale_factor).round() as u32,
+            )
+            .0;
+        assert!(
+            patched_blue_pixel[2] > 200 && patched_blue_pixel[0] < 40,
+            "revision 2 should repaint the retained target node blue, got {:?}",
+            patched_blue_pixel
+        );
+        assert!(
+            patched_background_pixel[2] > patched_background_pixel[0],
+            "revision 2 should expose the background where the target node shrank, got {:?}",
+            patched_background_pixel
+        );
+        if let Ok(path) = std::env::var("SCENE2D_HOST_SCREENSHOT_PATH") {
+            let (width, height) = patched_screenshot.dimensions();
+            let mut ppm = format!("P6\n{width} {height}\n255\n").into_bytes();
+            for pixel in patched_screenshot.pixels() {
+                ppm.extend_from_slice(&pixel.0[..3]);
+            }
+            std::fs::write(path, ppm).expect("save patched Scene2D host framebuffer");
+        }
+
+        let position = point(px(10.0), px(50.0));
+        cx.update_window(any_window, |_, window, app| {
+            window.dispatch_event(
+                MouseDownEvent {
+                    position,
+                    modifiers: Modifiers::default(),
+                    button: MouseButton::Left,
+                    click_count: 1,
+                    first_mouse: false,
+                }
+                .to_platform_input(),
+                app,
+            );
+            window.dispatch_event(
+                MouseUpEvent {
+                    position,
+                    modifiers: Modifiers::default(),
+                    button: MouseButton::Left,
+                    click_count: 1,
+                }
+                .to_platform_input(),
+                app,
+            );
+        })
+        .expect("dispatch Scene2D semantic hit click after patch");
+        cx.run_until_parked();
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let line = loop {
+            let bytes = captured.lock().expect("captured pipe lock").clone();
+            if let Some(end) = bytes.iter().position(|byte| *byte == b'\n') {
+                break String::from_utf8(bytes[..end].to_vec()).expect("captured JSON is UTF-8");
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Scene2D event was not delivered to the host writer"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        let message: serde_json::Value = serde_json::from_str(&line).expect("captured host event");
+        assert_eq!(message["type"], "event");
+        assert_eq!(message["event"], "scene2d.event");
+        assert_eq!(message["node_id"], "board");
+        assert_eq!(message["payload"]["event"]["type"], "pointer");
+        assert_eq!(message["payload"]["event"]["hit_id"], "target-hit");
+
+        cx.update_window(any_window, |_, window, _| window.remove_window())
+            .expect("close native Python Scene2D host window");
+        cx.run_until_parked();
+        event_sink.close();
+    }
+
+    #[::core::prelude::v1::test]
+    fn native_metal_game_matrix_renders_full_python_showcase() {
+        let _platform_guard = native_platform_lock();
+        let input = match std::env::var_os("GPUI_GAMES_QA_IR") {
+            Some(input) => PathBuf::from(input),
+            None if native_metal_required() => {
+                panic!(
+                    "QA_NATIVE_REQUIRED=1 requires GPUI_GAMES_QA_IR to point to qa/games/fixtures"
+                )
+            }
+            None => {
+                eprintln!("native games matrix skipped: set GPUI_GAMES_QA_IR to qa/games/fixtures");
+                return;
+            }
+        };
+        if !native_metal_available() {
+            return;
+        }
+        let sources = games_qa_ir_paths(&input).expect("resolve light and dark games App IR");
+        let output_dir = std::env::var_os("GPUI_GAMES_QA_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir().join("gpui-games-native-qa"));
+        fs::create_dir_all(&output_dir).expect("create games screenshot directory");
+
+        let sizes = [
+            ("portrait-small", 390.0, 844.0),
+            ("landscape-small", 844.0, 390.0),
+            ("portrait-large", 900.0, 1280.0),
+            ("landscape-large", 1280.0, 900.0),
+        ];
+        let expected_games = ["zip", "queens", "sudoku", "tetris"];
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        let mut case_manifest =
+            Vec::with_capacity(sources.len() * expected_games.len() * sizes.len());
+
+        let first_ir: PythonAppIr =
+            serde_json::from_slice(&fs::read(&sources[0].1).expect("read light games App IR"))
+                .expect("deserialize light games App IR");
+        first_ir.validate().expect("validate light games App IR");
+        showcase.current_section = first_ir
+            .sections
+            .first()
+            .expect("games App IR has sections")
+            .id
+            .clone();
+        showcase.app_value = Some(serde_json::to_value(&first_ir).expect("serialize app IR"));
+        showcase.app = Some(first_ir);
+        let text_system = native_mac_text_system();
+        let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
+            Some(Box::new(MetalHeadlessRenderer::new()))
+        });
+        let initial_size = size(px(390.0), px(844.0));
+        let window = cx
+            .open_window(initial_size, move |_window, app| app.new(|_cx| showcase))
+            .expect("open full Python showcase QA window");
+        let any_window: AnyWindowHandle = window.into();
+
+        for (theme_name, source_path) in &sources {
+            let expected_theme = if theme_name == "light" {
+                ThemeVariant::Light
+            } else {
+                ThemeVariant::Dark
+            };
+            let source_ir: PythonAppIr =
+                serde_json::from_slice(&fs::read(source_path).expect("read games App IR"))
+                    .unwrap_or_else(|error| {
+                        panic!(
+                            "deserialize {} games App IR: {error}",
+                            source_path.display()
+                        )
+                    });
+            source_ir.validate().unwrap_or_else(|error| {
+                panic!("validate {} games App IR: {error}", source_path.display())
+            });
+            for game in expected_games {
+                assert!(
+                    source_ir.sections.iter().any(|section| section.id == game),
+                    "{} App IR is missing the {game} game section",
+                    source_path.display()
+                );
+                let serialized = serde_json::to_value(&source_ir).expect("serialize games IR");
+                let section = source_ir
+                    .sections
+                    .iter()
+                    .find(|section| section.id == game)
+                    .expect("checked game section");
+                let section_value =
+                    serde_json::to_value(&section.content).expect("serialize game section content");
+                let (surface_count, scene_node_count) = scene2d_counts(&section_value);
+                assert!(
+                    surface_count > 0,
+                    "{game} section should render at least one Scene2D surface"
+                );
+                let text_node_count = scene2d_text_count(&section_value);
+                if game == "sudoku" {
+                    assert!(
+                        text_node_count > 0,
+                        "Sudoku should include native text nodes"
+                    );
+                }
+
+                for (size_name, width, height) in sizes {
+                    let mut case_ir = source_ir.clone();
+                    let miniapp = case_ir
+                        .miniapp
+                        .as_mut()
+                        .expect("games App IR declares the showcase shell");
+                    miniapp.width = width;
+                    miniapp.height = height;
+                    miniapp.initial_theme = theme_name.clone();
+                    let case_app_value =
+                        serde_json::to_value(&case_ir).expect("serialize matrix app IR");
+                    let selected_section = game.to_string();
+                    window
+                        .update(&mut cx, |view, _window, cx| {
+                            if view
+                                .observed_miniapp_theme
+                                .is_some_and(|observed| observed != expected_theme)
+                            {
+                                view.scene2d_states.clear();
+                                view.scene2d_errors.clear();
+                            }
+                            view.app = Some(case_ir);
+                            view.app_value = Some(case_app_value);
+                            view.current_section = selected_section.clone();
+                            view.presentation.set_section(Some(selected_section));
+                            view.content_scroll.set_offset(point(px(0.0), px(0.0)));
+                            view.applied_miniapp_shell = None;
+                            cx.notify();
+                        })
+                        .expect("apply games matrix case");
+                    cx.simulate_window_resize(any_window, size(px(width), px(height)));
+                    let viewport = cx
+                        .update_window(any_window, |_, window, _| window.viewport_size())
+                        .expect("read resized games matrix viewport");
+                    assert_eq!(
+                        (viewport.width.as_f32(), viewport.height.as_f32()),
+                        (width, height),
+                        "headless platform resize must update GPUI's logical viewport before capture"
+                    );
+
+                    let cold_draw_started = Instant::now();
+                    cx.update_window(any_window, |_, window, app| {
+                        let _ = window.draw(app);
+                    })
+                    .expect("draw full Python game section");
+                    let cold_draw_ms = cold_draw_started.elapsed().as_secs_f64() * 1000.0;
+
+                    let scene_bounds = cx
+                        .debug_bounds(any_window, &format!("python-scene2d-{game}-board"))
+                        .expect("read laid out Scene2D bounds")
+                        .unwrap_or_else(|| {
+                            panic!("{game} Scene2D container must receive nonzero layout bounds")
+                        });
+                    assert!(
+                        scene_bounds.size.width > px(0.0) && scene_bounds.size.height > px(0.0),
+                        "{game} Scene2D container must receive nonzero layout bounds: {scene_bounds:?}"
+                    );
+                    assert!(
+                        scene_bounds.origin.x >= px(0.0)
+                            && scene_bounds.origin.y >= px(0.0)
+                            && scene_bounds.origin.x + scene_bounds.size.width <= viewport.width
+                            && scene_bounds.origin.y + scene_bounds.size.height <= viewport.height,
+                        "{game} main Scene2D board must be fully inside the logical viewport: bounds={scene_bounds:?}, viewport={viewport:?}"
+                    );
+                    let scene_bounds_manifest = serde_json::json!({
+                        "x": scene_bounds.origin.x.as_f32(),
+                        "y": scene_bounds.origin.y.as_f32(),
+                        "width": scene_bounds.size.width.as_f32(),
+                        "height": scene_bounds.size.height.as_f32(),
+                    });
+
+                    let mut warm_draw_samples_ms = Vec::with_capacity(60);
+                    for _ in 0..60 {
+                        let started = Instant::now();
+                        cx.update_window(any_window, |_, window, app| {
+                            let _ = window.draw(app);
+                        })
+                        .expect("draw warm Python game frame");
+                        warm_draw_samples_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+                    }
+                    warm_draw_samples_ms.sort_by(f64::total_cmp);
+                    let warm_p50_ms = warm_draw_samples_ms[warm_draw_samples_ms.len() / 2];
+                    let warm_p95_index = ((warm_draw_samples_ms.len() as f64 * 0.95).ceil()
+                        as usize)
+                        .saturating_sub(1);
+                    let warm_p95_ms = warm_draw_samples_ms[warm_p95_index];
+
+                    let forced_draw_started = Instant::now();
+                    cx.update_window(any_window, |_, window, app| {
+                        let _ = window.draw(app);
+                    })
+                    .expect("force one measured Python game draw");
+                    let forced_draw_ms = forced_draw_started.elapsed().as_secs_f64() * 1000.0;
+
+                    let capture_started = Instant::now();
+                    let screenshot = cx
+                        .capture_screenshot(any_window)
+                        .expect("capture full Python game section framebuffer");
+                    let capture_ms = capture_started.elapsed().as_secs_f64() * 1000.0;
+
+                    let screenshot_name = format!(
+                        "{theme_name}-{game}-{size_name}-{}x{}.png",
+                        width as u32, height as u32
+                    );
+                    let screenshot_path = output_dir.join(&screenshot_name);
+                    screenshot.save(&screenshot_path).unwrap_or_else(|error| {
+                        panic!("save {}: {error}", screenshot_path.display())
+                    });
+
+                    let (retained_surfaces, retained_scene_nodes, scale_factor) = window
+                        .update(&mut cx, |view, window, _| {
+                            let retained_nodes = view
+                                .scene2d_states
+                                .values()
+                                .map(|state| state.scene().nodes.len())
+                                .sum::<usize>();
+                            (
+                                view.scene2d_states.len(),
+                                retained_nodes,
+                                window.scale_factor(),
+                            )
+                        })
+                        .expect("read retained Scene2D QA metrics");
+                    let expected_width = (width * scale_factor).round() as u32;
+                    let expected_height = (height * scale_factor).round() as u32;
+                    assert_eq!(
+                        screenshot.width(),
+                        expected_width,
+                        "saved {screenshot_name} before reporting physical framebuffer dimensions"
+                    );
+                    assert_eq!(
+                        screenshot.height(),
+                        expected_height,
+                        "saved {screenshot_name} before reporting physical framebuffer dimensions"
+                    );
+                    let nonuniform_pixels = screenshot
+                        .pixels()
+                        .filter(|pixel| {
+                            let [red, green, blue, _] = pixel.0;
+                            red != green || green != blue
+                        })
+                        .count();
+                    let distinct_colors = screenshot
+                        .pixels()
+                        .map(|pixel| pixel.0)
+                        .collect::<std::collections::HashSet<_>>()
+                        .len();
+                    let minimum_scene_pixels =
+                        ((screenshot.width() as usize * screenshot.height() as usize) / 1000)
+                            .max(20);
+                    assert!(
+                        distinct_colors > 24 && nonuniform_pixels > minimum_scene_pixels,
+                        "{theme_name}/{game}/{size_name} should paint native board/text detail; got {distinct_colors} colors and {nonuniform_pixels} chromatic pixels"
+                    );
+                    case_manifest.push(serde_json::json!({
+                        "theme": theme_name,
+                        "game": game,
+                        "size": size_name,
+                        "width": width as u32,
+                        "height": height as u32,
+                        "framebuffer_width": screenshot.width(),
+                        "framebuffer_height": screenshot.height(),
+                        "scale_factor": scale_factor,
+                        "cold_draw_cpu_ms": cold_draw_ms,
+                        "warm_draw_cpu_p50_ms": warm_p50_ms,
+                        "warm_draw_cpu_p95_ms": warm_p95_ms,
+                        "forced_draw_cpu_ms": forced_draw_ms,
+                        "screenshot_capture_gpu_sync_ms": capture_ms,
+                        "input_to_present_measured": false,
+                        "declared_scene_surfaces": surface_count,
+                        "declared_scene_nodes": scene_node_count,
+                        "declared_text_nodes": text_node_count,
+                        "retained_scene_surfaces": retained_surfaces,
+                        "retained_scene_nodes": retained_scene_nodes,
+                        "scene2d_container_bounds_logical": scene_bounds_manifest,
+                        "nonuniform_pixels": nonuniform_pixels,
+                        "distinct_colors": distinct_colors,
+                        "text_system": "macos_coretext",
+                        "screenshot": screenshot_name,
+                        "source": source_path.display().to_string(),
+                    }));
+
+                    // The JSON form is built once to ensure this matrix keeps
+                    // exercising the same validated host-facing app snapshot.
+                    assert_eq!(serialized["schema_version"], 1);
+                }
+            }
+        }
+
+        let manifest = serde_json::json!({
+            "schema_version": 1,
+            "renderer": "macos_metal_headless",
+            "text_system": "macos_coretext",
+            "cases": case_manifest,
+        });
+        fs::write(
+            output_dir.join("manifest.json"),
+            serde_json::to_vec_pretty(&manifest).expect("serialize games QA manifest"),
+        )
+        .expect("write games QA manifest");
     }
 
     struct NativeResourceMeshPlotView {
@@ -1644,8 +2351,7 @@ fn validate_mesh_plot_spec_resources(
     mesh.validate()
         .map_err(|error| invalid(error.to_string()))?;
     if let Some(field) = spec.field.as_ref() {
-        let (values, valid) =
-            decode_mesh_field(field, store, None).map_err(invalid)?;
+        let (values, valid) = decode_mesh_field(field, store, None).map_err(invalid)?;
         let association = match field.get("association").and_then(Value::as_str) {
             Some("cell") => ScalarAssociation::Cell,
             _ => ScalarAssociation::Vertex,
@@ -1666,8 +2372,7 @@ fn validate_mesh_plot_spec_resources(
         scalar
             .validate(&mesh)
             .map_err(|error| invalid(error.to_string()))?;
-        let color_range =
-            native_mesh_plot_color_range(&spec.color_range).map_err(invalid)?;
+        let color_range = native_mesh_plot_color_range(&spec.color_range).map_err(invalid)?;
         let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);
         for (index, value) in scalar.values.iter().enumerate() {
             if scalar
@@ -7051,6 +7756,9 @@ fn px_chart_ids(value: &Value, live_ids: &mut HashSet<String>) {
     }
 }
 
+// Match the desktop navigation width when estimating the Scene2D content budget.
+const PYTHON_SHOWCASE_SIDEBAR_WIDTH: f32 = 240.0;
+
 pub(super) struct PythonIrShowcase {
     pub(super) app: Option<PythonAppIr>,
     /// JSON form of the committed app, retained for patch/resource bookkeeping.
@@ -7094,6 +7802,22 @@ pub(super) struct PythonIrShowcase {
     /// its last valid frame remains visible instead of replacing the whole
     /// application with a session error screen.
     mesh_plot_errors: HashMap<String, String>,
+    /// Native Scene2D state survives declarative frames and retargets
+    /// animation from the currently presented values after each revision.
+    scene2d_states: HashMap<String, Scene2DState>,
+    /// Invalid surface patches are isolated to that surface; its last valid
+    /// native scene remains visible while Python sends a corrected revision.
+    scene2d_errors: HashMap<String, String>,
+    /// Current viewport budget after the host navigation and content margins.
+    scene2d_available_height: f32,
+    scene2d_available_width: f32,
+    tick_interval: Option<Duration>,
+    tick_task: Option<Task<()>>,
+    tick_in_flight: Option<String>,
+    tick_frame: u64,
+    tick_last_sent: Option<Instant>,
+    window_active: bool,
+    activation_subscription: Option<Subscription>,
     last_mesh_patch_id: Option<String>,
     table_scrolls: HashMap<String, UniformListScrollHandle>,
     /// Dataset-backed tables retain a host-owned row window offset. Resource
@@ -7117,6 +7841,7 @@ pub(super) struct PythonIrShowcase {
     observed_miniapp_theme: Option<ThemeVariant>,
     observed_miniapp_language: Option<Language>,
     pub(super) session: Option<super::python::PythonSession>,
+    scene2d_event_sink: Option<super::python::PythonEventSink>,
     pub(super) session_state: SessionState,
     pub(super) jobs: JobRegistry,
     job_log_filter: Option<LogSeverity>,
@@ -7195,6 +7920,17 @@ impl PythonIrShowcase {
             mesh_plot_resource_refs: HashMap::new(),
             mesh_plot_states: HashMap::new(),
             mesh_plot_errors: HashMap::new(),
+            scene2d_states: HashMap::new(),
+            scene2d_errors: HashMap::new(),
+            scene2d_available_height: f32::INFINITY,
+            scene2d_available_width: f32::INFINITY,
+            tick_interval: None,
+            tick_task: None,
+            tick_in_flight: None,
+            tick_frame: 0,
+            tick_last_sent: None,
+            window_active: false,
+            activation_subscription: None,
             last_mesh_patch_id: None,
             table_scrolls: HashMap::new(),
             dataset_table_offsets: HashMap::new(),
@@ -7210,6 +7946,7 @@ impl PythonIrShowcase {
             observed_miniapp_theme: None,
             observed_miniapp_language: None,
             session: None,
+            scene2d_event_sink: None,
             session_state: SessionState::new(
                 gpui_python_runtime::session::DEFAULT_HOST_CAPABILITIES
                     .iter()
@@ -7260,9 +7997,13 @@ impl PythonIrShowcase {
             self.presentation.set_section(Some(section.id.clone()));
         }
         self.app_value = serde_json::to_value(&app).ok();
+        let tick_interval = app.tick_interval;
+        self.scene2d_event_sink = Some(session.event_sink());
         self.app = Some(app);
         self.session = Some(session);
         self.start_session_updates(cx);
+        self.set_tick_interval(tick_interval);
+        self.refresh_tick_task(cx);
     }
 
     fn sync_mesh_plot_resource_refs(
@@ -7386,6 +8127,43 @@ impl PythonIrShowcase {
         }
     }
 
+    fn record_patch_error(
+        &mut self,
+        patch: &Patch,
+        app_value: Option<&Value>,
+        error: impl Into<String>,
+    ) {
+        let error = error.into();
+        let mut recorded_scene = false;
+        for operation in &patch.ops {
+            let id = match operation {
+                PatchOp::Scene2DReplace { id, .. } | PatchOp::Scene2DPatch { id, .. } => id,
+                _ => continue,
+            };
+            self.scene2d_errors.insert(id.clone(), error.clone());
+            recorded_scene = true;
+        }
+        let recorded_mesh = patch
+            .ops
+            .iter()
+            .any(|operation| mesh_plot_operation_id(operation).is_some());
+        if recorded_mesh {
+            self.record_mesh_patch_error(patch, app_value, error);
+        } else if !recorded_scene {
+            self.load_error = Some(error);
+        }
+    }
+
+    fn clear_patch_errors(&mut self, patch: &Patch, app_value: Option<&Value>) {
+        self.clear_mesh_patch_errors(patch, app_value);
+        for operation in &patch.ops {
+            if let PatchOp::Scene2DReplace { id, .. } | PatchOp::Scene2DPatch { id, .. } = operation
+            {
+                self.scene2d_errors.remove(id);
+            }
+        }
+    }
+
     fn record_mesh_resource_error(
         &mut self,
         resource_id: &str,
@@ -7468,6 +8246,19 @@ impl PythonIrShowcase {
         }
 
         let app_value = serde_json::to_value(&app_ir).unwrap_or(Value::Null);
+        if !app_ir
+            .sections
+            .iter()
+            .any(|section| section.id == self.current_section)
+            && let Some(section) = app_ir.sections.first()
+        {
+            self.cancel_scene2d_surfaces_in_section(
+                &self.current_section.clone(),
+                gpui_ui_kit::Scene2DLifecycleReason::SectionChanged,
+            );
+            self.current_section = section.id.clone();
+            self.presentation.set_section(Some(section.id.clone()));
+        }
         let mut next_resource_refs = HashMap::new();
         let mut live_mesh_ids = HashSet::new();
         mesh_plot_ids(&app_value, &mut live_mesh_ids);
@@ -7497,7 +8288,9 @@ impl PythonIrShowcase {
             self.release_mesh_plot_resource_refs();
         }
 
+        self.prune_scene2d_runtime_ids(&app_value);
         self.app_value = Some(app_value);
+        self.set_tick_interval(app_ir.tick_interval);
         self.app = Some(app_ir);
         self.prune_mesh_plot_runtime_ids(&live_mesh_ids, &live_chart_ids);
         self.load_error = None;
@@ -7556,6 +8349,7 @@ impl PythonIrShowcase {
 
     fn load_session(&mut self, cx: &mut Context<Self>) {
         self.load_error = None;
+        self.shutdown_scene2d_runtime(gpui_ui_kit::Scene2DLifecycleReason::Disconnected);
         self.reset_mesh_plot_runtime_state();
         self.app = None;
         self.app_value = None;
@@ -7577,9 +8371,184 @@ impl PythonIrShowcase {
         .detach();
     }
 
-    fn select_section(&mut self, section: String) {
+    fn select_section(&mut self, section: String, cx: &mut Context<Self>) {
+        let changed = self.current_section != section;
+        if changed {
+            self.cancel_scene2d_surfaces_in_section(
+                &self.current_section.clone(),
+                gpui_ui_kit::Scene2DLifecycleReason::SectionChanged,
+            );
+        }
         self.current_section = section.clone();
         self.presentation.set_section(Some(section));
+        if changed {
+            self.resume_scene2d_surfaces_in_section(&self.current_section.clone(), cx);
+        }
+        self.refresh_tick_task(cx);
+    }
+
+    fn cancel_scene2d_surfaces_in_section(
+        &mut self,
+        section: &str,
+        reason: gpui_ui_kit::Scene2DLifecycleReason,
+    ) {
+        let ids = self
+            .app_value
+            .as_ref()
+            .map(|app| scene2d_surface_ids_in_section(app, section))
+            .unwrap_or_default();
+        for id in ids {
+            if let Some(state) = self.scene2d_states.get(&id) {
+                state.set_suspended(true);
+                if let Some(sink) = self.scene2d_sink() {
+                    dispatch_scene2d_inputs(&sink, &id, state.cancel_inputs(reason));
+                }
+            }
+        }
+    }
+
+    fn resume_scene2d_surfaces_in_section(&mut self, section: &str, cx: &mut Context<Self>) {
+        let ids = self
+            .app_value
+            .as_ref()
+            .map(|app| scene2d_surface_ids_in_section(app, section))
+            .unwrap_or_default();
+        let sink = self.scene2d_sink();
+        let mut resumed_animation = false;
+        for id in ids {
+            if let Some(state) = self.scene2d_states.get(&id) {
+                let active = self.window_active;
+                resumed_animation |= state.set_suspended(!active);
+                if active && let Some(sink) = &sink {
+                    dispatch_scene2d_inputs(
+                        sink,
+                        &id,
+                        state.cancel_inputs(gpui_ui_kit::Scene2DLifecycleReason::Resumed),
+                    );
+                }
+            }
+        }
+        if resumed_animation {
+            cx.notify();
+        }
+    }
+
+    fn prune_scene2d_runtime_ids(&mut self, app_value: &Value) {
+        let mut live = HashSet::new();
+        collect_scene2d_ids(app_value, &mut live);
+        let removed = self
+            .scene2d_states
+            .keys()
+            .filter(|id| !live.contains(id.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        let sink = self.scene2d_sink();
+        for id in &removed {
+            if let Some(state) = self.scene2d_states.get(id) {
+                let inputs = state.remove();
+                if let Some(sink) = &sink {
+                    dispatch_scene2d_inputs(sink, id, inputs);
+                }
+            }
+        }
+        for id in removed {
+            self.scene2d_states.remove(&id);
+            self.scene2d_errors.remove(&id);
+        }
+        self.scene2d_errors.retain(|id, _| live.contains(id));
+    }
+
+    fn scene2d_sink(&self) -> Option<super::python::PythonEventSink> {
+        self.scene2d_event_sink
+            .clone()
+            .or_else(|| self.session.as_ref().map(|session| session.event_sink()))
+    }
+
+    fn set_tick_interval(&mut self, seconds: Option<f64>) {
+        let interval = seconds
+            .filter(|value| value.is_finite() && *value > 0.0 && *value <= 60.0)
+            .map(Duration::from_secs_f64);
+        if self.tick_interval == interval {
+            return;
+        }
+        self.tick_task.take();
+        self.tick_interval = interval;
+        self.tick_last_sent = None;
+    }
+
+    fn refresh_tick_task(&mut self, cx: &mut Context<Self>) {
+        let should_run = self.window_active
+            && self.tick_interval.is_some()
+            && self.session.is_some()
+            && self.app_value.as_ref().is_some_and(|app| {
+                !scene2d_surface_ids_in_section(app, &self.current_section).is_empty()
+            });
+        if !should_run {
+            self.tick_task.take();
+            self.tick_last_sent = None;
+            return;
+        }
+        if self.tick_task.is_some() {
+            return;
+        }
+        let interval = self.tick_interval.expect("active tick interval");
+        self.tick_last_sent = Some(Instant::now());
+        self.tick_task = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(interval).await;
+                if this
+                    .update(cx, |this, _cx| this.deliver_scene2d_tick())
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }));
+    }
+
+    fn deliver_scene2d_tick(&mut self) {
+        if self.tick_in_flight.is_some() {
+            return;
+        }
+        let Some(surface_id) = self.app_value.as_ref().and_then(|app| {
+            scene2d_surface_ids_in_section(app, &self.current_section)
+                .into_iter()
+                .next()
+        }) else {
+            return;
+        };
+        let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) else {
+            return;
+        };
+        let now = Instant::now();
+        let elapsed = self
+            .tick_last_sent
+            .replace(now)
+            .map(|last| now.saturating_duration_since(last))
+            .unwrap_or_default()
+            .min(Duration::from_millis(250));
+        let frame = self.tick_frame.saturating_add(1);
+        let payload = serde_json::json!({
+            "type": "scene2d.tick",
+            "tick": {
+                "surface_id": surface_id,
+                "elapsed_ns": elapsed.as_nanos().min(u64::MAX as u128) as u64,
+                "frame": frame,
+            }
+        });
+        if let Ok(event_id) = sink.dispatch_with_id(
+            surface_id,
+            "scene2d.tick",
+            Some("scene2d_tick".into()),
+            payload,
+        ) {
+            self.tick_frame = frame;
+            self.tick_in_flight = Some(event_id);
+        }
+    }
+
+    fn clear_tick_request(&mut self, request_id: &str) -> bool {
+        clear_matching_tick_request(&mut self.tick_in_flight, request_id)
     }
 
     fn observe_presentation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -7592,6 +8561,35 @@ impl PythonIrShowcase {
                 this.presentation
                     .set_window_size(bounds.size.width.into(), bounds.size.height.into());
             }));
+    }
+
+    fn observe_window_activation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.activation_subscription.is_some() {
+            return;
+        }
+        self.window_active = window.is_window_active();
+        self.activation_subscription =
+            Some(cx.observe_window_activation(window, |this, window, cx| {
+                this.set_window_active(window.is_window_active(), cx)
+            }));
+    }
+
+    fn set_window_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        if self.window_active == active {
+            return;
+        }
+        self.window_active = active;
+        self.tick_task.take();
+        self.tick_last_sent = None;
+        if active {
+            self.resume_scene2d_surfaces_in_section(&self.current_section.clone(), cx);
+            self.refresh_tick_task(cx);
+        } else {
+            self.cancel_scene2d_surfaces_in_section(
+                &self.current_section.clone(),
+                gpui_ui_kit::Scene2DLifecycleReason::Suspended,
+            );
+        }
     }
 
     fn observe_window_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -7774,7 +8772,7 @@ impl PythonIrShowcase {
     ) -> Div {
         let app = self.app.as_ref().expect("render_sidebar called after load");
         div()
-            .w(px(240.0))
+            .w(px(PYTHON_SHOWCASE_SIDEBAR_WIDTH))
             .h_full()
             .flex()
             .flex_col()
@@ -7833,7 +8831,64 @@ impl PythonIrShowcase {
                     .text_color(text)
                     .child(section.label.clone())
                     .on_click(cx.listener(move |this, _, _window, cx| {
-                        this.select_section(section_id.clone());
+                        this.select_section(section_id.clone(), cx);
+                        cx.notify();
+                    }))
+            }))
+    }
+
+    fn render_compact_section_navigation(
+        &mut self,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let app = self
+            .app
+            .as_ref()
+            .expect("render_compact_section_navigation called after load");
+        div()
+            .w_full()
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .gap(px(ds.spacing.grid_unit))
+            .p(px(ds.spacing.card_padding))
+            .bg(theme.surface)
+            .border_b_1()
+            .border_color(theme.border)
+            .children(app.sections.iter().map(|section| {
+                let selected = section.id == self.current_section;
+                let section_id = section.id.clone();
+                let bg = if selected {
+                    theme.accent
+                } else {
+                    theme.surface
+                };
+                let hover_bg = if selected {
+                    theme.accent_hover
+                } else {
+                    theme.surface_hover
+                };
+                let text = if selected {
+                    theme.text_on_accent
+                } else {
+                    theme.text_primary
+                };
+
+                div()
+                    .id(ElementId::Name(section_id.clone().into()))
+                    .flex_shrink_0()
+                    .px(px(ds.spacing.control_padding_x))
+                    .py(px(ds.spacing.control_padding_y))
+                    .rounded(px(ds.corners.md))
+                    .cursor_pointer()
+                    .bg(bg)
+                    .hover(move |style| style.bg(hover_bg))
+                    .text_color(text)
+                    .child(section.label.clone())
+                    .on_click(cx.listener(move |this, _, _window, cx| {
+                        this.select_section(section_id.clone(), cx);
                         cx.notify();
                     }))
             }))
@@ -7849,10 +8904,7 @@ impl PythonIrShowcase {
         // renderer mutates its independent retained caches. This avoids a
         // per-frame deep clone of potentially large IR subtrees.
         let app = self.app.take().expect("render_content called after load");
-        let scrollable = app
-            .miniapp
-            .as_ref()
-            .is_none_or(|config| config.scrollable);
+        let scrollable = app.miniapp.as_ref().is_none_or(|config| config.scrollable);
         let selected_content = app
             .sections
             .iter()
@@ -7962,6 +9014,7 @@ impl PythonIrShowcase {
             UiNode::Divider(node) => self.render_divider(node, theme),
             UiNode::Spacer(node) => self.render_spacer(node),
             UiNode::PxChartV2(node) => self.render_resource_chart(node, theme, ds, cx),
+            UiNode::Scene2D(node) => self.render_scene2d(node, theme, ds),
             UiNode::Scene3d(node) => self.render_scene3d(node, theme, ds, cx),
             UiNode::MeshPlot(node) => self.render_meshplot(node, theme, ds, cx),
             UiNode::TextInput(node) if !node.presentation.visible => div().into_any_element(),
@@ -8304,12 +9357,12 @@ impl PythonIrShowcase {
             let key_section_id = section_id.clone();
             return element
                 .on_click(cx.listener(move |this, _, _window, cx| {
-                    this.select_section(section_id.clone());
+                    this.select_section(section_id.clone(), cx);
                     cx.notify();
                 }))
                 .on_key_down(cx.listener(move |this, event: &KeyDownEvent, _window, cx| {
                     if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                        this.select_section(key_section_id.clone());
+                        this.select_section(key_section_id.clone(), cx);
                         cx.stop_propagation();
                         cx.notify();
                     }
@@ -10613,10 +11666,7 @@ impl PythonIrShowcase {
         .show_handles(!node.disabled)
         .gap(px(ds.spacing.grid_unit));
         if !node.disabled
-            && let Some(sink) = self
-                .session
-                .as_ref()
-                .map(|session| session.event_sink())
+            && let Some(sink) = self.session.as_ref().map(|session| session.event_sink())
         {
             let list_id = node.id.clone();
             let action = node.reorder_action.clone();
@@ -10823,7 +11873,8 @@ impl PythonIrShowcase {
                 })
             })
             .unwrap_or((0, source_rows));
-        let requested_rows = 24_usize.saturating_add(node.virtualize.overscan)
+        let requested_rows = 24_usize
+            .saturating_add(node.virtualize.overscan)
             .min(gpui_python_runtime::dataset_frames::MAX_DATASET_PREVIEW_ROWS);
         let offset = self
             .dataset_table_offsets
@@ -11899,9 +12950,7 @@ impl PythonIrShowcase {
                     Some(field) if field == x_field => 0,
                     Some(field) if field == y_field => 1,
                     _ => {
-                        return Err(
-                            "DatasetView sort field must match chart x or y role".into()
-                        );
+                        return Err("DatasetView sort field must match chart x or y role".into());
                     }
                 };
                 let mut points = first
@@ -14069,6 +15118,118 @@ impl PythonIrShowcase {
         apply_size(div(), node.width.or(Some(1.0)), node.height.or(Some(1.0))).into_any_element()
     }
 
+    fn render_scene2d(
+        &mut self,
+        node: &Scene2DWidgetNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+    ) -> AnyElement {
+        let id = node.id.clone();
+        let mut error = None;
+        let state = if let Some(state) = self.scene2d_states.get(&id).cloned() {
+            let current_revision = state.scene().revision;
+            if node.scene.revision > current_revision {
+                match scene2d_native_scene(&node.scene).and_then(|scene| {
+                    state
+                        .replace_scene(scene)
+                        .map_err(|error| error.to_string())
+                }) {
+                    Ok(()) => {
+                        self.scene2d_errors.remove(&id);
+                    }
+                    Err(scene_error) => {
+                        self.scene2d_errors.insert(id.clone(), scene_error.clone());
+                        error = Some(scene_error);
+                    }
+                }
+            }
+            Some(state)
+        } else {
+            match scene2d_native_scene(&node.scene)
+                .and_then(|scene| Scene2DState::new(scene).map_err(|error| error.to_string()))
+            {
+                Ok(state) => {
+                    self.scene2d_errors.remove(&id);
+                    self.scene2d_states.insert(id.clone(), state.clone());
+                    Some(state)
+                }
+                Err(scene_error) => {
+                    self.scene2d_errors.insert(id.clone(), scene_error.clone());
+                    error = Some(scene_error);
+                    None
+                }
+            }
+        };
+
+        let Some(state) = state else {
+            return self.render_error(
+                &format!(
+                    "Scene2D surface {id:?} was rejected: {}",
+                    error.unwrap_or_default()
+                ),
+                theme,
+                ds,
+            );
+        };
+        if !self.window_active {
+            state.set_suspended(true);
+        }
+        let sink = self.scene2d_sink();
+        let callback_id = id.clone();
+        let surface =
+            GameSurface::from_state(id.clone(), state).on_input(move |event, _window, _cx| {
+                let Some(sink) = &sink else {
+                    return;
+                };
+                if let Ok(event) = serde_json::to_value(event) {
+                    let _ = sink.dispatch(
+                        callback_id.clone(),
+                        "scene2d.event",
+                        Some("scene2d_event".into()),
+                        serde_json::json!({
+                            "type": "scene2d.event",
+                            "event": event,
+                        }),
+                    );
+                }
+            });
+        // Fit authored dimensions into the viewport budget before asking GPUI
+        // to lay out the board. Explicit dimensions keep the native surface
+        // and inverse pointer transform aligned in narrow cards and short
+        // landscape windows.
+        let preferred_width = node.width.unwrap_or(node.scene.view_box.width).max(1.0);
+        let preferred_height = node.height.unwrap_or(node.scene.view_box.height).max(1.0);
+        let preferred_aspect_ratio = preferred_width / preferred_height;
+        let aspect_ratio = if preferred_aspect_ratio.is_finite() && preferred_aspect_ratio > 0.0 {
+            preferred_aspect_ratio
+        } else {
+            node.scene.view_box.width / node.scene.view_box.height
+        };
+        let max_width = preferred_width.min(self.scene2d_available_width).max(1.0);
+        let max_height = preferred_height.min(self.scene2d_available_height).max(1.0);
+        let fitted_width = max_width.min(max_height * aspect_ratio).max(1.0);
+        let fitted_height = max_height.min(max_width / aspect_ratio).max(1.0);
+        let mut container = div()
+            .id(stable_element_id(format_args!("python-scene2d-{id}")))
+            .debug_selector(|| format!("python-scene2d-{id}"))
+            .w(px(fitted_width))
+            .h(px(fitted_height))
+            .flex_shrink_0()
+            .min_w_0()
+            .rounded(px(ds.corners.md))
+            .overflow_hidden()
+            .child(surface);
+        if let Some(message) = error.or_else(|| self.scene2d_errors.get(&id).cloned()) {
+            container = container.child(
+                div()
+                    .p(px(ds.spacing.control_padding_x))
+                    .text_color(theme.text_secondary)
+                    .child(format!("Scene2D update rejected: {message}")),
+            );
+        }
+        container.into_any_element()
+    }
+
     pub(super) fn render_scene3d(
         &mut self,
         node: &Scene3dNode,
@@ -14160,11 +15321,7 @@ impl PythonIrShowcase {
         Ok(resolved)
     }
 
-    fn resolve_scene_f64_array(
-        &self,
-        value: &Value,
-        name: &str,
-    ) -> SceneArray<f64> {
+    fn resolve_scene_f64_array(&self, value: &Value, name: &str) -> SceneArray<f64> {
         if value.get("kind").and_then(Value::as_str) != Some("array_data") {
             return Ok(None);
         }
@@ -14206,11 +15363,7 @@ impl PythonIrShowcase {
         Ok(Some((values, shape)))
     }
 
-    fn resolve_scene_u64_array(
-        &self,
-        value: &Value,
-        name: &str,
-    ) -> SceneArray<u64> {
+    fn resolve_scene_u64_array(&self, value: &Value, name: &str) -> SceneArray<u64> {
         if value.get("kind").and_then(Value::as_str) != Some("array_data") {
             return Ok(None);
         }
@@ -16724,7 +17877,7 @@ impl PythonIrShowcase {
             .map(|app| serde_json::to_value(app).unwrap_or(Value::Null));
         let mut next_state = self.session_state.clone();
         if let Err(error) = next_state.apply_patch_revision(&patch) {
-            self.record_mesh_patch_error(&patch, app_value.as_ref(), error.to_string());
+            self.record_patch_error(&patch, app_value.as_ref(), error.to_string());
         } else if patch
             .request_id
             .as_ref()
@@ -16737,7 +17890,7 @@ impl PythonIrShowcase {
             if let Err(error) =
                 PythonAppIr::apply_patch_ops_to_value(&mut next_app_value, &patch.ops)
             {
-                self.record_mesh_patch_error(&patch, Some(&next_app_value), error.to_string());
+                self.record_patch_error(&patch, Some(&next_app_value), error.to_string());
             } else if let Err(error) = validate_mesh_plot_resources(
                 &next_app_value,
                 &self.mesh_frames,
@@ -16747,20 +17900,20 @@ impl PythonIrShowcase {
                 // referenced generation is already retained; the previous
                 // valid frame remains visible while a sender recovers from a
                 // stale or evicted handle.
-                self.record_mesh_patch_error(&patch, Some(&next_app_value), error.to_string());
+                self.record_patch_error(&patch, Some(&next_app_value), error.to_string());
             } else {
                 let mut next_resource_refs = HashMap::new();
                 if let Err(error) =
                     collect_mesh_plot_resource_refs(&next_app_value, &mut next_resource_refs)
                 {
-                    self.record_mesh_patch_error(&patch, Some(&next_app_value), error);
+                    self.record_patch_error(&patch, Some(&next_app_value), error);
                 } else if let Err(error) = self.sync_mesh_plot_resource_refs(next_resource_refs) {
-                    self.record_mesh_patch_error(&patch, Some(&next_app_value), error);
+                    self.record_patch_error(&patch, Some(&next_app_value), error);
                 } else {
                     let next_app = match PythonAppIr::from_patched_value(&next_app_value) {
                         Ok(app) => app,
                         Err(error) => {
-                            self.record_mesh_patch_error(
+                            self.record_patch_error(
                                 &patch,
                                 Some(&next_app_value),
                                 error.to_string(),
@@ -16771,7 +17924,7 @@ impl PythonIrShowcase {
                     self.app = Some(next_app);
                     self.last_mesh_patch_id = patch.request_id.clone();
                     self.session_state = next_state;
-                    self.clear_mesh_patch_errors(&patch, Some(&next_app_value));
+                    self.clear_patch_errors(&patch, Some(&next_app_value));
                     for operation in &patch.ops {
                         match operation {
                             PatchOp::ClearMeshPlotSelection { plot_id, .. } => {
@@ -16807,6 +17960,7 @@ impl PythonIrShowcase {
                     let mut live_chart_ids = HashSet::new();
                     px_chart_ids(&next_app_value, &mut live_chart_ids);
                     self.prune_mesh_plot_runtime_ids(&live_mesh_ids, &live_chart_ids);
+                    self.prune_scene2d_runtime_ids(&next_app_value);
                     self.app_value = Some(next_app_value);
                 }
             }
@@ -16837,13 +17991,20 @@ impl PythonIrShowcase {
     }
 
     fn drain_session(&mut self, cx: &mut Context<Self>) {
-        let mut messages = Vec::new();
-        if let Some(session) = &self.session {
-            while let Some(message) = session.try_recv() {
-                messages.push(message);
+        const MAX_MESSAGES_PER_FRAME: usize = 64;
+        const MAX_APPLY_BUDGET: Duration = Duration::from_millis(4);
+        let started = Instant::now();
+        let mut processed = 0;
+        let mut budget_exhausted = false;
+        loop {
+            if processed >= MAX_MESSAGES_PER_FRAME || started.elapsed() >= MAX_APPLY_BUDGET {
+                budget_exhausted = true;
+                break;
             }
-        }
-        for message in messages {
+            let Some(message) = self.session.as_ref().and_then(|session| session.try_recv()) else {
+                break;
+            };
+            processed += 1;
             match message {
                 Ok(PythonMessage::Patch(patch)) => self.apply_patch_message(patch),
                 Ok(PythonMessage::Snapshot { app_ir }) => self.apply_snapshot_message(app_ir),
@@ -17029,7 +18190,16 @@ impl PythonIrShowcase {
                     command,
                     arguments,
                 }) => self.handle_command(request_id, command, arguments, cx),
+                Ok(PythonMessage::Acknowledged { request_id }) => {
+                    self.clear_tick_request(&request_id);
+                }
+                Ok(PythonMessage::TickSchedule { interval }) => {
+                    self.set_tick_interval(interval);
+                }
                 Ok(PythonMessage::Rejected(error)) => {
+                    if let Some(request_id) = error.request_id.as_deref() {
+                        self.clear_tick_request(request_id);
+                    }
                     if !error
                         .request_id
                         .as_ref()
@@ -17042,6 +18212,9 @@ impl PythonIrShowcase {
                     self.superseded_requests.insert(outcome.request_id);
                 }
                 Ok(PythonMessage::Error(error)) => {
+                    if let Some(request_id) = error.request_id.as_deref() {
+                        self.clear_tick_request(request_id);
+                    }
                     self.load_error = Some(format!("{}: {}", error.code, error.message))
                 }
                 Err(error) => {
@@ -17050,6 +18223,12 @@ impl PythonIrShowcase {
                         .as_ref()
                         .map(|session| session.stderr_diagnostics())
                         .filter(|diagnostics| !diagnostics.is_empty());
+                    if error == "Python process closed its session stream" {
+                        self.shutdown_scene2d_runtime(
+                            gpui_ui_kit::Scene2DLifecycleReason::Disconnected,
+                        );
+                        self.session = None;
+                    }
                     self.load_error = Some(match diagnostics {
                         Some(diagnostics) => {
                             format!("{error}\n\nPython diagnostics:\n{diagnostics}")
@@ -17060,6 +18239,10 @@ impl PythonIrShowcase {
                 _ => {}
             }
         }
+        if budget_exhausted && let Some(session) = &self.session {
+            session.reschedule_drain();
+        }
+        self.refresh_tick_task(cx);
     }
 
     fn apply_miniapp_shell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -17120,9 +18303,7 @@ impl PythonIrShowcase {
             );
         }
         if config.with_i18n
-            && let Some(language) = cx
-                .try_global::<I18nState>()
-                .map(|state| state.language)
+            && let Some(language) = cx.try_global::<I18nState>().map(|state| state.language)
             && self
                 .observed_miniapp_language
                 .replace(language)
@@ -17147,6 +18328,7 @@ impl Drop for PythonIrShowcase {
 
 impl PythonIrShowcase {
     fn shutdown_runtime_state(&mut self) {
+        self.shutdown_scene2d_runtime(gpui_ui_kit::Scene2DLifecycleReason::Disconnected);
         for cancellation in self.profiler_subscriptions.values() {
             cancellation.store(true, Ordering::Release);
         }
@@ -17158,6 +18340,21 @@ impl PythonIrShowcase {
         // alive until the entity is finally dropped. Reuse the session-reset
         // path so explicit cleanup and Drop remain idempotent and consistent.
         self.reset_mesh_plot_runtime_state();
+    }
+
+    fn shutdown_scene2d_runtime(&mut self, reason: gpui_ui_kit::Scene2DLifecycleReason) {
+        self.tick_task.take();
+        self.tick_interval = None;
+        self.tick_in_flight = None;
+        self.tick_last_sent = None;
+        if let Some(sink) = self.scene2d_sink() {
+            for (id, state) in &self.scene2d_states {
+                dispatch_scene2d_inputs(&sink, id, state.cancel_inputs(reason));
+            }
+        }
+        self.scene2d_states.clear();
+        self.scene2d_errors.clear();
+        self.scene2d_event_sink = None;
     }
 }
 
@@ -17176,9 +18373,82 @@ fn mesh_plot_operation_id(operation: &PatchOp) -> Option<&str> {
     }
 }
 
+fn scene2d_native_scene(
+    scene: &gpui_python_runtime::scene2d::Scene2DScene,
+) -> Result<gpui_ui_kit::Scene2DScene, String> {
+    if scene.version != SCENE2D_SCHEMA_VERSION {
+        return Err(format!(
+            "unsupported Scene2D schema version {}; expected {}",
+            scene.version, SCENE2D_SCHEMA_VERSION
+        ));
+    }
+    let wire = serde_json::to_value(scene).map_err(|error| error.to_string())?;
+    serde_json::from_value(wire)
+        .map_err(|error| format!("native Scene2D conversion failed: {error}"))
+}
+
+fn collect_scene2d_ids(value: &Value, ids: &mut HashSet<String>) {
+    if value.get("kind").and_then(Value::as_str) == Some("scene2d")
+        && let Some(id) = value.get("id").and_then(Value::as_str)
+    {
+        ids.insert(id.to_owned());
+    }
+    if let Some(children) = value.get("children").and_then(Value::as_array) {
+        for child in children {
+            collect_scene2d_ids(child, ids);
+        }
+    }
+}
+
+fn scene2d_surface_ids_in_section(app: &Value, section_id: &str) -> Vec<String> {
+    let Some(section) = app
+        .get("sections")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|section| section.get("id").and_then(Value::as_str) == Some(section_id))
+    else {
+        return Vec::new();
+    };
+    let mut ids = HashSet::new();
+    if let Some(content) = section.get("content") {
+        collect_scene2d_ids(content, &mut ids);
+    }
+    let mut result = ids.into_iter().collect::<Vec<_>>();
+    result.sort();
+    result
+}
+
+fn clear_matching_tick_request(tick_in_flight: &mut Option<String>, request_id: &str) -> bool {
+    if tick_in_flight.as_deref() == Some(request_id) {
+        *tick_in_flight = None;
+        true
+    } else {
+        false
+    }
+}
+
+fn dispatch_scene2d_inputs(
+    sink: &super::python::PythonEventSink,
+    surface_id: &str,
+    events: Vec<gpui_ui_kit::Scene2DInput>,
+) {
+    for event in events {
+        if let Ok(event) = serde_json::to_value(event) {
+            let _ = sink.dispatch(
+                surface_id,
+                "scene2d.event",
+                Some("scene2d_event".into()),
+                serde_json::json!({"type": "scene2d.event", "event": event}),
+            );
+        }
+    }
+}
+
 impl Render for PythonIrShowcase {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.observe_presentation(window, cx);
+        self.observe_window_activation(window, cx);
         self.observe_window_close(window, cx);
         self.drain_session(cx);
         self.apply_miniapp_shell(window, cx);
@@ -17266,24 +18536,70 @@ impl Render for PythonIrShowcase {
         // content column would size to its content and never scroll. Mirror
         // MiniAppShell and pin the root to the explicit drawable area.
         let viewport = window.viewport_size();
+        let compact_navigation = viewport.width < px(700.0);
+        // Reserve content padding, the compact navigation strip, and the
+        // section heading. The heading stays above the board in every game
+        // fixture, so omitting it would let landscape boards extend below the
+        // viewport even when the board itself honored its maximum height.
+        let navigation_reserve = if compact_navigation {
+            ds.spacing.card_padding * 2.0
+                + ds.typography.small_size * 3.0
+                + ds.spacing.control_padding_y * 4.0
+                + ds.spacing.grid_unit
+        } else {
+            0.0
+        };
+        let section_heading_reserve = ds.typography.large_size
+            + ds.typography.small_size
+            + ds.spacing.section_gap
+            + ds.spacing.grid_unit;
+        // Game boards can be wrapped in a titled card. Reserve the card's
+        // vertical padding, title line, and spacing so short landscape windows
+        // fit the entire board below the shell and card headings.
+        let scene2d_card_chrome_reserve =
+            ds.spacing.card_padding * 2.0 + ds.typography.small_size + ds.spacing.grid_unit;
+        self.scene2d_available_height = (viewport.height.as_f32()
+            - ds.spacing.section_gap * 3.0
+            - navigation_reserve
+            - section_heading_reserve
+            - scene2d_card_chrome_reserve)
+            .max(1.0);
+        let desktop_sidebar_reserve = if compact_navigation {
+            0.0
+        } else {
+            PYTHON_SHOWCASE_SIDEBAR_WIDTH
+        };
+        self.scene2d_available_width =
+            (viewport.width.as_f32() - desktop_sidebar_reserve - ds.spacing.section_gap * 3.0)
+                .max(1.0);
+        let body = if compact_navigation {
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .child(self.render_compact_section_navigation(&theme, &ds, cx))
+                .child(self.render_content(&theme, &ds, cx))
+                .into_any_element()
+        } else {
+            div()
+                .flex()
+                .flex_row()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .child(self.render_sidebar(&theme, &ds, cx))
+                .child(self.render_content(&theme, &ds, cx))
+                .into_any_element()
+        };
         div()
             .w(px(viewport.width.as_f32()))
             .h(px(viewport.height.as_f32()))
             .relative()
             .flex()
             .flex_col()
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .flex_1()
-                    // Like the scroll container below: without a zero
-                    // minimum the row clamps to the content height and the
-                    // content column can never overflow to scroll.
-                    .min_h_0()
-                    .child(self.render_sidebar(&theme, &ds, cx))
-                    .child(self.render_content(&theme, &ds, cx)),
-            )
+            .child(body)
             .children(self.render_effect_ui(&theme, &ds, cx))
     }
 }
@@ -17389,6 +18705,92 @@ mod native_content_scroll_tests {
         cx.update_window(any_window, |_, window, _app| window.remove_window())
             .expect("close native scroll probe window");
         cx.run_until_parked();
+    }
+}
+
+#[cfg(test)]
+mod scene2d_tick_ack_tests {
+    use super::*;
+    use gpui_python_runtime::session::{DEFAULT_MAX_SESSION_MESSAGE_BYTES, parse_python_message};
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+
+    struct CapturedTickWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for CapturedTickWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .map_err(|_| std::io::Error::other("captured tick writer lock poisoned"))?
+                .extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[::core::prelude::v1::test]
+    fn tick_ack_uses_the_event_id_written_to_the_child_pipe() {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let sink = super::super::python::test_event_sink(CapturedTickWriter(captured.clone()));
+        let dispatched_id = sink
+            .dispatch_with_id(
+                "board",
+                "scene2d.tick",
+                Some("scene2d_tick".into()),
+                serde_json::json!({
+                    "type": "scene2d.tick",
+                    "tick": {"surface_id": "board", "elapsed_ns": 16_666_667, "frame": 1}
+                }),
+            )
+            .expect("dispatch tick to the background writer");
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let event_line = loop {
+            let bytes = captured.lock().expect("captured tick bytes lock").clone();
+            if let Some(end) = bytes.iter().position(|byte| *byte == b'\n') {
+                break bytes[..end].to_vec();
+            }
+            assert!(
+                Instant::now() < deadline,
+                "tick was not written to the child pipe"
+            );
+            std::thread::yield_now();
+        };
+        let event: Value = serde_json::from_slice(&event_line).expect("serialized host tick");
+        let wire_id = event["id"].as_str().expect("wire event id");
+        let sequence = event["sequence"].as_u64().expect("wire event sequence");
+        assert_eq!(wire_id, dispatched_id);
+        assert_eq!(wire_id, format!("event-{sequence:020}"));
+        assert_eq!(event["event"], "scene2d.tick");
+
+        let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
+        showcase.tick_in_flight = Some(dispatched_id.clone());
+        let unpadded_id = format!("event-{sequence}");
+        assert!(
+            !showcase.clear_tick_request(&unpadded_id),
+            "an ACK for a different ID must not release the outstanding tick"
+        );
+        assert_eq!(
+            showcase.tick_in_flight.as_deref(),
+            Some(dispatched_id.as_str())
+        );
+
+        let child_ack = serde_json::json!({"type": "acknowledged", "request_id": wire_id});
+        let ack_bytes = serde_json::to_vec(&child_ack).expect("serialize child ACK");
+        let ack = parse_python_message(&ack_bytes, DEFAULT_MAX_SESSION_MESSAGE_BYTES)
+            .expect("parse ACK using the child-to-host protocol parser");
+        let PythonMessage::Acknowledged { request_id } = ack else {
+            panic!("child reply should deserialize as an acknowledgement");
+        };
+        assert!(showcase.clear_tick_request(&request_id));
+        assert!(
+            showcase.tick_in_flight.is_none(),
+            "ACK must clear the tick gate"
+        );
+        sink.close();
     }
 }
 

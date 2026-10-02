@@ -45,6 +45,7 @@ native-qa = [
     "showcase",
     "dep:gpui_macos",
     "gpui_macos/test-support",
+    "gpui_macos/font-kit",
 ]
 python-extension = [
     "dep:pyo3",

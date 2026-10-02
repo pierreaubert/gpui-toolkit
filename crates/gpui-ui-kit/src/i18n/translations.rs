@@ -100,6 +100,7 @@ impl Translations {
         );
         t.insert((L, TranslationKey::SectionAccessibility), "Accessibility");
         t.insert((L, TranslationKey::SectionThinkingOrbs), "Thinking Orbs");
+        t.insert((L, TranslationKey::SectionScene2d), "Scene2D");
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "Variants");
@@ -264,6 +265,7 @@ impl Translations {
             (L, TranslationKey::SectionThinkingOrbs),
             "Orbes de réflexion",
         );
+        t.insert((L, TranslationKey::SectionScene2d), "Scène 2D");
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "Variantes");
@@ -410,6 +412,7 @@ impl Translations {
             "Barrierefreiheit",
         );
         t.insert((L, TranslationKey::SectionThinkingOrbs), "Denk-Orbs");
+        t.insert((L, TranslationKey::SectionScene2d), "2D-Szene");
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "Varianten");
@@ -568,6 +571,7 @@ impl Translations {
             (L, TranslationKey::SectionThinkingOrbs),
             "Orbes de pensamiento",
         );
+        t.insert((L, TranslationKey::SectionScene2d), "Escena 2D");
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "Variantes");
@@ -729,6 +733,7 @@ impl Translations {
             "アクセシビリティ",
         );
         t.insert((L, TranslationKey::SectionThinkingOrbs), "思考オーブ");
+        t.insert((L, TranslationKey::SectionScene2d), "2D シーン");
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "バリエーション");

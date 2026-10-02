@@ -20,6 +20,59 @@ pub trait MouseEvent: InputEvent {}
 /// A gesture event from the platform.
 pub trait GestureEvent: InputEvent {}
 
+/// The phase of an independent pointer contact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointerPhase {
+    /// A new contact began.
+    Down,
+    /// An active contact moved.
+    Move,
+    /// A contact ended normally.
+    Up,
+    /// The platform cancelled a contact.
+    Cancel,
+}
+
+/// The physical device that generated an independent pointer contact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointerDevice {
+    /// A direct finger contact.
+    Touch,
+    /// A stylus or pen contact.
+    Pen,
+}
+
+/// An independent pointer sample from a touch or pen device.
+///
+/// These events are intentionally separate from mouse events. Platforms may
+/// still synthesize mouse or gesture events for unclaimed contacts.
+#[derive(Clone, Debug)]
+pub struct PointerEvent {
+    /// Contact lifecycle phase.
+    pub phase: PointerPhase,
+    /// Physical source device.
+    pub device: PointerDevice,
+    /// Stable identifier assigned by the platform for this active contact.
+    pub pointer_id: u64,
+    /// Monotonic timestamp from the platform, in nanoseconds.
+    pub timestamp_ns: u64,
+    /// Position relative to the window.
+    pub position: Point<Pixels>,
+    /// Current contact pressure when supported by the device.
+    pub pressure: Option<f32>,
+    /// Mouse-style buttons held by the device, if any.
+    pub buttons: Vec<MouseButton>,
+    /// Keyboard modifiers at the time of the sample.
+    pub modifiers: Modifiers,
+}
+
+impl Sealed for PointerEvent {}
+impl InputEvent for PointerEvent {
+    fn to_platform_input(self) -> PlatformInput {
+        PlatformInput::Pointer(self)
+    }
+}
+
 /// The key down event equivalent for the platform.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct KeyDownEvent {
@@ -668,6 +721,8 @@ pub enum PlatformInput {
     ScrollWheel(ScrollWheelEvent),
     /// A pinch gesture was performed.
     Pinch(PinchEvent),
+    /// An independent contact was made by a touch or pen device.
+    Pointer(PointerEvent),
     /// Files were dragged and dropped onto the window.
     FileDrop(FileDropEvent),
 }
@@ -686,6 +741,7 @@ impl PlatformInput {
             PlatformInput::ScrollWheel(event) => Some(event),
             PlatformInput::Pinch(event) => Some(event),
             PlatformInput::FileDrop(event) => Some(event),
+            PlatformInput::Pointer(_) => None,
         }
     }
 
@@ -702,6 +758,7 @@ impl PlatformInput {
             PlatformInput::ScrollWheel(_) => None,
             PlatformInput::Pinch(_) => None,
             PlatformInput::FileDrop(_) => None,
+            PlatformInput::Pointer(_) => None,
         }
     }
 }
@@ -711,8 +768,11 @@ mod test {
 
     use crate::{
         self as gpui, AppContext as _, Context, FocusHandle, InteractiveElement, IntoElement,
-        KeyBinding, Keystroke, ParentElement, Render, TestAppContext, Window, div,
+        KeyBinding, Keystroke, ParentElement, PointerDevice, PointerEvent, PointerPhase, Render,
+        Styled, TestAppContext, Window, div, point, px,
     };
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     struct TestView {
         saw_key_down: bool,
@@ -741,6 +801,71 @@ mod test {
                             .into_element(),
                     ),
             )
+        }
+    }
+
+    struct DirectPointerView {
+        target_visible: bool,
+        events: Rc<RefCell<Vec<(PointerPhase, u64)>>>,
+    }
+
+    impl Render for DirectPointerView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let mut root = div().size_full();
+            if self.target_visible {
+                let down_events = self.events.clone();
+                let move_events = self.events.clone();
+                let up_events = self.events.clone();
+                let cancel_events = self.events.clone();
+                root = root.child(
+                    div()
+                        .id("direct-pointer-target")
+                        .debug_selector(|| "direct-pointer-target".to_owned())
+                        .size_full()
+                        .on_pointer_down(move |event, window, _cx| {
+                            down_events
+                                .borrow_mut()
+                                .push((PointerPhase::Down, event.pointer_id));
+                            assert!(window.capture_direct_pointer(event.pointer_id));
+                        })
+                        .on_pointer_move(move |event, _window, _cx| {
+                            move_events
+                                .borrow_mut()
+                                .push((PointerPhase::Move, event.pointer_id));
+                        })
+                        .on_pointer_up(move |event, _window, _cx| {
+                            up_events
+                                .borrow_mut()
+                                .push((PointerPhase::Up, event.pointer_id));
+                        })
+                        .on_pointer_cancel(move |event, window, _cx| {
+                            cancel_events
+                                .borrow_mut()
+                                .push((PointerPhase::Cancel, event.pointer_id));
+                            // Make disappearance cancellation invalidate the window. The
+                            // dispatcher must not re-enter draw while it is dropping targets.
+                            window.refresh();
+                        }),
+                );
+            }
+            root
+        }
+    }
+
+    fn direct_pointer(
+        phase: PointerPhase,
+        pointer_id: u64,
+        position: crate::Point<crate::Pixels>,
+    ) -> PointerEvent {
+        PointerEvent {
+            phase,
+            device: PointerDevice::Touch,
+            pointer_id,
+            timestamp_ns: 0,
+            position,
+            pressure: Some(0.5),
+            buttons: Vec::new(),
+            modifiers: Default::default(),
         }
     }
 
@@ -777,5 +902,57 @@ mod test {
                 assert!(test_view.saw_action);
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn direct_pointers_capture_outside_and_cancel_when_target_disappears(cx: &mut TestAppContext) {
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let view_events = events.clone();
+        let (view, cx) = cx.add_window_view(|_, _| DirectPointerView {
+            target_visible: true,
+            events: view_events,
+        });
+        let target_bounds = cx
+            .debug_bounds("direct-pointer-target")
+            .expect("pointer listeners should create a hitbox");
+        let center = target_bounds.center();
+        let outside = point(center.x + px(2000.0), center.y + px(2000.0));
+
+        cx.simulate_event(direct_pointer(PointerPhase::Down, 1, center));
+        cx.simulate_event(direct_pointer(PointerPhase::Down, 2, center));
+        cx.simulate_event(direct_pointer(PointerPhase::Move, 1, outside));
+        cx.simulate_event(direct_pointer(PointerPhase::Move, 2, outside));
+        assert!(events.borrow().contains(&(PointerPhase::Move, 1)));
+        assert!(events.borrow().contains(&(PointerPhase::Move, 2)));
+
+        view.update(cx, |view, cx| {
+            view.target_visible = false;
+            cx.notify();
+        });
+        cx.run_until_parked();
+
+        let observed = events.borrow().clone();
+        let mut cancelled = observed
+            .iter()
+            .filter(|(phase, _)| *phase == PointerPhase::Cancel)
+            .map(|(_, id)| *id)
+            .collect::<Vec<_>>();
+        cancelled.sort_unstable();
+        assert_eq!(
+            cancelled,
+            [1, 2],
+            "each disappearing captured contact should be cancelled once",
+        );
+        cx.simulate_event(direct_pointer(PointerPhase::Up, 1, outside));
+        cx.simulate_event(direct_pointer(PointerPhase::Up, 2, outside));
+        assert_eq!(
+            events
+                .borrow()
+                .iter()
+                .filter(|(phase, _)| *phase == PointerPhase::Up)
+                .count(),
+            0,
+            "contacts released after disappearance must not reach removed listeners",
+        );
     }
 }

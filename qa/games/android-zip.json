@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "game": "zip",
+  "device": "sdk_gphone64_arm64",
+  "serial": "emulator-5554",
+  "api_level": "36",
+  "abi": "arm64-v8a",
+  "process_id": 5176,
+  "pixel_width": 1080,
+  "pixel_height": 2424,
+  "screenshot": "android-zip.png",
+  "pixel_sha256": "144955fd20f11e5f7358a4c873583e28fb74cf4bc3dbcd1f233466da31eb2a8a",
+  "accessibility": "android-zip-accessibility.xml",
+  "accessible_cells": 25,
+  "accessible_nodes": 37,
+  "checks_passed": true,
+  "interaction_scope": [
+    "launch",
+    "pixel-capture",
+    "accessibility-hierarchy"
+  ],
+  "finger_input_measured": false,
+  "input_to_present_measured": false
+}

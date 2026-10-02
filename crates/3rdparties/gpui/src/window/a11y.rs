@@ -246,11 +246,20 @@ impl A11y {
 pub struct A11ySubtreeBuilder<'a> {
     parent_id: NodeId,
     nodes: &'a mut A11yNodeBuilder,
+    action_listeners: &'a mut FxHashMap<NodeId, Vec<(Action, A11yActionListener)>>,
 }
 
 impl<'a> A11ySubtreeBuilder<'a> {
-    pub(crate) fn new(parent_id: NodeId, nodes: &'a mut A11yNodeBuilder) -> Self {
-        Self { parent_id, nodes }
+    pub(crate) fn new(
+        parent_id: NodeId,
+        nodes: &'a mut A11yNodeBuilder,
+        action_listeners: &'a mut FxHashMap<NodeId, Vec<(Action, A11yActionListener)>>,
+    ) -> Self {
+        Self {
+            parent_id,
+            nodes,
+            action_listeners,
+        }
     }
 
     /// Derive a [`NodeId`] for a synthetic child.
@@ -272,6 +281,21 @@ impl<'a> A11ySubtreeBuilder<'a> {
     /// in which case the node is discarded.
     pub fn push_child(&mut self, id: NodeId, node: accesskit::Node) -> bool {
         self.nodes.push_leaf(id, node)
+    }
+
+    /// Register a callback for actions requested on a synthetic child node.
+    ///
+    /// The listener is refreshed along with the synthetic tree on each frame.
+    pub fn on_action(
+        &mut self,
+        id: NodeId,
+        action: Action,
+        listener: impl FnMut(Option<&accesskit::ActionData>, &mut Window, &mut App) + 'static,
+    ) {
+        self.action_listeners
+            .entry(id)
+            .or_default()
+            .push((action, Box::new(listener)));
     }
 
     /// A mutable reference to the parent node.

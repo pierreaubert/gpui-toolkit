@@ -3053,6 +3053,7 @@ dependencies = [
 name = "gpui-ios"
 version = "0.9.14"
 dependencies = [
+ "accesskit",
  "anyhow",
  "block2 0.6.2",
  "core-foundation 0.10.1",
@@ -3201,6 +3202,7 @@ dependencies = [
 name = "gpui-showcase"
 version = "0.9.5"
 dependencies = [
+ "gpui-android",
  "gpui-audio-kit",
  "gpui-builder",
  "gpui-d3rs",
@@ -3213,6 +3215,7 @@ dependencies = [
  "serde",
  "serde_json",
  "wasm-bindgen",
+ "web-time",
 ]
 
 [[package]]

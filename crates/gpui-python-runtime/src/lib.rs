@@ -17,6 +17,7 @@ pub mod mesh_frames;
 pub mod meshplot;
 #[cfg(feature = "showcase")]
 pub mod native_mesh_plot;
+pub mod scene2d;
 mod scene3d;
 pub mod session;
 #[cfg(feature = "showcase")]
@@ -36,6 +37,14 @@ pub use mesh_frames::{
     MeshFrameKind, MeshFrameOutcome, MeshFrameStats, MeshFrameStore, RetainedMeshResource,
 };
 pub use meshplot::{MESHPLOT_SPEC_SCHEMA_VERSION, MeshPlotSpec};
+pub use scene2d::{
+    GridSpec, SCENE2D_SCHEMA_VERSION, Scene2DBrush, Scene2DCache, Scene2DCacheUpdate, Scene2DColor,
+    Scene2DDevice, Scene2DEasing, Scene2DError, Scene2DGridCell, Scene2DInput, Scene2DInputConfig,
+    Scene2DKeyPhase, Scene2DLifecycleReason, Scene2DModifier, Scene2DNode, Scene2DNodeKind,
+    Scene2DPatch, Scene2DPathCommand, Scene2DPointerButton, Scene2DPointerPhase, Scene2DScene,
+    Scene2DSemantic, Scene2DSemanticRole, Scene2DShadow, Scene2DStroke, Scene2DTextAlign,
+    Scene2DTransform, Scene2DTransition, ScenePoint, SceneRect, scene2d_schema_version,
+};
 pub use scene3d::{
     AxisLabels, CameraSpec, ColorRgba, ColormapSpec, GridData, InteractionMode, LightSpec,
     LineSegmentSpec, LineStripSpec, LinesSpec, MaterialSpec, MeshSpec, OrbitCameraSpec,

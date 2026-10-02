@@ -505,9 +505,11 @@ impl<E: Element> Drawable<E> {
 
                 if pushed_a11y_node {
                     if let Some(global_id) = global_id.as_ref() {
+                        let a11y = &mut window.a11y;
                         let mut builder = A11ySubtreeBuilder::new(
                             global_id.accesskit_node_id(),
-                            &mut window.a11y.nodes,
+                            &mut a11y.nodes,
+                            &mut a11y.action_listeners,
                         );
                         self.element
                             .a11y_synthetic_children(&mut prepaint, &mut builder);

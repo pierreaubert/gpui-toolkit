@@ -266,6 +266,18 @@ class StateStoreTests(unittest.TestCase):
         self.assertEqual(message["request_id"], "evt-1")
         self.assertEqual(message["revision"], 1)
 
+    def test_failed_patch_encoding_does_not_consume_a_revision(self):
+        context = SessionContext()
+        output = io.StringIO()
+        with redirect_stdout(output):
+            with self.assertRaises(TypeError):
+                context.patch([{"op": "set", "id": "gain", "property": "value",
+                                "value": object()}])
+            context.patch([{"op": "set", "id": "gain", "property": "value", "value": 2}])
+        messages = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([message["revision"] for message in messages], [1])
+        self.assertEqual(context._revision, 1)
+
     def test_oversized_session_messages_are_rejected_before_stdout(self):
         context = SessionContext()
         with self.assertRaisesRegex(ValueError, "exceeds"):

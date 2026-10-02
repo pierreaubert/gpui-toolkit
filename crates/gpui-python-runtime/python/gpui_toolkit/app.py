@@ -12,16 +12,18 @@ import secrets
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from threading import Event as ThreadEvent, Lock, Semaphore, Thread
+from threading import Event as ThreadEvent, Lock, RLock, Semaphore, Thread
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from .events import Event, specialize as specialize_event
+from .events import Event, Scene2DEvent, Scene2DTick, specialize as specialize_event
 from .effects import EffectResult
 from .commands import CommandResult
 from .miniapp import MiniAppConfig
 from .resources import MAX_MESH_FRAME_BYTES, MAX_MESH_RESOURCE_BYTES, MeshFrame
+from .scene2d import Scene2D, Scene2DPatch, replace_op
 
 
 PYTHON_APP_IR_SCHEMA_VERSION = 1
@@ -33,6 +35,7 @@ PYTHON_SESSION_CAPABILITIES = frozenset({
     "mesh_frame_ack",
     "px_interactions", "px_static_export", "px_chart_results", "resource_frame_ack",
     "resource_mmap_frames",
+    "scene2d", "scene2d_pointer_input", "scene2d_keyboard_input", "scene2d_tick_schedule",
 })
 
 
@@ -87,6 +90,8 @@ class App:
     required_capabilities: Sequence[str] = field(default_factory=tuple)
     resources: Sequence[Any] = field(default_factory=tuple)
     miniapp: MiniAppConfig | None = None
+    serial_reducer: bool = False
+    tick_interval: float | None = None
 
     def to_spec(self) -> dict[str, Any]:
         if not self.sections:
@@ -98,6 +103,13 @@ class App:
         for name, value in (("width", width), ("height", height)):
             if value is not None and (not math.isfinite(float(value)) or float(value) <= 0.0):
                 raise ValueError(f"App {name} must be finite and positive when specified")
+        tick_interval = self.tick_interval
+        if tick_interval is not None and (
+            isinstance(tick_interval, bool)
+            or not math.isfinite(float(tick_interval))
+            or not 0.0 < float(tick_interval) <= 60.0
+        ):
+            raise ValueError("App tick_interval must be finite and in (0, 60] when specified")
         spec = {
             "schema_version": PYTHON_APP_IR_SCHEMA_VERSION,
             "title": title,
@@ -105,6 +117,8 @@ class App:
             "sidebar_subtitle": self.sidebar_subtitle,
             "sections": [section.to_spec() for section in self.sections],
             "miniapp": miniapp,
+            "serial_reducer": bool(self.serial_reducer),
+            "tick_interval": None if tick_interval is None else float(tick_interval),
         }
         if width is not None:
             spec["width"] = float(width)
@@ -135,6 +149,12 @@ class App:
         The method may return normally or be declared ``async``. It executes in
         the Python session process, never on GPUI's render thread.
         """
+
+    def on_scene2d_event(self, event: Scene2DEvent, context: "SessionContext") -> Any:
+        """Override to reduce a pointer or focused-key event from one surface."""
+
+    def on_tick(self, tick: Scene2DTick, context: "SessionContext") -> Any:
+        """Override to advance elapsed-time simulation on the serial reducer lane."""
 
     def on_session_ready(self, context: "SessionContext") -> Any:
         """Override to publish application state after capability negotiation.
@@ -198,17 +218,40 @@ class App:
         # Action handlers run away from this control loop. This preserves input,
         # cancellation, shutdown, and heartbeat responsiveness when Python
         # begins long-running local or remote simulation work.
-        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="gpui-action") as executor:
+        with ThreadPoolExecutor(
+            max_workers=1 if self.serial_reducer else 4,
+            thread_name_prefix="gpui-reducer" if self.serial_reducer else "gpui-action",
+        ) as executor:
+            pending_inputs = Semaphore(240) if self.serial_reducer else None
+            reserved_controls = Semaphore(16) if self.serial_reducer else None
+
+            def submit_handler(handler: Callable[..., Any], *args: Any,
+                               control: bool = False, block: bool = True) -> Any | None:
+                slot = None
+                if self.serial_reducer:
+                    slot = reserved_controls if control else pending_inputs
+                    assert slot is not None
+                    if not slot.acquire(blocking=block):
+                        return None
+                try:
+                    future = executor.submit(handler, *args)
+                except BaseException:
+                    if slot is not None:
+                        slot.release()
+                    raise
+                if slot is not None:
+                    future.add_done_callback(lambda _future, held=slot: held.release())
+                return future
+
             for message in _messages(context):
                 message_type = message.get("type")
                 if message_type == "shutdown":
-                    try:
-                        shutdown_result = self.on_session_shutdown(context)
-                        if inspect.isawaitable(shutdown_result):
-                            asyncio.run(shutdown_result)
-                    except Exception:
-                        context.error(None, "session_shutdown_failed", "Python session shutdown failed")
-                    executor.shutdown(wait=False, cancel_futures=True)
+                    if self.serial_reducer:
+                        submit_handler(self._handle_shutdown, context, control=True).result()
+                        executor.shutdown(wait=True, cancel_futures=True)
+                    else:
+                        self._handle_shutdown(context)
+                        executor.shutdown(wait=False, cancel_futures=True)
                     return
                 if message_type == "heartbeat":
                     context.send({"type": "heartbeat", "id": message.get("id", "")})
@@ -216,26 +259,29 @@ class App:
                 if message_type == "cancel":
                     request_id = str(message.get("request_id", ""))
                     context.cancel_job(request_id)
-                    executor.submit(
+                    submit_handler(
                         self._handle_action,
                         Event(request_id, 0, request_id, "cancel", "cancel", {}),
                         context,
+                        control=True,
                     )
                     continue
                 if message_type == "effect_result":
-                    executor.submit(
+                    submit_handler(
                         self._handle_effect_result,
                         str(message.get("request_id", "")),
                         message.get("result"),
                         context,
+                        control=True,
                     )
                     continue
                 if message_type == "command_result":
-                    executor.submit(
+                    submit_handler(
                         self._handle_command_result,
                         str(message.get("request_id", "")),
                         message.get("result"),
                         context,
+                        control=True,
                     )
                     continue
                 if message_type == "resource_frame_result":
@@ -259,46 +305,89 @@ class App:
                         )
                     continue
                 if message_type == "profiler_sample":
-                    executor.submit(self._handle_profiler_sample, message, context)
+                    submit_handler(self._handle_profiler_sample, message, context, control=True)
                     continue
                 if message_type != "event":
                     context.error(message.get("id"), "unsupported_message", f"unsupported message: {message_type}")
                     continue
                 event = specialize_event(message)
-                executor.submit(self._handle_action, event, context)
+                is_control = event.event == "scene2d.cancel_all" or (
+                    event.event == "scene2d.event"
+                    and isinstance(event.payload, dict)
+                    and isinstance(event.payload.get("event"), dict)
+                    and event.payload["event"].get("type") == "lifecycle"
+                )
+                future = submit_handler(self._handle_action, event, context,
+                                        control=is_control, block=is_control)
+                if future is None:
+                    # Never silently lose the release half of a captured
+                    # gesture. Reject this event, then clear held state on the
+                    # reserved lane before admitting later ordinary input.
+                    context.reject(event, "reducer_overflow",
+                                   "Python reducer input queue is full; held input was cancelled")
+                    cancellation = Event(
+                        f"overflow-cancel-{secrets.token_hex(8)}", event.sequence,
+                        event.node_id, "scene2d.cancel_all", None,
+                        {"reason": "reducer_overflow"},
+                    )
+                    submit_handler(self._handle_action, cancellation, context,
+                                   control=True)
 
     def _handle_action(self, event: "Event", context: "SessionContext") -> None:
+        is_tick = event.event == "scene2d.tick"
         try:
-            result = self.on_action(event, context)
-            if inspect.isawaitable(result):
-                asyncio.run(result)
+            with context.reducer_transaction(enabled=self.serial_reducer):
+                if event.event in {"scene2d.event", "scene2d.cancel_all"}:
+                    result = self.on_scene2d_event(Scene2DEvent.from_event(event), context)
+                elif is_tick:
+                    result = self.on_tick(Scene2DTick.from_event(event), context)
+                else:
+                    result = self.on_action(event, context)
+                if inspect.isawaitable(result):
+                    asyncio.run(result)
         except Exception:
             # Exception strings can contain secrets supplied by applications;
             # retain correlation without leaking implementation data to UI logs.
             context.error(event.id, "action_failed", "Python action handler failed")
+        finally:
+            if is_tick:
+                # A tick remains outstanding until an async reducer callback has
+                # finished, so the host cannot overlap state transitions.
+                context.acknowledge(event)
+
+    def _handle_shutdown(self, context: "SessionContext") -> None:
+        try:
+            result = self.on_session_shutdown(context)
+            if inspect.isawaitable(result):
+                asyncio.run(result)
+        except Exception:
+            context.error(None, "session_shutdown_failed", "Python session shutdown failed")
 
     def _handle_effect_result(self, request_id: str, result: Any, context: "SessionContext") -> None:
         try:
-            outcome = self.on_effect_result(request_id, EffectResult.from_wire(request_id, result), context)
-            if inspect.isawaitable(outcome):
-                asyncio.run(outcome)
+            with context.reducer_transaction(enabled=self.serial_reducer):
+                outcome = self.on_effect_result(request_id, EffectResult.from_wire(request_id, result), context)
+                if inspect.isawaitable(outcome):
+                    asyncio.run(outcome)
         except Exception:
             context.error(request_id, "effect_result_failed", "Python effect-result handler failed")
 
     def _handle_command_result(self, request_id: str, result: Any, context: "SessionContext") -> None:
         try:
-            outcome = self.on_command_result(request_id, CommandResult.from_wire(request_id, result), context)
-            if inspect.isawaitable(outcome):
-                asyncio.run(outcome)
+            with context.reducer_transaction(enabled=self.serial_reducer):
+                outcome = self.on_command_result(request_id, CommandResult.from_wire(request_id, result), context)
+                if inspect.isawaitable(outcome):
+                    asyncio.run(outcome)
         except Exception:
             context.error(request_id, "command_result_failed", "Python command-result handler failed")
 
     def _handle_profiler_sample(self, wire: Mapping[str, Any], context: "SessionContext") -> None:
         try:
             from .profiler import sample_from_wire
-            outcome = self.on_profiler_sample(sample_from_wire(wire), context)
-            if inspect.isawaitable(outcome):
-                asyncio.run(outcome)
+            with context.reducer_transaction(enabled=self.serial_reducer):
+                outcome = self.on_profiler_sample(sample_from_wire(wire), context)
+                if inspect.isawaitable(outcome):
+                    asyncio.run(outcome)
         except Exception:
             context.error(None, "profiler_sample_failed", "Python profiler-sample handler failed")
 
@@ -379,6 +468,7 @@ class SessionContext:
             raise ValueError("max_outstanding_resource_bytes must be a non-negative integer")
         self._revision = 0
         self._lock = Lock()
+        self._publication_lock = RLock()
         self._jobs: dict[str, CancellationToken] = {}
         self._job_history: dict[str, dict[str, Any]] = {}
         self._resource_limits: dict[str, Semaphore] = {}
@@ -494,7 +584,7 @@ class SessionContext:
         return acknowledgement
 
     def send(self, message: dict[str, Any]) -> None:
-        with self._lock:
+        with self._publication_lock, self._lock:
             self._write_locked(message)
 
     @staticmethod
@@ -515,7 +605,7 @@ class SessionContext:
         encoded = self._encode_message(message).encode("utf-8")
         if len(payload) > 256 * 1024:
             raise ValueError("audio resource frame exceeds 256 KiB")
-        with self._lock:
+        with self._publication_lock, self._lock:
             sys.stdout.flush()
             stream = getattr(sys.stdout, "buffer", None)
             if stream is None:
@@ -809,6 +899,13 @@ class SessionContext:
     def snapshot(self, app_ir: dict[str, Any]) -> None:
         self.send({"type": "snapshot", "app_ir": app_ir})
 
+    @contextmanager
+    def reducer_transaction(self, *, enabled: bool = True) -> Any:
+        """Keep reducer mutation and its outbound patches in one publication."""
+        guard = self._publication_lock if enabled else nullcontext()
+        with guard:
+            yield
+
     def patch(self, ops: Sequence[dict[str, Any]], *, request_id: str | None = None) -> None:
         """Apply a revision-ordered update, optionally correlated to an event.
 
@@ -816,12 +913,40 @@ class SessionContext:
         superseded before this patch arrives, the host discards the mutation
         while still advancing the session revision.
         """
-        with self._lock:
-            self._revision += 1
-            message = {"type": "patch", "revision": self._revision, "ops": list(ops)}
+        with self._publication_lock, self._lock:
+            revision = self._revision + 1
+            message = {"type": "patch", "revision": revision, "ops": list(ops)}
             if request_id is not None:
                 message["request_id"] = request_id
             self._write_locked(message)
+            # JSON validation and bounded-size checks happen before writing.
+            # A rejected message therefore cannot consume a revision.
+            self._revision = revision
+
+    def scene2d_replace(
+        self, scene: Scene2D, *, ops: Sequence[dict[str, Any]] = (),
+        request_id: str | None = None,
+    ) -> None:
+        """Publish a validated full Scene2D replacement with related UI ops."""
+        self.patch([replace_op(scene), *ops], request_id=request_id)
+
+    def scene2d_patch(
+        self, patch: Scene2DPatch, *, ops: Sequence[dict[str, Any]] = (),
+        request_id: str | None = None,
+    ) -> None:
+        """Apply a retained-object diff and related UI ops atomically."""
+        self.patch([patch.to_op(), *ops], request_id=request_id)
+
+    def set_tick_interval(self, interval: float | None) -> None:
+        """Enable foreground elapsed ticks, or pass ``None`` to stop them."""
+        if interval is not None and (
+            isinstance(interval, bool)
+            or not math.isfinite(float(interval))
+            or not 0.0 < float(interval) <= 60.0
+        ):
+            raise ValueError("tick interval must be finite and in (0, 60], or None")
+        self.send({"type": "scene2d.tick_schedule",
+                   "interval": None if interval is None else float(interval)})
 
     @staticmethod
     def _mesh_patch_generation(generation: int) -> int:

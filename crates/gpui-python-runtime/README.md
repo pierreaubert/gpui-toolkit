@@ -232,14 +232,66 @@ The showcase app, sections, UI kit demos, chart data, and `scene3d` specs live
 in Python. Rust loads the JSON UI IR, then owns GPUI, retained 3D renderer
 state, chart widgets, and theme integration.
 
+## Scene2D surfaces and game input
+
+`gpui_toolkit.scene2d` declares small native drawing surfaces with stable
+object IDs. A `Scene2D` has a logical view box, ordered rect/circle/line/path/
+text nodes, small transform groups, solid or linear-gradient brushes, local
+clips, bounded primitive shadows, an optional background and `GridSpec`,
+semantic labels, and input settings. Transitions can interpolate transforms,
+opacity, selected colors, and path reveal, then emit a requested completion ID
+once. The
+native host contain-fits that view box in the parent layout bounds. Python can
+publish a full `scene2d_replace` or a consecutive-revision `scene2d_patch`;
+`SessionContext.scene2d_patch(...)` can include related HUD operations in the
+same revisioned `context.patch` message.
+
+Pointer, focused-key, lifecycle, and elapsed-tick messages specialize to
+`Scene2DEvent` and `Scene2DTick`. `Scene2DInputConfig.keyboard=True` scopes key
+delivery to the focused drawing surface; game handlers still choose which keys
+they use. Setting `App.serial_reducer=True` runs actions, surface input, ticks,
+effect results, command results, and profiler callbacks in one ordered lane.
+The lane has bounded input admission, reserved lifecycle capacity, and clears
+held input after overflow. Reducers should publish model-derived UI and scene
+changes together before returning. Accessibility activation of a semantic
+button or grid cell uses the same typed scene event path.
+
+`App.tick_interval` can seed an elapsed-time schedule. A reducer can adjust or
+cancel it later with `SessionContext.set_tick_interval(seconds_or_none)`. The
+host owns its monotonic timer, pauses delivery for inactive sections and
+inactive windows, and resets elapsed time when the app or section resumes.
+Focus loss clears held keys and contacts even when the active section stays the
+same. Reducers should use elapsed time with a small catch-up bound and request
+ticks only while work is active. Native transitions animate target properties,
+so Python does not need to send patches every frame.
+
+The `games_demo.py` example uses geometric Scene2D boards for Zip, Queens,
+Sudoku, and Tetris. Sudoku keeps a large keypad and selected-cell preview next
+to its board; the other boards expose semantic grid cells without drawing a
+widget button for each cell. Game cue commands go through the optional
+`GameCueAdapter` boundary. It accepts an already initialized `CueBackend`,
+uses a bounded nonblocking queue, and deduplicates recent command IDs. With no
+backend it remains silent. The current `sotf-daw` checkout has no Python cue
+binding, so the demo does not claim audio playback is connected.
+
+The drawing surface and its input contract use native GPUI elements. The host
+owns the OS window lifecycle and Python reducer transport. This checkout's
+Python launcher runs CPython in a desktop child process, so `games_demo.py` is
+not bundled into the mobile showcase binaries. Mobile apps use the native Rust
+GPUI surface path in the existing iOS and Android backends; this delivery does
+not package a mobile Python interpreter.
+
 ## Platform Notes
 
-The renderer path is inherited from `wgpu` via `gpui-d3rs`:
+Scene2D primitives paint through native GPUI elements and follow each
+platform's GPUI renderer (Metal on Apple platforms and the existing `wgpu`
+backend on Android). Scene3D and the other GPU-backed visualizations use
+`wgpu` via `gpui-d3rs`:
 
 - macOS/iOS: Metal,
 - Linux: Vulkan where available,
 - Windows: DirectX 12 or Vulkan depending adapter support,
-- Android: Vulkan once a GPUI Android backend exists.
+- Android: Vulkan through the existing GPUI Android backend.
 
 The Python API is intended to stay the same across platforms; only GPUI backend
 initialization should differ.

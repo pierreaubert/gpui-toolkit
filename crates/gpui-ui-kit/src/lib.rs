@@ -21,6 +21,7 @@ pub mod i18n;
 pub mod interaction;
 pub mod mobile;
 pub mod scale;
+pub mod scene2d;
 pub mod security_surface;
 pub mod theme;
 pub mod visual_regression;
@@ -132,6 +133,16 @@ pub use focus::{
     FOCUS_INTEGRATION_REPORT_TYPE, FOCUS_INTEGRATION_SCHEMA_VERSION, FocusDirection, FocusGroup,
     FocusGroupExt, FocusIntegrationEntry, FocusIntegrationReport, FocusIntegrationStatus,
     FocusTrap, focus_integration_entries, focus_integration_report,
+};
+#[doc(inline)]
+pub use scene2d::{
+    GameSurface, SCENE2D_SCHEMA_VERSION, Scene2DBrush, Scene2DButton, Scene2DColor, Scene2DEasing,
+    Scene2DGrid, Scene2DGridCell, Scene2DHit, Scene2DInput, Scene2DInputConfig, Scene2DInputRouter,
+    Scene2DKeyPhase, Scene2DLifecycleReason, Scene2DModifier, Scene2DNode, Scene2DNodeKind,
+    Scene2DPathCommand, Scene2DPointerDevice, Scene2DPointerEvent, Scene2DPointerPhase,
+    Scene2DScene, Scene2DSemantic, Scene2DSemanticRole, Scene2DState, Scene2DStroke,
+    Scene2DTextAlign, Scene2DTransform, Scene2DTransition, Scene2DValidationError,
+    Scene2DViewTransform, ScenePoint, SceneRect, normalize_key,
 };
 pub use security_surface::{
     SECURITY_SURFACE_REPORT_TYPE, SECURITY_SURFACE_SCHEMA_VERSION, SecuritySurfaceEntry,

@@ -9,7 +9,7 @@ aggregate_crate = "gpui-toolkit"
 aggregate_feature = "all"
 rustdoc_inventory = "python-rustdoc-inventory.json"
 rustdoc_packages = ["gpui-d3rs", "gpui-px"]
-rustdoc_inventory_digest = "16cf50e23d234088c86d6304d8d2de74b5f4fab5aaa1783cdb610ba795d76405"
+rustdoc_inventory_digest = "8ca5af4249ed82a742b9dd3978715a6e97ccf454c42dceb7c3b4624b6538610b"
 # Stable 2.0 cannot be declared while full rustdoc-inventory classification and
 # the remaining targeted-crate inventory waves are open.
 release_ready = false
@@ -418,6 +418,38 @@ python_path = "gpui_toolkit.d3rs"
 disposition = "translated"
 rationale = "Radial polar points, generators, configuration values, and checked error variants map to typed Python values and native-backed paths."
 tests = ["crates/gpui-python-runtime/python/tests/test_native.py"]
+
+[[capability]]
+id = "gpui-python-runtime.scene2d-declarations"
+rust_path = "gpui_python_runtime::scene2d::{Scene2DScene,Scene2DNode,Scene2DCache}"
+python_path = "gpui_toolkit.Scene2D"
+disposition = "declarative"
+rationale = "Typed Python Scene2D values serialize to validated retained native drawing scenes and stable-ID patches."
+tests = ["crates/gpui-python-runtime/python/tests/test_scene2d.py"]
+
+[[capability]]
+id = "gpui-python-runtime.scene2d-input-events"
+rust_path = "gpui_python_runtime::scene2d::Scene2DInput"
+python_path = "gpui_toolkit.Scene2DEvent"
+disposition = "event"
+rationale = "Native pointer, focused-key, and lifecycle inputs specialize into typed Python surface events."
+tests = ["crates/gpui-python-runtime/python/tests/test_scene2d.py", "crates/gpui-python-runtime/python/tests/test_games_demo.py"]
+
+[[capability]]
+id = "gpui-python-runtime.serial-reducer"
+rust_path = "gpui_python_runtime::ui_ir::PythonAppIr::serial_reducer"
+python_path = "gpui_toolkit.App.serial_reducer"
+disposition = "host-owned"
+rationale = "The Python app opts into bounded ordered callbacks and atomic reducer publication."
+tests = ["crates/gpui-python-runtime/python/tests/test_scene2d.py"]
+
+[[capability]]
+id = "gpui-python-runtime.elapsed-tick-schedule"
+rust_path = "gpui_python_runtime::session::PythonMessage::TickSchedule"
+python_path = "gpui_toolkit.SessionContext.set_tick_interval"
+disposition = "host-owned"
+rationale = "The native host owns a cancellable monotonic timer and sends bounded elapsed-time reducer ticks."
+tests = ["crates/gpui-python-runtime/python/tests/test_scene2d.py", "crates/gpui-python-runtime/python/tests/test_games_demo.py"]
 
 [[rustdoc_completion_scope]]
 id = "gpui-d3rs.shape-area"
