@@ -953,7 +953,7 @@ class SessionContext:
             or not 0.0 < float(interval) <= 60.0
         ):
             raise ValueError("tick interval must be finite and in (0, 60], or None")
-        self.send({"type": "scene2d.tick_schedule",
+        self.send({"type": "tick_schedule",
                    "interval": None if interval is None else float(interval)})
 
     @staticmethod

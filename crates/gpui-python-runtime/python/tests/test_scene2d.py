@@ -69,7 +69,7 @@ class Scene2DSchemaTests(unittest.TestCase):
         self.assertEqual(wire["background"], expected)
         self.assertEqual(wire["nodes"][0]["kind"]["fill"], expected)
         replacement = Scene2D("gradient", 20, 20, revision=2)
-        self.assertIsNone(patch_op(scene, replacement)["background"])
+        self.assertIsNone(patch_op(scene, replacement)["patch"]["background"])
 
     def test_grid_pick_respects_gaps_and_returns_stable_cell_id(self):
         grid = GridSpec(3, 4, 10, 12, 20, 16, 3)
@@ -90,10 +90,11 @@ class Scene2DSchemaTests(unittest.TestCase):
             SceneRect("add", 20, 0, 10, 10, fill="#444"),
         ], revision=2)
         op = patch_op(old, current)
+        self.assertEqual(set(op), {"op", "id", "patch"})
         self.assertEqual(op["op"], "scene2d_patch")
-        self.assertEqual((op["base_revision"], op["revision"]), (1, 2))
-        self.assertEqual({node["id"] for node in op["upsert"]}, {"keep", "add"})
-        self.assertEqual(op["remove"], ["remove"])
+        self.assertEqual((op["patch"]["base_revision"], op["patch"]["revision"]), (1, 2))
+        self.assertEqual({node["id"] for node in op["patch"]["upsert"]}, {"keep", "add"})
+        self.assertEqual(op["patch"]["remove"], ["remove"])
         self.assertEqual(replace_op(current)["scene"]["revision"], 2)
         with self.assertRaises(ValueError):
             Scene2DPatch.between(old, Scene2D("board", 40, 20, revision=3))
@@ -102,18 +103,18 @@ class Scene2DSchemaTests(unittest.TestCase):
         old = Scene2D("board", 40, 20, grid=GridSpec(2, 2, 0, 0, 10, 10))
         current = Scene2D("board", 40, 20, grid=None, revision=2)
         op = patch_op(old, current)
-        self.assertIn("grid", op)
-        self.assertIsNone(op["grid"])
+        self.assertIn("grid", op["patch"])
+        self.assertIsNone(op["patch"]["grid"])
 
     def test_scene_patch_can_replace_or_clear_surface_semantics(self):
         old = Scene2D("board", 40, 20,
                       semantic=Scene2DSemantic("grid", "Old board"))
         changed = Scene2D("board", 40, 20, revision=2,
                           semantic=Scene2DSemantic("grid", "New board"))
-        self.assertEqual(patch_op(old, changed)["semantic"],
+        self.assertEqual(patch_op(old, changed)["patch"]["semantic"],
                          {"role": "grid", "label": "New board"})
         cleared = Scene2D("board", 40, 20, revision=2)
-        self.assertIsNone(patch_op(old, cleared)["semantic"])
+        self.assertIsNone(patch_op(old, cleared)["patch"]["semantic"])
 
     def test_invalid_scene_values_fail_before_serialization(self):
         with self.assertRaises(ValueError):
@@ -197,6 +198,17 @@ class Scene2DSchemaTests(unittest.TestCase):
 
 
 class Scene2DEventTests(unittest.TestCase):
+    def test_tick_schedule_uses_native_message_tag_and_can_be_disabled(self):
+        context = SessionContext()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            context.set_tick_interval(0.05)
+            context.set_tick_interval(None)
+        self.assertEqual([json.loads(line) for line in output.getvalue().splitlines()], [
+            {"type": "tick_schedule", "interval": 0.05},
+            {"type": "tick_schedule", "interval": None},
+        ])
+
     def test_action_failure_reports_context_and_exception_with_stderr_traceback(self):
         class BrokenApp(App):
             def on_action(self, event, context):
