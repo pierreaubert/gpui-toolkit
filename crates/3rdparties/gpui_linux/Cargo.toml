@@ -28,7 +28,7 @@ screen-capture = ["gpui/screen-capture", "scap"]
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
 accesskit = "0.24.0"
-accesskit_unix = "0.21.0"
+accesskit_unix = "0.22.1"
 anyhow = "1.0.86"
 bytemuck = "1"
 collections = { workspace = true }
