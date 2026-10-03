@@ -3167,13 +3167,13 @@ dependencies = [
  "getrandom 0.3.4",
  "gpui-toolkit-collections",
  "gpui-toolkit-gpui-macros",
- "gpui-toolkit-gpui-shared-string",
  "gpui-toolkit-gpui-util",
  "gpui-toolkit-http-client",
  "gpui-toolkit-media",
  "gpui-toolkit-scheduler",
  "gpui-toolkit-sum-tree",
  "gpui-toolkit-util-macros",
+ "gpui_shared_string",
  "hdrhistogram",
  "heapless",
  "image",
@@ -3327,15 +3327,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.4",
-]
-
-[[package]]
-name = "gpui-toolkit-gpui-shared-string"
-version = "0.1.0"
-dependencies = [
- "schemars",
- "serde",
- "smol_str",
 ]
 
 [[package]]
@@ -3580,6 +3571,16 @@ dependencies = [
  "quote",
  "serde_json",
  "syn 3.0.4",
+]
+
+[[package]]
+name = "gpui_shared_string"
+version = "0.1.0"
+source = "git+https://github.com/zed-industries/zed.git?rev=ced90fc636c4ede05402befc38a63bae7fd741bd#ced90fc636c4ede05402befc38a63bae7fd741bd"
+dependencies = [
+ "schemars",
+ "serde",
+ "smol_str",
 ]
 
 [[package]]
