@@ -1772,6 +1772,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_refineable"
+version = "0.1.0"
+source = "git+https://github.com/zed-industries/zed.git?rev=ced90fc636c4ede05402befc38a63bae7fd741bd#ced90fc636c4ede05402befc38a63bae7fd741bd"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "diff"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3126,15 +3136,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gpui-toolkit-derive-refineable"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.4",
-]
-
-[[package]]
 name = "gpui-toolkit-gpui"
 version = "0.2.3"
 dependencies = [
@@ -3170,7 +3171,6 @@ dependencies = [
  "gpui-toolkit-gpui-util",
  "gpui-toolkit-http-client",
  "gpui-toolkit-media",
- "gpui-toolkit-refineable",
  "gpui-toolkit-scheduler",
  "gpui-toolkit-sum-tree",
  "gpui-toolkit-util-macros",
@@ -3196,6 +3196,7 @@ dependencies = [
  "proptest",
  "rand 0.9.5",
  "raw-window-handle",
+ "refineable",
  "regex",
  "resvg",
  "schemars",
@@ -3467,13 +3468,6 @@ dependencies = [
  "gpui-toolkit-collections",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "gpui-toolkit-refineable"
-version = "0.1.0"
-dependencies = [
- "gpui-toolkit-derive-refineable",
 ]
 
 [[package]]
@@ -6187,6 +6181,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.4",
+]
+
+[[package]]
+name = "refineable"
+version = "0.1.0"
+source = "git+https://github.com/zed-industries/zed.git?rev=ced90fc636c4ede05402befc38a63bae7fd741bd#ced90fc636c4ede05402befc38a63bae7fd741bd"
+dependencies = [
+ "derive_refineable",
 ]
 
 [[package]]
