@@ -216,7 +216,7 @@ windows-core = "0.62"
 
 # Utilities
 approx = "0.5"
-criterion = "0.8"
+criterion = "0.8.2"
 itertools = "0.15"
 proptest = "1.9"
 rand = "0.10.2"

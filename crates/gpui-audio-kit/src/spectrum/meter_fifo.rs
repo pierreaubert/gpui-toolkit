@@ -65,7 +65,7 @@ impl FifoState {
         let mut fresh = false;
         let _ = self
             .0
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
                 let (write, read, shared, dirty) = Self::unpack(state);
                 if dirty {
                     fresh = true;

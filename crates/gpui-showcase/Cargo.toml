@@ -23,7 +23,7 @@ gpui-design = { workspace = true, features = ["gpui"] }
 gpui-profiler = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-web-time = "1.1.0"
+web-time = "1.1"
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
