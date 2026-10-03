@@ -183,14 +183,28 @@ fn shared_gpu_state(ctx: &WgpuContext) -> Option<Rc<SharedGpuState>> {
             return Some(state);
         }
 
+        let diagnose_init = std::env::var_os("SOTF_VELLO_VALIDATE_INIT").is_some();
+        let error_scope =
+            diagnose_init.then(|| ctx.device.push_error_scope(wgpu::ErrorFilter::Validation));
         let renderer = Renderer::new(
             &ctx.device,
             RendererOptions {
                 antialiasing_support: AaSupport::area_only(),
+                // WGPU scopes are thread-local; keep shader creation on this
+                // thread while diagnosing this renderer's pipelines.
+                num_init_threads: if diagnose_init {
+                    std::num::NonZeroUsize::new(1)
+                } else {
+                    RendererOptions::default().num_init_threads
+                },
                 ..Default::default()
             },
-        )
-        .ok()?;
+        );
+        if let Some(error) = error_scope.and_then(|scope| smol::block_on(scope.pop())) {
+            log::error!("vello2d: renderer initialization validation failed: {error}");
+            return None;
+        }
+        let renderer = renderer.ok()?;
         let state = Rc::new(SharedGpuState {
             renderer: RefCell::new(renderer),
             composites: RefCell::default(),
