@@ -95,6 +95,15 @@ class DepResolutionTests(unittest.TestCase):
             '[dependencies]\ninternal_b = { version = "0.1.0", git = "https://github.com/zed-industries/zed.git", tag = "v0.0.1" }\n',
         )
 
+    def test_refineable_uses_same_pinned_revision_as_workspace(self):
+        self.ctx["ref"] = "v1.9.0"
+        self.ctx["ws_deps"]["refineable"] = {"path": "crates/refineable"}
+        self.ctx["versions"]["refineable"] = "0.1.0"
+        name, spec = imp.resolve_dep("refineable", {"workspace": True}, self.ctx)
+        self.assertEqual(name, "refineable")
+        self.assertEqual(spec["rev"], imp.ZED_V1_9_0_REV)
+        self.assertNotIn("tag", spec)
+
     def test_external_dep_merges_extras(self):
         name, spec = imp.resolve_dep("serde", {"workspace": True, "optional": True}, self.ctx)
         self.assertEqual(

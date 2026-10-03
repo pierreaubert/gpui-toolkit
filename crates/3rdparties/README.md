@@ -7,20 +7,20 @@ upgrade notes in each crate's `VENDORING.md`.
 
 ## Inventory
 
-The 17-crate GPUI closure (`gpui` through `util_macros` below, including
+The 15-crate GPUI closure (`gpui` through `util_macros` below, including
 `gpui_macos` and `gpui_web`) was imported from zed `v1.9.0` as history-free
 snapshots by `scripts/import_gpui_upstream.py` (re-runnable: `--skip`,
 `--check` drift report). Each closure crate's `VENDORED.md` records its
 upstream path, base ref, import exclusions (`examples/`, `benches/`, dev-deps
 on `reqwest_client`/`gpui_platform`, GPL-3.0 `zlog`/`ztracing`), and local
-patches. `gpui_wgpu` and `gpui_windows` predate the import script and remain
-hand-maintained.
+patches. `refineable` and its `derive_refineable` proc macro resolve directly
+from pinned Zed commit `ced90fc636c4ede05402befc38a63bae7fd741bd`.
+`gpui_wgpu` and `gpui_windows` predate the import script and remain hand-maintained.
 
 | Library | Upstream | Local version/ref | Build status | Why it is here | Patch burden |
 | --- | --- | --- | --- | --- | --- |
 | `block` | `SSheldon/rust-block` | `0.1.6` | Active `[patch.crates-io]` | Fix Rust future-incompatibility warning for the Objective-C block runtime class symbol | Low |
 | `collections` | `zed-industries/zed`, `crates/collections` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Collection types used across the GPUI closure | Low |
-| `derive_refineable` | `zed-industries/zed`, `crates/derive_refineable` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Derive macro for `refineable` | Low |
 | `gpui` | `zed-industries/zed`, `crates/gpui` | `v1.9.0`, `0.2.2` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Core GPUI UI framework snapshot; crate-root lint allows, restored test fonts, and a recorded `ApplicationHandle`/`Application::run_embedded` port (upstream PR #60574, for wasm/embedded platforms) in `VENDORED.md` | Low |
 | `gpui_linux` | `zed-industries/zed`, `crates/gpui_linux` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Linux platform backend for `gpui` | Low |
 | `gpui_macos` | `zed-industries/zed`, `crates/gpui_macos` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Pristine re-vendor plus recorded CGS private-symbol removal (Mac App Store static-analysis rejection risk) | Medium |
@@ -34,7 +34,6 @@ hand-maintained.
 | `media` | `zed-industries/zed`, `crates/media` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Media and screen-capture types used by the GPUI closure | Low |
 | `objc` | `SSheldon/rust-objc` | `0.2.7` | Active `[patch.crates-io]` | Local Objective-C runtime binding patch point | Medium |
 | `perf` | `zed-industries/zed`, `crates/perf` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Profiling helpers used by the GPUI closure | Low |
-| `refineable` | `zed-industries/zed`, `crates/refineable` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Refinement trait for GPUI style types | Low |
 | `scheduler` | `zed-industries/zed`, `crates/scheduler` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Async scheduler/executor used by `gpui` | Low |
 | `sum_tree` | `zed-industries/zed`, `crates/sum_tree` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Sequence-tree storage for text; carries a recorded `ztracing::instrument` to `tracing::instrument` patch | Low |
 | `util` | `zed-industries/zed`, `crates/util` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Shared platform/command utilities used across the closure | Low |
