@@ -4,11 +4,12 @@ use super::wizard_step::WizardStep;
 use super::wizard_step_indicator_density::WizardStepIndicatorDensity;
 use crate::theme::ThemeExt;
 use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{App, Div, FontWeight, SharedString, Window, div, px};
+use gpui::{App, Div, ElementId, FontWeight, SharedString, Window, div, px};
 
 /// Header component for wizard screens - renders just the step indicators
 /// Use this when you want to place the wizard header and navigation separately
 pub struct WizardHeader {
+    id: Option<ElementId>,
     pub(super) steps: Vec<WizardStep>,
     pub(super) step_statuses: Vec<StepStatus>,
     pub(super) current_step: usize,
@@ -20,12 +21,19 @@ impl WizardHeader {
     /// Create a new wizard header
     pub fn new() -> Self {
         Self {
+            id: None,
             steps: Vec::new(),
             step_statuses: Vec::new(),
             current_step: 0,
             title: None,
             theme: None,
         }
+    }
+
+    /// Set a stable identity for this header and its rendered steps.
+    pub fn id(mut self, id: impl Into<ElementId>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     /// Set the wizard steps
@@ -145,8 +153,19 @@ impl WizardHeader {
                 .overflow_hidden()
                 .text_ellipsis()
                 .child(step.label.clone());
+            let label = if let Some(id) = &self.id {
+                label
+                    .id(SharedString::from(format!("{id}-step-{index}-label")))
+                    .into_any_element()
+            } else {
+                label.into_any_element()
+            };
 
-            let mut step_item = div().flex().items_center().gap_2().child(step_circle);
+            let mut step_item = div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(step_circle);
 
             let show_label = match density {
                 WizardStepIndicatorDensity::Full => true,
@@ -157,6 +176,13 @@ impl WizardHeader {
                 step_item = step_item.child(label);
             }
 
+            let step_item = if let Some(id) = &self.id {
+                step_item
+                    .id(SharedString::from(format!("{id}-step-{index}")))
+                    .into_any_element()
+            } else {
+                step_item.into_any_element()
+            };
             container = container.child(step_item);
 
             if density != WizardStepIndicatorDensity::CurrentIcon && index < self.steps.len() - 1 {

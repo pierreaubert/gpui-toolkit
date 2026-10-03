@@ -355,6 +355,7 @@ impl Wizard {
             };
 
             let label = div()
+                .id(SharedString::from(format!("{}-step-{index}-label", self.id)))
                 .text_sm()
                 .font_weight(if is_current {
                     FontWeight::SEMIBOLD
@@ -368,7 +369,12 @@ impl Wizard {
                 .child(step.label.clone());
 
             // Step item (circle + label)
-            let mut step_item = div().flex().items_center().gap_2().child(step_circle);
+            let mut step_item = div()
+                .id(SharedString::from(format!("{}-step-{index}", self.id)))
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(step_circle);
 
             let show_label = match density {
                 WizardStepIndicatorDensity::Full => true,

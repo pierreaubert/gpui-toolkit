@@ -42,6 +42,76 @@ async fn test_wizard_renders(cx: &mut TestAppContext) {
     let _window = cx.add_window(|_window, _cx| WizardTestView);
 }
 
+struct WizardDensityView;
+
+impl Render for WizardDensityView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let steps = || {
+            vec![
+                WizardStep::new("first", "First step"),
+                WizardStep::new("current", "Current step"),
+                WizardStep::new("last", "Last step"),
+            ]
+        };
+        div()
+            .flex()
+            .flex_col()
+            .child(WizardHeader::new().id("qa-header").steps(steps()).current_step(1))
+            .child(Wizard::new().id("qa-wizard").steps(steps()).current_step(1))
+    }
+}
+
+#[gpui::test]
+async fn wizard_step_labels_follow_rendered_viewport_width(cx: &mut TestAppContext) {
+    for (width, first_label, current_label, other_step) in [
+        (1100.0, true, true, true),
+        (700.0, false, true, true),
+        (420.0, false, false, false),
+    ] {
+        let window = cx.open_window(gpui::size(gpui::px(width), gpui::px(650.0)), |_window, _cx| {
+            WizardDensityView
+        });
+        let mut visual = VisualTestContext::from_window(window.into(), cx);
+        visual.run_until_parked();
+        for (prefix, first_label_id, current_label_id, first_step_id, current_step_id) in [
+            (
+                "wizard",
+                "qa-wizard-step-0-label",
+                "qa-wizard-step-1-label",
+                "qa-wizard-step-0",
+                "qa-wizard-step-1",
+            ),
+            (
+                "wizard header",
+                "qa-header-step-0-label",
+                "qa-header-step-1-label",
+                "qa-header-step-0",
+                "qa-header-step-1",
+            ),
+        ] {
+            assert_eq!(
+                visual.debug_bounds(first_label_id).is_some(),
+                first_label,
+                "{prefix} first label at {width}px"
+            );
+            assert_eq!(
+                visual.debug_bounds(current_label_id).is_some(),
+                current_label,
+                "{prefix} current label at {width}px"
+            );
+            assert_eq!(
+                visual.debug_bounds(first_step_id).is_some(),
+                other_step,
+                "{prefix} non-current icon at {width}px"
+            );
+            assert!(
+                visual.debug_bounds(current_step_id).is_some(),
+                "{prefix} current icon missing at {width}px"
+            );
+        }
+    }
+}
+
 /// Test wizard with various step statuses
 #[gpui::test]
 async fn test_wizard_step_statuses(cx: &mut TestAppContext) {
