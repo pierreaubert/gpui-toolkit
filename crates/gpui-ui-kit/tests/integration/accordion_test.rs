@@ -247,6 +247,7 @@ impl Render for AccordionGeometryView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("accordion-geometry-root")
+            .debug_selector(|| "accordion-geometry-root".to_string())
             .w(gpui::px(600.0))
             .h(gpui::px(240.0))
             .child(
@@ -259,6 +260,7 @@ impl Render for AccordionGeometryView {
                         AccordionItem::new("active", "Active").content(
                             div()
                                 .id("accordion-geometry-content")
+                                .debug_selector(|| "accordion-geometry-content".to_string())
                                 .w_full()
                                 .h(gpui::px(80.0)),
                         ),

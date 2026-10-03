@@ -594,6 +594,7 @@ impl Accordion {
                 "accordion-header-side-{}",
                 item_id
             )))
+            .debug_selector(|| format!("accordion-header-side-{item_id}"))
             .relative()
             .flex()
             .items_center()

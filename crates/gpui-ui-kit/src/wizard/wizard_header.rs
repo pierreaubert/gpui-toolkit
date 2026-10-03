@@ -156,6 +156,7 @@ impl WizardHeader {
             let label = if let Some(id) = &self.id {
                 label
                     .id(SharedString::from(format!("{id}-step-{index}-label")))
+                    .debug_selector(|| format!("{id}-step-{index}-label"))
                     .into_any_element()
             } else {
                 label.into_any_element()
@@ -179,6 +180,7 @@ impl WizardHeader {
             let step_item = if let Some(id) = &self.id {
                 step_item
                     .id(SharedString::from(format!("{id}-step-{index}")))
+                    .debug_selector(|| format!("{id}-step-{index}"))
                     .into_any_element()
             } else {
                 step_item.into_any_element()

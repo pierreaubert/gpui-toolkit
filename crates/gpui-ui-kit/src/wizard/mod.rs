@@ -356,6 +356,7 @@ impl Wizard {
 
             let label = div()
                 .id(SharedString::from(format!("{}-step-{index}-label", self.id)))
+                .debug_selector(|| format!("{}-step-{index}-label", self.id))
                 .text_sm()
                 .font_weight(if is_current {
                     FontWeight::SEMIBOLD
@@ -371,6 +372,7 @@ impl Wizard {
             // Step item (circle + label)
             let mut step_item = div()
                 .id(SharedString::from(format!("{}-step-{index}", self.id)))
+                .debug_selector(|| format!("{}-step-{index}", self.id))
                 .flex()
                 .items_center()
                 .gap_2()
