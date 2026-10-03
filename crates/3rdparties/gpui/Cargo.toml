@@ -128,7 +128,6 @@ mach2 = "0.5"
 metal = "0.33"
 
 [target.'cfg(target_os = "macos")'.build-dependencies]
-bindgen = "0.71"
 cbindgen = { version = "0.28.0", default-features = false }
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))'.dependencies]
