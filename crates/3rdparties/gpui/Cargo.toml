@@ -52,7 +52,6 @@ log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
 num_cpus = "1.13"
 parking = "2.0.0"
 parking_lot = "0.12.1"
-postage = { version = "0.5", features = ["futures-traits"] }
 proptest = { workspace = true, features = ["attr-macro"], optional = true }
 chrono = { version = "0.4", features = ["serde"] }
 profiling = "1"
@@ -82,7 +81,7 @@ hdrhistogram = { version = "7", optional = true }
 waker-fn = "1.2.0"
 lyon = "1.0"
 pin-project = "1.1.10"
-pollster = "0.4.0"
+pollster = "1"
 url = "2.2"
 uuid = { version = "1.1.2", features = ["v4", "v5", "v7", "serde"] }
 web-time = "1.1.0"
