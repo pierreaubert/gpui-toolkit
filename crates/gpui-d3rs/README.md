@@ -299,8 +299,8 @@ cargo run --example fetch_demo --no-default-features      # CSV/TSV parsing
 cargo run --example shape_demo --no-default-features      # Shape generators
 cargo run --example timer_demo --no-default-features      # Timing utilities
 
-# Spinorama demo (requires spinorama feature)
-cargo run --features spinorama --example d3rs-spinorama --release
+# AutoEQ Spinorama demo (from the sibling autoeq workspace)
+cargo run --manifest-path ../../../autoeq/Cargo.toml -p autoeq-gpui-examples --bin d3rs-spinorama --release
 
 # Generate showcase snapshots (macOS only)
 # This will iterate through all demos and save screenshots to docs/images/

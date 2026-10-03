@@ -171,8 +171,8 @@ The aggregate `just demo` builds:
 - `gpui-audio-kit` examples
 - `gpui-builder` layout showcase
 - `gpui-component-lab`
-- `gpui-d3rs` showcase and spinorama demo
-- `gpui-px` showcase and spinorama demo
+- `gpui-d3rs` showcase
+- `gpui-px` showcase
 - `gpui-python-runtime` showcase
 - `gpui-themes` showcase
 - `gpui-ui-kit` showcase
@@ -180,6 +180,9 @@ The aggregate `just demo` builds:
 Individual recipes are available as `just demo-ui-kit`, `just demo-d3rs`,
 `just demo-px`, `just demo-builder`, `just demo-component-lab`,
 `just demo-audio-kit`, `just demo-python`, and `just demo-themes`.
+
+The Spinorama demos live in the sibling AutoEQ workspace. Build them there
+with `just demo-d3rs-spinorama` or `just demo-px-spinorama`.
 
 ## Examples
 

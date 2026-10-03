@@ -31,11 +31,9 @@ hand-maintained.
 | `gpui_wgpu` | `zed-industries/zed`, `crates/gpui_wgpu` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Hand-maintained renderer/backend patch point while tracking the Zed tag (not script-vendored) | Medium |
 | `gpui_windows` | `zed-industries/zed`, `crates/gpui_windows` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Hand-maintained Windows backend patch point while tracking the Zed tag (not script-vendored) | Medium |
 | `http_client` | `zed-industries/zed`, `crates/http_client` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | HTTP client abstraction used by the GPUI closure | Low |
-| `mach2` | `JohnTitor/mach2` | `0.5.0` | Local snapshot; current lockfile resolves registry `mach2` | Mach kernel bindings snapshot for platform work | Low |
 | `media` | `zed-industries/zed`, `crates/media` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Media and screen-capture types used by the GPUI closure | Low |
 | `objc` | `SSheldon/rust-objc` | `0.2.7` | Active `[patch.crates-io]` | Local Objective-C runtime binding patch point | Medium |
 | `perf` | `zed-industries/zed`, `crates/perf` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Profiling helpers used by the GPUI closure | Low |
-| `psm` | `rust-lang/stacker`, `psm` crate | `0.1.30` | Local snapshot; current lockfile resolves registry `psm 0.1.31` | Portable stack manipulation snapshot | Low |
 | `refineable` | `zed-industries/zed`, `crates/refineable` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Refinement trait for GPUI style types | Low |
 | `scheduler` | `zed-industries/zed`, `crates/scheduler` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Async scheduler/executor used by `gpui` | Low |
 | `sum_tree` | `zed-industries/zed`, `crates/sum_tree` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Sequence-tree storage for text; carries a recorded `ztracing::instrument` to `tracing::instrument` patch | Low |

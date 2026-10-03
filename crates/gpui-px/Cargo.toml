@@ -11,7 +11,7 @@ description = "High-level Plotly Express-style charting API built on d3rs and GP
 
 [features]
 default = ["gpui", "gpu-2d", "gpu-3d", "vello", "vello-metal"]
-autoeq = ["dep:autoeq"]
+autoeq = []
 gpui = ["dep:gpui", "dep:gpui-ui-kit", "dep:gpui-miniapp", "dep:gpui-builder", "dep:gpui-design", "gpui-design/gpui", "gpui-d3rs/gpui"]
 gpu-3d = ["gpui-d3rs/gpu-3d", "gpui-d3rs/gpu-compute", "dep:glam", "dep:image"]
 gpu-2d = ["gpui-d3rs/gpu-2d", "vello"]
@@ -33,7 +33,7 @@ native-qa = [
 ]
 reqwest = ["dep:reqwest"]
 showcase = []
-spinorama = ["autoeq", "tokio", "reqwest", "urlencoding", "gpu-3d"]
+spinorama = ["tokio", "reqwest", "urlencoding", "gpu-3d"]
 tokio = ["dep:tokio"]
 urlencoding = ["dep:urlencoding"]
 
@@ -49,7 +49,6 @@ gpui_wgpu = { workspace = true, optional = true }
 glam = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 thiserror = { workspace = true }
-autoeq = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 urlencoding = { workspace = true, optional = true }
@@ -87,11 +86,6 @@ required-features = ["gpui", "gpu-3d"]
 name = "px-showcase"
 path = "bin/showcase.rs"
 required-features = ["gpui", "gpu-2d"]
-
-[[bin]]
-name = "px-spinorama"
-path = "bin/spinorama_demo.rs"
-required-features = ["gpui", "autoeq", "tokio", "reqwest", "urlencoding"]
 
 [[example]]
 name = "logscale_demo"

@@ -93,9 +93,7 @@ stats_alloc = "0.1.10"
 
 # Optimization and math
 ndarray = { version = "0.17", default-features = false, features = ["rayon", "blas", "serde"] }
-autoeq = { version = ">=0.4" }
-autoeq-cea2034 = { version = "0.4" }
-math-delaunay = "0.5"
+math-delaunay = { version = "0.5", path = "../math-audio/crates/math-delaunay" }
 
 # GPUI toolkit crates
 gpui-au = { path = "crates/gpui-au", version = "0.9" }
