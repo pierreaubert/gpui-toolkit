@@ -7,7 +7,7 @@ upgrade notes in each crate's `VENDORING.md`.
 
 ## Inventory
 
-The 15-crate GPUI closure (`gpui` through `util_macros` below, including
+The 14-crate GPUI closure (`gpui` through `util_macros` below, including
 `gpui_macos` and `gpui_web`) was imported from zed `v1.9.0` as history-free
 snapshots by `scripts/import_gpui_upstream.py` (re-runnable: `--skip`,
 `--check` drift report). Each closure crate's `VENDORED.md` records its
@@ -15,6 +15,7 @@ upstream path, base ref, import exclusions (`examples/`, `benches/`, dev-deps
 on `reqwest_client`/`gpui_platform`, GPL-3.0 `zlog`/`ztracing`), and local
 patches. `refineable` and its `derive_refineable` proc macro resolve directly
 from pinned Zed commit `ced90fc636c4ede05402befc38a63bae7fd741bd`.
+`gpui_shared_string` resolves from that same commit.
 `gpui_wgpu` and `gpui_windows` predate the import script and remain hand-maintained.
 
 | Library | Upstream | Local version/ref | Build status | Why it is here | Patch burden |
@@ -25,7 +26,6 @@ from pinned Zed commit `ced90fc636c4ede05402befc38a63bae7fd741bd`.
 | `gpui_linux` | `zed-industries/zed`, `crates/gpui_linux` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Linux platform backend for `gpui` | Low |
 | `gpui_macos` | `zed-industries/zed`, `crates/gpui_macos` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Pristine re-vendor plus recorded CGS private-symbol removal (Mac App Store static-analysis rejection risk) | Medium |
 | `gpui_macros` | `zed-industries/zed`, `crates/gpui_macros` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Proc macros for `gpui` | Low |
-| `gpui_shared_string` | `zed-industries/zed`, `crates/gpui_shared_string` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Shared-string type used by `gpui` text | Low |
 | `gpui_util` | `zed-industries/zed`, `crates/gpui_util` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Utility helpers for `gpui` | Low |
 | `gpui_web` | `zed-industries/zed`, `crates/gpui_web` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Web/wasm platform backend for `gpui` (canvas + WebGPU); recorded patches in the crate's `VENDORED.md` port upstream PR #61707 (reentrancy-safe frame/resize callbacks, rAF/ResizeObserver cleanup), with PR #62327 documented as a non-ported follow-up | Medium |
 | `gpui_wgpu` | `zed-industries/zed`, `crates/gpui_wgpu` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Hand-maintained renderer/backend patch point while tracking the Zed tag (not script-vendored) | Medium |

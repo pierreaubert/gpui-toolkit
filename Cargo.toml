@@ -35,7 +35,6 @@ members = [
     "crates/3rdparties/gpui_linux",
     "crates/3rdparties/collections",
     "crates/3rdparties/util",
-    "crates/3rdparties/gpui_shared_string",
     "crates/3rdparties/gpui_util",
     "crates/3rdparties/util_macros",
     "crates/3rdparties/scheduler",
@@ -83,9 +82,9 @@ regex = "1.12"
 tempfile = "3.23"
 memmap2 = "0.9.11"
 thiserror = "2.0.17"
-arrow-array = "57.0.0"
-arrow-cast = "57.0.0"
-arrow-ipc = "57.0.0"
+arrow-array = "59.3.0"
+arrow-cast = "59.3.0"
+arrow-ipc = "59.3.0"
 unicode-segmentation = "1"
 stats_alloc = "0.1.10"
 
@@ -143,7 +142,7 @@ util = { package = "gpui-toolkit-util", path = "crates/3rdparties/util", version
 util_macros = { package = "gpui-toolkit-util-macros", path = "crates/3rdparties/util_macros", version = "0.1.0" }
 perf = { package = "gpui-toolkit-perf", path = "crates/3rdparties/perf", version = "0.1.0" }
 gpui_util = { package = "gpui-toolkit-gpui-util", path = "crates/3rdparties/gpui_util", version = "0.1.0" }
-gpui_shared_string = { package = "gpui-toolkit-gpui-shared-string", path = "crates/3rdparties/gpui_shared_string", version = "0.1.0" }
+gpui_shared_string = { git = "https://github.com/zed-industries/zed.git", rev = "ced90fc636c4ede05402befc38a63bae7fd741bd", version = "0.1.0" }
 http_client = { package = "gpui-toolkit-http-client", path = "crates/3rdparties/http_client", version = "0.1.0" }
 media = { package = "gpui-toolkit-media", path = "crates/3rdparties/media", version = "0.1.0" }
 scheduler = { package = "gpui-toolkit-scheduler", path = "crates/3rdparties/scheduler", version = "0.1.0" }

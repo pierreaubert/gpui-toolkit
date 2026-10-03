@@ -19,7 +19,7 @@ DEFAULT_ROOTS = ["gpui", "gpui_macros", "gpui_macos", "gpui_linux", "collections
 EXCLUDED_CRATES = {"reqwest_client", "gpui_platform", "zlog", "ztracing", "ztracing_macro"}
 # These Zed crates are pinned directly; keep their dependency edges when
 # rewriting GPUI manifests, but omit their directories from the vendor set.
-EXTERNAL_ZED_CRATES = {"refineable", "derive_refineable"}
+EXTERNAL_ZED_CRATES = {"refineable", "derive_refineable", "gpui_shared_string"}
 EXCLUDED_DIRS = {"examples", "benches"}
 VENDOR_DIR = Path("crates/3rdparties")
 GPUI_IMAGE_FEATURES = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"]

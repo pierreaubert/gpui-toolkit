@@ -104,6 +104,15 @@ class DepResolutionTests(unittest.TestCase):
         self.assertEqual(spec["rev"], imp.ZED_V1_9_0_REV)
         self.assertNotIn("tag", spec)
 
+    def test_shared_string_uses_same_pinned_revision_as_workspace(self):
+        self.ctx["ref"] = "v1.9.0"
+        self.ctx["ws_deps"]["gpui_shared_string"] = {"path": "crates/gpui_shared_string"}
+        self.ctx["versions"]["gpui_shared_string"] = "0.1.0"
+        name, spec = imp.resolve_dep("gpui_shared_string", {"workspace": True}, self.ctx)
+        self.assertEqual(name, "gpui_shared_string")
+        self.assertEqual(spec["rev"], imp.ZED_V1_9_0_REV)
+        self.assertNotIn("tag", spec)
+
     def test_external_dep_merges_extras(self):
         name, spec = imp.resolve_dep("serde", {"workspace": True, "optional": True}, self.ctx)
         self.assertEqual(
