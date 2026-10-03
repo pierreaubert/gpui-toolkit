@@ -47,7 +47,7 @@ pollster = "0.4.0"
 profiling = "1"
 smallvec = { version = "1.6", features = ["union", "const_new"] }
 smol = "2.0"
-strum = { version = "0.27.2", features = ["derive"] }
+strum = { version = "0.28.0", features = ["derive"] }
 url = "2.2"
 uuid = { version = "1.1.2", features = ["v4", "v5", "v7", "serde"] }
 oo7 = { version = "0.6", default-features = false, features = ["async-std", "native_crypto"] }
