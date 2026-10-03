@@ -178,7 +178,7 @@ impl Showcase {
                                     .child(Text::new("Multiple Mode Side").weight(TextWeight::Medium))
                                     .child(Badge::new("Vertical tabs").variant(BadgeVariant::Success))
                             )
-                            .child(Text::new("Headers as vertical tabs on the left, multiple content columns expand to the right. Shows first character when closed, full text when expanded. Click tabs to open/close them - multiple tabs can be open simultaneously.").muted(true).size(TextSize::Xs))
+                            .child(Text::new("Vertical tabs before and including the first open item sit left of the content; later tabs sit right. Rotated labels and accent rails remain visible. Open multiple tabs to show their content in the center.").muted(true).size(TextSize::Xs))
                             .child(
                                 div()
                                     .w_full()
@@ -189,11 +189,11 @@ impl Showcase {
                                             .orientation(AccordionOrientation::Side)
                                             .items(vec![
                                                 AccordionItem::new("side-single-1", "Tab1")
-                                                    .content("This is the first tab. Notice how the headers are displayed vertically on the left side with content expanding to the right."),
+                                                    .content("The first open tab stays on the left side of the active content."),
                                                 AccordionItem::new("side-single-2", "Tab2")
-                                                    .content("This is the second tab. You can open multiple tabs at once and they will appear as columns side by side!"),
+                                                    .content("Tabs after the first open tab move to the right of the content."),
                                                 AccordionItem::new("side-single-3", "Tab3")
-                                                    .content("This is the third tab. Try opening all three tabs to see them displayed as three columns."),
+                                                    .content("Open multiple tabs to see their content together between the split tab bars."),
                                             ])
                                             .expanded(accordion_side_single.clone())
                                             .on_change({

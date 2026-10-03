@@ -13,10 +13,10 @@ Provides a simple, high-level API for creating charts, similar to Plotly Express
 - `gpu-3d` - 3D GPU rendering
 - `vello` - Vello-backed 2D chart rendering (enables `gpui-d3rs/vello-gpui`; scatter charts via `VelloChartElement`)
 
-## Binaries
+## Binaries and related demos
 
 - `px-showcase` - Chart showcase
-- `px-spinorama` - Spinorama visualization demo
+- `px-spinorama` - AutoEQ-owned Spinorama visualization demo in `autoeq-gpui-examples`
 
 ## Examples
 

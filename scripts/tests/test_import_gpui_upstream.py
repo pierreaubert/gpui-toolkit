@@ -179,6 +179,21 @@ class ClosureAndVendorTests(unittest.TestCase):
         self.assertIn(f"Base ref: {REF}", md)
         self.assertIn("## Local patches", md)
 
+    def test_refineable_import_omits_nested_derive_copy(self):
+        source = self.zdir / "crates" / "refineable"
+        (source / "src").mkdir(parents=True)
+        (source / "Cargo.toml").write_text(INTERNAL_B_TOML.replace("internal_b", "refineable"))
+        (source / "src" / "refineable.rs").write_text("// stub\n")
+        nested = source / "derive_refineable"
+        nested.mkdir()
+        (nested / "Cargo.toml").write_text("[package]\nname='derive_refineable'\nversion='0.1.0'\n")
+        self.ctx.setdefault("paths", {})["refineable"] = "crates/refineable"
+        self.ctx["versions"]["refineable"] = "0.1.0"
+        dest = Path(self.tmp.name) / "out"
+        imp.vendor_crate("refineable", self.zdir, self.ctx, dest)
+        self.assertFalse((dest / "refineable" / "derive_refineable").exists())
+        self.assertIn("nested derive_refineable/", (dest / "refineable" / "VENDORED.md").read_text())
+
     def test_vendoring_is_idempotent(self):
         imp.compute_closure(self.zdir, self.ctx, ["internal_a"])
         dest = Path(self.tmp.name) / "out"

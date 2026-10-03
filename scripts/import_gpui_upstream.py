@@ -293,12 +293,13 @@ def _vendored_md(name: str, path: str, ref: str, prior: str | None) -> str:
         tail = prior[prior.index(LOCAL_PATCHES_HEADER):].rstrip() + "\n"
     else:
         tail = LOCAL_PATCHES_HEADER + "\n\nnone\n"
+    nested_exclusion = ", nested derive_refineable/ (vendored separately)" if name == "refineable" else ""
     return (
         f"# Vendored: {name}\n\n"
         f"- Upstream: https://github.com/zed-industries/zed/tree/{ref}/{path}\n"
         f"- Base ref: {ref}\n"
         f"- Import: scripts/import_gpui_upstream.py (history-free snapshot)\n"
-        f"- Excluded on import: examples/, benches/, deps on {', '.join(sorted(EXCLUDED_CRATES))}\n\n"
+        f"- Excluded on import: examples/, benches/{nested_exclusion}, deps on {', '.join(sorted(EXCLUDED_CRATES))}\n\n"
         + tail
     )
 
@@ -309,7 +310,8 @@ def vendor_crate(name: str, zdir: Path, ctx: dict, dest_root: Path) -> None:
     dst = Path(dest_root) / name
     prior_md = (dst / "VENDORED.md").read_text() if (dst / "VENDORED.md").exists() else None
     shutil.rmtree(dst, ignore_errors=True)
-    shutil.copytree(src, dst, ignore=shutil.ignore_patterns(*EXCLUDED_DIRS))
+    ignored = (*EXCLUDED_DIRS, "derive_refineable") if name == "refineable" else EXCLUDED_DIRS
+    shutil.copytree(src, dst, ignore=shutil.ignore_patterns(*ignored))
     if not any(p.name.startswith("LICENSE") for p in dst.iterdir()):
         copied = False
         for candidate in ("LICENSE-APACHE", "LICENSE.apache", "LICENSE"):

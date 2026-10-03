@@ -25,7 +25,7 @@ D3.js-inspired GPU-accelerated plotting library for GPUI.
 ## Demo apps (example targets)
 
 - `d3rs-showcase` - Chart gallery — `cargo run -p gpui-d3rs --example d3rs-showcase --release`
-- `d3rs-spinorama` - Spinorama visualization demo — `cargo run -p gpui-d3rs --example d3rs-spinorama --features spinorama --release`
+- `d3rs-spinorama` - AutoEQ-owned Spinorama visualization demo — `cargo run --manifest-path ../../../autoeq/Cargo.toml -p autoeq-gpui-examples --bin d3rs-spinorama --release`
 
 The demos are `[[example]]` targets (sources under `bin/`) so they can use the
 dev-dependency shell crates (`gpui-ui-kit`, `gpui-miniapp`, `gpui-builder`).

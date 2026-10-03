@@ -15,12 +15,12 @@ name = "d3rs"
 
 [features]
 default = ["gpui", "gpu-2d", "gpu-3d", "vello-gpui", "vello-metal"]
-autoeq = ["dep:autoeq"]
+autoeq = []
 gpui = ["dep:gpui", "dep:gpui-design", "gpui-design/gpui", "dep:smol", "dep:fontdue", "dep:image"]
 profiler = ["gpui-profiler/global-allocator"]
 reqwest = ["dep:reqwest"]
 showcase = []
-spinorama = ["dep:autoeq", "dep:tokio", "dep:ndarray", "dep:reqwest", "dep:urlencoding", "gpui"]
+spinorama = ["dep:tokio", "dep:ndarray", "dep:reqwest", "dep:urlencoding", "gpui"]
 tokio = ["dep:tokio"]
 gpu-3d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "dep:gpui_wgpu", "gpui"]
 gpu-2d = ["dep:wgpu", "dep:bytemuck", "dep:glam", "dep:pollster", "dep:gpui_wgpu", "gpui", "vello-gpui"]
@@ -49,7 +49,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 smallvec = { workspace = true }
 thiserror = { workspace = true }
-autoeq = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 ndarray = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
@@ -134,11 +133,6 @@ name = "d3rs-showcase"
 path = "bin/showcase/main.rs"
 required-features = ["vello-gpui"]
 
-
-[[example]]
-name = "d3rs-spinorama"
-path = "bin/spinorama_demo/main.rs"
-required-features = ["spinorama", "gpu-2d", "gpu-3d"]
 
 # Non-GPUI examples (can run without gpui feature)
 [[example]]
