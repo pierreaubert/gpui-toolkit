@@ -124,19 +124,27 @@ impl PlatformAtlas for WgpuAtlas {
             return;
         };
 
-        let Some(texture_slot) = lock.storage[id.kind].textures.get_mut(id.index as usize) else {
-            return;
-        };
-
-        if let Some(mut texture) = texture_slot.take() {
+        let released = {
+            let Some(texture_slot) = lock.storage[id.kind].textures.get_mut(id.index as usize) else {
+                return;
+            };
+            let Some(mut texture) = texture_slot.take() else {
+                return;
+            };
             texture.decrement_ref_count();
             if texture.is_unreferenced() {
-                lock.storage[id.kind]
-                    .free_list
-                    .push(texture.id.index as usize);
+                true
             } else {
                 *texture_slot = Some(texture);
+                false
             }
+        };
+
+        if released {
+            // Uploads are deferred until the next frame. A removed texture can
+            // have pending uploads, and its slot may be reused before then.
+            lock.pending_uploads.retain(|upload| upload.id != id);
+            lock.storage[id.kind].free_list.push(id.index as usize);
         }
     }
 }

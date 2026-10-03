@@ -276,6 +276,18 @@ impl WgpuCustomDraw for WgpuVelloDraw {
 
         let mut gpu_slot = self.gpu.borrow_mut();
         if gpu_slot.is_none() {
+            let limits = ctx.device.limits();
+            if limits.max_storage_buffers_per_shader_stage < 8
+                || limits.max_compute_workgroup_storage_size < 16_384
+            {
+                log::warn!(
+                    "vello2d: GPU compute limits are insufficient (storage buffers {}, workgroup memory {}); using CPU",
+                    limits.max_storage_buffers_per_shader_stage,
+                    limits.max_compute_workgroup_storage_size
+                );
+                self.failed.set(true);
+                return;
+            }
             let Some(shared) = shared_gpu_state(ctx) else {
                 log::error!(
                     "vello2d: shared vello renderer initialization failed; element falls back to CPU"

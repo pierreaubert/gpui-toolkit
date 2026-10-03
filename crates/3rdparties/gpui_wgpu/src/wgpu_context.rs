@@ -200,6 +200,18 @@ impl WgpuContext {
 
         Self::check_renderer_limits(adapter, &required_limits)?;
 
+        // Vello 0.10's coarse shader needs eight storage buffers and 16 KiB
+        // of workgroup memory. Older adapters retain the GPUI path and let
+        // custom draws select their CPU fallback.
+        required_limits.max_storage_buffers_per_shader_stage = adapter
+            .limits()
+            .max_storage_buffers_per_shader_stage
+            .min(8);
+        required_limits.max_compute_workgroup_storage_size = adapter
+            .limits()
+            .max_compute_workgroup_storage_size
+            .min(16_384);
+
         if !adapter
             .get_downlevel_capabilities()
             .flags
