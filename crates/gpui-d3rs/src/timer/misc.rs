@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicU64;
-use std::time::Instant;
+use web_time::Instant;
 
 /// Global epoch for timing - lazily initialized on first use
 static EPOCH: OnceLock<Instant> = OnceLock::new();

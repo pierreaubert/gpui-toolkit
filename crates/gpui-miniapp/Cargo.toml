@@ -33,6 +33,7 @@ tokio = []
 urlencoding = []
 
 [dependencies]
+web-time = "1.1"
 gpui = { workspace = true }
 gpui-builder = { workspace = true, optional = true }
 gpui-design = { workspace = true, features = ["gpui"] }

@@ -37,6 +37,7 @@ pub struct WebPlatform {
     foreground_executor: ForegroundExecutor,
     text_system: Arc<dyn PlatformTextSystem>,
     active_window: RefCell<Option<AnyWindowHandle>>,
+    clipboard: RefCell<Option<ClipboardItem>>,
     active_display: Rc<dyn PlatformDisplay>,
     callbacks: RefCell<WebPlatformCallbacks>,
     wgpu_context: Rc<RefCell<Option<WgpuContext>>>,
@@ -95,6 +96,7 @@ impl WebPlatform {
             foreground_executor,
             text_system,
             active_window: RefCell::new(None),
+            clipboard: RefCell::new(None),
             active_display,
             callbacks: RefCell::new(WebPlatformCallbacks::default()),
             wgpu_context: Rc::new(RefCell::new(None)),
@@ -337,10 +339,20 @@ impl Platform for WebPlatform {
     }
 
     fn read_from_clipboard(&self) -> Option<ClipboardItem> {
-        None
+        self.clipboard.borrow().clone()
     }
 
-    fn write_to_clipboard(&self, _item: ClipboardItem) {}
+    fn write_to_clipboard(&self, item: ClipboardItem) {
+        if let Some(text) = item.text() {
+            let promise = self.browser_window.navigator().clipboard().write_text(&text);
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Err(error) = wasm_bindgen_futures::JsFuture::from(promise).await {
+                    log::warn!("browser clipboard write failed: {error:?}");
+                }
+            });
+        }
+        *self.clipboard.borrow_mut() = Some(item);
+    }
 
     fn write_credentials(&self, _url: &str, _username: &str, _password: &[u8]) -> Task<Result<()>> {
         Task::ready(Err(anyhow::anyhow!(

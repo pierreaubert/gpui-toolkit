@@ -44,6 +44,16 @@ impl std::fmt::Debug for EditState {
 impl EditState {
     const MAX_UNDO_HISTORY: usize = 200;
 
+    pub(super) fn sync_external_value(&mut self, previous: &str, current: &str) {
+        // Preserve uncommitted edits when the parent value did not change.
+        // A changed parent value can come from external undo, import, or reset.
+        if previous != current && self.editing && self.text != current {
+            self.text = current.to_owned();
+            self.cursor = self.cursor.min(self.text.chars().count());
+            self.clear_selection();
+        }
+    }
+
     fn snapshot(&self) -> EditSnapshot {
         EditSnapshot {
             text: self.text.clone(),

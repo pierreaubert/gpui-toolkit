@@ -7,7 +7,8 @@ use super::timer;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, atomic::AtomicUsize};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 #[test]
 fn test_now_monotonic() {

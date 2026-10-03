@@ -45,7 +45,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Instant;
+use web_time::Instant;
 
 type MeshPlotExportCallback = Rc<dyn Fn(Result<String, ChartError>)>;
 
@@ -2467,13 +2467,13 @@ impl MeshPlot {
         let retained_3d_lod = (*retained_3d_lod).clone();
         let selection_callback = (*selection_callback).clone();
         let focus_handle = (*focus_handle).clone();
-        let drag_start = Rc::new(RefCell::new(None::<[f32; 2]>));
+        let drag_start = Rc::clone(&state.borrow().orbit_drag_3d);
         let drag_down = drag_start.clone();
         let drag_middle_down = drag_start.clone();
         let drag_move = drag_start.clone();
         let drag_up = drag_start;
         let drag_middle_up = drag_up.clone();
-        let pan_drag = Rc::new(RefCell::new(false));
+        let pan_drag = Rc::clone(&state.borrow().orbit_pan_drag_3d);
         let pan_drag_down = pan_drag.clone();
         let pan_drag_middle_down = pan_drag.clone();
         let pan_drag_move = pan_drag.clone();
@@ -2679,6 +2679,26 @@ impl MeshPlot {
                 }
                 *drag_middle_up.borrow_mut() = None;
                 *pan_drag_middle_up.borrow_mut() = false;
+            })
+            .on_mouse_up_out(gpui::MouseButton::Left, {
+                let state = state.clone();
+                let lod = retained_3d_lod.clone();
+                let scene = retained_3d_state.clone();
+                move |_, _, _| {
+                    *state.borrow().orbit_drag_3d.borrow_mut() = None;
+                    *state.borrow().orbit_pan_drag_3d.borrow_mut() = false;
+                    if let Some(lod) = lod.as_ref() { lod.borrow_mut().end_drag(&mut scene.borrow_mut()); }
+                }
+            })
+            .on_mouse_up_out(gpui::MouseButton::Middle, {
+                let state = state.clone();
+                let lod = retained_3d_lod.clone();
+                let scene = retained_3d_state.clone();
+                move |_, _, _| {
+                    *state.borrow().orbit_drag_3d.borrow_mut() = None;
+                    *state.borrow().orbit_pan_drag_3d.borrow_mut() = false;
+                    if let Some(lod) = lod.as_ref() { lod.borrow_mut().end_drag(&mut scene.borrow_mut()); }
+                }
             })
             .on_scroll_wheel(move |event: &gpui::ScrollWheelEvent, window, _cx| {
                 let delta = match event.delta {

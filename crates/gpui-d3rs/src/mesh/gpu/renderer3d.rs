@@ -19,7 +19,7 @@ use glam::Vec3Swizzles;
 #[cfg(not(test))]
 use std::borrow::Cow;
 #[cfg(not(test))]
-use std::time::Instant;
+use web_time::Instant;
 
 /// Retained 3D mesh state shared by platform renderers.
 ///

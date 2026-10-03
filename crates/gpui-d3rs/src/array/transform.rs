@@ -146,7 +146,7 @@ where
 /// // data is now shuffled
 /// ```
 pub fn shuffle<T>(data: &mut [T]) {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use web_time::{SystemTime, UNIX_EPOCH};
 
     // Simple LCG random number generator
     let mut seed = SystemTime::now()

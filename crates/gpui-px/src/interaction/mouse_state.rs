@@ -8,7 +8,7 @@ pub struct MouseState {
     /// Whether the right mouse button is pressed
     pub right_down: bool,
     /// Last click timestamp for double-click detection
-    pub last_click_time: Option<std::time::Instant>,
+    pub last_click_time: Option<web_time::Instant>,
     /// Last click position for double-click detection
     pub last_click_pos: Option<(f32, f32)>,
 }
@@ -31,7 +31,7 @@ impl MouseState {
 
     /// Record a click for double-click detection.
     pub fn record_click(&mut self, x: f32, y: f32) {
-        self.last_click_time = Some(std::time::Instant::now());
+        self.last_click_time = Some(web_time::Instant::now());
         self.last_click_pos = Some((x, y));
     }
 }

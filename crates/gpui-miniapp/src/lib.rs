@@ -56,3 +56,5 @@ pub use mini_app_state::{
     MiniAppState, language_from_code, load_miniapp_state, save_miniapp_state, theme_from_name,
 };
 pub use misc::*;
+
+mod browser_fonts;

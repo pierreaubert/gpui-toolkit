@@ -12,11 +12,12 @@ use d3rs::mesh::{
 };
 #[cfg(feature = "gpu-3d")]
 use d3rs::mesh::{MeshBounds, MeshBvh, RevolveSpec, RevolvedMesh};
-#[cfg(all(feature = "gpu-3d", not(test)))]
+#[cfg(feature = "gpu-3d")]
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 /// GPU resources retained by one live 3D mesh-plot instance.
 ///
@@ -387,6 +388,11 @@ pub struct MeshPlotState {
     pub camera_fitted: bool,
     #[cfg(feature = "gpu-3d")]
     retained_bvh: Option<(u64, Rc<MeshBvh>)>,
+    /// Active pointer gesture survives camera-triggered frame rebuilds.
+    #[cfg(feature = "gpu-3d")]
+    pub(crate) orbit_drag_3d: Rc<RefCell<Option<[f32; 2]>>>,
+    #[cfg(feature = "gpu-3d")]
+    pub(crate) orbit_pan_drag_3d: Rc<RefCell<bool>>,
     /// Axisymmetric geometry has a different topology from its source
     /// profile. Keep both it and its accelerator together so repeated pointer
     /// inspection never regenerates the revolution surface.
@@ -453,6 +459,10 @@ impl MeshPlotState {
             orbit,
             #[cfg(feature = "gpu-3d")]
             camera_fitted: false,
+            #[cfg(feature = "gpu-3d")]
+            orbit_drag_3d: Rc::new(RefCell::new(None)),
+            #[cfg(feature = "gpu-3d")]
+            orbit_pan_drag_3d: Rc::new(RefCell::new(false)),
             #[cfg(feature = "gpu-3d")]
             retained_bvh: None,
             #[cfg(feature = "gpu-3d")]
@@ -1361,6 +1371,20 @@ impl MeshPlotState {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[cfg(feature = "gpu-3d")]
+    fn orbit_gesture_survives_camera_redraw_state() {
+        let mut state = super::MeshPlotState::new(-1.0, 1.0, -1.0, 1.0);
+        let first_frame = std::rc::Rc::clone(&state.orbit_drag_3d);
+        *first_frame.borrow_mut() = Some([100.0, 200.0]);
+        state.orbit.azimuth += 0.1;
+        let next_frame = std::rc::Rc::clone(&state.orbit_drag_3d);
+        assert!(std::rc::Rc::ptr_eq(&first_frame, &next_frame));
+        assert_eq!(*next_frame.borrow(), Some([100.0, 200.0]));
+        *next_frame.borrow_mut() = None;
+        assert_eq!(*first_frame.borrow(), None);
+    }
+
     use super::*;
     use crate::mesh_plot::Wireframe;
     use std::sync::Arc;

@@ -38,6 +38,7 @@ headless-qa = ["gpu-3d", "gpui_wgpu/headless-qa"]
 urlencoding = ["dep:urlencoding"]
 
 [dependencies]
+web-time = "1.1"
 gpui = { workspace = true, optional = true }
 gpui-profiler = { workspace = true }
 gpui-design = { workspace = true, optional = true }

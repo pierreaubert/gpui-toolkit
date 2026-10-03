@@ -144,6 +144,7 @@ pub struct Input {
     disabled: bool,
     readonly: bool,
     password: bool,
+    select_all_on_ctrl: bool,
     error: Option<SharedString>,
     /// Schema-style validator: maps a value to an error message (`None` = valid).
     validator: Option<InputValidator>,
@@ -206,6 +207,7 @@ impl Input {
             disabled: false,
             readonly: false,
             password: false,
+            select_all_on_ctrl: false,
             error: None,
             validator: None,
             icon_left: None,
@@ -223,6 +225,15 @@ impl Input {
             aria_label: None,
             aria_role: None,
         }
+    }
+
+    /// Use Control+A to select all text.
+    ///
+    /// Disabled by default to preserve Emacs line navigation. Browser apps
+    /// can enable this for Windows and Linux while keeping macOS bindings.
+    pub fn select_all_on_ctrl(mut self, enabled: bool) -> Self {
+        self.select_all_on_ctrl = enabled;
+        self
     }
 
     /// Set the focus handle (optional - one is created internally if not provided)
@@ -662,6 +673,7 @@ impl InputEntity {
         // ctrl+a available for the Emacs start-of-line binding below.
         if (cmd && matches!(key, "c" | "x" | "v" | "a" | "z" | "y"))
             || (ctrl && matches!(key, "c" | "x" | "v" | "z" | "y"))
+            || (ctrl && key == "a" && self.props.select_all_on_ctrl)
         {
             cx.stop_propagation();
             match key {
@@ -1657,6 +1669,7 @@ impl RenderOnce for Input {
         });
 
         entity.update(cx, |model, _cx| {
+            edit_state.borrow_mut().sync_external_value(&model.props.value, &self.value);
             model.props = self;
             // Keep the persistent focus handle/edit state in sync with any
             // explicit ones provided on the builder.

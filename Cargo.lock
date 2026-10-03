@@ -3013,6 +3013,7 @@ dependencies = [
  "vello",
  "vello_cpu",
  "wasm-bindgen-futures",
+ "web-time",
  "wgpu",
 ]
 
@@ -3105,6 +3106,7 @@ dependencies = [
  "gpui-ui-kit",
  "libsqlite3-sys",
  "web-sys",
+ "web-time",
 ]
 
 [[package]]
@@ -3149,6 +3151,7 @@ dependencies = [
  "tokio",
  "urlencoding",
  "wasm-bindgen",
+ "web-time",
 ]
 
 [[package]]

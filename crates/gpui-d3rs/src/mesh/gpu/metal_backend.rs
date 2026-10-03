@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::ptr;
 use std::rc::Rc;
-use std::time::Instant;
+use web_time::Instant;
 
 #[repr(C)]
 #[derive(Clone, Copy)]

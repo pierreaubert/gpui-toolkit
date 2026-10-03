@@ -55,6 +55,8 @@ impl WebWindowInner {
         let mut closures = vec![
             self.register_pointer_down(),
             self.register_pointer_up(),
+            self.register_pointer_cancel("pointercancel"),
+            self.register_pointer_cancel("lostpointercapture"),
             self.register_pointer_move(),
             self.register_pointer_leave(),
             self.register_wheel(),
@@ -64,6 +66,7 @@ impl WebWindowInner {
             self.register_dragleave(),
             self.register_key_down(),
             self.register_key_up(),
+            self.register_paste(),
             self.register_composition_start(),
             self.register_composition_update(),
             self.register_composition_end(),
@@ -134,6 +137,11 @@ impl WebWindowInner {
         self.listen("pointerdown", move |event: JsValue| {
             let event: web_sys::PointerEvent = event.unchecked_into();
             event.prevent_default();
+            if this.active_pointer.get().is_some() {
+                return;
+            }
+            this.active_pointer.set(Some(event.pointer_id()));
+            this.canvas.set_pointer_capture(event.pointer_id()).ok();
             this.input_element.focus().ok();
 
             let button = dom_mouse_button_to_gpui(event.button());
@@ -165,6 +173,11 @@ impl WebWindowInner {
         self.listen("pointerup", move |event: JsValue| {
             let event: web_sys::PointerEvent = event.unchecked_into();
             event.prevent_default();
+            if this.active_pointer.get() != Some(event.pointer_id()) {
+                return;
+            }
+            this.active_pointer.set(None);
+            this.canvas.release_pointer_capture(event.pointer_id()).ok();
 
             let button = dom_mouse_button_to_gpui(event.button());
             let position = pointer_position_in_element(&event);
@@ -188,11 +201,46 @@ impl WebWindowInner {
         })
     }
 
+    fn cancel_pointer(&self) {
+        if let Some(pointer) = self.active_pointer.take() {
+            let _ = self.canvas.release_pointer_capture(pointer);
+        }
+        if let Some(button) = self.pressed_button.take() {
+            // End retained gestures outside every hitbox, preventing a cancelled click.
+            let modifiers = self.state.borrow().modifiers;
+            let outside = point(px(-1_000_000.0), px(-1_000_000.0));
+            self.dispatch_input(PlatformInput::MouseMove(MouseMoveEvent { position: outside, pressed_button: None, modifiers }));
+            self.dispatch_input(PlatformInput::MouseUp(MouseUpEvent {
+                button,
+                position: outside,
+                modifiers,
+                click_count: 0,
+            }));
+        }
+    }
+
+    fn register_pointer_cancel(self: &Rc<Self>, name: &str) -> Closure<dyn FnMut(JsValue)> {
+        let this = Rc::clone(self);
+        self.listen(name, move |event: JsValue| {
+            let event: web_sys::PointerEvent = event.unchecked_into();
+            if this.active_pointer.get() == Some(event.pointer_id()) {
+                this.cancel_pointer();
+            }
+        })
+    }
+
     fn register_pointer_move(self: &Rc<Self>) -> Closure<dyn FnMut(JsValue)> {
         let this = Rc::clone(self);
         self.listen("pointermove", move |event: JsValue| {
             let event: web_sys::PointerEvent = event.unchecked_into();
             event.prevent_default();
+            if this
+                .active_pointer
+                .get()
+                .is_some_and(|id| id != event.pointer_id())
+            {
+                return;
+            }
 
             let position = pointer_position_in_element(&event);
             let modifiers = modifiers_from_mouse_event(&event, this.is_mac);
@@ -326,6 +374,19 @@ impl WebWindowInner {
         })
     }
 
+    fn register_paste(self: &Rc<Self>) -> Closure<dyn FnMut(JsValue)> {
+        let this = Rc::clone(self);
+        self.listen_input("paste", move |event: JsValue| {
+            let event: web_sys::ClipboardEvent = event.unchecked_into();
+            if let Some(data) = event.clipboard_data() {
+                if let Ok(text) = data.get_data("text/plain") {
+                    event.prevent_default();
+                    this.with_input_handler(|handler| handler.replace_text_in_range(None, &text));
+                }
+            }
+        })
+    }
+
     fn register_key_down(self: &Rc<Self>) -> Closure<dyn FnMut(JsValue)> {
         let this = Rc::clone(self);
         self.listen_input("keydown", move |event: JsValue| {
@@ -351,6 +412,9 @@ impl WebWindowInner {
                 return;
             }
 
+            // Browser paste events carry current system clipboard contents.
+            // The synchronous GPUI clipboard interface cannot await a read.
+            if key == "v" && (modifiers.control || modifiers.platform) { return; }
             event.prevent_default();
 
             let is_held = event.repeat();
@@ -477,6 +541,7 @@ impl WebWindowInner {
     fn register_blur(self: &Rc<Self>) -> Closure<dyn FnMut(JsValue)> {
         let this = Rc::clone(self);
         self.listen_input("blur", move |_event: JsValue| {
+            this.cancel_pointer();
             {
                 let mut state = this.state.borrow_mut();
                 state.is_active = false;

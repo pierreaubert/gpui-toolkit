@@ -225,7 +225,7 @@ impl MiniApp {
             crate::web_mark_ready();
         };
 
-        let app = gpui::Application::with_platform(platform);
+        let app = gpui::Application::with_platform(platform).with_assets(crate::browser_fonts::BrowserFonts);
         #[cfg(target_family = "wasm")]
         {
             // `WebPlatform::run` returns immediately after scheduling the
@@ -328,7 +328,7 @@ impl MiniApp {
             crate::web_mark_ready();
         };
 
-        let app = gpui::Application::with_platform(platform);
+        let app = gpui::Application::with_platform(platform).with_assets(crate::browser_fonts::BrowserFonts);
         #[cfg(target_family = "wasm")]
         {
             std::mem::forget(app.run_embedded(launch));

@@ -38,6 +38,7 @@ tokio = ["dep:tokio"]
 urlencoding = ["dep:urlencoding"]
 
 [dependencies]
+web-time = "1.1"
 gpui = { workspace = true, optional = true }
 gpui-ui-kit = { workspace = true, optional = true }
 gpui-miniapp = { workspace = true, optional = true }
