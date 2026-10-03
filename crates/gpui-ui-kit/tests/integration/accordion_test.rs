@@ -9,8 +9,8 @@
 //! - on_change callback
 
 use gpui::{
-    Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,
-    VisualTestContext, Window, div,
+    Context, InteractiveElement, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled,
+    TestAppContext, VisualTestContext, Window, div,
 };
 use gpui_ui_kit::accordion::{Accordion, AccordionItem, AccordionMode, AccordionOrientation};
 use std::cell::RefCell;
