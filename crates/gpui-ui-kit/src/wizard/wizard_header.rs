@@ -4,7 +4,7 @@ use super::wizard_step::WizardStep;
 use super::wizard_step_indicator_density::WizardStepIndicatorDensity;
 use crate::theme::ThemeExt;
 use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{App, Div, ElementId, FontWeight, SharedString, Window, div, px};
+use gpui::{App, Div, ElementId, FontWeight, InteractiveElement, SharedString, Window, div, px};
 
 /// Header component for wizard screens - renders just the step indicators
 /// Use this when you want to place the wizard header and navigation separately

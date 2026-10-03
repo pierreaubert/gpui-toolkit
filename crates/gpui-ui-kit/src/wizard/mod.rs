@@ -13,7 +13,7 @@ use crate::progress::{Progress, ProgressSize, ProgressVariant};
 use crate::theme::ThemeExt;
 use crate::validation::{Validate, ValidationError};
 use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{App, Div, ElementId, FontWeight, SharedString, Window, div, px};
+use gpui::{App, Div, ElementId, FontWeight, InteractiveElement, SharedString, Window, div, px};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 mod types;
