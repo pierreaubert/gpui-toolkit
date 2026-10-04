@@ -155,7 +155,7 @@ struct BillboardUniforms {
 /// [`BillboardInstance`] per glyph (buffer 1, instanced). The vertex shader
 /// expands each glyph in the camera plane; the fragment shader thresholds
 /// the SDF with a `fwidth` anti-aliased edge.
-pub const BILLBOARD_WGSL: &str = r#"
+pub const BILLBOARD_WGSL: &str = r"
 struct Camera {
     view_proj: mat4x4<f32>,
     cam_right: vec3<f32>,
@@ -208,7 +208,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     }
     return vec4<f32>(in.color.rgb, a);
 }
-"#;
+";
 
 /// Initial instance capacity (512 glyphs = 32 KiB); grows by doubling.
 const INITIAL_INSTANCE_CAPACITY: usize = 512;

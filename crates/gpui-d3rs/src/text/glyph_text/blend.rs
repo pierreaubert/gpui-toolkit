@@ -14,8 +14,8 @@ pub(super) fn blend_pixel(
     }
 
     let idx = ((y as u32 * width + x as u32) * 4) as usize;
-    let src_a = (alpha as f32 / 255.0) * color.a.clamp(0.0, 1.0);
-    let dst_a = pixels[idx + 3] as f32 / 255.0;
+    let src_a = (f32::from(alpha) / 255.0) * color.a.clamp(0.0, 1.0);
+    let dst_a = f32::from(pixels[idx + 3]) / 255.0;
     let out_a = src_a + dst_a * (1.0 - src_a);
     if out_a <= 0.0 {
         return;
@@ -23,7 +23,7 @@ pub(super) fn blend_pixel(
 
     let src = [color.r, color.g, color.b];
     for channel in 0..3 {
-        let dst = pixels[idx + channel] as f32 / 255.0;
+        let dst = f32::from(pixels[idx + channel]) / 255.0;
         let out = (src[channel] * src_a + dst * dst_a * (1.0 - src_a)) / out_a;
         pixels[idx + channel] = (out.clamp(0.0, 1.0) * 255.0).round() as u8;
     }
@@ -43,16 +43,16 @@ pub(super) fn blend_raw_pixel(
     }
 
     let idx = ((y as u32 * width + x as u32) * 4) as usize;
-    let src_a = src[3] as f32 / 255.0;
-    let dst_a = pixels[idx + 3] as f32 / 255.0;
+    let src_a = f32::from(src[3]) / 255.0;
+    let dst_a = f32::from(pixels[idx + 3]) / 255.0;
     let out_a = src_a + dst_a * (1.0 - src_a);
     if out_a <= 0.0 {
         return;
     }
 
     for channel in 0..3 {
-        let src_c = src[channel] as f32 / 255.0;
-        let dst_c = pixels[idx + channel] as f32 / 255.0;
+        let src_c = f32::from(src[channel]) / 255.0;
+        let dst_c = f32::from(pixels[idx + channel]) / 255.0;
         let out = (src_c * src_a + dst_c * dst_a * (1.0 - src_a)) / out_a;
         pixels[idx + channel] = (out.clamp(0.0, 1.0) * 255.0).round() as u8;
     }

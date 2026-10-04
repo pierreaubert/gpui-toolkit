@@ -102,8 +102,8 @@ impl MappedDatasetPayload {
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
-            options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
-        }
+            options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        };
         let file = options
             .open(path)
             .map_err(|_| DatasetFrameError::MappedFile)?;
@@ -151,9 +151,8 @@ impl MappedDatasetPayload {
 }
 
 impl std::fmt::Debug for MappedDatasetPayload {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("MappedDatasetPayload")
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MappedDatasetPayload")
             .field("byte_length", &self.len())
             .finish_non_exhaustive()
     }
@@ -644,19 +643,27 @@ impl DatasetFilter {
             }
             Self::Lt(left, right) => {
                 let (left, right) = binary(left, right)?;
-                DatasetFilterValue::Bool(compare(&left, &right).is_some_and(|value| value.is_lt()))
+                DatasetFilterValue::Bool(
+                    compare(&left, &right).is_some_and(std::cmp::Ordering::is_lt),
+                )
             }
             Self::Le(left, right) => {
                 let (left, right) = binary(left, right)?;
-                DatasetFilterValue::Bool(compare(&left, &right).is_some_and(|value| value.is_le()))
+                DatasetFilterValue::Bool(
+                    compare(&left, &right).is_some_and(std::cmp::Ordering::is_le),
+                )
             }
             Self::Gt(left, right) => {
                 let (left, right) = binary(left, right)?;
-                DatasetFilterValue::Bool(compare(&left, &right).is_some_and(|value| value.is_gt()))
+                DatasetFilterValue::Bool(
+                    compare(&left, &right).is_some_and(std::cmp::Ordering::is_gt),
+                )
             }
             Self::Ge(left, right) => {
                 let (left, right) = binary(left, right)?;
-                DatasetFilterValue::Bool(compare(&left, &right).is_some_and(|value| value.is_ge()))
+                DatasetFilterValue::Bool(
+                    compare(&left, &right).is_some_and(std::cmp::Ordering::is_ge),
+                )
             }
             Self::And(left, right) => {
                 let (left, right) = binary(left, right)?;
@@ -1008,7 +1015,7 @@ impl DatasetFrameStore {
         }
     }
 
-    /// Return a completed payload without decoding it as Arrow. ArrayData uses
+    /// Return a completed payload without decoding it as Arrow. `ArrayData` uses
     /// the same bounded, revisioned frame envelope but owns a dense raw buffer.
     pub fn raw_payload(&self, resource_id: &str) -> Option<&[u8]> {
         self.frames
@@ -1761,7 +1768,7 @@ impl DatasetFrameStore {
     ) -> Result<Option<AggregatedRows>, DatasetFrameError> {
         if count > MAX_DATASET_CHART_POINTS
             || aggregations.is_empty()
-            || group_fields.iter().any(|field| field.is_empty())
+            || group_fields.iter().any(std::string::String::is_empty)
             || aggregations.iter().any(|aggregation| {
                 aggregation.output.is_empty()
                     || (aggregation.operation == DatasetAggregationOp::Count
@@ -2160,7 +2167,7 @@ impl DatasetFrameStore {
         Ok(Some((x, y)))
     }
 
-    /// Sample a DatasetView row range before applying the chart LOD budget.
+    /// Sample a `DatasetView` row range before applying the chart LOD budget.
     /// `predicate_field` implements the supported field-truthiness filter;
     /// range offsets count only rows that satisfy that predicate.
     pub fn sample_xy_window(
@@ -2399,9 +2406,9 @@ impl DatasetFrameStore {
             };
             let category_formatter = formatter(category_field)?;
             let value_formatter = formatter(value_field)?;
-            let series_formatter = series_field.map(&formatter).transpose()?;
-            let color_formatter = color_field.map(&formatter).transpose()?;
-            let predicate_formatter = predicate_field.map(&formatter).transpose()?;
+            let series_formatter = series_field.map(formatter).transpose()?;
+            let color_formatter = color_field.map(formatter).transpose()?;
+            let predicate_formatter = predicate_field.map(formatter).transpose()?;
 
             for row_index in 0..batch.num_rows() {
                 if let Some(formatter) = &predicate_formatter {
@@ -2429,8 +2436,10 @@ impl DatasetFrameStore {
                 let label = series_formatter
                     .as_ref()
                     .or(color_formatter.as_ref())
-                    .map(|formatter| formatter.value(row_index).to_string())
-                    .unwrap_or_else(|| "Series".into());
+                    .map_or_else(
+                        || "Series".into(),
+                        |formatter| formatter.value(row_index).to_string(),
+                    );
                 if label.trim().is_empty() {
                     continue;
                 }
@@ -2577,12 +2586,12 @@ impl DatasetFrameStore {
             };
             let x_formatter = formatter(x_field)?;
             let y_formatter = formatter(y_field)?;
-            let series_formatter = series_field.map(&formatter).transpose()?;
-            let color_formatter = color_field.map(&formatter).transpose()?;
-            let key_formatter = key_field.map(&formatter).transpose()?;
-            let dash_formatter = dash_field.map(&formatter).transpose()?;
-            let y0_formatter = y0_field.map(&formatter).transpose()?;
-            let predicate_formatter = predicate_field.map(&formatter).transpose()?;
+            let series_formatter = series_field.map(formatter).transpose()?;
+            let color_formatter = color_field.map(formatter).transpose()?;
+            let key_formatter = key_field.map(formatter).transpose()?;
+            let dash_formatter = dash_field.map(formatter).transpose()?;
+            let y0_formatter = y0_field.map(formatter).transpose()?;
+            let predicate_formatter = predicate_field.map(formatter).transpose()?;
 
             for row_index in 0..batch.num_rows() {
                 if let Some(formatter) = &predicate_formatter {
@@ -2620,8 +2629,10 @@ impl DatasetFrameStore {
                 let label = series_formatter
                     .as_ref()
                     .or(color_formatter.as_ref())
-                    .map(|formatter| formatter.value(row_index).to_string())
-                    .unwrap_or_else(|| "Series".into());
+                    .map_or_else(
+                        || "Series".into(),
+                        |formatter| formatter.value(row_index).to_string(),
+                    );
                 if label.trim().is_empty() {
                     continue;
                 }
@@ -2786,7 +2797,7 @@ impl DatasetFrameStore {
     }
 }
 
-/// Sample a dense numeric ArrayData payload without expanding it into JSON.
+/// Sample a dense numeric `ArrayData` payload without expanding it into JSON.
 /// A one-dimensional array is plotted as `(index, value)`; a two-dimensional
 /// array uses its first two columns as `(x, y)` points.
 pub fn sample_dense_xy(
@@ -2835,7 +2846,7 @@ pub fn sample_dense_xy(
     Ok((x, y))
 }
 
-/// Decode a bounded two-dimensional ArrayData grid for native raster charts.
+/// Decode a bounded two-dimensional `ArrayData` grid for native raster charts.
 /// The raw buffer stays outside UI JSON; this is the first unavoidable CPU
 /// materialization before a chart's GPU upload.
 pub fn dense_grid(
@@ -2868,7 +2879,7 @@ pub fn dense_grid(
     Ok((z, *width, *height))
 }
 
-/// Decode a bounded dense numeric ArrayData payload while preserving its shape.
+/// Decode a bounded dense numeric `ArrayData` payload while preserving its shape.
 pub fn dense_array_values(
     payload: &[u8],
     shape: &[usize],
@@ -2896,7 +2907,7 @@ pub fn dense_array_values(
         .collect()
 }
 
-/// Decode bounded unsigned ArrayData exactly, for triangle index buffers.
+/// Decode bounded unsigned `ArrayData` exactly, for triangle index buffers.
 pub fn dense_array_unsigned(
     payload: &[u8],
     shape: &[usize],
@@ -3015,7 +3026,7 @@ mod tests {
     #[test]
     fn frame_rejects_tampering() {
         let mut frame = frame(1, 0, 1, b"ARROW1");
-        assert!(frame.validate().is_ok());
+        frame.validate().unwrap();
         frame.payload.push(0);
         frame.byte_length = frame.payload.len();
         assert_eq!(frame.validate(), Err(DatasetFrameError::ChecksumMismatch));
@@ -3751,7 +3762,7 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-        }
+        };
         let mapped = MappedDatasetPayload::map_file(&path, payload.len()).unwrap();
         let frame = MappedDatasetFrame {
             resource_id: "array".into(),
@@ -3794,7 +3805,7 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-        }
+        };
         let mapped = MappedDatasetPayload::map_file(&path, bytes.len()).unwrap();
         let mut store = DatasetFrameStore::default();
         assert!(
@@ -3833,7 +3844,7 @@ mod tests {
             {
                 use std::os::unix::fs::PermissionsExt;
                 std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-            }
+            };
             MappedDatasetFrame {
                 resource_id: "live-array".into(),
                 generation,

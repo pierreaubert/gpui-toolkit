@@ -138,7 +138,7 @@ fn bench(c: &mut Criterion) {
             vertex_ids: None,
             cell_ids: None,
         };
-        b.iter(|| black_box(mesh_plot(small.clone()).mode(MeshRenderMode::Mesh).to_svg()))
+        b.iter(|| black_box(mesh_plot(small.clone()).mode(MeshRenderMode::Mesh).to_svg()));
     });
 
     #[cfg(feature = "gpu-3d")]
@@ -162,7 +162,7 @@ fn bench(c: &mut Criterion) {
             .mode(MeshRenderMode::ScalarFill {
                 interpolation: FieldInterpolation::Smooth,
             });
-        b.iter(|| black_box(plot.to_png(1.0)))
+        b.iter(|| black_box(plot.to_png(1.0)));
     });
 
     #[cfg(feature = "gpu-3d")]
@@ -178,7 +178,7 @@ fn bench(c: &mut Criterion) {
                     })
                     .build(),
             )
-        })
+        });
     });
 
     #[cfg(feature = "gpu-3d")]
@@ -188,7 +188,7 @@ fn bench(c: &mut Criterion) {
             let mut state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
             state.fit_camera_to_bounds(black_box(bounds), 16.0 / 9.0);
             black_box(state.camera.position)
-        })
+        });
     });
 
     let mut group = c.benchmark_group("mesh_plot_retained_frames");
@@ -204,7 +204,7 @@ fn bench(c: &mut Criterion) {
             b.iter(|| {
                 phase = (phase + 1.0) % 100.0;
                 black_box(camera_frame_for_bench(&mut camera_state, phase));
-            })
+            });
         });
 
         let mut field_state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
@@ -225,7 +225,7 @@ fn bench(c: &mut Criterion) {
                 );
                 revision += 1;
                 black_box((accepted, field_state.field_revision));
-            })
+            });
         });
     }
     group.finish();
@@ -253,7 +253,7 @@ fn retained_pick_bench(c: &mut Criterion) {
                 [100.0, 100.0],
                 plot_id.clone(),
             ))
-        })
+        });
     });
 
     let profile = connected_axisymmetric_profile(2_000);
@@ -283,7 +283,7 @@ fn retained_pick_bench(c: &mut Criterion) {
                 [100.0, 100.0],
                 revolved_id.clone(),
             ))
-        })
+        });
     });
     group.finish();
 }

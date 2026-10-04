@@ -10,10 +10,10 @@ use serde_json::Value;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 
-/// Current JSON schema version for Python-authored Scene3D spec payloads.
+/// Current JSON schema version for Python-authored `Scene3D` spec payloads.
 pub const SCENE3D_SPEC_SCHEMA_VERSION: u32 = 1;
 
-/// Default maximum number of typed Scene3D specs retained by [`TypedSpecCache`].
+/// Default maximum number of typed `Scene3D` specs retained by [`TypedSpecCache`].
 pub const DEFAULT_TYPED_SPEC_CACHE_MAX_ENTRIES: usize = 128;
 
 /// Deserialize `value` into `T` without taking ownership of the JSON value.
@@ -25,7 +25,7 @@ where
     T::deserialize(value).map_err(|error| error.to_string())
 }
 
-/// Return the schema version for a Scene3D spec payload.
+/// Return the schema version for a `Scene3D` spec payload.
 ///
 /// Early v1 payloads omitted `schema_version`; those are treated as v1 for
 /// compatibility. Unsupported future versions are rejected before deserializing
@@ -42,7 +42,7 @@ pub fn scene3d_spec_schema_version(value: &Value) -> Result<u32, String> {
     u32::try_from(version).map_err(|_| "scene3d schema_version is too large".to_string())
 }
 
-/// Validate the schema version for a Scene3D spec payload.
+/// Validate the schema version for a `Scene3D` spec payload.
 pub fn validate_scene3d_spec_schema_version(value: &Value) -> Result<(), String> {
     let version = scene3d_spec_schema_version(value)?;
     if version != SCENE3D_SPEC_SCHEMA_VERSION {
@@ -338,7 +338,7 @@ mod tests {
             scene3d_spec_schema_version(&value).unwrap(),
             SCENE3D_SPEC_SCHEMA_VERSION
         );
-        assert!(validate_scene3d_spec_schema_version(&value).is_ok());
+        validate_scene3d_spec_schema_version(&value).unwrap();
     }
 
     #[test]
@@ -445,7 +445,7 @@ mod tests {
             let value = serde_json::json!({
                 "id": format!("surface-{index}"),
                 "z": {
-                    "values": [index as f64, 1.0, 2.0, 3.0],
+                    "values": [f64::from(index), 1.0, 2.0, 3.0],
                     "width": 2,
                     "height": 2
                 }
@@ -614,7 +614,7 @@ mod tests {
             "id": "bad",
             "z": { "values": [1.0, 2.0], "width": 2, "height": 2 }
         });
-        assert!(cache.parse_surface("bad", &bad).is_err());
+        cache.parse_surface("bad", &bad).unwrap_err();
     }
 
     #[test]
@@ -625,6 +625,6 @@ mod tests {
             "z": { "values": [1.0, 2.0, 3.0, 4.0], "width": 2, "height": 2 }
         });
         cache.parse_surface("shared", &surface).unwrap();
-        assert!(cache.parse_lines("shared", &surface).is_err());
+        cache.parse_lines("shared", &surface).unwrap_err();
     }
 }

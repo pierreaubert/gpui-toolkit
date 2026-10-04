@@ -6,7 +6,7 @@
 //! ## Features
 //!
 //! - Animate numeric values with easing functions
-//! - Lifecycle callbacks (on_start, on_end, on_interrupt)
+//! - Lifecycle callbacks (`on_start`, `on_end`, `on_interrupt`)
 //! - Chained transitions with delays
 //! - Named transitions for interruption control
 //!
@@ -290,7 +290,7 @@ impl TransitionManager {
     }
 
     /// Update all transitions
-    /// Returns HashMap of name -> current value
+    /// Returns `HashMap` of name -> current value
     pub fn tick(&mut self, dt: f64) -> Vec<(String, f64)> {
         let mut results = Vec::new();
 

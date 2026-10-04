@@ -46,6 +46,11 @@ impl<'tree, 'a> IntoIterator for &SolvedTreeMap<'tree, 'a> {
 
 impl<'tree, 'a> SolvedTreeMap<'tree, 'a> {
     #[must_use]
+    pub fn iter(&self) -> SolvedTreeMapIter<'tree, 'a> {
+        self.into_iter()
+    }
+
+    #[must_use]
     pub fn get(&self, id: &str) -> Option<&'tree SolvedNodeData<'a>> {
         self.tree
             .index
@@ -105,7 +110,7 @@ pub struct SolvedNodeData<'a> {
     pub children: Vec<NodeIndex>,
 }
 
-impl<'a> SolvedNodeData<'a> {
+impl SolvedNodeData<'_> {
     /// Returns the size along the given axis.
     pub fn size_along(&self, axis: Axis) -> f32 {
         match axis {

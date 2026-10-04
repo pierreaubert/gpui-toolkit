@@ -284,7 +284,7 @@ mod tests {
         for (p32, p64) in upload.positions_f32.iter().zip(mesh.positions.iter()) {
             for axis in 0..3 {
                 let relative = p64[axis] - expected_origin[axis];
-                assert!((p32[axis] as f64 - relative).abs() < 1e-3);
+                assert!((f64::from(p32[axis]) - relative).abs() < 1e-3);
             }
         }
     }

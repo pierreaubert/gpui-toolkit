@@ -29,7 +29,7 @@ fn line_story_data_inner(series: &str) -> LineStoryData {
     match series {
         "sweep" => {
             let x: Vec<f64> = (0..72)
-                .map(|index| 20.0 * 1000.0_f64.powf(index as f64 / 71.0))
+                .map(|index| 20.0 * 1000.0_f64.powf(f64::from(index) / 71.0))
                 .collect();
             let y: Vec<f64> = x
                 .iter()
@@ -56,7 +56,7 @@ fn line_story_data_inner(series: &str) -> LineStoryData {
             }
         }
         "flat" => {
-            let x: Vec<f64> = (0..40).map(|index| index as f64).collect();
+            let x: Vec<f64> = (0..40).map(f64::from).collect();
             let y: Vec<f64> = x
                 .iter()
                 .map(|value| (value * 0.41).sin() * 0.18 + (value * 0.09).cos() * 0.08)
@@ -75,7 +75,7 @@ fn line_story_data_inner(series: &str) -> LineStoryData {
             }
         }
         _ => {
-            let x: Vec<f64> = (0..64).map(|index| index as f64 / 6.0).collect();
+            let x: Vec<f64> = (0..64).map(|index| f64::from(index) / 6.0).collect();
             let y: Vec<f64> = x.iter().map(|value| value.sin()).collect();
             let comparison_y: Vec<f64> =
                 x.iter().map(|value| (value * 0.72).cos() * 0.62).collect();
@@ -112,7 +112,7 @@ pub(super) fn line_story_data(series: &str) -> LineStoryData {
 fn area_story_data_inner(series: &str) -> AreaStoryData {
     match series {
         "decay" => {
-            let x: Vec<f64> = (0..64).map(|index| index as f64 / 8.0).collect();
+            let x: Vec<f64> = (0..64).map(|index| f64::from(index) / 8.0).collect();
             let y: Vec<f64> = x
                 .iter()
                 .map(|value| (value * 1.2).sin().abs() * (-value / 8.0).exp() + 0.04)
@@ -125,7 +125,7 @@ fn area_story_data_inner(series: &str) -> AreaStoryData {
             }
         }
         "baseline" => {
-            let x: Vec<f64> = (0..72).map(|index| index as f64 / 9.0).collect();
+            let x: Vec<f64> = (0..72).map(|index| f64::from(index) / 9.0).collect();
             let y0: Vec<f64> = x.iter().map(|value| value.sin() * 0.12 - 0.25).collect();
             let y: Vec<f64> = x
                 .iter()
@@ -140,7 +140,7 @@ fn area_story_data_inner(series: &str) -> AreaStoryData {
             }
         }
         _ => {
-            let x: Vec<f64> = (0..72).map(|index| index as f64 / 9.0).collect();
+            let x: Vec<f64> = (0..72).map(|index| f64::from(index) / 9.0).collect();
             let y: Vec<f64> = x
                 .iter()
                 .map(|value| (value * 1.1).sin().abs() * 0.72 + (value * 0.45).cos() * 0.08)

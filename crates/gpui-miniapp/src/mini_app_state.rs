@@ -1,4 +1,4 @@
-//! Opt-in persistence for MiniApp session state (window size, theme, language).
+//! Opt-in persistence for `MiniApp` session state (window size, theme, language).
 //!
 //! The state is stored as a small `key=value` text file so the shell needs no
 //! new dependencies (pulling `serde`/`dirs` in here would leak into every demo

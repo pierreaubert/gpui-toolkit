@@ -88,7 +88,7 @@ fn test_treemap_successful_build() {
         .padding(2.0)
         .build();
 
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn test_treemap_all_tiling_methods() {
         TilingMethod::SliceDice,
     ] {
         let result = treemap(&root).tiling_method(method).build();
-        assert!(result.is_ok(), "Failed for method {:?}", method);
+        assert!(result.is_ok(), "Failed for method {method:?}");
     }
 }
 
@@ -127,7 +127,7 @@ fn test_treemap_nested_hierarchy() {
     assert_eq!(root.total_value(), 100.0);
 
     let result = treemap(&root).build();
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn test_builder_chaining() {
         .size(800.0, 600.0)
         .build();
 
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -186,7 +186,7 @@ fn test_treemap_zero_value_child() {
 
     // Should build without panicking (zero-value child filtered)
     let result = treemap(&root).tiling_method(TilingMethod::Squarify).build();
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -347,7 +347,7 @@ fn test_treemap_builder_chain() {
         })
         .build();
 
-    assert!(result.is_ok());
+    result.unwrap();
     assert!(clicked.borrow().is_none()); // handler not invoked during build
 }
 
@@ -360,7 +360,7 @@ fn test_treemap_color_scheme() {
     let result = treemap(&root)
         .color_scheme(d3rs::color::ColorScheme::category10())
         .build();
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]

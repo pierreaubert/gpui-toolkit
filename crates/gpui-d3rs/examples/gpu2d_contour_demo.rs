@@ -1,6 +1,6 @@
 //! GPU-accelerated contour rendering demo
 //!
-//! Run with: cargo run --example gpu2d_contour_demo --features gpu-2d
+//! Run with: cargo run --example `gpu2d_contour_demo` --features gpu-2d
 
 use d3rs::contour::ContourGenerator;
 use d3rs::gpu2d::{
@@ -45,7 +45,7 @@ impl Render for DemoView {
 
         // Generate contours
         let generator = ContourGenerator::new(width, height);
-        let thresholds: Vec<f64> = (-5..=10).map(|i| i as f64 * 0.1).collect();
+        let thresholds: Vec<f64> = (-5..=10).map(|i| f64::from(i) * 0.1).collect();
         let contours: Arc<[_]> = generator.contours(&values, &thresholds).into();
 
         // Generate contour bands

@@ -1,4 +1,4 @@
-//! Same-device Surface3D custom drawing for GPUI WGPU renderers.
+//! Same-device `Surface3D` custom drawing for GPUI WGPU renderers.
 
 use super::camera::Camera3D;
 use super::config::Surface3DConfig;
@@ -100,11 +100,11 @@ impl SurfaceWgpuDraw {
                 || self.configured_revision.get() != frame.config_revision
         });
         if needs_recreate {
-            *renderer = Surface3DRenderer::with_device(
+            *renderer = Some(Surface3DRenderer::with_device(
                 Arc::clone(&ctx.device),
                 Arc::clone(&ctx.queue),
                 frame.config.clone(),
-            );
+            ));
             self.configured_revision.set(frame.config_revision);
             self.uploaded_mesh_revision.set(u64::MAX);
             self.composite

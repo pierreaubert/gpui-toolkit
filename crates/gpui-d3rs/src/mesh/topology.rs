@@ -6,12 +6,12 @@ use std::collections::HashMap;
 pub struct MeshTopology {
     /// [v0, v1] with v0 < v1.
     pub unique_edges: Vec<[u32; 2]>,
-    /// unique_edges index for each triangle's 3 edges (slots: opposite vertex 0,1,2
+    /// `unique_edges` index for each triangle's 3 edges (slots: opposite vertex 0,1,2
     /// — slot i is the edge between the other two vertices).
     pub triangle_edges: Vec<[u32; 3]>,
-    /// Up to two triangles incident on each edge; u32::MAX = none (boundary).
+    /// Up to two triangles incident on each edge; `u32::MAX` = none (boundary).
     pub edge_triangles: Vec<[u32; 2]>,
-    /// Indices into unique_edges that bound exactly one triangle.
+    /// Indices into `unique_edges` that bound exactly one triangle.
     pub boundary_edges: Vec<u32>,
 }
 
@@ -121,8 +121,8 @@ mod tests {
         // same undirected edge set
         let mut ea = a.unique_edges.clone();
         let mut eb = b.unique_edges.clone();
-        ea.sort();
-        eb.sort();
+        ea.sort_unstable();
+        eb.sort_unstable();
         assert_eq!(ea, eb);
     }
 

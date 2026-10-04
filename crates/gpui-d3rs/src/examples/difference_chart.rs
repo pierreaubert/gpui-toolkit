@@ -107,7 +107,7 @@ pub fn compute(data: &[DiffChartRow]) -> DiffChartResult {
             } else {
                 // Step: horizontal to midpoint, then vertical
                 let prev_x = step_x(i - 1);
-                let mid_x = (prev_x + x) / 2.0;
+                let mid_x = f64::midpoint(prev_x, x);
                 let prev_y = pts.last().unwrap().1;
                 pts.push((mid_x, prev_y));
                 pts.push((mid_x, y));

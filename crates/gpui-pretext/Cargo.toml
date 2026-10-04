@@ -10,6 +10,9 @@ license.workspace = true
 repository.workspace = true
 description = "High-performance text measurement and multiline layout without DOM reflows — Rust port of chenglou/pretext"
 
+[lints]
+workspace = true
+
 [features]
 default = []
 autoeq = []

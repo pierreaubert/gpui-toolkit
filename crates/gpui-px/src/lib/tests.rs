@@ -338,7 +338,7 @@ fn test_extent_padded_single_value() {
 #[test]
 fn test_validate_data_array_valid() {
     let values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-    assert!(validate_data_array(&values, "test").is_ok());
+    validate_data_array(&values, "test").unwrap();
 }
 
 #[test]
@@ -393,7 +393,7 @@ fn test_validate_data_array_neg_infinity() {
 // validate_data_length tests
 #[test]
 fn test_validate_data_length_matching() {
-    assert!(validate_data_length(5, 5, "x", "y").is_ok());
+    validate_data_length(5, 5, "x", "y").unwrap();
 }
 
 #[test]
@@ -412,13 +412,13 @@ fn test_validate_data_length_mismatched() {
 
 #[test]
 fn test_validate_data_length_zero() {
-    assert!(validate_data_length(0, 0, "x", "y").is_ok());
+    validate_data_length(0, 0, "x", "y").unwrap();
 }
 
 // validate_dimensions tests
 #[test]
 fn test_validate_dimensions_valid() {
-    assert!(validate_dimensions(600.0, 400.0).is_ok());
+    validate_dimensions(600.0, 400.0).unwrap();
 }
 
 #[test]
@@ -474,10 +474,7 @@ fn test_validate_dimensions_nan_width() {
     let result = validate_dimensions(f32::NAN, 400.0);
     assert!(matches!(
         result,
-        Err(ChartError::InvalidDimension {
-            field: "width",
-            value: _,
-        })
+        Err(ChartError::InvalidDimension { field: "width", .. })
     ));
 }
 
@@ -488,7 +485,7 @@ fn test_validate_dimensions_nan_height() {
         result,
         Err(ChartError::InvalidDimension {
             field: "height",
-            value: _,
+            ..
         })
     ));
 }
@@ -498,10 +495,7 @@ fn test_validate_dimensions_infinite_width() {
     let result = validate_dimensions(f32::INFINITY, 400.0);
     assert!(matches!(
         result,
-        Err(ChartError::InvalidDimension {
-            field: "width",
-            value: _,
-        })
+        Err(ChartError::InvalidDimension { field: "width", .. })
     ));
 }
 
@@ -509,7 +503,7 @@ fn test_validate_dimensions_infinite_width() {
 #[test]
 fn test_validate_grid_dimensions_valid() {
     let z = vec![1.0; 12]; // 3x4 grid
-    assert!(validate_grid_dimensions(&z, 3, 4).is_ok());
+    validate_grid_dimensions(&z, 3, 4).unwrap();
 }
 
 #[test]
@@ -531,7 +525,7 @@ fn test_validate_grid_dimensions_mismatch() {
 #[test]
 fn test_validate_monotonic_valid() {
     let values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-    assert!(validate_monotonic(&values, "x").is_ok());
+    validate_monotonic(&values, "x").unwrap();
 }
 
 #[test]
@@ -564,7 +558,7 @@ fn test_validate_monotonic_decreasing() {
 #[test]
 fn test_validate_positive_valid() {
     let values = vec![0.1, 1.0, 10.0, 100.0];
-    assert!(validate_positive(&values, "x").is_ok());
+    validate_positive(&values, "x").unwrap();
 }
 
 #[test]
@@ -595,7 +589,7 @@ fn test_validate_positive_with_negative() {
 
 #[test]
 fn test_validate_range_valid() {
-    assert!(validate_range(1.0, 10.0, "x").is_ok());
+    validate_range(1.0, 10.0, "x").unwrap();
 }
 
 #[test]
@@ -624,7 +618,7 @@ fn test_validate_range_equal() {
 
 #[test]
 fn test_validate_range_log_valid() {
-    assert!(validate_range_log(1.0, 10.0, "x").is_ok());
+    validate_range_log(1.0, 10.0, "x").unwrap();
 }
 
 #[test]
@@ -715,7 +709,7 @@ fn test_golden_heatmap_svg_covers_full_grid() {
 #[cfg(feature = "gpui")]
 #[test]
 fn test_golden_exports_reject_invalid_data() {
-    assert!(crate::line(&[f64::NAN], &[1.0]).to_svg().is_err());
-    assert!(crate::scatter(&[1.0], &[1.0, 2.0]).to_svg().is_err());
-    assert!(crate::bar(&["a"], &[]).to_svg().is_err());
+    crate::line(&[f64::NAN], &[1.0]).to_svg().unwrap_err();
+    crate::scatter(&[1.0], &[1.0, 2.0]).to_svg().unwrap_err();
+    crate::bar(&["a"], &[]).to_svg().unwrap_err();
 }

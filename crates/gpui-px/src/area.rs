@@ -267,26 +267,24 @@ impl AreaChart {
             y1: f64,
         }
 
-        let data: Vec<AreaDatum> = match &self.y0 {
-            Some(y0) => self
-                .x
+        let data: Vec<AreaDatum> = if let Some(y0) = &self.y0 {
+            self.x
                 .iter()
                 .zip(self.y.iter())
                 .zip(y0.iter())
                 .map(|((&x, &y1), &y0)| AreaDatum { x, y0, y1 })
-                .collect(),
-            None => {
-                let y0 = if self.y_scale_type == ScaleType::Log {
-                    y_data_min
-                } else {
-                    0.0
-                };
-                self.x
-                    .iter()
-                    .zip(self.y.iter())
-                    .map(|(&x, &y1)| AreaDatum { x, y0, y1 })
-                    .collect()
-            }
+                .collect()
+        } else {
+            let y0 = if self.y_scale_type == ScaleType::Log {
+                y_data_min
+            } else {
+                0.0
+            };
+            self.x
+                .iter()
+                .zip(self.y.iter())
+                .map(|(&x, &y1)| AreaDatum { x, y0, y1 })
+                .collect()
         };
 
         let color = D3Color::from_hex(self.color);
@@ -399,40 +397,40 @@ impl AreaChart {
             (ScaleType::Linear, ScaleType::Linear) => {
                 let x_scale = LinearScale::new()
                     .domain(x_min, x_max)
-                    .range(0.0, layout_width as f64);
+                    .range(0.0, f64::from(layout_width));
                 let y_scale = LinearScale::new()
                     .domain(y_min, y_max)
-                    .range(plot_height as f64, 0.0);
+                    .range(f64::from(plot_height), 0.0);
                 render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale)))
                     .into_any_element()
             }
             (ScaleType::Log, ScaleType::Linear) => {
                 let x_scale = LogScale::new()
                     .domain(x_min.max(1e-10), x_max)
-                    .range(0.0, layout_width as f64);
+                    .range(0.0, f64::from(layout_width));
                 let y_scale = LinearScale::new()
                     .domain(y_min, y_max)
-                    .range(plot_height as f64, 0.0);
+                    .range(f64::from(plot_height), 0.0);
                 render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale)))
                     .into_any_element()
             }
             (ScaleType::Linear, ScaleType::Log) => {
                 let x_scale = LinearScale::new()
                     .domain(x_min, x_max)
-                    .range(0.0, layout_width as f64);
+                    .range(0.0, f64::from(layout_width));
                 let y_scale = LogScale::new()
                     .domain(y_min.max(1e-10), y_max)
-                    .range(plot_height as f64, 0.0);
+                    .range(f64::from(plot_height), 0.0);
                 render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale)))
                     .into_any_element()
             }
             (ScaleType::Log, ScaleType::Log) => {
                 let x_scale = LogScale::new()
                     .domain(x_min.max(1e-10), x_max)
-                    .range(0.0, layout_width as f64);
+                    .range(0.0, f64::from(layout_width));
                 let y_scale = LogScale::new()
                     .domain(y_min.max(1e-10), y_max)
-                    .range(plot_height as f64, 0.0);
+                    .range(f64::from(plot_height), 0.0);
                 render_element(build_area_points(Arc::new(x_scale), Arc::new(y_scale)))
                     .into_any_element()
             }
@@ -489,12 +487,12 @@ pub fn area_chart_scene(
     use d3rs::vello2d::peniko::{Brush, Color};
 
     let sx = if source_width > 0.0 {
-        width as f64 / source_width as f64
+        f64::from(width) / f64::from(source_width)
     } else {
         1.0
     };
     let sy = if source_height > 0.0 {
-        height as f64 / source_height as f64
+        f64::from(height) / f64::from(source_height)
     } else {
         1.0
     };
@@ -505,16 +503,16 @@ pub fn area_chart_scene(
     let mut path = BezPath::new();
     path.push(PathEl::MoveTo(
         (
-            f32::from(first.x) as f64 * sx,
-            f32::from(first.y) as f64 * sy,
+            f64::from(f32::from(first.x)) * sx,
+            f64::from(f32::from(first.y)) * sy,
         )
             .into(),
     ));
     for point in points.iter().skip(1) {
         path.push(PathEl::LineTo(
             (
-                f32::from(point.x) as f64 * sx,
-                f32::from(point.y) as f64 * sy,
+                f64::from(f32::from(point.x)) * sx,
+                f64::from(f32::from(point.y)) * sy,
             )
                 .into(),
         ));
@@ -573,7 +571,7 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let y = vec![10.0, 20.0, 30.0, 40.0, 50.0];
         let result = area(&x, &y).y_scale(ScaleType::Log).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -756,7 +754,7 @@ mod tests {
             .curve(Curve::MonotoneX)
             .size(800.0, 600.0)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -775,7 +773,7 @@ mod tests {
         let y = vec![2.0, 3.0, 4.0];
         let y0 = vec![0.5, 1.0, 1.5];
         let result = area(&x, &y).y0(&y0).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -784,6 +782,6 @@ mod tests {
         let y = vec![10.0, 20.0, 30.0];
         let y0 = vec![1.0, 1.0, 1.0];
         let result = area(&x, &y).y0(&y0).y_scale(ScaleType::Log).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 }

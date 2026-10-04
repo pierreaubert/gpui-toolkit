@@ -116,9 +116,10 @@ impl<R: Clone> ThresholdScale<R> {
 
 impl<R: Clone> Scale<f64, R> for ThresholdScale<R> {
     fn scale(&self, value: f64) -> R {
-        if self.range_values.is_empty() {
-            panic!("ThresholdScale requires at least one range value");
-        }
+        assert!(
+            !self.range_values.is_empty(),
+            "ThresholdScale requires at least one range value"
+        );
 
         if value.is_nan() {
             return self.range_values[0].clone();
@@ -154,9 +155,10 @@ impl<R: Clone> Scale<f64, R> for ThresholdScale<R> {
     }
 
     fn range(&self) -> (R, R) {
-        if self.range_values.is_empty() {
-            panic!("ThresholdScale requires at least one range value");
-        }
+        assert!(
+            !self.range_values.is_empty(),
+            "ThresholdScale requires at least one range value"
+        );
         (
             self.range_values.first().unwrap().clone(),
             self.range_values.last().unwrap().clone(),

@@ -1,4 +1,4 @@
-//! Integration tests for ButtonSet component
+//! Integration tests for `ButtonSet` component
 //!
 //! Tests the button set (segmented control) component including:
 //! - Basic rendering with options

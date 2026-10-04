@@ -89,14 +89,14 @@ pub(super) fn merge_url_query_runs(mut seg: MergedSegmentation) -> MergedSegment
             j += 1;
         }
 
-        if !query_text.is_empty() {
+        if query_text.is_empty() {
+            i += 1;
+        } else {
             texts.push(query_text);
             is_word_like.push(true);
             kinds.push(SegmentBreakKind::Text);
             starts.push(query_start);
             i = j;
-        } else {
-            i += 1;
         }
     }
 

@@ -211,7 +211,7 @@ mod tests {
             preferred_width: 320.0,
             preferred_height: 180.0,
         };
-        assert!(preview.validate().is_ok());
+        preview.validate().unwrap();
     }
 
     #[test]

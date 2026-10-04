@@ -8,7 +8,7 @@
 //! - Resizable columns (simulated with width callbacks)
 //! - Alternating row colors
 //! - Header and footer support
-//! - Styling via TableTheme
+//! - Styling via `TableTheme`
 
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
 use crate::data_navigation::{DataNavigationAction, DataNavigationState, DataVirtualWindow};
@@ -299,8 +299,8 @@ impl<T: 'static> Table<T> {
         let header = build_header_row(
             &self.columns,
             &self.id,
-            &self.sort_state,
-            &on_sort,
+            self.sort_state.as_ref(),
+            on_sort.as_ref(),
             &theme,
             &pad,
             window,
@@ -312,9 +312,7 @@ impl<T: 'static> Table<T> {
                 columns: &self.columns,
                 table_id: &self.id,
                 selection_mode,
-                focused_index: self
-                    .focused_index
-                    .filter(|index| *index < self.rows.len()),
+                focused_index: self.focused_index.filter(|index| *index < self.rows.len()),
                 selected_indices: &selected_indices,
                 on_selection_change: &on_selection_change,
                 alternating_rows: self.alternating_rows,
@@ -333,7 +331,14 @@ impl<T: 'static> Table<T> {
             .show_footer
             .then(|| build_footer_row(&self.columns, &theme, &pad, window, cx));
         let pagination = self.pagination.as_ref().map(|pagination| {
-            build_pagination_bar(pagination, &on_page_change, &theme, &pad, window, cx)
+            build_pagination_bar(
+                pagination,
+                on_page_change.as_ref(),
+                &theme,
+                &pad,
+                window,
+                cx,
+            )
         });
         container = container.child(header);
 
@@ -450,11 +455,7 @@ fn virtual_spacer_height(row_height: Option<f32>, row_count: usize) -> Option<Pi
     }
 
     let height = row_height * row_count as f32;
-    if height.is_finite() && height > 0.0 {
-        Some(px(height))
-    } else {
-        None
-    }
+    (height.is_finite() && height > 0.0).then(|| px(height))
 }
 
 #[cfg(test)]

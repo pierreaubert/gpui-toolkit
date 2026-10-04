@@ -360,7 +360,7 @@ impl Surface3DElement {
             .clone()
             .unwrap_or_else(|| vec![-180.0, -90.0, 0.0, 90.0, 180.0])
             .iter()
-            .map(|&az| format!("{}°", az))
+            .map(|&az| format!("{az}°"))
             .collect();
 
         let elevation_labels: Vec<String> = self
@@ -369,16 +369,16 @@ impl Surface3DElement {
             .clone()
             .unwrap_or_else(|| vec![-90.0, -45.0, 0.0, 45.0, 90.0])
             .iter()
-            .map(|&el| format!("{}°", el))
+            .map(|&el| format!("{el}°"))
             .collect();
 
         let (z_min, z_max) = (self.data.z_min, self.data.z_max);
         let num_ticks = 5;
         let colorbar_labels: Vec<String> = (0..=num_ticks)
             .map(|i| {
-                let t = i as f64 / num_ticks as f64;
+                let t = f64::from(i) / f64::from(num_ticks);
                 let value = z_min + t * (z_max - z_min);
-                format!("{:.0}", value)
+                format!("{value:.0}")
             })
             .collect();
 
@@ -402,14 +402,14 @@ impl Surface3DElement {
         for y in 0..y_count {
             for x in 0..x_count {
                 let z = self.data.z_at(x, y).unwrap_or(self.data.z_min);
-                values.push(self.data.normalize_z(z).clamp(0.0, 1.0) as f64);
+                values.push(f64::from(self.data.normalize_z(z).clamp(0.0, 1.0)));
             }
         }
         values
     }
 
     pub(super) fn isoline_levels(&self) -> Vec<f64> {
-        let step = self.config.isoline_step.max(0.001) as f64;
+        let step = f64::from(self.config.isoline_step.max(0.001));
         let mut level = step;
         let mut levels = Vec::new();
         while level < 1.0 {
@@ -638,13 +638,11 @@ impl Surface3DElement {
                 }
             }
 
-            let log_settings = if self.data.x_log {
+            let log_settings = self.data.x_log.then(|| {
                 let min_x = self.data.x_min as f32;
                 let max_x = self.data.x_max as f32;
-                Some((min_x, max_x))
-            } else {
-                None
-            };
+                (min_x, max_x)
+            });
 
             if let Some(pixels) = renderer.render_transparent(camera, log_settings)
                 && let Some(rgba_image) = RgbaImage::from_raw(width_u32, height_u32, pixels)
@@ -907,11 +905,7 @@ impl Surface3DElement {
         // Helper to get screen position of a 3D point
         let to_screen = |pos: glam::Vec3| -> Option<glam::Vec3> {
             let p = camera.project_to_screen(pos, width, height)?;
-            if p.z >= 0.0 && p.z <= 1.0 {
-                Some(p)
-            } else {
-                None
-            }
+            (p.z >= 0.0 && p.z <= 1.0).then_some(p)
         };
 
         // Shared helper to draw a single tick and its label
@@ -1027,7 +1021,10 @@ impl Surface3DElement {
             let tick_dir_z = if best_x_z_val > 0.0 { 1.0 } else { -1.0 };
             let tick_vec = glam::Vec3::new(0.0, 0.0, 0.1 * tick_dir_z);
 
-            let label = cache.x_labels.get(i).map(|s| s.as_str()).unwrap_or("");
+            let label = cache
+                .x_labels
+                .get(i)
+                .map_or("", std::string::String::as_str);
             draw_tick_and_label(window, pos, tick_vec, label);
         }
 
@@ -1074,7 +1071,10 @@ impl Surface3DElement {
             let tick_dir_x = if best_z_x_val > 0.0 { 1.0 } else { -1.0 };
             let tick_vec = glam::Vec3::new(0.1 * tick_dir_x, 0.0, 0.0);
 
-            let label = cache.y_labels.get(i).map(|s| s.as_str()).unwrap_or("");
+            let label = cache
+                .y_labels
+                .get(i)
+                .map_or("", std::string::String::as_str);
             draw_tick_and_label(window, pos, tick_vec, label);
         }
         // Angle Axis Title
@@ -1120,7 +1120,10 @@ impl Surface3DElement {
             let pos = glam::Vec3::new(best_y_x, y, best_y_z);
             let tick_vec = glam::Vec3::new(best_y_x * 0.1, 0.0, best_y_z * 0.1);
 
-            let label = cache.z_labels.get(i).map(|s| s.as_str()).unwrap_or("");
+            let label = cache
+                .z_labels
+                .get(i)
+                .map_or("", std::string::String::as_str);
             draw_tick_and_label(window, pos, tick_vec, label);
         }
         // SPL Axis Title
@@ -1154,11 +1157,7 @@ impl Surface3DElement {
             let p = camera.project_to_screen(pos, width, height)?;
             // In Sphere mode, we might see back of sphere?
             // Just use z-buffer check [0,1]
-            if p.z >= 0.0 && p.z <= 1.0 {
-                Some(p)
-            } else {
-                None
-            }
+            (p.z >= 0.0 && p.z <= 1.0).then_some(p)
         };
 
         // Shared helper to draw a single tick and its label
@@ -1267,8 +1266,7 @@ impl Surface3DElement {
             let label = cache
                 .azimuth_labels
                 .get(i)
-                .map(|s| s.as_str())
-                .unwrap_or("");
+                .map_or("", std::string::String::as_str);
             draw_tick_and_label(window, pos, tick_vec, label);
         }
 
@@ -1302,8 +1300,7 @@ impl Surface3DElement {
             let label = cache
                 .elevation_labels
                 .get(i)
-                .map(|s| s.as_str())
-                .unwrap_or("");
+                .map_or("", std::string::String::as_str);
 
             draw_tick_and_label(window, pos, tick_vec, label);
         }
@@ -1395,8 +1392,7 @@ impl Surface3DElement {
             let label = cache
                 .colorbar_labels
                 .get(i)
-                .map(|s| s.as_str())
-                .unwrap_or("");
+                .map_or("", std::string::String::as_str);
             let text_config = GlyphTextConfig::horizontal(font_size, overlay_color);
             paint_chart_text_at(
                 window,
@@ -1495,7 +1491,6 @@ impl Element for Surface3DElement {
     ) {
         // Register mouse event handlers (must be done during paint)
         let _state = self.state.clone();
-        let _bounds_for_handler = bounds;
 
         // Mouse event handlers are now handled by the parent view
 

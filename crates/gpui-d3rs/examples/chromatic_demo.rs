@@ -65,7 +65,7 @@ fn render_scale_row(name: &str, scale: SequentialScale) -> impl IntoElement {
                 .rounded_md()
                 .overflow_hidden()
                 .child(div().flex().size_full().children((0..100).map(|i| {
-                    let t = i as f64 / 100.0;
+                    let t = f64::from(i) / 100.0;
                     let c = scale.get(t);
                     let r = (c.r * 255.0) as u32;
                     let g = (c.g * 255.0) as u32;
@@ -95,7 +95,7 @@ fn render_diverging_scale_row(name: &str, scale: DivergingScale) -> impl IntoEle
                 .rounded_md()
                 .overflow_hidden()
                 .child(div().flex().size_full().children((0..100).map(|i| {
-                    let t = i as f64 / 100.0;
+                    let t = f64::from(i) / 100.0;
                     let c = scale.get(t);
                     let r = (c.r * 255.0) as u32;
                     let g = (c.g * 255.0) as u32;

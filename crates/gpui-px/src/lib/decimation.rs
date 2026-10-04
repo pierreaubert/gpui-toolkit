@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn lttb_preserves_endpoints_and_budget_on_large_data() {
-        let x: Vec<f64> = (0..20_000).map(|value| value as f64).collect();
+        let x: Vec<f64> = (0..20_000).map(f64::from).collect();
         let y: Vec<f64> = x.iter().map(|value| value.sin()).collect();
         let selected = lttb_indices(&x, &y, DECIMATION_BUDGET);
         assert_eq!(selected.len(), DECIMATION_BUDGET);
@@ -261,12 +261,12 @@ mod tests {
     #[test]
     fn point_wrappers_are_identity_below_threshold_and_bounded_above() {
         let small: Arc<[LinePoint]> = (0..100)
-            .map(|value| LinePoint::new(value as f64, value as f64))
+            .map(|value| LinePoint::new(f64::from(value), f64::from(value)))
             .collect::<Vec<_>>()
             .into();
         assert!(Arc::ptr_eq(&decimate_line_points(&small), &small));
 
-        let big: Arc<[LinePoint]> = (0..DECIMATION_THRESHOLD + 1)
+        let big: Arc<[LinePoint]> = (0..=DECIMATION_THRESHOLD)
             .map(|value| LinePoint::new(value as f64, (value as f64).sin()))
             .collect::<Vec<_>>()
             .into();
@@ -275,7 +275,7 @@ mod tests {
         assert_eq!(decimated[0].x, 0.0);
 
         let small_scatter: Arc<[ScatterPoint]> = (0..100)
-            .map(|value| ScatterPoint::new(value as f64, value as f64))
+            .map(|value| ScatterPoint::new(f64::from(value), f64::from(value)))
             .collect::<Vec<_>>()
             .into();
         assert!(Arc::ptr_eq(
@@ -283,7 +283,7 @@ mod tests {
             &small_scatter
         ));
 
-        let big_scatter: Arc<[ScatterPoint]> = (0..DECIMATION_THRESHOLD + 1)
+        let big_scatter: Arc<[ScatterPoint]> = (0..=DECIMATION_THRESHOLD)
             .map(|value| ScatterPoint::new(value as f64, (value % 7) as f64))
             .collect::<Vec<_>>()
             .into();

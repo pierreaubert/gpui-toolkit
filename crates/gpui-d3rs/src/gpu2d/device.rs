@@ -7,7 +7,7 @@ use std::sync::Arc;
 #[cfg(not(target_family = "wasm"))]
 use std::sync::LazyLock;
 
-/// Global GPU context shared across all Chart2D instances
+/// Global GPU context shared across all `Chart2D` instances
 pub struct Gpu2DContext {
     /// The wgpu device
     pub device: Arc<wgpu::Device>,

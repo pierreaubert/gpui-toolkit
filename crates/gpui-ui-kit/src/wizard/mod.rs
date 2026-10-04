@@ -13,7 +13,7 @@ use crate::progress::{Progress, ProgressSize, ProgressVariant};
 use crate::theme::ThemeExt;
 use crate::validation::{Validate, ValidationError};
 use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{App, Div, ElementId, FontWeight, SharedString, Window, div, px};
+use gpui::{App, Div, ElementId, FontWeight, InteractiveElement, SharedString, Window, div, px};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 mod types;
@@ -355,6 +355,8 @@ impl Wizard {
             };
 
             let label = div()
+                .id(SharedString::from(format!("{}-step-{index}-label", self.id)))
+                .debug_selector(|| format!("{}-step-{index}-label", self.id))
                 .text_sm()
                 .font_weight(if is_current {
                     FontWeight::SEMIBOLD
@@ -368,7 +370,13 @@ impl Wizard {
                 .child(step.label.clone());
 
             // Step item (circle + label)
-            let mut step_item = div().flex().items_center().gap_2().child(step_circle);
+            let mut step_item = div()
+                .id(SharedString::from(format!("{}-step-{index}", self.id)))
+                .debug_selector(|| format!("{}-step-{index}", self.id))
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(step_circle);
 
             let show_label = match density {
                 WizardStepIndicatorDensity::Full => true,
@@ -597,8 +605,8 @@ mod tests {
     fn fully_configured_wizard_passes_schema_validation() {
         let wizard = two_step_wizard().current_step(1).progress(0.5);
 
-        assert!(wizard.validate().is_ok());
-        assert!(wizard.validate_first().is_ok());
+        wizard.validate().unwrap();
+        wizard.validate_first().unwrap();
         assert!(wizard.is_valid());
     }
 

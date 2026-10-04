@@ -41,7 +41,7 @@ pub(super) fn story_prop<'a>(story: &'a ComponentStory, name: &str) -> Option<&'
 
 pub(super) fn text_prop(story: &ComponentStory, name: &str, fallback: &str) -> SharedString {
     match story_prop(story, name) {
-        Some(StoryPropValue::Text(value)) | Some(StoryPropValue::Color(value)) => value.clone(),
+        Some(StoryPropValue::Text(value) | StoryPropValue::Color(value)) => value.clone(),
         Some(StoryPropValue::Choice(value)) => value.clone(),
         _ => SharedString::new(fallback),
     }

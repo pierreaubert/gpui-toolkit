@@ -1,4 +1,4 @@
-//! LocalAuthentication bridge (Face ID / Touch ID / device passcode).
+//! `LocalAuthentication` bridge (Face ID / Touch ID / device passcode).
 //!
 //! Thin, host-testable wrapper over `LAContext`: apps authenticate with a
 //! [`LocalAuthRequest`] and receive the outcome through a one-shot callback,
@@ -100,7 +100,7 @@ impl LocalAuthRequest {
         }
     }
 
-    /// Reject blank, oversized, or NUL-containing reasons before touching UIKit.
+    /// Reject blank, oversized, or NUL-containing reasons before touching `UIKit`.
     pub fn validate(&self) -> Result<(), LocalAuthError> {
         if self.reason.trim().is_empty() || self.reason.len() > 1024 {
             return Err(LocalAuthError::InvalidReason);

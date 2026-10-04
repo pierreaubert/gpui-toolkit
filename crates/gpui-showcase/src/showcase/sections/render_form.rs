@@ -2,6 +2,9 @@ use super::prelude::*;
 
 impl Showcase {
     #[allow(clippy::too_many_arguments)]
+    // Showcase render helper: the widget states are positional by
+    // convention and bundling them adds indirection without benefit.
+    #[allow(clippy::fn_params_excessive_bools)]
     pub(crate) fn render_form_controls_section(
         &self,
         toggle_on: bool,

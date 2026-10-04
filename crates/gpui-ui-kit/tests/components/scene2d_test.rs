@@ -1,4 +1,4 @@
-//! Scene2D surface API and normalized input tests.
+//! `Scene2D` surface API and normalized input tests.
 
 // Rust guideline compliant 2026-02-21
 

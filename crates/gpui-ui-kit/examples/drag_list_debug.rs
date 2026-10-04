@@ -1,6 +1,6 @@
-//! DragList Debug Example
+//! `DragList` Debug Example
 //!
-//! Demonstrates the DragList component:
+//! Demonstrates the `DragList` component:
 //! - Vertical and horizontal orientations
 //! - With drag handles
 

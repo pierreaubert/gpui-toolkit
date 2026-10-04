@@ -497,8 +497,7 @@ async fn test_volume_knob_scroll_wheel_up_increases_value(cx: &mut TestAppContex
         let new_val = *value.borrow();
         assert!(
             new_val > 0.5,
-            "Value should increase after scroll up, got {}",
-            new_val
+            "Value should increase after scroll up, got {new_val}"
         );
         assert_eq!(
             change_count.load(Ordering::SeqCst),
@@ -539,8 +538,7 @@ async fn test_volume_knob_scroll_wheel_down_decreases_value(cx: &mut TestAppCont
         let new_val = *value.borrow();
         assert!(
             new_val < 0.5,
-            "Value should decrease after scroll down, got {}",
-            new_val
+            "Value should decrease after scroll down, got {new_val}"
         );
     }
 }
@@ -579,13 +577,11 @@ async fn test_volume_knob_scroll_wheel_respects_max_bound(cx: &mut TestAppContex
         let new_val = *value.borrow();
         assert!(
             new_val <= 1.0,
-            "Value should be clamped at max (1.0), got {}",
-            new_val
+            "Value should be clamped at max (1.0), got {new_val}"
         );
         assert!(
             (new_val - 1.0).abs() < 0.001,
-            "Value should be exactly 1.0, got {}",
-            new_val
+            "Value should be exactly 1.0, got {new_val}"
         );
     }
 }
@@ -624,13 +620,11 @@ async fn test_volume_knob_scroll_wheel_respects_min_bound(cx: &mut TestAppContex
         let new_val = *value.borrow();
         assert!(
             new_val >= 0.0,
-            "Value should be clamped at min (0.0), got {}",
-            new_val
+            "Value should be clamped at min (0.0), got {new_val}"
         );
         assert!(
             new_val.abs() < 0.001,
-            "Value should be exactly 0.0, got {}",
-            new_val
+            "Value should be exactly 0.0, got {new_val}"
         );
     }
 }
@@ -670,8 +664,7 @@ async fn test_volume_knob_multiple_scroll_events(cx: &mut TestAppContext) {
         // Expected: 0.5 + (3 * 0.05) = 0.65
         assert!(
             (new_val - 0.65).abs() < 0.01,
-            "Value should be around 0.65 after 3 scrolls, got {}",
-            new_val
+            "Value should be around 0.65 after 3 scrolls, got {new_val}"
         );
         assert!(
             change_count.load(Ordering::SeqCst) >= 3,
@@ -718,8 +711,7 @@ async fn test_volume_knob_keyboard_up_increases_value(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             new_val > 0.5,
-            "Value should increase after Up key, got {}",
-            new_val
+            "Value should increase after Up key, got {new_val}"
         );
     }
 }
@@ -760,8 +752,7 @@ async fn test_volume_knob_keyboard_down_decreases_value(cx: &mut TestAppContext)
         let new_val = *value.borrow();
         assert!(
             new_val < 0.5,
-            "Value should decrease after Down key, got {}",
-            new_val
+            "Value should decrease after Down key, got {new_val}"
         );
     }
 }
@@ -802,8 +793,7 @@ async fn test_volume_knob_keyboard_right_increases_value(cx: &mut TestAppContext
         let new_val = *value.borrow();
         assert!(
             new_val > 0.5,
-            "Value should increase after Right key, got {}",
-            new_val
+            "Value should increase after Right key, got {new_val}"
         );
     }
 }
@@ -844,8 +834,7 @@ async fn test_volume_knob_keyboard_left_decreases_value(cx: &mut TestAppContext)
         let new_val = *value.borrow();
         assert!(
             new_val < 0.5,
-            "Value should decrease after Left key, got {}",
-            new_val
+            "Value should decrease after Left key, got {new_val}"
         );
     }
 }
@@ -933,8 +922,7 @@ async fn test_volume_knob_keyboard_respects_max_bound(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             new_val <= 1.0,
-            "Value should be clamped at max (1.0), got {}",
-            new_val
+            "Value should be clamped at max (1.0), got {new_val}"
         );
     }
 }
@@ -978,8 +966,7 @@ async fn test_volume_knob_keyboard_respects_min_bound(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             new_val >= 0.0,
-            "Value should be clamped at min (0.0), got {}",
-            new_val
+            "Value should be clamped at min (0.0), got {new_val}"
         );
     }
 }
@@ -1022,8 +1009,7 @@ async fn test_volume_knob_step_size(cx: &mut TestAppContext) {
         // Expected: 0.5 + 0.05 = 0.55
         assert!(
             (new_val - 0.55).abs() < 0.001,
-            "Step size should be 0.05, got {} (expected 0.55)",
-            new_val
+            "Step size should be 0.05, got {new_val} (expected 0.55)"
         );
     }
 }

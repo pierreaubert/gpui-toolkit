@@ -151,6 +151,8 @@ impl AuTextSystemState {
             .into_iter()
             .map(|bytes| match bytes {
                 Cow::Borrowed(embedded_font) => {
+                    // SAFETY: `embedded_font` is `&'static`, so the data
+                    // provider's borrow can never outlive the bytes.
                     let data_provider = unsafe {
                         core_graphics::data_provider::CGDataProvider::from_slice(embedded_font)
                     };
@@ -187,7 +189,7 @@ impl AuTextSystemState {
             .or_else(|_| self.system_source.select_family_by_name(name))?;
         for font in family.fonts() {
             let mut font = font.load()?;
-            apply_features_and_fallbacks(&mut font, features, fallbacks)?;
+            apply_features_and_fallbacks(&mut font, features, fallbacks);
             {
                 let has_m_glyph = font.glyph_for_char('m').is_some();
                 let is_segoe_fluent_icons = font.full_name() == "Segoe Fluent Icons";
@@ -200,6 +202,8 @@ impl AuTextSystemState {
                 }
             }
             let traits = font.native_font().all_traits();
+            // SAFETY: `traits` is a live traits dictionary; `get` borrows
+            // from it and each `downcast` validates the value type.
             if unsafe {
                 !(traits
                     .get(kCTFontSymbolicTrait)
@@ -346,7 +350,7 @@ impl AuTextSystemState {
             (kCGImageAlphaOnly, req_width)
         };
         let cx = CGContext::create_bitmap_context(
-            Some(bitmap.as_mut_ptr() as *mut _),
+            Some(bitmap.as_mut_ptr().cast()),
             req_width,
             req_height,
             8,
@@ -365,7 +369,7 @@ impl AuTextSystemState {
         );
         let subpixel_shift = params
             .subpixel_variant
-            .map(|v| v as f32 / SUBPIXEL_VARIANTS_X as f32);
+            .map(|v| f32::from(v) / f32::from(SUBPIXEL_VARIANTS_X));
         cx.set_text_drawing_mode(CGTextDrawingMode::CGTextFill);
         cx.set_gray_fill_color(0.0, 1.0);
         cx.set_allows_antialiasing(true);
@@ -467,13 +471,15 @@ impl AuTextSystemState {
                 } else {
                     font_size
                 };
+                // SAFETY: `cf_range` addresses the live mutable string and
+                // the font outlives the `set_attribute` call.
                 unsafe {
                     string.set_attribute(
                         cf_range,
                         kCTFontAttributeName,
                         &self.glyph_font(run.font_id, run_font_size),
                     );
-                }
+                };
                 break_ligature = !break_ligature;
             }
         }
@@ -481,8 +487,10 @@ impl AuTextSystemState {
         let glyph_runs = line.glyph_runs();
         let mut runs = <Vec<ShapedRun>>::with_capacity(glyph_runs.len() as usize);
         let mut ix_converter = StringIndexConverter::new(text);
-        for run in glyph_runs.into_iter() {
+        for run in &glyph_runs {
             let attributes = run.attributes().unwrap();
+            // SAFETY: the font attribute was set on every run above; `get`
+            // borrows the live dictionary and `downcast` validates the type.
             let font = unsafe {
                 attributes
                     .get(kCTFontAttributeName)
@@ -510,7 +518,7 @@ impl AuTextSystemState {
                 let glyph_utf16_ix = usize::try_from(glyph_utf16_ix).unwrap();
                 ix_converter.rewind_to_utf16_ix(glyph_utf16_ix);
                 glyphs.push(ShapedGlyph {
-                    id: GlyphId(glyph_id as u32),
+                    id: GlyphId(u32::from(glyph_id)),
                     position: point(position.x as f32, position.y as f32).map(px),
                     index: ix_converter.utf8_ix,
                     is_emoji,

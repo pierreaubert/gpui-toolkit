@@ -93,7 +93,7 @@ impl Link {
 /// assert!(path.starts_with("M"));
 /// ```
 pub fn link_horizontal(link: &Link) -> String {
-    let midx = (link.source_x + link.target_x) / 2.0;
+    let midx = f64::midpoint(link.source_x, link.target_x);
 
     let path = PathBuilder::new()
         .move_to(link.source_x, link.source_y)
@@ -130,7 +130,7 @@ pub fn try_link_horizontal(link: &Link) -> Result<String, LinkGenerationError> {
 /// assert!(path.starts_with("M"));
 /// ```
 pub fn link_vertical(link: &Link) -> String {
-    let midy = (link.source_y + link.target_y) / 2.0;
+    let midy = f64::midpoint(link.source_y, link.target_y);
 
     let path = PathBuilder::new()
         .move_to(link.source_x, link.source_y)
@@ -216,8 +216,8 @@ pub fn link_radial(link: &RadialLink, cx: f64, cy: f64) -> String {
     let target_y = cy + link.target_radius * link.target_angle.sin();
 
     // Midpoint in polar coordinates
-    let mid_angle = (link.source_angle + link.target_angle) / 2.0;
-    let mid_radius = (link.source_radius + link.target_radius) / 2.0;
+    let mid_angle = f64::midpoint(link.source_angle, link.target_angle);
+    let mid_radius = f64::midpoint(link.source_radius, link.target_radius);
 
     let mid_x = cx + mid_radius * mid_angle.cos();
     let mid_y = cy + mid_radius * mid_angle.sin();
@@ -241,7 +241,7 @@ pub fn try_link_radial(link: &RadialLink, cx: f64, cy: f64) -> Result<String, Li
 pub fn link_step(link: &Link, direction: LinkDirection) -> String {
     match direction {
         LinkDirection::Horizontal => {
-            let midx = (link.source_x + link.target_x) / 2.0;
+            let midx = f64::midpoint(link.source_x, link.target_x);
             let path = PathBuilder::new()
                 .move_to(link.source_x, link.source_y)
                 .line_to(midx, link.source_y)
@@ -251,7 +251,7 @@ pub fn link_step(link: &Link, direction: LinkDirection) -> String {
             path_to_string(&path)
         }
         LinkDirection::Vertical => {
-            let midy = (link.source_y + link.target_y) / 2.0;
+            let midy = f64::midpoint(link.source_y, link.target_y);
             let path = PathBuilder::new()
                 .move_to(link.source_x, link.source_y)
                 .line_to(link.source_x, midy)
@@ -317,7 +317,7 @@ mod tests {
         let link = Link::new(0.0, 50.0, 200.0, 150.0);
         let path = link_horizontal(&link);
         assert!(path.starts_with("M0,50"));
-        assert!(path.contains("C")); // Contains Bezier curve
+        assert!(path.contains('C')); // Contains Bezier curve
     }
 
     #[test]
@@ -325,15 +325,15 @@ mod tests {
         let link = Link::new(100.0, 0.0, 150.0, 200.0);
         let path = link_vertical(&link);
         assert!(path.starts_with("M100,0"));
-        assert!(path.contains("C"));
+        assert!(path.contains('C'));
     }
 
     #[test]
     fn test_link_radial() {
         let link = RadialLink::new(0.0, 50.0, PI / 2.0, 100.0);
         let path = link_radial(&link, 200.0, 200.0);
-        assert!(path.starts_with("M")); // Starts at source
-        assert!(path.contains("Q")); // Contains quadratic curve
+        assert!(path.starts_with('M')); // Starts at source
+        assert!(path.contains('Q')); // Contains quadratic curve
     }
 
     #[test]
@@ -397,7 +397,7 @@ mod tests {
                 assert_eq!(parameter, "source_y");
                 assert!(value.is_nan());
             }
-            _ => panic!("unexpected error: {error:?}"),
+            LinkGenerationError::NegativeRadius { .. } => panic!("unexpected error: {error:?}"),
         }
 
         assert_eq!(
@@ -431,7 +431,7 @@ mod tests {
                 assert_eq!(parameter, "source_angle");
                 assert!(value.is_nan());
             }
-            _ => panic!("unexpected error: {error:?}"),
+            LinkGenerationError::NegativeRadius { .. } => panic!("unexpected error: {error:?}"),
         }
 
         assert_eq!(

@@ -68,7 +68,7 @@ pub fn is_haptics_available() -> bool {
     }
 }
 
-/// Play `feedback`, returning `true` when it was dispatched to UIKit.
+/// Play `feedback`, returning `true` when it was dispatched to `UIKit`.
 ///
 /// Never fails: on platforms without haptics this is a no-op returning
 /// `false`, so callers can gate follow-up work on the return value.

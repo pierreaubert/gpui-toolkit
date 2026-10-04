@@ -38,12 +38,12 @@ impl<S: Stream> PreclipAntimeridianStream<S> {
 }
 
 impl<S: Stream> Stream for PreclipAntimeridianStream<S> {
-    fn point(&mut self, lon: f64, lat: f64, m: i32) {
+    fn point(&mut self, x: f64, y: f64, m: i32) {
         if self.in_line {
-            self.buffer.push((lon, lat));
+            self.buffer.push((x, y));
         } else {
             // Point or MultiPoint feature: forward without antimeridian clipping.
-            self.sink.point(lon, lat, m);
+            self.sink.point(x, y, m);
         }
     }
 

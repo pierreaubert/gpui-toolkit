@@ -77,13 +77,13 @@ impl Surface3DDemo {
 
         let freqs: Vec<f64> = (0..freq_count)
             .map(|i| {
-                let t = i as f64 / (freq_count - 1) as f64;
+                let t = f64::from(i) / f64::from(freq_count - 1);
                 20.0 * (20000.0 / 20.0_f64).powf(t) // Log scale: 20Hz to 20kHz
             })
             .collect();
 
         let angles: Vec<f64> = (0..angle_count)
-            .map(|i| -180.0 + (i as f64 * 10.0))
+            .map(|i| -180.0 + (f64::from(i) * 10.0))
             .collect();
 
         // Generate dispersion pattern
@@ -273,10 +273,7 @@ fn main() {
                     },
                 })),
                 titlebar: Some(TitlebarOptions {
-                    title: Some(SharedString::from(format!(
-                        "3D Surface Demo - {}",
-                        demo_type
-                    ))),
+                    title: Some(SharedString::from(format!("3D Surface Demo - {demo_type}"))),
                     ..Default::default()
                 }),
                 ..Default::default()

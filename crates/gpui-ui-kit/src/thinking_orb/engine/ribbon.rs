@@ -29,7 +29,7 @@ pub fn frame_ribbon(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
     for i in 0..ghost_n {
         let d = fib_dir(i as f64, ghost_n as f64);
         let (px, py, z) = pt.project(d.0 * r_max, d.1 * r_max, d.2 * r_max);
-        let depth = (z / r_max + 1.0) / 2.0;
+        let depth = f64::midpoint(z / r_max, 1.0);
         dots.push(Dot {
             x: px,
             y: py,
@@ -99,7 +99,7 @@ pub fn frame_ribbon(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
             let l = (x * x + y * y + z * z).sqrt();
             let rr = base_r * radial;
             let (px, py, zr) = pt.project((x / l) * rr, (y / l) * rr, (z / l) * rr);
-            let depth = (zr / r_max + 1.0) / 2.0;
+            let depth = f64::midpoint(zr / r_max, 1.0);
             dots.push(Dot {
                 x: px,
                 y: py,

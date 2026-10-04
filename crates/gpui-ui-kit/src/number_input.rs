@@ -1,4 +1,4 @@
-//! NumberInput component for numeric value entry
+//! `NumberInput` component for numeric value entry
 //!
 //! A numeric input field with:
 //! - Increment/decrement buttons (+ and -)
@@ -29,7 +29,7 @@
 //! The thread-local `HashMap` entries grow as new element IDs are used and are
 //! never automatically cleaned up. For most applications this is fine because:
 //! - Element IDs are typically static or part of a bounded set
-//! - The stored data is small (FocusHandle, EditState)
+//! - The stored data is small (`FocusHandle`, `EditState`)
 //!
 //! If you have dynamic element IDs (e.g., from a virtualized list), consider:
 //! 1. Using a stable ID scheme that reuses IDs
@@ -191,9 +191,7 @@ impl NumberInput {
         assert!(!max.is_nan(), "NumberInput max cannot be NaN");
         assert!(
             min <= max,
-            "NumberInput range invalid: min ({}) > max ({})",
-            min,
-            max
+            "NumberInput range invalid: min ({min}) > max ({max})"
         );
         self.min = min;
         self.max = max;
@@ -207,8 +205,7 @@ impl NumberInput {
     pub fn step(mut self, step: f64) -> Self {
         assert!(
             step > 0.0 && !step.is_nan(),
-            "NumberInput step must be positive, got: {}",
-            step
+            "NumberInput step must be positive, got: {step}"
         );
         self.step = step;
         self
@@ -286,9 +283,9 @@ impl NumberInput {
     /// Format value for display (test helper).
     #[cfg(test)]
     fn format_value_str(value: f64, decimals: usize, unit: Option<&SharedString>) -> String {
-        let formatted = format!("{:.prec$}", value, prec = decimals);
+        let formatted = format!("{value:.decimals$}");
         if let Some(unit) = unit {
-            format!("{} {}", formatted, unit)
+            format!("{formatted} {unit}")
         } else {
             formatted
         }
@@ -317,23 +314,23 @@ impl NumberInputEntity {
         window.refresh();
     }
 
-    fn handle_dec_click(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
+    fn handle_dec_click(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         window.blur();
         let new_value = (self.props.value - self.props.step).clamp(self.props.min, self.props.max);
-        self.emit_change(new_value, window, _cx);
+        self.emit_change(new_value, window, cx);
     }
 
-    fn handle_inc_click(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
+    fn handle_inc_click(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         window.blur();
         let new_value = (self.props.value + self.props.step).clamp(self.props.min, self.props.max);
-        self.emit_change(new_value, window, _cx);
+        self.emit_change(new_value, window, cx);
     }
 
     fn handle_value_click(
         &mut self,
         event: &MouseDownEvent,
         window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
         // The formatted value is recomputed on each render and cached in the
         // edit state, so read it from there.
@@ -343,7 +340,7 @@ impl NumberInputEntity {
             self.props.unit.as_ref(),
         );
 
-        window.focus(&self.focus_handle, _cx);
+        window.focus(&self.focus_handle, cx);
 
         let mut state = self.edit_state.borrow_mut();
 
@@ -358,10 +355,10 @@ impl NumberInputEntity {
             return;
         }
 
-        if !state.editing {
-            *state = NumberEditState::new(&formatted_value);
-        } else {
+        if state.editing {
             state.text_selected = false;
+        } else {
+            *state = NumberEditState::new(&formatted_value);
         }
         drop(state);
         window.refresh();
@@ -371,7 +368,7 @@ impl NumberInputEntity {
         &mut self,
         event: &KeyDownEvent,
         window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
         if event.keystroke.key.as_str() == "tab" {
             return;
@@ -385,19 +382,19 @@ impl NumberInputEntity {
 
         if state.editing {
             if matches!(key, "up" | "down") {
-                _cx.stop_propagation();
+                cx.stop_propagation();
                 let new_value = if key == "up" {
                     (self.props.value + self.props.step).clamp(self.props.min, self.props.max)
                 } else {
                     (self.props.value - self.props.step).clamp(self.props.min, self.props.max)
                 };
                 drop(state);
-                self.emit_change(new_value, window, _cx);
+                self.emit_change(new_value, window, cx);
                 return;
             }
 
             if (cmd || ctrl) && matches!(key, "c" | "x" | "v" | "a") {
-                _cx.stop_propagation();
+                cx.stop_propagation();
                 match key {
                     "a" => {
                         state.select_all();
@@ -408,13 +405,13 @@ impl NumberInputEntity {
                     "c" => {
                         if let Some(selected) = state.get_selected_text() {
                             drop(state);
-                            _cx.write_to_clipboard(ClipboardItem::new_string(selected));
+                            cx.write_to_clipboard(ClipboardItem::new_string(selected));
                         }
                         return;
                     }
                     "x" => {
                         if let Some(selected) = state.get_selected_text() {
-                            _cx.write_to_clipboard(ClipboardItem::new_string(selected));
+                            cx.write_to_clipboard(ClipboardItem::new_string(selected));
                             state.delete_selected();
                             drop(state);
                             window.refresh();
@@ -422,7 +419,7 @@ impl NumberInputEntity {
                         return;
                     }
                     "v" => {
-                        if let Some(clipboard) = _cx.read_from_clipboard()
+                        if let Some(clipboard) = cx.read_from_clipboard()
                             && let Some(paste_text) = clipboard.text()
                         {
                             state.insert_str(&paste_text);
@@ -436,7 +433,7 @@ impl NumberInputEntity {
             }
 
             if alt && matches!(key, "backspace" | "d") {
-                _cx.stop_propagation();
+                cx.stop_propagation();
 
                 match key {
                     "backspace" => {
@@ -461,7 +458,7 @@ impl NumberInputEntity {
                     "a" | "e" | "k" | "u" | "w" | "h" | "d" | "f" | "b" | "y"
                 )
             {
-                _cx.stop_propagation();
+                cx.stop_propagation();
 
                 match key {
                     "a" => state.move_to_start(),
@@ -474,7 +471,7 @@ impl NumberInputEntity {
                     "f" => state.move_right(),
                     "b" => state.move_left(),
                     "y" => {
-                        if let Some(clipboard) = _cx.read_from_clipboard()
+                        if let Some(clipboard) = cx.read_from_clipboard()
                             && let Some(paste_text) = clipboard.text()
                         {
                             state.insert_str(&paste_text);
@@ -498,7 +495,7 @@ impl NumberInputEntity {
             {
                 return;
             }
-            _cx.stop_propagation();
+            cx.stop_propagation();
 
             match key {
                 "enter" => {
@@ -516,7 +513,7 @@ impl NumberInputEntity {
                     window.blur();
 
                     if let Some(value) = parsed {
-                        self.emit_change(value, window, _cx);
+                        self.emit_change(value, window, cx);
                     }
                 }
                 "escape" => {
@@ -578,8 +575,8 @@ impl NumberInputEntity {
             drop(state);
 
             if let Some(value) = new_value {
-                _cx.stop_propagation();
-                self.emit_change(value, window, _cx);
+                cx.stop_propagation();
+                self.emit_change(value, window, cx);
             }
         }
     }
@@ -615,7 +612,7 @@ impl NumberInputEntity {
         self.emit_change(new_value, window, cx);
     }
 
-    fn handle_blur(&mut self, window: &mut Window, _cx: &mut Context<Self>) {
+    fn handle_blur(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let mut state = self.edit_state.borrow_mut();
         if state.editing {
             let parsed = NumberInput::parse_value_str(
@@ -630,7 +627,7 @@ impl NumberInputEntity {
             drop(state);
 
             if let Some(value) = parsed {
-                self.emit_change(value, window, _cx);
+                self.emit_change(value, window, cx);
             }
         }
     }
@@ -774,7 +771,9 @@ impl Render for NumberInputEntity {
             .font_weight(FontWeight::BOLD)
             .child("−");
 
-        if !disabled {
+        if disabled {
+            dec_button = dec_button.cursor_not_allowed();
+        } else {
             dec_button = dec_button
                 .cursor_pointer()
                 .when(self.hovered_dec, |s| s.bg(button_hover))
@@ -790,8 +789,6 @@ impl Render for NumberInputEntity {
                         this.set_hovered_dec(*hovered, cx);
                     },
                 ));
-        } else {
-            dec_button = dec_button.cursor_not_allowed();
         }
 
         input_row = input_row.child(dec_button);
@@ -880,7 +877,9 @@ impl Render for NumberInputEntity {
             .font_weight(FontWeight::BOLD)
             .child("+");
 
-        if !disabled {
+        if disabled {
+            inc_button = inc_button.cursor_not_allowed();
+        } else {
             inc_button = inc_button
                 .cursor_pointer()
                 .when(self.hovered_inc, |s| s.bg(button_hover))
@@ -896,8 +895,6 @@ impl Render for NumberInputEntity {
                         this.set_hovered_inc(*hovered, cx);
                     },
                 ));
-        } else {
-            inc_button = inc_button.cursor_not_allowed();
         }
 
         input_row = input_row.child(inc_button);
@@ -1050,7 +1047,7 @@ impl RenderOnce for NumberInput {
 
         entity.update(cx, |model, _cx| {
             if model.props.label != self.label {
-                model.label = self.label.clone();
+                model.label.clone_from(&self.label);
             }
             model.focus_handle = focus_handle.clone();
             model.edit_state = edit_state;

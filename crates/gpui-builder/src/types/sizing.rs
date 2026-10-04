@@ -39,7 +39,7 @@ pub enum Sizing<'a> {
     },
 }
 
-impl<'a> std::fmt::Debug for Sizing<'a> {
+impl std::fmt::Debug for Sizing<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Sizing::Fixed(v) => write!(f, "Fixed({v})"),
@@ -58,15 +58,14 @@ impl<'a> std::fmt::Debug for Sizing<'a> {
             } => {
                 write!(
                     f,
-                    "Text {{ text: {:?}, line_height: {line_height}, min: {min} }}",
-                    text
+                    "Text {{ text: {text:?}, line_height: {line_height}, min: {min} }}"
                 )
             }
         }
     }
 }
 
-impl<'a> PartialEq for Sizing<'a> {
+impl PartialEq for Sizing<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Sizing::Fixed(a), Sizing::Fixed(b)) => a == b,
@@ -109,14 +108,17 @@ impl<'a> PartialEq for Sizing<'a> {
                 t1 == t2
                     && lh1 == lh2
                     && mn1 == mn2
-                    && std::ptr::eq(*m1 as *const dyn TextMeasure, *m2 as *const dyn TextMeasure)
+                    && std::ptr::eq(
+                        std::ptr::from_ref::<dyn TextMeasure>(*m1),
+                        std::ptr::from_ref::<dyn TextMeasure>(*m2),
+                    )
             }
             _ => false,
         }
     }
 }
 
-impl<'a> Sizing<'a> {
+impl Sizing<'_> {
     /// Shorthand for `Flex` with weight 1.0.
     pub const fn flex(min: f32) -> Self {
         Sizing::Flex { min, weight: 1.0 }

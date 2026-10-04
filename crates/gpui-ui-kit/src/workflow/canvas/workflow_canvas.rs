@@ -363,7 +363,7 @@ impl WorkflowCanvas {
                 )
             },
         );
-        let center = Position::new((min_x + max_x) / 2.0, (min_y + max_y) / 2.0);
+        let center = Position::new(f32::midpoint(min_x, max_x), f32::midpoint(min_y, max_y));
 
         // Map old IDs to new IDs
         let mut id_map: HashMap<NodeId, NodeId> = HashMap::new();
@@ -436,7 +436,7 @@ impl WorkflowCanvas {
         cx.notify();
     }
 
-    /// Get statistics: (node_count, connection_count, selected_count)
+    /// Get statistics: (`node_count`, `connection_count`, `selected_count`)
     pub fn stats(&self) -> (usize, usize, usize) {
         (
             self.state.graph.nodes.len(),
@@ -761,7 +761,7 @@ impl WorkflowCanvas {
     }
 
     /// Bulk-connect: wire source output[i] → target input[i] for all matching ports.
-    /// Grows the target's input_count if allowed by max_input_count.
+    /// Grows the target's `input_count` if allowed by `max_input_count`.
     /// Returns `true` if any commands were actually executed against the graph.
     pub(super) fn execute_bulk_connect(&mut self, source_id: NodeId, target_id: NodeId) -> bool {
         let source = match self.state.graph.nodes.get(&source_id) {
@@ -1249,8 +1249,7 @@ impl WorkflowCanvas {
                     .state
                     .node_drag
                     .as_ref()
-                    .map(|d| d.dragging_nodes.contains(&node.id))
-                    .unwrap_or(false);
+                    .is_some_and(|d| d.dragging_nodes.contains(&node.id));
 
                 // Create a modified node data with screen position
                 let mut screen_node = node.clone();

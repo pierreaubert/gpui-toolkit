@@ -47,7 +47,7 @@ pub(super) fn apply_features_and_fallbacks(
     font: &mut FontKitFont,
     features: &FontFeatures,
     fallbacks: Option<&FontFallbacks>,
-) -> anyhow::Result<()> {
+) {
     use core_foundation::{
         array::{CFArrayAppendValue, CFArrayCreateMutable, CFArrayRef, kCFTypeArrayCallBacks},
         base::{CFRelease, kCFAllocatorDefault},
@@ -78,8 +78,11 @@ pub(super) fn apply_features_and_fallbacks(
         ) -> CFArrayRef;
     }
 
+    // SAFETY: all CoreFoundation objects are live locals; created arrays
+    // and dictionaries are released below, and setters retain their values.
     unsafe {
-        let feature_array = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+        let feature_array =
+            CFArrayCreateMutable(kCFAllocatorDefault, 0, &raw const kCFTypeArrayCallBacks);
         for (tag, value) in features.tag_value_list() {
             let keys = [kCTFontOpenTypeFeatureTag, kCTFontOpenTypeFeatureValue];
             let values = [
@@ -88,37 +91,42 @@ pub(super) fn apply_features_and_fallbacks(
             ];
             let dict = CFDictionaryCreate(
                 kCFAllocatorDefault,
-                &keys as *const _ as _,
-                &values as *const _ as _,
+                (&raw const keys).cast(),
+                (&raw const values).cast(),
                 2,
-                &kCFTypeDictionaryKeyCallBacks,
-                &kCFTypeDictionaryValueCallBacks,
+                &raw const kCFTypeDictionaryKeyCallBacks,
+                &raw const kCFTypeDictionaryValueCallBacks,
             );
-            values.into_iter().for_each(|value| CFRelease(value));
-            CFArrayAppendValue(feature_array, dict as _);
-            CFRelease(dict as _);
+            for value in values {
+                CFRelease(value);
+            }
+            CFArrayAppendValue(feature_array, dict.cast());
+            CFRelease(dict.cast());
         }
 
         let mut keys = vec![kCTFontFeatureSettingsAttribute];
-        let mut values = vec![feature_array as *const _];
+        // Explicit element type: the `.cast()` calls below cannot propagate
+        // the pointee type back through `as *const _` on their own.
+        let mut values: Vec<*const std::ffi::c_void> =
+            vec![feature_array as *const std::ffi::c_void];
 
         let fallback_array =
             if let Some(fallbacks) = fallbacks.filter(|f| !f.fallback_list().is_empty()) {
                 let fallback_array =
-                    CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+                    CFArrayCreateMutable(kCFAllocatorDefault, 0, &raw const kCFTypeArrayCallBacks);
                 for user_fallback in fallbacks.fallback_list() {
                     let name = CFString::from(user_fallback.as_str());
                     let fallback_desc =
                         CTFontDescriptorCreateWithNameAndSize(name.as_concrete_TypeRef(), 0.0);
-                    CFArrayAppendValue(fallback_array, fallback_desc as _);
-                    CFRelease(fallback_desc as _);
+                    CFArrayAppendValue(fallback_array, fallback_desc.cast());
+                    CFRelease(fallback_desc.cast());
                 }
                 let preferred_languages: core_foundation::array::CFArray<CFString> = {
                     unsafe extern "C" {
                         fn CFLocaleCopyPreferredLanguages() -> *const std::ffi::c_void;
                     }
                     core_foundation::array::CFArray::wrap_under_create_rule(
-                        CFLocaleCopyPreferredLanguages() as _,
+                        CFLocaleCopyPreferredLanguages().cast(),
                     )
                 };
                 let default_fallbacks = CTFontCopyDefaultCascadeListForLanguages(
@@ -129,11 +137,11 @@ pub(super) fn apply_features_and_fallbacks(
                     core_foundation::array::CFArray::wrap_under_create_rule(default_fallbacks);
                 for desc in default_fallbacks.iter() {
                     if desc.font_path().is_some() {
-                        CFArrayAppendValue(fallback_array, desc.as_concrete_TypeRef() as _);
+                        CFArrayAppendValue(fallback_array, desc.as_concrete_TypeRef().cast());
                     }
                 }
                 keys.push(kCTFontCascadeListAttribute);
-                values.push(fallback_array as *const _);
+                values.push(fallback_array as *const std::ffi::c_void);
                 Some(fallback_array)
             } else {
                 None
@@ -141,14 +149,14 @@ pub(super) fn apply_features_and_fallbacks(
 
         let attrs = CFDictionaryCreate(
             kCFAllocatorDefault,
-            keys.as_ptr() as _,
-            values.as_ptr() as _,
+            keys.as_ptr().cast(),
+            values.as_ptr().cast(),
             keys.len() as isize,
-            &kCFTypeDictionaryKeyCallBacks,
-            &kCFTypeDictionaryValueCallBacks,
+            &raw const kCFTypeDictionaryKeyCallBacks,
+            &raw const kCFTypeDictionaryValueCallBacks,
         );
         let new_descriptor = CTFontDescriptorCreateWithAttributes(attrs);
-        CFRelease(attrs as _);
+        CFRelease(attrs.cast());
         CFRelease(feature_array as _);
         if let Some(fallback_array) = fallback_array {
             CFRelease(fallback_array as _);
@@ -162,8 +170,6 @@ pub(super) fn apply_features_and_fallbacks(
         );
         let new_font = CTFont::wrap_under_create_rule(new_font);
         *font = font_kit::font::Font::from_native_font(&new_font);
-
-        Ok(())
     }
 }
 
@@ -178,6 +184,8 @@ pub(super) mod lenient_font_attributes {
     };
 
     pub fn family_name(descriptor: &CTFontDescriptor) -> Option<String> {
+        // SAFETY: `kCTFontFamilyNameAttribute` is a valid CoreText
+        // attribute constant.
         unsafe { get_string_attribute(descriptor, kCTFontFamilyNameAttribute) }
     }
 
@@ -185,6 +193,8 @@ pub(super) mod lenient_font_attributes {
         descriptor: &CTFontDescriptor,
         attribute: CFStringRef,
     ) -> Option<String> {
+        // SAFETY: callers pass valid attribute constants; the copied value
+        // is null-checked and adopted under the create rule.
         unsafe {
             let value = CTFontDescriptorCopyAttribute(descriptor.as_concrete_TypeRef(), attribute);
             if value.is_null() {
@@ -198,9 +208,11 @@ pub(super) mod lenient_font_attributes {
     }
 
     unsafe fn wrap_under_get_rule(reference: CFStringRef) -> CFString {
+        // SAFETY: the null check below rejects invalid input; `CFRetain`
+        // balances the create-rule adoption of the returned object.
         unsafe {
             assert!(!reference.is_null(), "Attempted to create a NULL object.");
-            let reference = CFRetain(reference as *const ::std::os::raw::c_void) as CFStringRef;
+            let reference = CFRetain(reference.cast::<::std::os::raw::c_void>()) as CFStringRef;
             TCFType::wrap_under_create_rule(reference)
         }
     }

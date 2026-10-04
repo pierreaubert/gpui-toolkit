@@ -10,6 +10,9 @@ readme = "README.md"
 keywords = ["gpui", "keybinding", "ui"]
 categories = ["gui"]
 
+[lints]
+workspace = true
+
 [features]
 # Workspace-wide QA enables a common feature union for every public crate.
 # These no-op aliases keep that command valid when this crate has no optional

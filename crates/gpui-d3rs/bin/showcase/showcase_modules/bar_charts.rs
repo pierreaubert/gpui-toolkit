@@ -17,10 +17,12 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let theme = chart_colors::UiAxisTheme(&ui_theme);
     let width = app.content_width * 0.7;
     let height = (width * 0.5).min(app.content_height * 0.4);
-    let x_scale = LinearScale::new().domain(0.0, 6.0).range(0.0, width as f64);
+    let x_scale = LinearScale::new()
+        .domain(0.0, 6.0)
+        .range(0.0, f64::from(width));
     let y_scale = LinearScale::new()
         .domain(0.0, 100.0)
-        .range(0.0, height as f64);
+        .range(0.0, f64::from(height));
     let scheme = ColorScheme::category10();
 
     let data = vec![
@@ -41,8 +43,10 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     ];
     let mixed_y_scale = LinearScale::new()
         .domain(-30.0, 70.0)
-        .range(0.0, height as f64);
-    let mixed_x_scale = LinearScale::new().domain(0.0, 5.0).range(0.0, width as f64);
+        .range(0.0, f64::from(height));
+    let mixed_x_scale = LinearScale::new()
+        .domain(0.0, 5.0)
+        .range(0.0, f64::from(width));
 
     // Grouped bar data - quarterly sales by product
     let grouped_data = vec![
@@ -62,7 +66,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let grouped_meta = analyze_grouped_data(&grouped_data);
     let grouped_y_scale = LinearScale::new()
         .domain(0.0, grouped_meta.max_value * 1.1)
-        .range(0.0, height as f64);
+        .range(0.0, f64::from(height));
 
     div()
         .flex()
@@ -155,9 +159,9 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                             &mixed_y_scale,
                             &AxisConfig::left().with_ticks(7).with_formatter(|v| {
                                 if v > 0.0 {
-                                    format!("+{:.0}", v)
+                                    format!("+{v:.0}")
                                 } else {
-                                    format!("{:.0}", v)
+                                    format!("{v:.0}")
                                 }
                             }),
                             height,

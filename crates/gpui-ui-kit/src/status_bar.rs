@@ -1,4 +1,4 @@
-//! StatusBar component
+//! `StatusBar` component
 //!
 //! A horizontal bar for displaying status information, typically at the top or bottom
 //! of an application window.

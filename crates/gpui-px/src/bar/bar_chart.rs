@@ -181,12 +181,12 @@ impl BarChart {
                     .flat_map(|series| series.values.iter().copied()),
             ),
         );
-        let mut series_labels = vec![indexed_label(&self.label, "Series", 0)];
+        let mut series_labels = vec![indexed_label(self.label.as_ref(), "Series", 0)];
         series_labels.extend(
             self.series
                 .iter()
                 .enumerate()
-                .map(|(index, series)| indexed_label(&series.label, "Series", index + 1)),
+                .map(|(index, series)| indexed_label(series.label.as_ref(), "Series", index + 1)),
         );
         let title = self.title.clone();
         let name = title.as_deref().unwrap_or("Bar chart");
@@ -352,7 +352,7 @@ impl BarChart {
     ) -> Self {
         self.series.push(BarSeries {
             values: Arc::from(values),
-            label: label.map(|l| l.into()),
+            label: label.map(std::convert::Into::into),
             color,
             opacity,
         });
@@ -488,13 +488,13 @@ impl BarChart {
         let horizontal_legend_height = single_item_height + 8.0;
 
         // Base available dimensions (without legend)
-        let base_available_width = layout_width as f64 - margin_left - margin_right;
+        let base_available_width = f64::from(layout_width) - margin_left - margin_right;
         let base_available_height =
-            layout_height as f64 - title_height as f64 - margin_top - margin_bottom;
+            f64::from(layout_height) - f64::from(title_height) - margin_top - margin_bottom;
 
         // Determine legend position (auto-select if not explicit)
         let legend_position = if has_legend_items && !self.legend_position_explicit {
-            let target_ratio = self.graph_ratio as f64;
+            let target_ratio = f64::from(self.graph_ratio);
 
             let ratio_distance = |plot_w: f64, plot_h: f64| -> f64 {
                 if plot_w <= 0.0 || plot_h <= 0.0 {
@@ -504,13 +504,14 @@ impl BarChart {
                 (ratio - target_ratio).abs()
             };
 
-            let lr_plot_width = base_available_width - (vertical_legend_width + legend_gap) as f64;
+            let lr_plot_width =
+                base_available_width - f64::from(vertical_legend_width + legend_gap);
             let lr_plot_height = base_available_height;
             let lr_distance = ratio_distance(lr_plot_width, lr_plot_height);
 
             let tb_plot_width = base_available_width;
             let tb_plot_height =
-                base_available_height - (horizontal_legend_height + legend_gap) as f64;
+                base_available_height - f64::from(horizontal_legend_height + legend_gap);
             let tb_distance = ratio_distance(tb_plot_width, tb_plot_height);
 
             if lr_distance <= tb_distance {
@@ -552,13 +553,14 @@ impl BarChart {
         };
 
         let plot_width =
-            (layout_width as f64 - margin_left - margin_right - width_for_legend as f64).max(0.0);
-        let plot_height = (layout_height as f64
-            - title_height as f64
+            (f64::from(layout_width) - margin_left - margin_right - f64::from(width_for_legend))
+                .max(0.0);
+        let plot_height = (f64::from(layout_height)
+            - f64::from(title_height)
             - margin_top
             - margin_bottom
-            - height_for_legend as f64)
-            .max(0.0);
+            - f64::from(height_for_legend))
+        .max(0.0);
 
         // Validate explicit y_range
         if let Some([min, max]) = self.y_range {
@@ -765,7 +767,9 @@ impl BarChart {
         }
 
         // Add chart content and legend based on position
-        if !legend_items.is_empty() {
+        if legend_items.is_empty() {
+            container = container.child(div().relative().child(chart_content));
+        } else {
             // Build legend element (use square indicator for bars)
             let legend_item = |color: u32, label: String| {
                 div()
@@ -858,8 +862,6 @@ impl BarChart {
                     container = container.child(div().relative().child(chart_content));
                 }
             }
-        } else {
-            container = container.child(div().relative().child(chart_content));
         }
 
         Ok(container)
@@ -1155,7 +1157,7 @@ fn bar_chart_scene_with_radius(
     } else {
         1.0
     };
-    let radius = border_radius.max(0.0) as f64 * sx.abs().min(sy.abs()) as f64;
+    let radius = f64::from(border_radius.max(0.0)) * f64::from(sx.abs().min(sy.abs()));
     let mut scene = d3rs::vello2d::ChartScene::new();
     let mut start = 0usize;
     while start < quads.len() {
@@ -1168,10 +1170,10 @@ fn bar_chart_scene_with_radius(
         for &(x, y, quad_width, quad_height, _) in &quads[start..end] {
             scene.fill_rounded_rect(
                 Rect::new(
-                    (x * sx) as f64,
-                    (y * sy) as f64,
-                    ((x + quad_width) * sx) as f64,
-                    ((y + quad_height) * sy) as f64,
+                    f64::from(x * sx),
+                    f64::from(y * sy),
+                    f64::from((x + quad_width) * sx),
+                    f64::from((y + quad_height) * sy),
                 ),
                 radius,
                 Brush::Solid(Color::new([rgba.r, rgba.g, rgba.b, rgba.a * opacity])),
@@ -1305,7 +1307,7 @@ mod tests {
             .title("Test Bar Chart")
             .color(0x2ca02c)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1313,7 +1315,7 @@ mod tests {
         let categories = vec!["A", "B", "C"];
         let values = vec![-5.0, 10.0, -3.0];
         let result = bar(&categories, &values).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1326,7 +1328,7 @@ mod tests {
             .border_radius(4.0)
             .size(800.0, 600.0)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1334,7 +1336,7 @@ mod tests {
         let categories = vec!["A", "B", "C", "D"];
         let values = vec![10.0, 100.0, 1000.0, 10000.0];
         let result = bar(&categories, &values).y_scale(ScaleType::Log).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1374,7 +1376,7 @@ mod tests {
             .y_scale(ScaleType::Log)
             .color(0x2ca02c)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1382,7 +1384,7 @@ mod tests {
         let categories = vec!["A", "B", "C"];
         let values = vec![10.0, 25.0, 15.0];
         let result = bar(&categories, &values).y_range(0.0, 50.0).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1507,7 +1509,7 @@ mod tests {
         let result = bar(&categories, &values)
             .add_series(&values2, Some("2024"), 0xff7f0e, 0.8)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]

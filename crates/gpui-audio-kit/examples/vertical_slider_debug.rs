@@ -1,6 +1,6 @@
 //! Vertical Slider Debug Example
 //!
-//! Interactive showcase for the VerticalSlider component:
+//! Interactive showcase for the `VerticalSlider` component:
 //! - Different sizes (Sm, Md, Lg)
 //! - Different scales (Linear, Logarithmic)
 //! - Selected state
@@ -62,7 +62,7 @@ impl VerticalSliderDebug {
         }
     }
 
-    /// Select a slider (focus is managed via the focus_handle passed to each slider)
+    /// Select a slider (focus is managed via the `focus_handle` passed to each slider)
     fn select_slider(&mut self, index: usize, cx: &mut Context<Self>) {
         self.selected_slider = Some(index);
         cx.notify(); // Trigger re-render

@@ -154,7 +154,7 @@ fn test_graph_add_connection() {
     graph.add_node(node2);
 
     let result = graph.add_connection(id1, 0, id2, 0);
-    assert!(result.is_ok());
+    result.unwrap();
     assert_eq!(graph.connections.len(), 1);
 }
 
@@ -169,7 +169,7 @@ fn test_graph_add_connection_invalid_node() {
     graph.add_node(node1);
 
     let result = graph.add_connection(id1, 0, fake_id, 0);
-    assert!(result.is_err());
+    result.unwrap_err();
 }
 
 #[test]
@@ -181,7 +181,7 @@ fn test_graph_add_connection_self_loop_prevented() {
     graph.add_node(node);
 
     let result = graph.add_connection(id, 0, id, 0);
-    assert!(result.is_err());
+    result.unwrap_err();
 }
 
 #[test]
@@ -719,13 +719,13 @@ fn test_add_connection_port_out_of_bounds() {
     graph.add_node(node2);
 
     // Valid indices
-    assert!(graph.add_connection(id1, 0, id2, 0).is_ok());
-    assert!(graph.add_connection(id1, 1, id2, 1).is_ok());
+    graph.add_connection(id1, 0, id2, 0).unwrap();
+    graph.add_connection(id1, 1, id2, 1).unwrap();
 
     // Output index out of bounds (node1 has 2 outputs: 0,1)
-    assert!(graph.add_connection(id1, 2, id2, 0).is_err());
+    graph.add_connection(id1, 2, id2, 0).unwrap_err();
     // Input index out of bounds (node2 has 2 inputs: 0,1)
-    assert!(graph.add_connection(id1, 0, id2, 2).is_err());
+    graph.add_connection(id1, 0, id2, 2).unwrap_err();
 }
 
 #[test]

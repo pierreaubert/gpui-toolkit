@@ -136,7 +136,7 @@ fn nav_item(title: &str, desc: &str, section: DemoSection, cx: &mut Context<Show
     // The clickable element is a child Stateful<Div>
     div().child(
         div()
-            .id(ElementId::Name(format!("nav-{}", title_str).into()))
+            .id(ElementId::Name(format!("nav-{title_str}").into()))
             .flex()
             .gap_2()
             .py_1()

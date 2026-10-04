@@ -23,7 +23,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     // Voronoi mesh as a true stroke (not ribbon fills).
     let mesh_path = result.voronoi_mesh.clone();
-    let mesh_color: Hsla = chart_colors::ink(&ui_theme, hsla(0.0, 0.0, 0.85, 0.5));
+    let mesh_color = chart_colors::ink(&ui_theme, hsla(0.0, 0.0, 0.85, 0.5));
 
     // Points as circles
     let n_sides = 10;
@@ -31,7 +31,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         let r = 3.0;
         let mut builder = D3PathBuilder::new();
         for v in 0..n_sides {
-            let angle = std::f64::consts::TAU * v as f64 / n_sides as f64;
+            let angle = std::f64::consts::TAU * f64::from(v) / f64::from(n_sides);
             if v == 0 {
                 builder = builder.move_to(pt.x + r, pt.y);
             } else {

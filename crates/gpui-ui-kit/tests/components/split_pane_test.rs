@@ -1,4 +1,4 @@
-//! SplitPane component tests
+//! `SplitPane` component tests
 
 use gpui::div;
 use gpui::prelude::ParentElement;

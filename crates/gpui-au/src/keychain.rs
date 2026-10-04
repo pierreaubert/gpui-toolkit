@@ -2,7 +2,7 @@
 //!
 //! AU extensions do not own an application event loop, but Security.framework
 //! is safe to call from the extension's background executor. Keeping this
-//! module independent from AppKit also makes it clear that credential storage
+//! module independent from `AppKit` also makes it clear that credential storage
 //! does not depend on the host DAW's UI lifecycle.
 
 use anyhow::{Context as _, Result};
@@ -45,18 +45,20 @@ pub fn write_credentials(url: &str, username: &str, password: &[u8]) -> Result<(
     let username = CFString::from(username);
     let password = CFData::from_buffer(password);
 
+    // SAFETY: all dictionaries and values are live locals; `SecItemUpdate`
+    // and `SecItemAdd` only read them, and the null out-pointer is allowed.
     unsafe {
         use security::*;
 
         let mut query_attrs = CFMutableDictionary::with_capacity(2);
-        query_attrs.set(kSecClass as *const _, kSecClassInternetPassword as *const _);
-        query_attrs.set(kSecAttrServer as *const _, url.as_CFTypeRef());
+        query_attrs.set(kSecClass.cast(), kSecClassInternetPassword.cast());
+        query_attrs.set(kSecAttrServer.cast(), url.as_CFTypeRef());
 
         let mut attrs = CFMutableDictionary::with_capacity(4);
-        attrs.set(kSecClass as *const _, kSecClassInternetPassword as *const _);
-        attrs.set(kSecAttrServer as *const _, url.as_CFTypeRef());
-        attrs.set(kSecAttrAccount as *const _, username.as_CFTypeRef());
-        attrs.set(kSecValueData as *const _, password.as_CFTypeRef());
+        attrs.set(kSecClass.cast(), kSecClassInternetPassword.cast());
+        attrs.set(kSecAttrServer.cast(), url.as_CFTypeRef());
+        attrs.set(kSecAttrAccount.cast(), username.as_CFTypeRef());
+        attrs.set(kSecValueData.cast(), password.as_CFTypeRef());
 
         let mut status = SecItemUpdate(
             query_attrs.as_concrete_TypeRef(),
@@ -81,17 +83,19 @@ pub fn read_credentials(url: &str) -> Result<Option<(String, Vec<u8>)>> {
     let url = CFString::from(url);
     let cf_true = CFBoolean::true_value().as_CFTypeRef();
 
+    // SAFETY: the query dictionary is live; on success `result` holds a +1
+    // reference (create rule) while the get-rule borrows stay valid via it.
     unsafe {
         use security::*;
 
         let mut attrs = CFMutableDictionary::with_capacity(4);
-        attrs.set(kSecClass as *const _, kSecClassInternetPassword as *const _);
-        attrs.set(kSecAttrServer as *const _, url.as_CFTypeRef());
-        attrs.set(kSecReturnAttributes as *const _, cf_true);
-        attrs.set(kSecReturnData as *const _, cf_true);
+        attrs.set(kSecClass.cast(), kSecClassInternetPassword.cast());
+        attrs.set(kSecAttrServer.cast(), url.as_CFTypeRef());
+        attrs.set(kSecReturnAttributes.cast(), cf_true);
+        attrs.set(kSecReturnData.cast(), cf_true);
 
         let mut result = CFTypeRef::from(ptr::null());
-        let status = SecItemCopyMatching(attrs.as_concrete_TypeRef(), &mut result);
+        let status = SecItemCopyMatching(attrs.as_concrete_TypeRef(), &raw mut result);
         match status {
             ERR_SEC_SUCCESS => {}
             ERR_SEC_ITEM_NOT_FOUND | ERR_SEC_USER_CANCELED => return Ok(None),
@@ -102,13 +106,13 @@ pub fn read_credentials(url: &str) -> Result<Option<(String, Vec<u8>)>> {
             .downcast::<core_foundation::dictionary::CFDictionary>()
             .context("AU keychain item was not a dictionary")?;
         let username = result
-            .find(kSecAttrAccount as *const _)
+            .find(kSecAttrAccount.cast())
             .context("account was missing from AU keychain item")?;
         let username = CFType::wrap_under_get_rule(*username)
             .downcast::<CFString>()
             .context("account was not a string in AU keychain item")?;
         let password = result
-            .find(kSecValueData as *const _)
+            .find(kSecValueData.cast())
             .context("password was missing from AU keychain item")?;
         let password = CFType::wrap_under_get_rule(*password)
             .downcast::<CFData>()
@@ -121,12 +125,14 @@ pub fn read_credentials(url: &str) -> Result<Option<(String, Vec<u8>)>> {
 pub fn delete_credentials(url: &str) -> Result<()> {
     let url = CFString::from(url);
 
+    // SAFETY: the query dictionary is a live local that `SecItemDelete`
+    // only reads.
     unsafe {
         use security::*;
 
         let mut query_attrs = CFMutableDictionary::with_capacity(2);
-        query_attrs.set(kSecClass as *const _, kSecClassInternetPassword as *const _);
-        query_attrs.set(kSecAttrServer as *const _, url.as_CFTypeRef());
+        query_attrs.set(kSecClass.cast(), kSecClassInternetPassword.cast());
+        query_attrs.set(kSecAttrServer.cast(), url.as_CFTypeRef());
 
         let status = SecItemDelete(query_attrs.as_concrete_TypeRef());
         anyhow::ensure!(

@@ -1,4 +1,4 @@
-/// Accessibility metadata that can be mirrored into UIAccessibility.
+/// Accessibility metadata that can be mirrored into `UIAccessibility`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PlatformViewAccessibility {
     pub label: Option<String>,

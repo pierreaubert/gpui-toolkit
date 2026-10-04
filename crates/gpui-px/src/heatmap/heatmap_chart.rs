@@ -54,7 +54,7 @@ impl std::fmt::Debug for HeatmapChart {
             .field("opacity", &self.opacity)
             .field("width", &self.width)
             .field("height", &self.height)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -137,7 +137,7 @@ impl HeatmapChart {
     /// Set custom x axis values.
     ///
     /// Values must be strictly monotonically increasing.
-    /// Length must match grid_width.
+    /// Length must match `grid_width`.
     pub fn x(mut self, values: &[f64]) -> Self {
         self.x_values = Some(values.to_vec());
         self
@@ -146,7 +146,7 @@ impl HeatmapChart {
     /// Set custom y axis values.
     ///
     /// Values must be strictly monotonically increasing.
-    /// Length must match grid_height.
+    /// Length must match `grid_height`.
     pub fn y(mut self, values: &[f64]) -> Self {
         self.y_values = Some(values.to_vec());
         self
@@ -245,61 +245,55 @@ impl HeatmapChart {
 
         // Generate or validate x values. Take ownership of explicit values
         // instead of cloning them; only allocate when falling back to defaults.
-        let x_values = match self.x_values {
-            Some(v) => {
-                if v.len() != self.grid_width {
-                    return Err(ChartError::DataLengthMismatch {
-                        x_field: "x",
-                        y_field: "grid_width",
-                        x_len: v.len(),
-                        y_len: self.grid_width,
-                    });
-                }
-                validate_data_array(&v, "x")?;
-                validate_monotonic(&v, "x")?;
-                if self.x_scale_type == ScaleType::Log {
-                    validate_positive(&v, "x")?;
-                }
-                v
+        let x_values = if let Some(v) = self.x_values {
+            if v.len() != self.grid_width {
+                return Err(ChartError::DataLengthMismatch {
+                    x_field: "x",
+                    y_field: "grid_width",
+                    x_len: v.len(),
+                    y_len: self.grid_width,
+                });
             }
-            None => {
-                if self.x_scale_type == ScaleType::Log {
-                    return Err(ChartError::InvalidData {
-                        field: "x",
-                        reason: "log scale requires explicit positive x values",
-                    });
-                }
-                (0..self.grid_width).map(|i| i as f64).collect()
+            validate_data_array(&v, "x")?;
+            validate_monotonic(&v, "x")?;
+            if self.x_scale_type == ScaleType::Log {
+                validate_positive(&v, "x")?;
             }
+            v
+        } else {
+            if self.x_scale_type == ScaleType::Log {
+                return Err(ChartError::InvalidData {
+                    field: "x",
+                    reason: "log scale requires explicit positive x values",
+                });
+            }
+            (0..self.grid_width).map(|i| i as f64).collect()
         };
 
         // Generate or validate y values
-        let y_values = match self.y_values {
-            Some(v) => {
-                if v.len() != self.grid_height {
-                    return Err(ChartError::DataLengthMismatch {
-                        x_field: "y",
-                        y_field: "grid_height",
-                        x_len: v.len(),
-                        y_len: self.grid_height,
-                    });
-                }
-                validate_data_array(&v, "y")?;
-                validate_monotonic(&v, "y")?;
-                if self.y_scale_type == ScaleType::Log {
-                    validate_positive(&v, "y")?;
-                }
-                v
+        let y_values = if let Some(v) = self.y_values {
+            if v.len() != self.grid_height {
+                return Err(ChartError::DataLengthMismatch {
+                    x_field: "y",
+                    y_field: "grid_height",
+                    x_len: v.len(),
+                    y_len: self.grid_height,
+                });
             }
-            None => {
-                if self.y_scale_type == ScaleType::Log {
-                    return Err(ChartError::InvalidData {
-                        field: "y",
-                        reason: "log scale requires explicit positive y values",
-                    });
-                }
-                (0..self.grid_height).map(|i| i as f64).collect()
+            validate_data_array(&v, "y")?;
+            validate_monotonic(&v, "y")?;
+            if self.y_scale_type == ScaleType::Log {
+                validate_positive(&v, "y")?;
             }
+            v
+        } else {
+            if self.y_scale_type == ScaleType::Log {
+                return Err(ChartError::InvalidData {
+                    field: "y",
+                    reason: "log scale requires explicit positive y values",
+                });
+            }
+            (0..self.grid_height).map(|i| i as f64).collect()
         };
 
         // Define margins
@@ -315,9 +309,10 @@ impl HeatmapChart {
             0.0
         };
 
-        let plot_width = (layout_width as f64 - margin_left - margin_right).max(0.0);
+        let plot_width = (f64::from(layout_width) - margin_left - margin_right).max(0.0);
         let plot_height =
-            (layout_height as f64 - title_height as f64 - margin_top - margin_bottom).max(0.0);
+            (f64::from(layout_height) - f64::from(title_height) - margin_top - margin_bottom)
+                .max(0.0);
 
         // Validate explicit ranges
         if let Some([min, max]) = self.x_range {

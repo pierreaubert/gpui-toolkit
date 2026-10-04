@@ -1,7 +1,7 @@
 //! Local notification bridge (`UNUserNotificationCenter`).
 //!
 //! Host-testable scheduling of time-interval local notifications. Validation
-//! runs everywhere; scheduling/cancellation touch UIKit only on iOS/tvOS and
+//! runs everywhere; scheduling/cancellation touch `UIKit` only on iOS/tvOS and
 //! report [`NotificationError::Unsupported`] elsewhere.
 //!
 //! Note: the containing app owns notification *authorization* (requested from
@@ -60,7 +60,7 @@ pub enum NotificationError {
     Unsupported,
     /// The request failed [`LocalNotificationRequest::validate`].
     InvalidRequest(String),
-    /// UIKit rejected the scheduling (carries detail).
+    /// `UIKit` rejected the scheduling (carries detail).
     ScheduleFailed(String),
 }
 

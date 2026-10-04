@@ -1,5 +1,3 @@
-use std::f64;
-
 /// A point stored in the quadtree with its original data
 #[derive(Debug, Clone)]
 pub struct QuadPoint<T> {

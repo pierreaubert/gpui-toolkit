@@ -1,4 +1,4 @@
-//! Circle Packing — Observable example using d3rs::examples::circle_packing
+//! Circle Packing — Observable example using `d3rs::examples::circle_packing`
 //!
 //! Source: <https://observablehq.com/@d3/pack/2>
 

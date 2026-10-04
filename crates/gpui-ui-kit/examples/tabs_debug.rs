@@ -1,7 +1,7 @@
 //! Tabs Debug Example
 //!
 //! Demonstrates the Tabs component:
-//! - Underline, Enclosed, Pills, VerticalCard variants
+//! - Underline, Enclosed, Pills, `VerticalCard` variants
 //! - Tabs with icons and badges
 //! - Disabled tabs
 

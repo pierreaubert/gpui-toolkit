@@ -103,8 +103,7 @@ async fn test_number_input_increment_button_click(cx: &mut TestAppContext) {
         let new_value = *value.borrow();
         assert_eq!(
             new_value, 55.0,
-            "Value should be 55.0 after clicking +, got {}",
-            new_value
+            "Value should be 55.0 after clicking +, got {new_value}"
         );
         assert_eq!(
             change_count.load(Ordering::SeqCst),
@@ -147,8 +146,7 @@ async fn test_number_input_decrement_button_click(cx: &mut TestAppContext) {
         let new_value = *value.borrow();
         assert_eq!(
             new_value, 45.0,
-            "Value should be 45.0 after clicking -, got {}",
-            new_value
+            "Value should be 45.0 after clicking -, got {new_value}"
         );
         assert_eq!(
             change_count.load(Ordering::SeqCst),
@@ -189,8 +187,7 @@ async fn test_number_input_multiple_button_clicks(cx: &mut TestAppContext) {
         let new_value = *value.borrow();
         assert_eq!(
             new_value, 65.0,
-            "Value should be 65.0 after 3 clicks on +, got {}",
-            new_value
+            "Value should be 65.0 after 3 clicks on +, got {new_value}"
         );
         assert_eq!(
             change_count.load(Ordering::SeqCst),
@@ -272,8 +269,7 @@ async fn test_number_input_respects_min_bound(cx: &mut TestAppContext) {
         let new_value = *value.borrow();
         assert_eq!(
             new_value, 0.0,
-            "Value should be clamped to min (0.0), got {}",
-            new_value
+            "Value should be clamped to min (0.0), got {new_value}"
         );
     }
 }
@@ -332,8 +328,7 @@ async fn test_number_input_respects_max_bound(cx: &mut TestAppContext) {
         let new_value = *value.borrow();
         assert_eq!(
             new_value, 100.0,
-            "Value should be clamped to max (100.0), got {}",
-            new_value
+            "Value should be clamped to max (100.0), got {new_value}"
         );
     }
 }
@@ -584,8 +579,7 @@ async fn test_number_input_click_to_edit(cx: &mut TestAppContext) {
         let new_value = *value.borrow();
         assert_eq!(
             new_value, 123.0,
-            "Value should be 123.0 after editing, got {}",
-            new_value
+            "Value should be 123.0 after editing, got {new_value}"
         );
     }
 }
@@ -633,8 +627,7 @@ async fn test_number_input_double_click_selects_all(cx: &mut TestAppContext) {
         let new_value = *value.borrow();
         assert_eq!(
             new_value, 999.0,
-            "Value should be 999.0 after double-click and type, got {}",
-            new_value
+            "Value should be 999.0 after double-click and type, got {new_value}"
         );
     }
 }
@@ -676,8 +669,7 @@ async fn test_number_input_escape_cancels_edit(cx: &mut TestAppContext) {
         let new_value = *value.borrow();
         assert_eq!(
             new_value, 50.0,
-            "Value should still be 50.0 after Escape, got {}",
-            new_value
+            "Value should still be 50.0 after Escape, got {new_value}"
         );
         assert_eq!(
             change_count.load(Ordering::SeqCst),

@@ -99,7 +99,7 @@ pub trait PlatformView: Send + Sync {
     /// Returns the unique identifier for this view.
     fn id(&self) -> PlatformViewId;
 
-    /// Returns the view type string (e.g. "video_player", "map").
+    /// Returns the view type string (e.g. "`video_player`", "map").
     fn view_type(&self) -> &str;
 
     /// Update the view's position and size to match GPUI layout.
@@ -140,7 +140,7 @@ pub trait PlatformViewFactory: Send + Sync {
     /// Returns `Ok(view)` on success or `Err(message)` if creation fails.
     fn create(&self, params: &PlatformViewParams) -> Result<Box<dyn PlatformView>, String>;
 
-    /// The view type this factory handles (e.g. "video_player").
+    /// The view type this factory handles (e.g. "`video_player`").
     fn view_type(&self) -> &str;
 }
 
@@ -250,10 +250,7 @@ impl PlatformViewRegistry {
     ///
     /// If a factory for this type already exists, it is replaced.
     pub fn register(&self, view_type: &str, factory: Box<dyn PlatformViewFactory>) {
-        log::info!(
-            "PlatformViewRegistry: registered factory for '{}'",
-            view_type
-        );
+        log::info!("PlatformViewRegistry: registered factory for '{view_type}'");
         self.factories.lock().insert(view_type.to_string(), factory);
     }
 
@@ -283,7 +280,7 @@ impl PlatformViewRegistry {
         let factories = self.factories.lock();
         let factory = factories
             .get(view_type)
-            .ok_or_else(|| format!("No factory registered for view type '{}'", view_type))?;
+            .ok_or_else(|| format!("No factory registered for view type '{view_type}'"))?;
 
         let view = factory.create(&params)?;
         let id = view.id();
@@ -295,11 +292,7 @@ impl PlatformViewRegistry {
                 visible: true,
             },
         );
-        log::debug!(
-            "PlatformViewRegistry: created view {} of type '{}'",
-            id,
-            view_type
-        );
+        log::debug!("PlatformViewRegistry: created view {id} of type '{view_type}'");
         Ok(PlatformViewHandle::new(view))
     }
 

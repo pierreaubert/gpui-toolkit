@@ -127,7 +127,7 @@ impl Element for VolumeKnobFillElement {
             let mut scene = d3rs::vello2d::ChartScene::new();
             let color = |c: Rgba| Brush::Solid(Color::new([c.r, c.g, c.b, c.a]));
             scene.fill_path(
-                Circle::new((radius as f64, radius as f64), radius as f64).to_path(0.1),
+                Circle::new((f64::from(radius), f64::from(radius)), f64::from(radius)).to_path(0.1),
                 color(self.bg_color),
             );
             if self.value > 0.001 {
@@ -142,14 +142,14 @@ impl Element for VolumeKnobFillElement {
                     let start = (dy / radius).clamp(-1.0, 1.0).asin();
                     let end = PI - start;
                     let mut path = BezPath::new();
-                    path.push(PathEl::MoveTo((left as f64, water as f64).into()));
+                    path.push(PathEl::MoveTo((f64::from(left), f64::from(water)).into()));
                     for index in 1..=32 {
                         let t = index as f32 / 32.0;
                         let angle = PI - (start + t * (end - start));
                         path.push(PathEl::LineTo(
                             (
-                                (center + radius * angle.cos()) as f64,
-                                (center + radius * angle.sin()) as f64,
+                                f64::from(center + radius * angle.cos()),
+                                f64::from(center + radius * angle.sin()),
                             )
                                 .into(),
                         ));
@@ -158,8 +158,11 @@ impl Element for VolumeKnobFillElement {
                     scene.fill_path(path, color(self.fill_color));
                 } else if value > 0.99 {
                     scene.fill_path(
-                        Circle::new((radius as f64, radius as f64), (radius - 1.0) as f64)
-                            .to_path(0.1),
+                        Circle::new(
+                            (f64::from(radius), f64::from(radius)),
+                            f64::from(radius - 1.0),
+                        )
+                        .to_path(0.1),
                         color(self.fill_color),
                     );
                 }
@@ -171,7 +174,11 @@ impl Element for VolumeKnobFillElement {
                 a: self.ring_color.a * 0.3,
             };
             scene.stroke_path(
-                Circle::new((radius as f64, radius as f64), (radius - 3.0) as f64).to_path(0.1),
+                Circle::new(
+                    (f64::from(radius), f64::from(radius)),
+                    f64::from(radius - 3.0),
+                )
+                .to_path(0.1),
                 Stroke::new(2.0),
                 color(ring),
             );

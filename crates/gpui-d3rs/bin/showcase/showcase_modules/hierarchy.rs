@@ -48,8 +48,8 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     HierarchyNode::count(root.clone());
 
-    let width = app.content_width as f64;
-    let height = (width * 0.75).min(app.content_height as f64 * 0.8);
+    let width = f64::from(app.content_width);
+    let height = (width * 0.75).min(f64::from(app.content_height) * 0.8);
 
     // Layout
     TreeLayout::new()
@@ -79,8 +79,8 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     });
 
     // Center the layout
-    let layout_center_x = (min_x + max_x) / 2.0;
-    let layout_center_y = (min_y + max_y) / 2.0;
+    let layout_center_x = f64::midpoint(min_x, max_x);
+    let layout_center_y = f64::midpoint(min_y, max_y);
 
     let container_center_x = width / 2.0;
     let container_center_y = height / 2.0;

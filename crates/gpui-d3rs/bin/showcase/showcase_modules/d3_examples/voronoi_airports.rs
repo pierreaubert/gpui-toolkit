@@ -32,8 +32,8 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     // 2-3. Graticule and voronoi mesh as true strokes (not ribbon fills).
     let graticule_path = result.graticule_path.clone();
     let mesh_path = result.voronoi_mesh_path.clone();
-    let graticule_color: Hsla = chart_colors::grid(&ui_theme);
-    let mesh_color: Hsla = chart_colors::axis_line(&ui_theme).opacity(0.5);
+    let graticule_color = chart_colors::grid(&ui_theme);
+    let mesh_color = chart_colors::axis_line(&ui_theme).opacity(0.5);
 
     // 4. Airport dots
     let n_sides = 10;
@@ -41,7 +41,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     for (px, py) in result.projected_points.iter().flatten() {
         let mut builder = D3PathBuilder::new();
         for v in 0..n_sides {
-            let angle = std::f64::consts::TAU * v as f64 / n_sides as f64;
+            let angle = std::f64::consts::TAU * f64::from(v) / f64::from(n_sides);
             let x = px + dot_r * angle.cos();
             let y = py + dot_r * angle.sin();
             if v == 0 {
@@ -104,8 +104,8 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     {
                         let delta_x: f32 = (event.position.x - last_pos.x).into();
                         let delta_y: f32 = (event.position.y - last_pos.y).into();
-                        this.geo_rotation_lon += delta_x as f64 * 0.5;
-                        this.geo_rotation_lat -= delta_y as f64 * 0.5;
+                        this.geo_rotation_lon += f64::from(delta_x) * 0.5;
+                        this.geo_rotation_lat -= f64::from(delta_y) * 0.5;
                         this.geo_rotation_lat = this.geo_rotation_lat.clamp(-90.0, 90.0);
                         this.last_mouse_pos = Some(event.position);
                     }
@@ -125,7 +125,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                             y * 0.003
                         }
                     };
-                    this.geo_zoom = (this.geo_zoom * (1.0 + delta as f64)).clamp(0.3, 10.0);
+                    this.geo_zoom = (this.geo_zoom * (1.0 + f64::from(delta))).clamp(0.3, 10.0);
                 }))
                 .child(
                     canvas(

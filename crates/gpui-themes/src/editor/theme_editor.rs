@@ -164,7 +164,7 @@ impl ThemeEditor {
         let hex_cache = Self::build_hex_cache(&theme);
         let color_detail_cache = Self::build_color_detail_cache(&theme);
         let cached_export_content =
-            SharedString::from(theme.to_json().unwrap_or_else(|e| format!("Error: {}", e)));
+            SharedString::from(theme.to_json().unwrap_or_else(|e| format!("Error: {e}")));
         let cached_export_filename =
             SharedString::from(format!("{}_theme.json", slugify_theme_name(&theme.name)));
 
@@ -253,11 +253,11 @@ impl ThemeEditor {
                 "tokens" => self
                     .theme
                     .to_style_dictionary_json()
-                    .unwrap_or_else(|e| format!("Error: {}", e)),
+                    .unwrap_or_else(|e| format!("Error: {e}")),
                 _ => self
                     .theme
                     .to_json()
-                    .unwrap_or_else(|e| format!("Error: {}", e)),
+                    .unwrap_or_else(|e| format!("Error: {e}")),
             };
             self.cached_export_content = SharedString::from(content);
             let extension = match self.export_format.as_str() {

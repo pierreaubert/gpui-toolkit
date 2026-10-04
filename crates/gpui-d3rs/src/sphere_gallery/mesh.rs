@@ -126,7 +126,7 @@ impl Default for SphereMeshConfig {
 }
 
 impl SphereMeshConfig {
-    /// Compute the max angle from apex_height (for sphere-based projections).
+    /// Compute the max angle from `apex_height` (for sphere-based projections).
     ///
     /// `apex_height = R * (1 - cos(max_angle))` when R = radius.
     /// Solving: `max_angle = acos(1 - apex_height / radius)`.

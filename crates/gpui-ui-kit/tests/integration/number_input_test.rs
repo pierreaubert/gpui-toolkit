@@ -1,4 +1,4 @@
-//! Integration tests for NumberInput component
+//! Integration tests for `NumberInput` component
 //!
 //! Tests the number input component including:
 //! - Basic rendering

@@ -162,8 +162,7 @@ impl LegendLayout {
         let title_height = config
             .title
             .as_ref()
-            .map(|_| config.font_size * TITLE_LINE_HEIGHT)
-            .unwrap_or(0.0);
+            .map_or(0.0, |_| config.font_size * TITLE_LINE_HEIGHT);
         let item_block_y = config.padding + title_height;
         let item_step = config.symbol_size + config.item_spacing;
         let item_block_height = if rows == 0 {
@@ -175,8 +174,7 @@ impl LegendLayout {
             config
                 .title
                 .as_ref()
-                .map(|title| title.len() as f64 * avg_char_width)
-                .unwrap_or(0.0)
+                .map_or(0.0, |title| title.len() as f64 * avg_char_width)
         } else {
             column_widths.iter().sum::<f64>()
                 + config.item_spacing * column_widths.len().saturating_sub(1) as f64
@@ -184,8 +182,7 @@ impl LegendLayout {
         let title_width = config
             .title
             .as_ref()
-            .map(|title| title.len() as f64 * avg_char_width)
-            .unwrap_or(0.0);
+            .map_or(0.0, |title| title.len() as f64 * avg_char_width);
         let width = config.padding * 2.0 + content_width.max(title_width);
         let height = config.padding * 2.0 + title_height + item_block_height;
 

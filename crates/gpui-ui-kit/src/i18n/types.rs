@@ -117,9 +117,7 @@ pub enum TranslationKey {
 
 impl I18nExt for App {
     fn t(&self, key: TranslationKey) -> &'static str {
-        self.try_global::<I18nState>()
-            .map(|s| s.t(key))
-            .unwrap_or("???")
+        self.try_global::<I18nState>().map_or("???", |s| s.t(key))
     }
 
     fn language(&self) -> Language {

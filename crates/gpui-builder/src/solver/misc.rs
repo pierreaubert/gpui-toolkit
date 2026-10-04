@@ -127,8 +127,8 @@ pub(super) struct TextSizeInput<'a> {
 /// Results and the intermediate [`PreparedText`] values are cached in the
 /// provided [`TextMeasureCache`], which survives across `solve` calls when
 /// shared by the caller.
-pub(super) fn compute_text_size<'a>(
-    input: TextSizeInput<'a>,
+pub(super) fn compute_text_size(
+    input: TextSizeInput<'_>,
     cache: &RefCell<TextMeasureCache>,
 ) -> f32 {
     let mut cache = cache.borrow_mut();
@@ -167,8 +167,8 @@ pub(super) fn compute_text_size<'a>(
             });
             layout(
                 prepared,
-                input.cross_size as f64,
-                input.line_height as f64,
+                f64::from(input.cross_size),
+                f64::from(input.line_height),
                 input.profile,
             )
             .height as f32

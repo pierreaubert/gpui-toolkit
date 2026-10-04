@@ -53,7 +53,7 @@ impl FifoState {
     fn publish(&self) {
         let _ = self
             .0
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
                 let (write, read, shared, _) = Self::unpack(state);
                 Some(Self::pack(shared, read, write, true))
             });
@@ -67,12 +67,10 @@ impl FifoState {
             .0
             .try_update(Ordering::AcqRel, Ordering::Acquire, |state| {
                 let (write, read, shared, dirty) = Self::unpack(state);
-                if dirty {
+                dirty.then(|| {
                     fresh = true;
-                    Some(Self::pack(write, shared, read, false))
-                } else {
-                    None
-                }
+                    Self::pack(write, shared, read, false)
+                })
             });
         let (_, read, _, _) = Self::unpack(self.0.load(Ordering::Acquire));
         (read, fresh)
@@ -90,7 +88,7 @@ fn unpoisoned<'a, T>(
         std::sync::PoisonError<std::sync::MutexGuard<'a, T>>,
     >,
 ) -> std::sync::MutexGuard<'a, T> {
-    lock.unwrap_or_else(|poisoned| poisoned.into_inner())
+    lock.unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 struct MeterFifoInner {

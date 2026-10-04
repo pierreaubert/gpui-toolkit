@@ -94,7 +94,7 @@ impl VerticalSlider {
     /// Create a new vertical slider with the given ID
     pub fn new(id: impl Into<ElementId>) -> Self {
         let id = id.into();
-        let track_id = ElementId::Name(SharedString::from(format!("{}-track", id)));
+        let track_id = ElementId::Name(SharedString::from(format!("{id}-track")));
         Self {
             id,
             track_id,
@@ -348,7 +348,7 @@ impl VerticalSlider {
 
     /// Format the label with keyboard shortcut indicator
     fn format_label(&self) -> SharedString {
-        let label = self.label.as_ref().cloned().unwrap_or_default();
+        let label = self.label.clone().unwrap_or_default();
         match self.shortcut_key {
             Some(key) => {
                 let key_lower = key.to_ascii_lowercase();
@@ -382,18 +382,18 @@ impl VerticalSlider {
         let value = self.value.clamp(self.min, self.max);
         let unit = self.unit.as_ref();
         SharedString::new(if unit == ":1" {
-            format!("{:.1}{}", value, unit)
+            format!("{value:.1}{unit}")
         } else if unit == "%" {
             let percentage = if self.max > self.min {
                 (value - self.min) / (self.max - self.min) * 100.0
             } else {
                 0.0
             };
-            format!("{:.0}{}", percentage, unit)
+            format!("{percentage:.0}{unit}")
         } else if unit.is_empty() {
-            format!("{:.1}", value)
+            format!("{value:.1}")
         } else {
-            format!("{:.1} {}", value, unit)
+            format!("{value:.1} {unit}")
         })
     }
 }
@@ -1094,7 +1094,7 @@ fn build_track_with_ticks(
         .h(px(track_height))
         .w(px(label_width + label_tick_gap + tick_mark_width));
 
-    for tick in ticks.iter() {
+    for tick in ticks {
         let pos = tick.normalized_pos as f32;
         let tick_width = if tick.is_major { 6.0 } else { 3.0 };
 
@@ -1132,7 +1132,7 @@ fn build_track_with_ticks(
     // Build right-side tick marks (no labels, just tick marks)
     let mut ticks_right = div().relative().h(px(track_height)).w(px(tick_mark_width));
 
-    for tick in ticks.iter() {
+    for tick in ticks {
         let pos = tick.normalized_pos as f32;
         let tick_width = if tick.is_major { 6.0 } else { 3.0 };
         let top_pos = (1.0 - pos) * track_height - label_height / 2.0;

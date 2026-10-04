@@ -166,8 +166,8 @@ impl Treemap {
         validate_dimensions(options.width, options.height)?;
         crate::static_export::validate_plot_area(options)?;
 
-        let plot_width = (options.width - options.margin_left - options.margin_right) as f64;
-        let plot_height = (options.height - options.margin_top - options.margin_bottom) as f64;
+        let plot_width = f64::from(options.width - options.margin_left - options.margin_right);
+        let plot_height = f64::from(options.height - options.margin_top - options.margin_bottom);
         if plot_width <= 0.0 || plot_height <= 0.0 {
             return Err(ChartError::InvalidDimension {
                 field: "width",
@@ -343,7 +343,7 @@ impl Treemap {
 
     /// Set a custom color scheme.
     ///
-    /// Default: ColorScheme::tableau10()
+    /// Default: `ColorScheme::tableau10()`
     pub fn color_scheme(mut self, scheme: ColorScheme) -> Self {
         self.color_scheme = Some(scheme);
         self
@@ -405,9 +405,10 @@ impl Treemap {
             0.0
         };
 
-        let margin = design.spacing.control_gap as f64;
-        let plot_width = (layout_width as f64 - 2.0 * margin).max(0.0);
-        let plot_height = (layout_height as f64 - title_height as f64 - 2.0 * margin).max(0.0);
+        let margin = f64::from(design.spacing.control_gap);
+        let plot_width = (f64::from(layout_width) - 2.0 * margin).max(0.0);
+        let plot_height =
+            (f64::from(layout_height) - f64::from(title_height) - 2.0 * margin).max(0.0);
 
         // Compute treemap layout
         let mut rects = Vec::new();
@@ -608,7 +609,7 @@ impl Treemap {
             .child(canvas_element);
 
         if self.hover_enabled {
-            plot_content = plot_content.hover(|style| style.cursor_pointer());
+            plot_content = plot_content.hover(gpui::Styled::cursor_pointer);
         }
 
         for label in label_elements {
@@ -691,12 +692,12 @@ pub fn treemap_chart_scene(
     use d3rs::vello2d::peniko::{Brush, Color};
 
     let sx = if source_width > 0.0 {
-        width as f64 / source_width
+        f64::from(width) / source_width
     } else {
         1.0
     };
     let sy = if source_height > 0.0 {
-        height as f64 / source_height
+        f64::from(height) / source_height
     } else {
         1.0
     };

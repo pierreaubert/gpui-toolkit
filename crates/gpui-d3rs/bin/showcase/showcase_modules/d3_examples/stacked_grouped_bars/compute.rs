@@ -71,7 +71,7 @@ pub(super) fn compute_grouped_layout(
     let max_value = data
         .iter()
         .flat_map(|s| s.iter())
-        .cloned()
+        .copied()
         .fold(0.0_f64, f64::max);
 
     let y_scale = if max_value > 0.0 {

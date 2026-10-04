@@ -14,7 +14,7 @@ mod tests {
         {
             let mut r = root.borrow_mut();
             r.set_children(&root, vec![a.clone(), b.clone()]);
-        }
+        };
 
         // Count leaves (required for cluster layout spacing in current impl)
         HierarchyNode::count(root.clone());
@@ -55,7 +55,7 @@ mod tests {
         assert!(r.x < a_node.x); // Root is to the left of children
         assert!(r.x < b_node.x);
 
-        assert!(a_node.y != b_node.y); // Children are separated vertically
+        assert_ne!(a_node.y, b_node.y); // Children are separated vertically
         assert!(r.y >= a_node.y.min(b_node.y) && r.y <= a_node.y.max(b_node.y));
         // Root y is between children
     }

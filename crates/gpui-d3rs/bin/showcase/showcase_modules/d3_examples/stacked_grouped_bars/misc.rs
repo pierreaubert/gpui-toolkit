@@ -5,7 +5,7 @@ use gpui::*;
 use std::time::Duration;
 
 /// Sample data for the bar chart
-/// Returns (n_series, m_samples, data) where `data[series][sample]` = value
+/// Returns (`n_series`, `m_samples`, data) where `data[series][sample]` = value
 pub fn generate_sample_data(n_series: usize, m_samples: usize) -> Vec<Vec<f64>> {
     let mut data = Vec::with_capacity(n_series);
 
@@ -81,7 +81,7 @@ pub(super) fn start_animation_loop(_entity: Entity<ShowcaseApp>, cx: &mut Contex
                 })
                 .unwrap_or(false);
 
-            this.update(cx, |_, cx| cx.notify()).ok();
+            let _ = this.update(cx, |_, cx| cx.notify());
 
             if !should_continue {
                 break;

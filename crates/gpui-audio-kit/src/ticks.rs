@@ -55,7 +55,7 @@ impl ScaleType {
     /// Convert a position (0.0 to 1.0) back to a value based on the scale type
     #[allow(dead_code)]
     pub fn position_to_value(&self, position: f32, min: f64, max: f64) -> f64 {
-        let pos = (position as f64).clamp(0.0, 1.0);
+        let pos = f64::from(position).clamp(0.0, 1.0);
 
         let normalized = match self {
             ScaleType::Linear => pos,
@@ -233,7 +233,7 @@ impl TickConfig {
 /// Render tick marks as a horizontal row aligned with a meter bar
 ///
 /// Uses the same flex layout as meter bars to ensure proper alignment:
-/// \[label_spacer\] \[gap\] \[tick_area\] \[gap\] \[value_spacer\]
+/// \[`label_spacer`\] \[gap\] \[`tick_area`\] \[gap\] \[`value_spacer`\]
 ///
 /// # Arguments
 /// * `config` - Tick configuration
@@ -350,7 +350,7 @@ impl TickConfig {
         }
     }
 
-    /// Gain reduction scale (0 to max_db, linear)
+    /// Gain reduction scale (0 to `max_db`, linear)
     /// For displaying compressor/limiter gain reduction
     pub fn gain_reduction(max_db: f64) -> Self {
         Self {

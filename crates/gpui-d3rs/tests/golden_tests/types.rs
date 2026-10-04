@@ -55,8 +55,7 @@ fn test_threshold_scale_golden() {
             let expected_idx = str_to_idx[exp_str.as_str()];
             assert_eq!(
                 actual, expected_idx,
-                "case '{}': scale({}) mapped to index {} (expected {} for '{}')",
-                name, input, actual, expected_idx, exp_str
+                "case '{name}': scale({input}) mapped to index {actual} (expected {expected_idx} for '{exp_str}')"
             );
         }
     }
@@ -97,8 +96,7 @@ fn test_symbol_shape_golden() {
         // Verify path is non-empty
         assert!(
             !path.is_empty(),
-            "case '{}': symbol path should not be empty",
-            name
+            "case '{name}': symbol path should not be empty"
         );
 
         // For circle, verify approximate radius
@@ -109,10 +107,7 @@ fn test_symbol_shape_golden() {
             let radius = d3rs::shape::symbol_radius(symbol_type, size);
             assert!(
                 (radius - expected_radius).abs() < expected_radius * 0.1,
-                "case '{}': symbol radius {} too far from expected {}",
-                name,
-                radius,
-                expected_radius
+                "case '{name}': symbol radius {radius} too far from expected {expected_radius}"
             );
         }
     }
@@ -143,8 +138,7 @@ fn test_array_bisect_golden() {
                     let actual = bisect_left_f64(&array, val);
                     assert_eq!(
                         actual, expected,
-                        "case '{}': bisect_left({}) = {} (expected {})",
-                        name, val, actual, expected
+                        "case '{name}': bisect_left({val}) = {actual} (expected {expected})"
                     );
                 }
 
@@ -157,8 +151,7 @@ fn test_array_bisect_golden() {
                     let actual = bisect_right_f64(&array, val);
                     assert_eq!(
                         actual, expected,
-                        "case '{}': bisect_right({}) = {} (expected {})",
-                        name, val, actual, expected
+                        "case '{name}': bisect_right({val}) = {actual} (expected {expected})"
                     );
                 }
             }
@@ -169,14 +162,12 @@ fn test_array_bisect_golden() {
                 assert_eq!(
                     bisect_left_f64(&array, 2.0),
                     bisect_left_2,
-                    "case '{}': bisect_left(2)",
-                    name
+                    "case '{name}': bisect_left(2)"
                 );
                 assert_eq!(
                     bisect_right_f64(&array, 2.0),
                     bisect_right_2,
-                    "case '{}': bisect_right(2)",
-                    name
+                    "case '{name}': bisect_right(2)"
                 );
             }
             "floats" => {
@@ -186,14 +177,12 @@ fn test_array_bisect_golden() {
                 assert_eq!(
                     bisect_left_f64(&array, 0.25),
                     bisect_left_025,
-                    "case '{}': bisect_left(0.25)",
-                    name
+                    "case '{name}': bisect_left(0.25)"
                 );
                 assert_eq!(
                     bisect_right_f64(&array, 0.25),
                     bisect_right_025,
-                    "case '{}': bisect_right(0.25)",
-                    name
+                    "case '{name}': bisect_right(0.25)"
                 );
             }
             _ => {}
@@ -235,11 +224,7 @@ fn test_array_bin_golden() {
 
         // Note: D3.js and our implementation may produce slightly different bin counts
         // due to different tick algorithms. Just verify the bins are reasonable.
-        assert!(
-            !bins.is_empty(),
-            "case '{}': bins should not be empty",
-            name
-        );
+        assert!(!bins.is_empty(), "case '{name}': bins should not be empty");
 
         // For basic test, verify first and last bin boundaries
         if name == "basic" || name == "custom_domain" {
@@ -298,13 +283,11 @@ fn test_contour_golden() {
 
         assert!(
             case.get("points").is_some() || case.get("values").is_some(),
-            "case '{}': missing points or values",
-            name
+            "case '{name}': missing points or values"
         );
         assert!(
             case.get("threshold_count").is_some() || case.get("thresholds").is_some(),
-            "case '{}': missing threshold_count or thresholds",
-            name
+            "case '{name}': missing threshold_count or thresholds"
         );
 
         if name == "basic_density" {
@@ -323,8 +306,7 @@ fn test_contour_golden() {
 
             assert!(
                 !result.is_empty(),
-                "case '{}': contours should not be empty",
-                name
+                "case '{name}': contours should not be empty"
             );
         } else if name == "grid_contours" {
             let values: Vec<f64> = serde_json::from_value(case["values"].clone()).unwrap();
@@ -336,8 +318,7 @@ fn test_contour_golden() {
             assert_eq!(
                 result.len(),
                 thresholds.len(),
-                "case '{}': contour count mismatch",
-                name
+                "case '{name}': contour count mismatch"
             );
         }
     }
@@ -372,8 +353,7 @@ fn test_array_transform_golden() {
             assert_eq!(
                 data.len(),
                 shuffled_length,
-                "case '{}': shuffled length mismatch",
-                name
+                "case '{name}': shuffled length mismatch"
             );
 
             let mut sorted = data.clone();
@@ -381,8 +361,7 @@ fn test_array_transform_golden() {
 
             assert_eq!(
                 sorted, expected_sorted,
-                "case '{}': shuffled data should contain same elements",
-                name
+                "case '{name}': shuffled data should contain same elements"
             );
         } else if name == "reverse" {
             let original: Vec<u32> = serde_json::from_value(case["original"].clone()).unwrap();
@@ -391,7 +370,7 @@ fn test_array_transform_golden() {
             let mut data = original;
             reverse(&mut data);
 
-            assert_eq!(data, expected, "case '{}': reverse mismatch", name);
+            assert_eq!(data, expected, "case '{name}': reverse mismatch");
         } else if name == "sort_ascending" {
             let original: Vec<u32> = serde_json::from_value(case["original"].clone()).unwrap();
             let expected: Vec<u32> = serde_json::from_value(case["sorted"].clone()).unwrap();
@@ -399,7 +378,7 @@ fn test_array_transform_golden() {
             let mut data = original;
             sort_by(&mut data, |x| *x);
 
-            assert_eq!(data, expected, "case '{}': sort mismatch", name);
+            assert_eq!(data, expected, "case '{name}': sort mismatch");
         } else if name == "sort_descending" {
             let original: Vec<u32> = serde_json::from_value(case["original"].clone()).unwrap();
             let expected: Vec<u32> = serde_json::from_value(case["sorted"].clone()).unwrap();
@@ -407,7 +386,7 @@ fn test_array_transform_golden() {
             let mut data = original;
             sort_by_desc(&mut data, |a| *a);
 
-            assert_eq!(data, expected, "case '{}': sort descending mismatch", name);
+            assert_eq!(data, expected, "case '{name}': sort descending mismatch");
         }
     }
 }
@@ -445,9 +424,9 @@ fn test_color_golden() {
                     let e_r = u8::from_str_radix(&expected[0..2], 16).unwrap_or(0);
                     let e_g = u8::from_str_radix(&expected[2..4], 16).unwrap_or(0);
                     let e_b = u8::from_str_radix(&expected[4..6], 16).unwrap_or(0);
-                    (a_r as i32 - e_r as i32).abs() <= 1
-                        && (a_g as i32 - e_g as i32).abs() <= 1
-                        && (a_b as i32 - e_b as i32).abs() <= 1
+                    (i32::from(a_r) - i32::from(e_r)).abs() <= 1
+                        && (i32::from(a_g) - i32::from(e_g)).abs() <= 1
+                        && (i32::from(a_b) - i32::from(e_b)).abs() <= 1
                 }
 
                 // Test category10 scheme
@@ -459,10 +438,7 @@ fn test_color_golden() {
                     let actual_hex = color.to_hex();
                     assert!(
                         hex_colors_close(&actual_hex, expected_hex),
-                        "category10[{}]: {} != {}",
-                        i,
-                        actual_hex,
-                        expected_hex
+                        "category10[{i}]: {actual_hex} != {expected_hex}"
                     );
                 }
 
@@ -475,10 +451,7 @@ fn test_color_golden() {
                     let actual_hex = color.to_hex();
                     assert!(
                         hex_colors_close(&actual_hex, expected_hex),
-                        "tableau10[{}]: {} != {}",
-                        i,
-                        actual_hex,
-                        expected_hex
+                        "tableau10[{i}]: {actual_hex} != {expected_hex}"
                     );
                 }
             }
@@ -541,12 +514,7 @@ fn test_format_golden() {
             assert!(
                 actual_normalized == exp_normalized
                     || actual.replace('−', "-") == exp.replace('−', "-"),
-                "case '{}': format('{}')({}) = '{}' (expected '{}')",
-                name,
-                specifier,
-                value,
-                actual,
-                exp
+                "case '{name}': format('{specifier}')({value}) = '{actual}' (expected '{exp}')"
             );
         }
     }
@@ -582,8 +550,7 @@ fn test_interpolate_string_golden() {
             let actual = interp(*t);
             assert_eq!(
                 actual, *exp,
-                "case '{}': interpolateString('{}', '{}')({}) = '{}' (expected '{}')",
-                name, a, b, t, actual, exp
+                "case '{name}': interpolateString('{a}', '{b}')({t}) = '{actual}' (expected '{exp}')"
             );
         }
     }
@@ -618,8 +585,7 @@ fn test_delaunay_golden() {
                 assert_eq!(
                     delaunay.triangles().count(),
                     expected_triangles.len() / 3, // D3 returns flat array, we return triangle count
-                    "case '{}': triangles count mismatch",
-                    name
+                    "case '{name}': triangles count mismatch"
                 );
 
                 // Check hull
@@ -627,8 +593,7 @@ fn test_delaunay_golden() {
                 assert_eq!(
                     hull.len(),
                     expected_hull.len(),
-                    "case '{}': hull count mismatch",
-                    name
+                    "case '{name}': hull count mismatch"
                 );
             }
             "voronoi_basic" => {
@@ -642,8 +607,7 @@ fn test_delaunay_golden() {
                 // Just verify voronoi was created successfully
                 assert!(
                     voronoi.cell_count() == points.len(),
-                    "case '{}': voronoi cell count should match point count",
-                    name
+                    "case '{name}': voronoi cell count should match point count"
                 );
             }
             "find_nearest" => {
@@ -703,17 +667,12 @@ fn test_delaunay_golden() {
                     assert_eq!(
                         actual.len(),
                         exp_neighbors.len(),
-                        "case '{}': neighbors({}) count mismatch",
-                        name,
-                        i
+                        "case '{name}': neighbors({i}) count mismatch"
                     );
                     for n in exp_neighbors {
                         assert!(
                             actual.contains(n),
-                            "case '{}': neighbors({}) missing {}",
-                            name,
-                            i,
-                            n
+                            "case '{name}': neighbors({i}) missing {n}"
                         );
                     }
                 }
@@ -816,7 +775,10 @@ fn test_area_shape_golden() {
         };
 
         // Get baseline if present
-        let baseline = case.get("baseline").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let baseline = case
+            .get("baseline")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(0.0);
 
         // Parse data - can be [[x, y], ...] or [{x, y0, y1}, ...]
         let data = &case["data"];
@@ -862,16 +824,14 @@ fn test_area_shape_golden() {
         // Verify path is non-empty and valid
         assert!(
             !path.is_empty(),
-            "case '{}': area path should not be empty",
-            name
+            "case '{name}': area path should not be empty"
         );
 
         // Area paths should contain at least one 'M' (move) and one 'Z' (close)
         let path_str = path.to_svg_string();
         assert!(
             path_str.contains('M') || path_str.contains('m'),
-            "case '{}': area path should contain move command",
-            name
+            "case '{name}': area path should contain move command"
         );
     }
 }
@@ -1102,7 +1062,7 @@ fn test_hcl_color_golden() {
         let name = case["name"].as_str().unwrap();
         let tolerance = case
             .get("tolerance")
-            .and_then(|v| v.as_f64())
+            .and_then(serde_json::Value::as_f64)
             .unwrap_or(0.01);
 
         match name {
@@ -1194,8 +1154,7 @@ fn test_hcl_color_golden() {
 
                 assert!(
                     (color.r - result.r).abs() < tolerance as f32,
-                    "case '{}': r roundtrip failed",
-                    name
+                    "case '{name}': r roundtrip failed"
                 );
             }
             "rgb_to_hcl" => {
@@ -1269,8 +1228,7 @@ fn test_hcl_color_golden() {
 
                 assert!(
                     (color.r - result.r).abs() < tolerance as f32,
-                    "case '{}': r roundtrip failed",
-                    name
+                    "case '{name}': r roundtrip failed"
                 );
             }
             "hcl_interpolation" => {
@@ -1337,10 +1295,7 @@ fn test_hcl_color_golden() {
                 let delta = l1.delta_e(&l2);
                 assert!(
                     (expected_delta - delta).abs() < 0.1,
-                    "case '{}': delta_e = {} (expected {})",
-                    name,
-                    delta,
-                    expected_delta
+                    "case '{name}': delta_e = {delta} (expected {expected_delta})"
                 );
             }
             "lab_chroma" => {
@@ -1357,10 +1312,7 @@ fn test_hcl_color_golden() {
                 let chroma = l.chroma();
                 assert!(
                     (expected_chroma - chroma).abs() < tolerance,
-                    "case '{}': chroma = {} (expected {})",
-                    name,
-                    chroma,
-                    expected_chroma
+                    "case '{name}': chroma = {chroma} (expected {expected_chroma})"
                 );
             }
             "gray_colors" => {
@@ -1437,36 +1389,31 @@ fn test_sequential_scale_golden() {
             let color = scale.get(*t);
             assert!(
                 color.r >= 0.0 && color.r <= 1.0,
-                "case '{}': r at {} out of bounds",
-                name,
-                t
+                "case '{name}': r at {t} out of bounds"
             );
             assert!(
                 color.g >= 0.0 && color.g <= 1.0,
-                "case '{}': g at {} out of bounds",
-                name,
-                t
+                "case '{name}': g at {t} out of bounds"
             );
             assert!(
                 color.b >= 0.0 && color.b <= 1.0,
-                "case '{}': b at {} out of bounds",
-                name,
-                t
+                "case '{name}': b at {t} out of bounds"
             );
         }
 
         // Test sample()
-        if let Some(n) = case.get("sample_count").and_then(|v| v.as_u64()) {
+        if let Some(n) = case.get("sample_count").and_then(serde_json::Value::as_u64) {
             let samples = scale.sample(n as usize);
             assert_eq!(
                 samples.len(),
                 n as usize,
-                "case '{}': sample count mismatch",
-                name
+                "case '{name}': sample count mismatch"
             );
 
             // Verify monotonic luminance if available
-            if let Some(check_monotonic) = case.get("check_monotonic").and_then(|v| v.as_bool())
+            if let Some(check_monotonic) = case
+                .get("check_monotonic")
+                .and_then(serde_json::Value::as_bool)
                 && check_monotonic
             {
                 for i in 1..samples.len() {
@@ -1475,8 +1422,7 @@ fn test_sequential_scale_golden() {
                     // Sequential scales should have monotonic luminance
                     assert!(
                         l2 >= l1 - 5.0,
-                        "case '{}': luminance should be monotonic",
-                        name
+                        "case '{name}': luminance should be monotonic"
                     );
                 }
             }
@@ -1511,41 +1457,30 @@ fn test_diverging_scale_golden() {
             let color = scale.get(*t);
             assert!(
                 color.r >= 0.0 && color.r <= 1.0,
-                "case '{}': r at {} out of bounds",
-                name,
-                t
+                "case '{name}': r at {t} out of bounds"
             );
             assert!(
                 color.g >= 0.0 && color.g <= 1.0,
-                "case '{}': g at {} out of bounds",
-                name,
-                t
+                "case '{name}': g at {t} out of bounds"
             );
             assert!(
                 color.b >= 0.0 && color.b <= 1.0,
-                "case '{}': b at {} out of bounds",
-                name,
-                t
+                "case '{name}': b at {t} out of bounds"
             );
         }
 
         // Test midpoint should be near neutral (light gray)
         let mid_color = scale.get(0.5);
         let mid_lab = Lab::from_rgb(&mid_color);
-        assert!(
-            mid_lab.l >= 80.0,
-            "case '{}': midpoint should be light",
-            name
-        );
+        assert!(mid_lab.l >= 80.0, "case '{name}': midpoint should be light");
 
         // Test sample()
-        if let Some(n) = case.get("sample_count").and_then(|v| v.as_u64()) {
+        if let Some(n) = case.get("sample_count").and_then(serde_json::Value::as_u64) {
             let samples = scale.sample(n as usize);
             assert_eq!(
                 samples.len(),
                 n as usize,
-                "case '{}': sample count mismatch",
-                name
+                "case '{name}': sample count mismatch"
             );
         }
     }
@@ -1770,7 +1705,7 @@ fn test_parallel_coordinates_golden() {
 }
 
 /// Test force-directed graph structure validation.
-/// Source: https://observablehq.com/@d3/force-directed-graph
+/// Source: <https://observablehq.com/@d3/force-directed-graph>
 ///
 /// Note: Force simulation is non-deterministic due to random initial positions.
 /// We verify structure and convergence rather than exact positions.
@@ -1797,9 +1732,7 @@ fn test_observable_force_directed() {
         let alpha = case["alpha"].as_f64().unwrap();
         assert!(
             alpha < 0.01,
-            "force alpha {} should be near 0 after {} iterations",
-            alpha,
-            iterations
+            "force alpha {alpha} should be near 0 after {iterations} iterations"
         );
 
         // Verify alpha_decay matches D3.js default formula
@@ -1807,9 +1740,7 @@ fn test_observable_force_directed() {
         let expected_decay = 1.0 - case["alpha_min"].as_f64().unwrap().powf(1.0 / 300.0);
         assert!(
             (alpha_decay - expected_decay).abs() < 1e-4,
-            "force alpha_decay: got {} expected {}",
-            alpha_decay,
-            expected_decay
+            "force alpha_decay: got {alpha_decay} expected {expected_decay}"
         );
 
         // Golden nodes should have finite positions and velocities
@@ -1823,9 +1754,7 @@ fn test_observable_force_directed() {
             // After convergence, velocities should be near zero
             assert!(
                 vx.abs() < 1.0 && vy.abs() < 1.0,
-                "node velocity ({}, {}) too high after convergence",
-                vx,
-                vy
+                "node velocity ({vx}, {vy}) too high after convergence"
             );
         }
 
@@ -1840,13 +1769,11 @@ fn test_observable_force_directed() {
             let target = link["target"].as_str().unwrap();
             assert!(
                 node_ids.contains(&source.to_string()),
-                "force: link source '{}' not in nodes",
-                source
+                "force: link source '{source}' not in nodes"
             );
             assert!(
                 node_ids.contains(&target.to_string()),
-                "force: link target '{}' not in nodes",
-                target
+                "force: link target '{target}' not in nodes"
             );
         }
 
@@ -1886,7 +1813,7 @@ fn test_observable_force_directed() {
 }
 
 /// Test projection rotation accuracy against D3.js golden data.
-/// Validates Orthographic, Stereographic, and ConicEqualArea with various rotations.
+/// Validates Orthographic, Stereographic, and `ConicEqualArea` with various rotations.
 #[test]
 fn test_observable_projections() {
     use d3rs::geo::{
@@ -1902,7 +1829,6 @@ fn test_observable_projections() {
     let layout = &case["layout"];
     let width = layout["width"].as_f64().unwrap();
     let height = layout["height"].as_f64().unwrap();
-    let _tol = 0.5; // 0.5px tolerance
 
     fn test_projection_results(
         proj_name: &str,
@@ -2029,7 +1955,7 @@ fn test_observable_projections() {
 }
 
 /// Test ridgeline plot: validates against golden D3.js data.
-/// Source: https://observablehq.com/@d3/ridgeline-plot
+/// Source: <https://observablehq.com/@d3/ridgeline-plot>
 #[test]
 fn test_observable_ridgeline() {
     let content =
@@ -2053,7 +1979,7 @@ fn test_observable_ridgeline() {
         for dist in distributions {
             let name = dist["name"].as_str().unwrap();
             let bins = dist["bins"].as_array().unwrap();
-            assert_eq!(bins.len(), 50, "ridgeline '{}' should have 50 bins", name);
+            assert_eq!(bins.len(), 50, "ridgeline '{name}' should have 50 bins");
         }
     }
 
@@ -2064,7 +1990,7 @@ fn test_observable_ridgeline() {
                 "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
             ][m];
             let values: Vec<f64> = (0..50)
-                .map(|i| 40.0 + 20.0 * m as f64 / 11.0 + 5.0 * (i as f64 * 0.7).sin())
+                .map(|i| 40.0 + 20.0 * m as f64 / 11.0 + 5.0 * (f64::from(i) * 0.7).sin())
                 .collect();
             (name.to_string(), values)
         })
@@ -2081,12 +2007,12 @@ fn test_observable_ridgeline() {
     // Verify paths start with M
     for (name, path) in &result.area_paths {
         let svg = path.to_svg_string();
-        assert!(svg.starts_with('M'), "ridgeline '{}' path bad", name);
+        assert!(svg.starts_with('M'), "ridgeline '{name}' path bad");
     }
 }
 
 /// Test Voronoi airports layout against golden D3.js data.
-/// Source: https://observablehq.com/@d3/world-airports-voronoi
+/// Source: <https://observablehq.com/@d3/world-airports-voronoi>
 #[test]
 fn test_observable_voronoi_airports() {
     let content = fs::read_to_string("golden/observable/voronoi_airports.json")
@@ -2113,8 +2039,8 @@ fn test_observable_voronoi_airports() {
         for cell in cells {
             let px = cell["px"].as_f64().unwrap();
             let py = cell["py"].as_f64().unwrap();
-            assert!(px >= 0.0 && px <= width, "golden px {} out of bounds", px);
-            assert!(py >= 0.0 && py <= height, "golden py {} out of bounds", py);
+            assert!(px >= 0.0 && px <= width, "golden px {px} out of bounds");
+            assert!(py >= 0.0 && py <= height, "golden py {py} out of bounds");
         }
 
         // Verify golden cell vertices are within bounds
@@ -2126,13 +2052,11 @@ fn test_observable_voronoi_airports() {
                 let vy = v[1].as_f64().unwrap();
                 assert!(
                     vx >= -1.0 && vx <= width + 1.0,
-                    "vertex x {} out of bounds",
-                    vx
+                    "vertex x {vx} out of bounds"
                 );
                 assert!(
                     vy >= -1.0 && vy <= height + 1.0,
-                    "vertex y {} out of bounds",
-                    vy
+                    "vertex y {vy} out of bounds"
                 );
             }
         }
@@ -2142,8 +2066,8 @@ fn test_observable_voronoi_airports() {
     // Run d3rs compute with spherical Voronoi (orthographic globe)
     let coords: Vec<(f64, f64)> = (0..50)
         .map(|i| {
-            let lon = -180.0 + (i as f64 / 49.0) * 360.0;
-            let lat = -60.0 + 30.0 * (i as f64 * 0.3).sin();
+            let lon = -180.0 + (f64::from(i) / 49.0) * 360.0;
+            let lat = -60.0 + 30.0 * (f64::from(i) * 0.3).sin();
             (lon, lat)
         })
         .collect();
@@ -2205,7 +2129,9 @@ fn test_observable_temperature_trends() {
 
     // Run d3rs compute
     // Use deterministic test data (not the full CSV — that needs file I/O)
-    let values: Vec<f64> = (0..100).map(|i| -0.3 + 1.2 * (i as f64 / 99.0)).collect();
+    let values: Vec<f64> = (0..100)
+        .map(|i| -0.3 + 1.2 * (f64::from(i) / 99.0))
+        .collect();
     let result = examples::temperature_trends::compute(&values);
     assert_eq!(result.points.len(), 100);
     assert!(result.max_abs > 0.0);
@@ -2243,7 +2169,7 @@ fn test_observable_hertzsprung_russell() {
 
     // Run d3rs compute
     let data: Vec<(f64, f64)> = (0..100)
-        .map(|i| (i as f64 * 0.2 - 5.0, i as f64 * 0.02))
+        .map(|i| (f64::from(i) * 0.2 - 5.0, f64::from(i) * 0.02))
         .collect();
     let result = examples::hertzsprung_russell::compute(&data);
     assert_eq!(result.stars.len(), 100);
@@ -2286,8 +2212,8 @@ fn test_observable_voronoi_labels() {
     let pts: Vec<(f64, f64)> = (0..50)
         .map(|i| {
             (
-                100.0 + 700.0 * (i as f64 * 0.13).sin().abs(),
-                50.0 + 500.0 * (i as f64 * 0.17).cos().abs(),
+                100.0 + 700.0 * (f64::from(i) * 0.13).sin().abs(),
+                50.0 + 500.0 * (f64::from(i) * 0.17).cos().abs(),
             )
         })
         .collect();
@@ -2355,9 +2281,9 @@ fn test_observable_star_map() {
     let data: Vec<(f64, f64, f64)> = (0..20)
         .map(|i| {
             (
-                i as f64 * 18.0,
-                30.0 + 20.0 * (i as f64 * 0.5).sin(),
-                2.0 + (i % 5) as f64,
+                f64::from(i) * 18.0,
+                30.0 + 20.0 * (f64::from(i) * 0.5).sin(),
+                2.0 + f64::from(i % 5),
             )
         })
         .collect();

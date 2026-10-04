@@ -82,7 +82,7 @@ impl Colorbar {
         let mut ticks = self
             .ticks
             .clone()
-            .unwrap_or_else(|| vec![range[1], (range[0] + range[1]) * 0.5, range[0]]);
+            .unwrap_or_else(|| vec![range[1], f64::midpoint(range[0], range[1]), range[0]]);
 
         if !ticks.iter().any(|tick| *tick == range[1]) {
             ticks.insert(0, range[1]);
@@ -119,14 +119,14 @@ impl Colorbar {
             .border_1()
             .border_color(hsla(0.0, 0.0, 0.35, 1.0));
         for step in 0..16 {
-            let t = 1.0 - step as f64 / 15.0;
+            let t = 1.0 - f64::from(step) / 15.0;
             gradient = gradient.child(div().flex_1().bg(self.scale.map(t).to_rgba()));
         }
 
         let mut tick_labels = div().relative().h(px(height));
         for tick in ticks {
             let text = format_tick(tick);
-            let top = (height as f64 * tick_fraction(range, tick)) as f32;
+            let top = (f64::from(height) * tick_fraction(range, tick)) as f32;
             tick_labels = tick_labels.child(
                 div()
                     .absolute()
@@ -170,7 +170,7 @@ impl Colorbar {
         );
 
         for step in 0..12 {
-            let t = step as f64 / 12.0;
+            let t = f64::from(step) / 12.0;
             let rect_y = y + height * t;
             let rect_height = (height / 12.0).ceil();
             let fill = self.scale.map(1.0 - t).to_hex();

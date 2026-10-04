@@ -45,7 +45,7 @@ impl Path {
 
     /// Get the bounding box of this path.
     ///
-    /// Returns (min_x, min_y, max_x, max_y).
+    /// Returns (`min_x`, `min_y`, `max_x`, `max_y`).
     pub fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
         if self.commands.is_empty() {
             return None;
@@ -322,22 +322,22 @@ impl Path {
 
             match *cmd {
                 PathCommand::MoveTo { x, y } => {
-                    write!(buf, "M{},{}", x, y).unwrap();
+                    write!(buf, "M{x},{y}").unwrap();
                 }
                 PathCommand::LineTo { x, y } => {
-                    write!(buf, "L{},{}", x, y).unwrap();
+                    write!(buf, "L{x},{y}").unwrap();
                 }
                 PathCommand::HorizontalLineTo { x } => {
-                    write!(buf, "H{}", x).unwrap();
+                    write!(buf, "H{x}").unwrap();
                 }
                 PathCommand::VerticalLineTo { y } => {
-                    write!(buf, "V{}", y).unwrap();
+                    write!(buf, "V{y}").unwrap();
                 }
                 PathCommand::ClosePath => {
                     buf.push('Z');
                 }
                 PathCommand::QuadraticCurveTo { x1, y1, x, y } => {
-                    write!(buf, "Q{},{},{},{}", x1, y1, x, y).unwrap();
+                    write!(buf, "Q{x1},{y1},{x},{y}").unwrap();
                 }
                 PathCommand::CubicCurveTo {
                     x1,
@@ -347,7 +347,7 @@ impl Path {
                     x,
                     y,
                 } => {
-                    write!(buf, "C{},{},{},{},{},{}", x1, y1, x2, y2, x, y).unwrap();
+                    write!(buf, "C{x1},{y1},{x2},{y2},{x},{y}").unwrap();
                 }
                 PathCommand::Arc {
                     x,
@@ -371,8 +371,8 @@ impl Path {
                         y1,
                         radius,
                         radius,
-                        if large_arc { 1 } else { 0 },
-                        if sweep { 1 } else { 0 },
+                        i32::from(large_arc),
+                        i32::from(sweep),
                         x2,
                         y2
                     )
@@ -393,8 +393,8 @@ impl Path {
                         rx,
                         ry,
                         x_axis_rotation,
-                        if large_arc { 1 } else { 0 },
-                        if sweep { 1 } else { 0 },
+                        i32::from(large_arc),
+                        i32::from(sweep),
                         x,
                         y
                     )

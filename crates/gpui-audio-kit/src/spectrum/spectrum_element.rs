@@ -114,9 +114,12 @@ impl SpectrumElement {
     pub fn vello_backend(mut self, backend: VelloBackend) -> Self {
         self.vello_backend = backend;
         #[cfg(feature = "vello")]
+        // Braces required: `#[cfg] stmt;` on a non-block statement is E0658,
+        // so the lint-suggested collapse does not compile.
+        #[allow(clippy::unnecessary_operation, clippy::semicolon_if_nothing_returned)]
         {
-            self.painter.set_backend(backend);
-        }
+            self.painter.set_backend(backend)
+        };
         self
     }
 
@@ -250,7 +253,7 @@ impl Element for SpectrumElement {
             let color_brush =
                 |color: Rgba| Brush::Solid(Color::new([color.r, color.g, color.b, color.a]));
             scene.fill_rect(
-                Rect::new(0.0, 0.0, width as f64, height as f64),
+                Rect::new(0.0, 0.0, f64::from(width), f64::from(height)),
                 color_brush(self.colors.background),
             );
 
@@ -281,10 +284,10 @@ impl Element for SpectrumElement {
                         1 => yellow_threshold + amount,
                         _ => red_threshold + amount,
                     };
-                    bands[band].push(PathEl::MoveTo((x0 as f64, y(bottom) as f64).into()));
-                    bands[band].push(PathEl::LineTo((x1 as f64, y(bottom) as f64).into()));
-                    bands[band].push(PathEl::LineTo((x1 as f64, y(top) as f64).into()));
-                    bands[band].push(PathEl::LineTo((x0 as f64, y(top) as f64).into()));
+                    bands[band].push(PathEl::MoveTo((f64::from(x0), f64::from(y(bottom))).into()));
+                    bands[band].push(PathEl::LineTo((f64::from(x1), f64::from(y(bottom))).into()));
+                    bands[band].push(PathEl::LineTo((f64::from(x1), f64::from(y(top))).into()));
+                    bands[band].push(PathEl::LineTo((f64::from(x0), f64::from(y(top))).into()));
                     bands[band].push(PathEl::ClosePath);
                 }
             }
@@ -430,8 +433,8 @@ mod tests {
     #[test]
     fn element_trait_methods_are_callable() {
         let element = SpectrumElement::new(vec![-30.0, -60.0]);
-        let _same = element.into_element();
-        assert!(_same.id().is_some());
+        let same = element.into_element();
+        assert!(same.id().is_some());
     }
 
     #[test]

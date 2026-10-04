@@ -756,9 +756,9 @@ mod tests {
         let scale = SequentialSymlogScale::new()
             .domain(-10.0, 10.0)
             .interpolator(gray);
-        let t0 = scale.scale(0.0).r as f64;
-        let tp = scale.scale(10.0).r as f64;
-        let tn = scale.scale(-10.0).r as f64;
+        let t0 = f64::from(scale.scale(0.0).r);
+        let tp = f64::from(scale.scale(10.0).r);
+        let tn = f64::from(scale.scale(-10.0).r);
         assert!((t0 - 0.5).abs() < 1e-9);
         assert!((tp + tn - 1.0).abs() < 1e-9);
     }

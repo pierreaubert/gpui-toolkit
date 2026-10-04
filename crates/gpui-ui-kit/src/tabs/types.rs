@@ -40,7 +40,7 @@ pub struct TabsTheme {
     /// Close button hover color
     #[theme(default = 0xffffffff, from = text_primary)]
     pub close_hover_color: Rgba,
-    /// Icon color for selected tab (defaults to text_selected if not set)
+    /// Icon color for selected tab (defaults to `text_selected` if not set)
     #[theme(default_expr = "None", from_expr = "None")]
     pub icon_selected: Option<Rgba>,
     /// Icon color for unselected tab (defaults to accent if not set)

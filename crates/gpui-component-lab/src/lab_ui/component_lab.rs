@@ -534,8 +534,7 @@ impl CachedPropStrings {
         self.options
             .iter()
             .find(|(value, _)| value == option)
-            .map(|(_, label)| label.clone())
-            .unwrap_or_else(|| option.into())
+            .map_or_else(|| option.into(), |(_, label)| label.clone())
     }
 }
 
@@ -1301,7 +1300,7 @@ impl ComponentLab {
                     .full_width(true)
                     .on_click(move |_window, cx| {
                         entity.update(cx, |this, cx| {
-                            this.select_story(story_id_for_click.clone(), cx)
+                            this.select_story(story_id_for_click.clone(), cx);
                         });
                     }),
             );
@@ -1437,7 +1436,7 @@ impl ComponentLab {
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Sm)
                         .on_click(move |_window, cx| {
-                            entity.update(cx, |this, cx| this.toggle_matrix(cx));
+                            entity.update(cx, ComponentLab::toggle_matrix);
                         }),
                     )
                     .child({
@@ -1446,7 +1445,7 @@ impl ComponentLab {
                             .variant(ButtonVariant::Ghost)
                             .size(ButtonSize::Sm)
                             .on_click(move |_window, cx| {
-                                entity.update(cx, |this, cx| this.reload_documents(cx));
+                                entity.update(cx, ComponentLab::reload_documents);
                             })
                     })
                     .child({
@@ -1973,7 +1972,7 @@ impl ComponentLab {
                     .child(
                         NumberInput::new("layout-min-width")
                             .label("Min W")
-                            .value(self.layout_constraints.min_width as f64)
+                            .value(f64::from(self.layout_constraints.min_width))
                             .range(160.0, 1600.0)
                             .step(20.0)
                             .decimals(0)
@@ -1984,7 +1983,7 @@ impl ComponentLab {
                                 let entity = self.entity.clone();
                                 move |value, _window, cx| {
                                     entity.update(cx, |this, cx| {
-                                        this.set_layout_min_width(value, cx)
+                                        this.set_layout_min_width(value, cx);
                                     });
                                 }
                             }),
@@ -1992,7 +1991,7 @@ impl ComponentLab {
                     .child(
                         NumberInput::new("layout-min-height")
                             .label("Min H")
-                            .value(self.layout_constraints.min_height as f64)
+                            .value(f64::from(self.layout_constraints.min_height))
                             .range(120.0, 1200.0)
                             .step(20.0)
                             .decimals(0)
@@ -2003,7 +2002,7 @@ impl ComponentLab {
                                 let entity = self.entity.clone();
                                 move |value, _window, cx| {
                                     entity.update(cx, |this, cx| {
-                                        this.set_layout_min_height(value, cx)
+                                        this.set_layout_min_height(value, cx);
                                     });
                                 }
                             }),
@@ -2016,7 +2015,7 @@ impl ComponentLab {
                     .child(
                         NumberInput::new("layout-aspect-ratio")
                             .label("Ratio")
-                            .value(self.layout_constraints.aspect_ratio as f64)
+                            .value(f64::from(self.layout_constraints.aspect_ratio))
                             .range(0.5, 3.0)
                             .step(0.1)
                             .decimals(2)
@@ -2026,7 +2025,7 @@ impl ComponentLab {
                                 let entity = self.entity.clone();
                                 move |value, _window, cx| {
                                     entity.update(cx, |this, cx| {
-                                        this.set_layout_aspect_ratio(value, cx)
+                                        this.set_layout_aspect_ratio(value, cx);
                                     });
                                 }
                             }),
@@ -2034,7 +2033,7 @@ impl ComponentLab {
                     .child(
                         NumberInput::new("layout-padding")
                             .label("Padding")
-                            .value(self.layout_constraints.padding as f64)
+                            .value(f64::from(self.layout_constraints.padding))
                             .range(0.0, 80.0)
                             .step(4.0)
                             .decimals(0)
@@ -2058,7 +2057,7 @@ impl ComponentLab {
                     .child(
                         NumberInput::new("layout-gap")
                             .label("Gap")
-                            .value(self.layout_constraints.gap as f64)
+                            .value(f64::from(self.layout_constraints.gap))
                             .range(0.0, 80.0)
                             .step(4.0)
                             .decimals(0)
@@ -2094,7 +2093,7 @@ impl ComponentLab {
                     .on_change({
                         let entity = self.entity.clone();
                         move |_checked, _window, cx| {
-                            entity.update(cx, |this, cx| this.toggle_matrix(cx));
+                            entity.update(cx, ComponentLab::toggle_matrix);
                         }
                     }),
             )
@@ -2993,7 +2992,7 @@ impl ComponentLab {
                     this.set_prop(
                         &story_id,
                         "value",
-                        StoryPropValue::Number(new_value as f64),
+                        StoryPropValue::Number(f64::from(new_value)),
                         cx,
                     );
                 });
@@ -3198,22 +3197,21 @@ impl ComponentLab {
                 .into_any_element();
         }
 
-        self.ui_showcases
-            .get(&story.id)
-            .cloned()
-            .map(|showcase| {
+        self.ui_showcases.get(&story.id).cloned().map_or_else(
+            || {
+                div()
+                    .child(Text::new("Showcase section unavailable").muted(true))
+                    .into_any_element()
+            },
+            |showcase| {
                 div()
                     .size_full()
                     .min_w_0()
                     .min_h_0()
                     .child(showcase)
                     .into_any_element()
-            })
-            .unwrap_or_else(|| {
-                div()
-                    .child(Text::new("Showcase section unavailable").muted(true))
-                    .into_any_element()
-            })
+            },
+        )
     }
 
     pub(super) fn render_potentiometer_story(
@@ -3372,7 +3370,7 @@ impl ComponentLab {
                         this.set_prop(
                             &story_id,
                             "value",
-                            StoryPropValue::Number(new_value as f64),
+                            StoryPropValue::Number(f64::from(new_value)),
                             cx,
                         );
                     });
@@ -3694,8 +3692,8 @@ impl ComponentLab {
     ) -> AnyElement {
         let theme = cx.theme();
         let min_freq = number_prop(story, "min_freq", 20.0).clamp(1.0, 96_000.0) as f32;
-        let max_freq =
-            number_prop(story, "max_freq", 20_000.0).clamp(min_freq as f64 + 1.0, 192_000.0) as f32;
+        let max_freq = number_prop(story, "max_freq", 20_000.0)
+            .clamp(f64::from(min_freq) + 1.0, 192_000.0) as f32;
         let axis_theme = SpectrumAxisTheme {
             text_color: theme.text_secondary,
             tick_color: theme.border,
@@ -4570,7 +4568,9 @@ impl Render for ComponentLab {
             {
                 let live_status = self.live_status.clone();
                 self.sidebar_entity.update(cx, |sidebar, _cx| {
-                    sidebar.selected_story_id = self.selected_story_id.clone();
+                    sidebar
+                        .selected_story_id
+                        .clone_from(&self.selected_story_id);
                     sidebar.live_status = live_status;
                     sidebar.registry_len = self.registry.len();
                 });
@@ -4588,7 +4588,7 @@ impl Render for ComponentLab {
                 || toolbar.matrix_mode != self.matrix_mode
             {
                 self.toolbar_entity.update(cx, |toolbar, _cx| {
-                    toolbar.story_id = story.id.clone();
+                    toolbar.story_id.clone_from(&story.id);
                     toolbar.viewport_id = viewport.id.to_string();
                     toolbar.theme_id = theme_preset.id.to_string();
                     toolbar.matrix_mode = self.matrix_mode;

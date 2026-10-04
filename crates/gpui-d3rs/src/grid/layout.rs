@@ -138,16 +138,14 @@ impl GridLayout {
     {
         validate_config(config, width, height)?;
 
-        let x_ticks: Cow<[f64]> = config
-            .vertical_line_values
-            .as_deref()
-            .map(Cow::Borrowed)
-            .unwrap_or_else(|| Cow::Owned(x_scale.ticks(DEFAULT_TICK_COUNT)));
-        let y_ticks: Cow<[f64]> = config
-            .horizontal_line_values
-            .as_deref()
-            .map(Cow::Borrowed)
-            .unwrap_or_else(|| Cow::Owned(y_scale.ticks(DEFAULT_TICK_COUNT)));
+        let x_ticks: Cow<[f64]> = config.vertical_line_values.as_deref().map_or_else(
+            || Cow::Owned(x_scale.ticks(DEFAULT_TICK_COUNT)),
+            Cow::Borrowed,
+        );
+        let y_ticks: Cow<[f64]> = config.horizontal_line_values.as_deref().map_or_else(
+            || Cow::Owned(y_scale.ticks(DEFAULT_TICK_COUNT)),
+            Cow::Borrowed,
+        );
 
         validate_ticks("x", &x_ticks)?;
         validate_ticks("y", &y_ticks)?;

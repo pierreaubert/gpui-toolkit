@@ -252,9 +252,9 @@ fn mesh_plot_fingerprints(spec: &MeshPlotSpec) -> MeshPlotFingerprints {
 struct FingerprintWriter(std::collections::hash_map::DefaultHasher);
 
 impl io::Write for FingerprintWriter {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.0.write(bytes);
-        Ok(bytes.len())
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.write(buf);
+        Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -349,7 +349,7 @@ mod tests {
         let mut cache = RetainedSceneCache::new();
 
         let bad_surface = SurfaceSpec::from_flat("bad", vec![1.0, 2.0, 3.0], 2, 2);
-        assert!(cache.upsert_surface(&bad_surface).is_err());
+        cache.upsert_surface(&bad_surface).unwrap_err();
 
         let bad_scene = SceneSpec {
             id: "bad".to_string(),
@@ -359,7 +359,7 @@ mod tests {
             background: None,
             size: None,
         };
-        assert!(cache.upsert_scene(&bad_scene).is_err());
+        cache.upsert_scene(&bad_scene).unwrap_err();
 
         let bad_lines = LinesSpec {
             id: "bad".to_string(),
@@ -367,7 +367,7 @@ mod tests {
             strips: vec![],
             ..LinesSpec::default()
         };
-        assert!(cache.upsert_lines(&bad_lines).is_err());
+        cache.upsert_lines(&bad_lines).unwrap_err();
 
         let bad_mesh = MeshSpec {
             id: "bad".to_string(),
@@ -376,7 +376,7 @@ mod tests {
             material: crate::scene3d::MaterialSpec::default(),
             scalar_field: None,
         };
-        assert!(cache.upsert_mesh(&bad_mesh).is_err());
+        cache.upsert_mesh(&bad_mesh).unwrap_err();
     }
 
     #[test]

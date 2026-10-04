@@ -53,11 +53,11 @@ where
         let value_range = if data.values.is_empty() {
             (0.0, 1.0)
         } else {
-            let min = data.values.iter().cloned().fold(f64::INFINITY, f64::min);
+            let min = data.values.iter().copied().fold(f64::INFINITY, f64::min);
             let max = data
                 .values
                 .iter()
-                .cloned()
+                .copied()
                 .fold(f64::NEG_INFINITY, f64::max);
             (min, max)
         };

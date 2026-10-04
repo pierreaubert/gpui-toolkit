@@ -20,7 +20,7 @@ impl Lab {
         }
     }
 
-    /// Create from a D3Color (RGB).
+    /// Create from a `D3Color` (RGB).
     pub fn from_rgb(color: &D3Color) -> Self {
         // Convert sRGB to linear RGB
         fn to_linear(c: f64) -> f64 {
@@ -31,9 +31,9 @@ impl Lab {
             }
         }
 
-        let r = to_linear(color.r as f64);
-        let g = to_linear(color.g as f64);
-        let b = to_linear(color.b as f64);
+        let r = to_linear(f64::from(color.r));
+        let g = to_linear(f64::from(color.g));
+        let b = to_linear(f64::from(color.b));
 
         // Convert to XYZ (D65 illuminant)
         let x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047;
@@ -57,11 +57,11 @@ impl Lab {
             l: 116.0 * fy - 16.0,
             a: 500.0 * (fx - fy),
             b: 200.0 * (fy - fz),
-            alpha: color.a as f64,
+            alpha: f64::from(color.a),
         }
     }
 
-    /// Convert to D3Color (RGB).
+    /// Convert to `D3Color` (RGB).
     pub fn to_rgb(&self) -> D3Color {
         let fy = (self.l + 16.0) / 116.0;
         let fx = self.a / 500.0 + fy;

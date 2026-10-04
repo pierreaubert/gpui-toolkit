@@ -23,14 +23,12 @@ pub(super) fn ends_with_arabic_no_space_punctuation(segment: &str) -> bool {
     segment
         .chars()
         .next_back()
-        .map(is_arabic_no_space_trailing_punctuation)
-        .unwrap_or(false)
+        .is_some_and(is_arabic_no_space_trailing_punctuation)
 }
 
 pub(super) fn ends_with_myanmar_medial_glue(segment: &str) -> bool {
     segment
         .chars()
         .next_back()
-        .map(is_myanmar_medial_glue)
-        .unwrap_or(false)
+        .is_some_and(is_myanmar_medial_glue)
 }

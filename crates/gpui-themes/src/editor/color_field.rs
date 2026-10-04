@@ -545,7 +545,7 @@ mod tests {
     fn color_field_getter_setter_roundtrip() {
         let fields = all_color_fields();
         let mut theme = EditorTheme::dark();
-        for field in fields.iter() {
+        for field in fields {
             let original = (field.getter)(&theme);
             (field.setter)(&mut theme, original);
             assert_eq!((field.getter)(&theme), original);

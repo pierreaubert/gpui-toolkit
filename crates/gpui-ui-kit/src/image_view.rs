@@ -1,4 +1,4 @@
-//! ImageView component
+//! `ImageView` component
 //!
 //! An image display component with sizing, fit modes, and fallback placeholder.
 //!

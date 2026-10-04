@@ -124,9 +124,7 @@ impl DragConfig {
     }
 
     fn clamp(self, point: DragPoint) -> DragPoint {
-        self.extent
-            .map(|extent| extent.clamp(point))
-            .unwrap_or(point)
+        self.extent.map_or(point, |extent| extent.clamp(point))
     }
 }
 
@@ -449,7 +447,7 @@ mod tests {
             drag.start(43, 0.0, 0.0),
             Err(DragError::AlreadyActive { pointer_id: 42 })
         );
-        assert!(drag.cancel(42).is_ok());
+        drag.cancel(42).unwrap();
         assert!(!drag.is_active());
     }
 

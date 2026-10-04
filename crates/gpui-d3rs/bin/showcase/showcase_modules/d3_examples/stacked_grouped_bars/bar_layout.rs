@@ -51,8 +51,8 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     // Plot dimensions: share the row with the side menu so the menu stays
     // visible at any window width.
-    let plot_width = layout::plot_width(app.content_width, SIDE_MENU_WIDTH) as f64;
-    let plot_height = (plot_width * 0.5).min(app.content_height as f64 * 0.5);
+    let plot_width = f64::from(layout::plot_width(app.content_width, SIDE_MENU_WIDTH));
+    let plot_height = (plot_width * 0.5).min(f64::from(app.content_height) * 0.5);
     let bar_padding = 2.0;
 
     // Compute both layouts
@@ -182,7 +182,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .text_xs()
                                 .child("0")
                                 .child(format!("{}", m_samples / 2))
-                                .child(format!("{}", m_samples)),
+                                .child(format!("{m_samples}")),
                         ),
                 )
                 // Right: Controls
@@ -357,7 +357,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
                                                     div()
                                                         .id(ElementId::Name(
-                                                            format!("series-{}", n).into(),
+                                                            format!("series-{n}").into(),
                                                         ))
                                                         .px_2()
                                                         .py_1()
@@ -367,7 +367,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                         .cursor_pointer()
                                                         .text_xs()
                                                         .text_color(text_color)
-                                                        .child(format!("{}", n))
+                                                        .child(format!("{n}"))
                                                         .on_click(move |_, _window, cx| {
                                                             entity.update(cx, |this, _| {
                                                                 this.stacked_bars_n_series = n;
@@ -408,7 +408,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
                                                         div()
                                                             .id(ElementId::Name(
-                                                                format!("samples-{}", m).into(),
+                                                                format!("samples-{m}").into(),
                                                             ))
                                                             .px_2()
                                                             .py_1()
@@ -418,7 +418,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                             .cursor_pointer()
                                                             .text_xs()
                                                             .text_color(text_color)
-                                                            .child(format!("{}", m))
+                                                            .child(format!("{m}"))
                                                             .on_click(move |_, _window, cx| {
                                                                 entity.update(cx, |this, _| {
                                                                     this.stacked_bars_m_samples = m;

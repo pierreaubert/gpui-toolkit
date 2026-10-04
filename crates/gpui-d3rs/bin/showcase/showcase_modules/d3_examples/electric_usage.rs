@@ -91,7 +91,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 )
                 // X-axis: hour of day labels (0-23)
                 .children((0..24).step_by(3).map(|h| {
-                    let x = 80.0 + h as f64 * result.cell_width;
+                    let x = 80.0 + f64::from(h) * result.cell_width;
                     div()
                         .absolute()
                         .left(px((x + result.cell_width / 2.0 - 5.0) as f32))
@@ -135,7 +135,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .rounded_sm()
                                 .overflow_hidden()
                                 .children((0..10).map(|i| {
-                                    let t = i as f64 / 9.0;
+                                    let t = f64::from(i) / 9.0;
                                     div().flex_1().h_full().bg(chart_colors::ink_rgba(
                                         &ui_theme,
                                         scheme.get(t).to_rgba(),

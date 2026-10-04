@@ -54,7 +54,7 @@ fn test_stack_silhouette() {
         .generate(&data);
 
     // Should be centered around zero
-    let mid = (result[0].values[0][0] + result.last().unwrap().values[0][1]) / 2.0;
+    let mid = f64::midpoint(result[0].values[0][0], result.last().unwrap().values[0][1]);
     assert!(mid.abs() < 0.001);
 }
 
@@ -69,7 +69,7 @@ fn test_stack_order_descending() {
         .generate(&data);
 
     // Largest sum should be first
-    assert!(result[0].key == "B");
+    assert_eq!(result[0].key, "B");
 }
 
 #[test]

@@ -14,7 +14,7 @@
 //! the latest camera on each paint.
 //!
 //! This module deliberately avoids any new wgpu state so it stays under the
-//! ~250 LoC budget called out in the spatial-spider plan.
+//! ~250 `LoC` budget called out in the spatial-spider plan.
 
 use super::camera::{Camera3D, OrbitControls};
 use glam::Vec3;
@@ -119,11 +119,7 @@ impl Lines3DElement {
     fn project(camera: &Camera3D, p: Vec3, w: f32, h: f32) -> Option<(f32, f32)> {
         let s = camera.project_to_screen(p, w, h)?;
         // wgpu/glam perspective projects into z ∈ [0, 1]. Clip behind near plane.
-        if (0.0..=1.0).contains(&s.z) {
-            Some((s.x, s.y))
-        } else {
-            None
-        }
+        (0.0..=1.0).contains(&s.z).then_some((s.x, s.y))
     }
 }
 

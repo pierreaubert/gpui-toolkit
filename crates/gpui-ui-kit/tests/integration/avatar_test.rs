@@ -1,11 +1,11 @@
 //! Integration tests for Avatar component
 //!
-//! Tests the Avatar and AvatarGroup components including:
+//! Tests the Avatar and `AvatarGroup` components including:
 //! - All sizes (Xs to Xxl)
 //! - Shapes (Circle, Square)
 //! - Status indicators (Online, Offline, Away, Busy)
 //! - Initials generation from names
-//! - AvatarGroup with overflow
+//! - `AvatarGroup` with overflow
 
 use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div};
 use gpui_ui_kit::avatar::{Avatar, AvatarGroup, AvatarShape, AvatarSize, AvatarStatus};

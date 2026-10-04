@@ -625,9 +625,7 @@ impl<V: 'static> Entity<V> {
         advance_clock_by: Duration,
         cx: &TestAppContext,
     ) -> impl Future<Output = ()> {
-        use postage::prelude::{Sink as _, Stream as _};
-
-        let (mut tx, mut rx) = postage::mpsc::channel(1);
+        let (tx, rx) = async_channel::bounded(1);
         let subscription = cx.app.borrow_mut().observe(self, move |_, _| {
             tx.try_send(()).ok();
         });
@@ -654,22 +652,19 @@ impl<V> Entity<V> {
         Evt: 'static,
         V: EventEmitter<Evt>,
     {
-        use postage::prelude::{Sink as _, Stream as _};
-
-        let (tx, mut rx) = postage::mpsc::channel(1024);
+        let (tx, rx) = async_channel::bounded(1024);
 
         let mut cx = cx.app.borrow_mut();
         let subscriptions = (
             cx.observe(self, {
-                let mut tx = tx.clone();
+                let tx = tx.clone();
                 move |_, _| {
-                    tx.blocking_send(()).ok();
+                    pollster::block_on(tx.send(())).ok();
                 }
             }),
             cx.subscribe(self, {
-                let mut tx = tx;
                 move |_, _: &Evt, _| {
-                    tx.blocking_send(()).ok();
+                    pollster::block_on(tx.send(())).ok();
                 }
             }),
         );
@@ -1115,8 +1110,33 @@ impl AnyWindowHandle {
 
 #[cfg(test)]
 mod tests {
-    use crate::{PathPromptOptions, TestAppContext};
+    use crate::{AppContext, EventEmitter, PathPromptOptions, TestAppContext};
     use std::path::PathBuf;
+    use std::time::Duration;
+
+    struct NotificationProbe {
+        ready: bool,
+    }
+
+    impl EventEmitter<()> for NotificationProbe {}
+
+    #[gpui::test]
+    async fn test_entity_notification_and_condition_wake(cx: &mut TestAppContext) {
+        let entity = cx.new(|_| NotificationProbe { ready: false });
+        let observer_cx = cx.clone();
+        let mut notification = Box::pin(entity.next_notification(Duration::ZERO, &observer_cx));
+        assert!(futures::poll!(notification.as_mut()).is_pending());
+        entity.update(cx, |_, cx| cx.notify());
+        notification.await;
+
+        let mut condition = Box::pin(entity.condition::<()>(&observer_cx, |probe, _| probe.ready));
+        assert!(futures::poll!(condition.as_mut()).is_pending());
+        entity.update(cx, |probe, cx| {
+            probe.ready = true;
+            cx.emit(());
+        });
+        condition.await;
+    }
 
     #[gpui::test]
     async fn test_simulate_path_prompt_response(cx: &mut TestAppContext) {

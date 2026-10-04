@@ -2,7 +2,7 @@
 //!
 //! Provides components for managing keyboard focus navigation between elements.
 //!
-//! # FocusGroup
+//! # `FocusGroup`
 //!
 //! A container that manages keyboard navigation (arrow keys, Tab) between an
 //! explicit list of focus handles. Supports vertical, horizontal, and grid
@@ -30,7 +30,7 @@
 //!
 //! # Focus Ring
 //!
-//! By default, FocusGroup adds a visual focus ring to the group while focus is
+//! By default, `FocusGroup` adds a visual focus ring to the group while focus is
 //! inside it. Disable with `.focus_ring(false)`.
 
 use gpui::prelude::{
@@ -66,9 +66,9 @@ pub enum FocusDirection {
 pub enum FocusIntegrationStatus {
     /// The reusable focus primitive is implemented and unit-tested.
     PrimitiveReady,
-    /// The component has focused keyboard behavior covered outside FocusGroup.
+    /// The component has focused keyboard behavior covered outside `FocusGroup`.
     CoveredByComponentTests,
-    /// The component should adopt FocusGroup or add end-to-end focus tests.
+    /// The component should adopt `FocusGroup` or add end-to-end focus tests.
     PendingIntegration,
     /// The component needs a native accessibility bridge or platform QA.
     ExternalBridgePending,
@@ -225,7 +225,7 @@ pub const fn focus_integration_entries() -> &'static [FocusIntegrationEntry] {
 
 /// A container that manages keyboard focus navigation between registered targets
 ///
-/// FocusGroup handles arrow key navigation, Tab key movement, and Home/End
+/// `FocusGroup` handles arrow key navigation, Tab key movement, and Home/End
 /// keys for quick navigation to first/last elements. Register child handles
 /// with [`FocusGroup::focus_target`] or [`FocusGroup::focus_targets`].
 pub struct FocusGroup {
@@ -288,7 +288,7 @@ impl FocusGroup {
     ///
     /// GPUI elements do not expose child focus handles through `AnyElement`, so
     /// callers that want roving focus should pass the handles they also give to
-    /// each focusable child. When no targets are provided, FocusGroup remains a
+    /// each focusable child. When no targets are provided, `FocusGroup` remains a
     /// layout/focus-boundary wrapper and does not intercept keyboard events.
     pub fn focus_targets(mut self, handles: impl IntoIterator<Item = FocusHandle>) -> Self {
         self.focus_targets = handles.into_iter().collect();
@@ -309,8 +309,11 @@ impl FocusGroup {
 
     /// Add multiple children
     pub fn children(mut self, children: impl IntoIterator<Item = impl IntoElement>) -> Self {
-        self.children
-            .extend(children.into_iter().map(|c| c.into_any_element()));
+        self.children.extend(
+            children
+                .into_iter()
+                .map(gpui::IntoElement::into_any_element),
+        );
         self
     }
 
@@ -419,7 +422,7 @@ impl RenderOnce for FocusGroup {
         container = match direction {
             FocusDirection::Vertical => container.flex_col(),
             FocusDirection::Horizontal => container.flex_row(),
-            FocusDirection::Grid { columns: _ } => {
+            FocusDirection::Grid { .. } => {
                 // For grid layout, use flex-wrap
                 container.flex_row().flex_wrap()
             }
@@ -532,8 +535,11 @@ impl FocusTrap {
 
     /// Add multiple children.
     pub fn children(mut self, children: impl IntoIterator<Item = impl IntoElement>) -> Self {
-        self.children
-            .extend(children.into_iter().map(|c| c.into_any_element()));
+        self.children.extend(
+            children
+                .into_iter()
+                .map(gpui::IntoElement::into_any_element),
+        );
         self
     }
 

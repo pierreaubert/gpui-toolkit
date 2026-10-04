@@ -4,7 +4,7 @@ use super::super::state::{Position, ViewportState, WorkflowNodeData};
 ///
 /// This matches the visual layout where:
 /// - Node position is scaled by zoom and offset by viewport
-/// - Header, padding, and border are fixed screen pixels (matching WorkflowTheme defaults)
+/// - Header, padding, and border are fixed screen pixels (matching `WorkflowTheme` defaults)
 /// - Content area is scaled node height minus fixed header
 /// - Ports are positioned at content edges (inside the border)
 pub(super) fn port_screen_position(

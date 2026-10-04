@@ -172,11 +172,9 @@ mod streaming_cache_tests {
             .replace_primary_data_shared(Arc::from([2.0, 3.0]), Arc::from([4.0, 5.0]))
             .unwrap();
         assert_eq!(chart.prepare_primary_data(), 2);
-        assert!(
-            chart
-                .replace_primary_data_shared(Arc::from([1.0]), Arc::from([2.0, 3.0]))
-                .is_err()
-        );
+        chart
+            .replace_primary_data_shared(Arc::from([1.0]), Arc::from([2.0, 3.0]))
+            .unwrap_err();
     }
 
     #[test]
@@ -254,7 +252,7 @@ pub struct LineChart {
     pub(super) y_range: Option<[f64; 2]>,
     pub(super) show_legend: bool,
     pub(super) legend_position: LegendPosition,
-    /// Whether legend_position was explicitly set by user
+    /// Whether `legend_position` was explicitly set by user
     pub(super) legend_position_explicit: bool,
     /// Target aspect ratio for the graph (height = width * ratio)
     pub(super) graph_ratio: f32,
@@ -283,7 +281,7 @@ impl std::fmt::Debug for LineChart {
             .field("series_count", &self.series.len())
             .field("title", &self.title)
             .field("hidden_series", &self.hidden_series)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -456,12 +454,12 @@ impl LineChart {
                     .flat_map(|series| series.y.iter().copied()),
             ),
         );
-        let mut series_labels = vec![indexed_label(&self.label, "Series", 0)];
+        let mut series_labels = vec![indexed_label(self.label.as_ref(), "Series", 0)];
         series_labels.extend(
             self.series
                 .iter()
                 .enumerate()
-                .map(|(index, series)| indexed_label(&series.label, "Series", index + 1)),
+                .map(|(index, series)| indexed_label(series.label.as_ref(), "Series", index + 1)),
         );
         let hidden_count = self.hidden_series.len();
         let secondary_count = self
@@ -728,7 +726,7 @@ impl LineChart {
         self.series.push(LineSeries {
             x: None,
             y: Arc::from(y),
-            label: label.map(|l| l.into()),
+            label: label.map(std::convert::Into::into),
             color,
             stroke_width,
             opacity,
@@ -759,7 +757,7 @@ impl LineChart {
         self.series.push(LineSeries {
             x: Some(Arc::from(x)),
             y: Arc::from(y),
-            label: label.map(|l| l.into()),
+            label: label.map(std::convert::Into::into),
             color,
             stroke_width,
             opacity,
@@ -820,7 +818,7 @@ impl LineChart {
         self.series.push(LineSeries {
             x: None,
             y: Arc::from(y),
-            label: label.map(|l| l.into()),
+            label: label.map(std::convert::Into::into),
             color,
             stroke_width,
             opacity,
@@ -848,7 +846,7 @@ impl LineChart {
         self.series.push(LineSeries {
             x: Some(Arc::from(x)),
             y: Arc::from(y),
-            label: label.map(|l| l.into()),
+            label: label.map(std::convert::Into::into),
             color,
             stroke_width,
             opacity,
@@ -1083,7 +1081,8 @@ impl LineChart {
             ));
         }
 
-        for (index, (series_data, series_config)) in secondary_series_data_configs.iter().enumerate()
+        for (index, (series_data, series_config)) in
+            secondary_series_data_configs.iter().enumerate()
         {
             plot_area = plot_area.child(render_line_selected(
                 x_scale,
@@ -1185,7 +1184,7 @@ impl LineChart {
                 // title_font_size(12) + title_padding(8) = 20 added to base 60
                 axis = axis.with_title(String::new());
             }
-            axis.total_size() as f64
+            f64::from(axis.total_size())
         };
         let margin_bottom = 30.0;
         let margin_top = 10.0;
@@ -1238,14 +1237,14 @@ impl LineChart {
         let horizontal_legend_height = single_item_height + 8.0;
 
         // Base available dimensions (without legend)
-        let base_available_width = layout_width as f64 - margin_left - margin_right;
+        let base_available_width = f64::from(layout_width) - margin_left - margin_right;
         let base_available_height =
-            layout_height as f64 - title_height as f64 - margin_top - margin_bottom;
+            f64::from(layout_height) - f64::from(title_height) - margin_top - margin_bottom;
 
         // Determine legend position (auto-select if not explicit)
         let legend_position = if has_legend_items && !self.legend_position_explicit {
             // Calculate plot dimensions and aspect ratios for each position
-            let target_ratio = self.graph_ratio as f64;
+            let target_ratio = f64::from(self.graph_ratio);
 
             // Helper to calculate how close a ratio is to target
             let ratio_distance = |plot_w: f64, plot_h: f64| -> f64 {
@@ -1257,14 +1256,15 @@ impl LineChart {
             };
 
             // Left/Right: subtract legend width from available width
-            let lr_plot_width = base_available_width - (vertical_legend_width + legend_gap) as f64;
+            let lr_plot_width =
+                base_available_width - f64::from(vertical_legend_width + legend_gap);
             let lr_plot_height = base_available_height;
             let lr_distance = ratio_distance(lr_plot_width, lr_plot_height);
 
             // Top/Bottom: subtract legend height from available height
             let tb_plot_width = base_available_width;
             let tb_plot_height =
-                base_available_height - (horizontal_legend_height + legend_gap) as f64;
+                base_available_height - f64::from(horizontal_legend_height + legend_gap);
             let tb_distance = ratio_distance(tb_plot_width, tb_plot_height);
 
             // Choose the orientation that gives ratio closest to target
@@ -1309,13 +1309,14 @@ impl LineChart {
         };
 
         let plot_width =
-            (layout_width as f64 - margin_left - margin_right - width_for_legend as f64).max(0.0);
-        let plot_height = (layout_height as f64
-            - title_height as f64
+            (f64::from(layout_width) - margin_left - margin_right - f64::from(width_for_legend))
+                .max(0.0);
+        let plot_height = (f64::from(layout_height)
+            - f64::from(title_height)
             - margin_top
             - margin_bottom
-            - height_for_legend as f64)
-            .max(0.0);
+            - f64::from(height_for_legend))
+        .max(0.0);
 
         // Validate explicit ranges
         if let Some([min, max]) = self.x_range {
@@ -1693,7 +1694,10 @@ impl LineChart {
         }
 
         // Add chart content and legend based on position
-        if !legend_items.is_empty() {
+        if legend_items.is_empty() {
+            // No legend, just add chart content
+            container = container.child(div().relative().child(chart_content));
+        } else {
             // Build interactive legend element
             let hidden_series = self.hidden_series.clone();
             let on_click = self.on_legend_click.clone();
@@ -1830,9 +1834,6 @@ impl LineChart {
                     container = container.child(div().relative().child(chart_content));
                 }
             }
-        } else {
-            // No legend, just add chart content
-            container = container.child(div().relative().child(chart_content));
         }
 
         Ok(container)

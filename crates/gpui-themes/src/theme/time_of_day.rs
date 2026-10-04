@@ -15,11 +15,7 @@ impl TimeOfDay {
     }
 
     pub fn checked_new(hour: u8, minute: u8) -> Option<Self> {
-        if hour < 24 && minute < 60 {
-            Some(Self { hour, minute })
-        } else {
-            None
-        }
+        (hour < 24 && minute < 60).then_some(Self { hour, minute })
     }
 
     pub const fn minutes_after_midnight(self) -> u16 {

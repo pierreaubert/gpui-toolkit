@@ -190,22 +190,19 @@ impl Default for Mesh3DRenderer<RetainedMeshRenderer> {
 }
 
 impl<B: MeshGpuRenderer> MeshGpuRenderer for Mesh3DRenderer<B> {
-    fn upload_geometry(&mut self, revision: GeometryRevision, upload: &MeshUpload) {
-        self.upload_geometry_inner(revision, upload, false);
+    fn upload_geometry(&mut self, rev: GeometryRevision, upload: &MeshUpload) {
+        self.upload_geometry_inner(rev, upload, false);
     }
 
-    fn write_field(&mut self, revision: FieldRevision, values: &[f32]) {
+    fn write_field(&mut self, rev: FieldRevision, values: &[f32]) {
         // Background preparation can finish out of order. A late lower
         // revision must not overwrite the field already visible in the
         // retained scene or trigger another adapter write.
-        if self
-            .field_revision
-            .is_some_and(|current| revision.0 < current.0)
-        {
+        if self.field_revision.is_some_and(|current| rev.0 < current.0) {
             return;
         }
-        self.backend.write_field(revision, values);
-        self.field_revision = Some(revision);
+        self.backend.write_field(rev, values);
+        self.field_revision = Some(rev);
     }
 
     fn geometry_revision(&self) -> Option<GeometryRevision> {
@@ -679,8 +676,7 @@ impl WgpuMesh3DResources {
         let origin = state
             .upload
             .as_ref()
-            .map(|upload| upload.origin)
-            .unwrap_or([0.0; 3]);
+            .map_or([0.0; 3], |upload| upload.origin);
         let field_enabled = state
             .upload
             .as_ref()
@@ -700,15 +696,15 @@ impl WgpuMesh3DResources {
             light_dir: [0.35, 0.55, 0.75, 0.0],
             params: [
                 state.color.colormap as f32,
-                state.color.unlit as u32 as f32,
+                u32::from(state.color.unlit) as f32,
                 0.3,
                 0.7,
             ],
             value_range: [
                 range[0],
                 range[1],
-                field_enabled as u32 as f32,
-                state.vertex_colors.is_some() as u32 as f32,
+                u32::from(field_enabled) as f32,
+                u32::from(state.vertex_colors.is_some()) as f32,
             ],
             isoline: [
                 state.color.isoline_step,
@@ -810,14 +806,16 @@ fn build_3d_vertices(upload: &MeshUpload, colors: Option<&[[f32; 4]]>) -> Vec<Me
             }
         }
     }
-    normals.iter_mut().for_each(|normal| {
+    for normal in &mut normals {
         let length = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
         if length > f32::EPSILON {
-            normal.iter_mut().for_each(|value| *value /= length);
+            for value in &mut *normal {
+                *value /= length;
+            }
         } else {
             *normal = [0.0, 0.0, 1.0];
         }
-    });
+    }
     upload
         .positions_f32
         .iter()
@@ -1007,7 +1005,7 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
                 state.record_gpu_field_write_time(field_write_time);
             }
             state.set_gpu_memory(resident_bytes, field_capacity_bytes);
-        }
+        };
         let state = self.state.borrow();
         let camera = self.camera.borrow();
         resources.write_uniform(ctx, &state, &camera);
@@ -1015,7 +1013,7 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
         let timestamp_active = resources
             .timestamp
             .as_mut()
-            .is_some_and(|timestamp| timestamp.begin());
+            .is_some_and(super::timestamp::GpuTimestampRecorder::begin);
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("mesh_3d_pass"),
@@ -1065,7 +1063,7 @@ impl gpui_wgpu::WgpuCustomDraw for WgpuMesh3DDraw {
             pass.set_pipeline(&resources.triad_pipeline);
             pass.set_vertex_buffer(0, resources.triad.slice(..));
             pass.draw(0..resources.triad_count, 0..1);
-        }
+        };
         if let Some(timestamp) = resources.timestamp.as_mut() {
             timestamp.finish(encoder, timestamp_active);
         }
@@ -1209,18 +1207,18 @@ mod tests {
 
 #[cfg(not(test))]
 impl MeshGpuRenderer for WgpuMesh3DRenderer {
-    fn upload_geometry(&mut self, revision: GeometryRevision, upload: &MeshUpload) {
+    fn upload_geometry(&mut self, rev: GeometryRevision, upload: &MeshUpload) {
         let mut state = self.state.borrow_mut();
         state.record_geometry_upload(upload);
-        state.geometry_rev = revision;
+        state.geometry_rev = rev;
         state.upload = Some(upload.clone());
         self.resources.borrow_mut().take();
     }
 
-    fn write_field(&mut self, revision: FieldRevision, values: &[f32]) {
+    fn write_field(&mut self, rev: FieldRevision, values: &[f32]) {
         let mut state = self.state.borrow_mut();
         state.record_field_write(values);
-        state.field_rev = revision;
+        state.field_rev = rev;
         if let Some(upload) = state.upload.as_mut() {
             if upload.cell_values_f32.is_some() {
                 crate::mesh::gpu::replace_retained_field(&mut upload.cell_values_f32, values);

@@ -123,8 +123,7 @@ pub fn coerce_prop_value(current: &StoryPropValue, raw: &str) -> StoryPropValue 
             .parse::<f64>()
             .ok()
             .filter(|value| value.is_finite())
-            .map(StoryPropValue::Number)
-            .unwrap_or_else(|| current.clone()),
+            .map_or_else(|| current.clone(), StoryPropValue::Number),
         StoryPropValue::Text(_) => StoryPropValue::Text(SharedString::from(raw)),
         StoryPropValue::Choice(_) => StoryPropValue::Choice(SharedString::from(raw)),
         StoryPropValue::Color(_) => StoryPropValue::Color(SharedString::from(raw)),

@@ -311,7 +311,7 @@ fn render_color_scheme_section(
                     div()
                         .text_xs()
                         .text_color(rgb(0x888888))
-                        .child(format!("{}", i)),
+                        .child(format!("{i}")),
                 )
         })))
 }
@@ -484,7 +484,7 @@ fn render_chromatic_row(label: &'static str, scale_fn: fn(f64) -> D3Color) -> Di
                 .child(label),
         )
         .child(div().flex().children((0..50).map(|i| {
-            let t = i as f64 / 49.0;
+            let t = f64::from(i) / 49.0;
             let color = scale_fn(t);
             div().w(px(8.0)).h(px(30.0)).bg(color.to_rgba())
         })))
@@ -504,7 +504,7 @@ fn render_sequential_scale_row(label: &'static str, scale: SequentialScale) -> D
                 .child(label),
         )
         .child(div().flex().children((0..50).map(|i| {
-            let t = i as f64 / 49.0;
+            let t = f64::from(i) / 49.0;
             let color = scale.get(t);
             div().w(px(8.0)).h(px(30.0)).bg(color.to_rgba())
         })))
@@ -524,7 +524,7 @@ fn render_diverging_scale_row(label: &'static str, scale: DivergingScale) -> Div
                 .child(label),
         )
         .child(div().flex().children((0..50).map(|i| {
-            let t = i as f64 / 49.0;
+            let t = f64::from(i) / 49.0;
             let color = scale.get(t);
             div().w(px(8.0)).h(px(30.0)).bg(color.to_rgba())
         })))
@@ -547,7 +547,7 @@ fn render_hcl_interpolation_row(label: &'static str, start: D3Color, end: D3Colo
                 .child(label),
         )
         .child(div().flex().children((0..30).map(|i| {
-            let t = i as f64 / 29.0;
+            let t = f64::from(i) / 29.0;
             let color = start_hcl.interpolate(&end_hcl, t).to_rgb();
             div().w(px(14.0)).h(px(30.0)).bg(color.to_rgba())
         })))

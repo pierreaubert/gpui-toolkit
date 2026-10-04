@@ -156,7 +156,7 @@ fn find_node_hit_id(node: &Scene2DNode, point: ScenePoint) -> Option<&str> {
         return Some(hit_id);
     }
     (node.hit_id.is_some() && node_contains_local(node, local))
-        .then(|| node.hit_id.as_deref())
+        .then_some(node.hit_id.as_deref())
         .flatten()
 }
 

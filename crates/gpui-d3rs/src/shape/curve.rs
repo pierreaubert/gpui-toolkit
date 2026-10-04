@@ -308,8 +308,7 @@ mod tests {
             curve.interpolate_into(&points, &mut out);
             assert_eq!(
                 expected, out,
-                "interpolate_into should match interpolate for {:?}",
-                curve
+                "interpolate_into should match interpolate for {curve:?}"
             );
         }
     }

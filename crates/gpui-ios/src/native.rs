@@ -1,9 +1,9 @@
 //! Native iOS integration metadata used by GPUI shells.
 //!
 //! These types are intentionally platform-agnostic so they can be tested on
-//! non-iOS hosts while the Objective-C bridge maps them to UIKit at runtime.
+//! non-iOS hosts while the Objective-C bridge maps them to `UIKit` at runtime.
 
-/// UIKit size class for one axis.
+/// `UIKit` size class for one axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SizeClass {
     Compact,
@@ -70,7 +70,7 @@ impl DynamicTypeCategory {
     }
 }
 
-/// Insets in UIKit order: top, left, bottom, right.
+/// Insets in `UIKit` order: top, left, bottom, right.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct SafeAreaInsets {
     pub top: f32,
@@ -260,7 +260,7 @@ mod tests {
 
         assert_eq!(metrics.content_size(), (1004.0, 524.0));
         assert!(metrics.is_landscape_like());
-        assert!(metrics.validate().is_ok());
+        metrics.validate().unwrap();
         assert!(DynamicTypeCategory::AccessibilityLarge.is_accessibility_size());
     }
 

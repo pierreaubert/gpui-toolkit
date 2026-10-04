@@ -14,7 +14,7 @@ use std::sync::Arc;
 /// A single item in the sphere gallery
 #[derive(Clone)]
 pub struct SphereGalleryItem {
-    /// RGBA pixel data at cell_size × cell_size
+    /// RGBA pixel data at `cell_size` × `cell_size`
     pub pixels: Vec<u8>,
     /// Optional label to display
     pub label: Option<SharedString>,

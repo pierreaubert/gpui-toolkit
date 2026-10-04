@@ -40,9 +40,9 @@ impl D3Color {
     /// ```
     pub fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self {
-            r: r as f32 / 255.0,
-            g: g as f32 / 255.0,
-            b: b as f32 / 255.0,
+            r: f32::from(r) / 255.0,
+            g: f32::from(g) / 255.0,
+            b: f32::from(b) / 255.0,
             a: 1.0,
         }
     }
@@ -58,10 +58,10 @@ impl D3Color {
     /// ```
     pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self {
-            r: r as f32 / 255.0,
-            g: g as f32 / 255.0,
-            b: b as f32 / 255.0,
-            a: a as f32 / 255.0,
+            r: f32::from(r) / 255.0,
+            g: f32::from(g) / 255.0,
+            b: f32::from(b) / 255.0,
+            a: f32::from(a) / 255.0,
         }
     }
 
@@ -197,7 +197,7 @@ impl D3Color {
         let r = (self.r * 255.0).round() as u8;
         let g = (self.g * 255.0).round() as u8;
         let b = (self.b * 255.0).round() as u8;
-        format!("#{:02x}{:02x}{:02x}", r, g, b)
+        format!("#{r:02x}{g:02x}{b:02x}")
     }
 
     /// Convert to a hex color string with alpha (e.g., "#ff000080")
@@ -215,7 +215,7 @@ impl D3Color {
         let g = (self.g * 255.0).round() as u8;
         let b = (self.b * 255.0).round() as u8;
         let a = (self.a * 255.0).round() as u8;
-        format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)
+        format!("#{r:02x}{g:02x}{b:02x}{a:02x}")
     }
 
     /// Get the luminance of the color (0.0 to 1.0)

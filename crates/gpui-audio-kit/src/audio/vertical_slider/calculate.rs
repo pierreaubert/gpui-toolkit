@@ -66,11 +66,7 @@ fn calculate_linear_ticks(min: f64, max: f64, track_height: f32) -> Vec<TickMark
                 value: tick_value,
                 normalized_pos: normalized,
                 is_major: is_labeled,
-                label: if is_labeled {
-                    Some(format_value_abbrev(tick_value))
-                } else {
-                    None
-                },
+                label: is_labeled.then(|| format_value_abbrev(tick_value)),
             });
         }
         tick_value += minor_step;
@@ -156,11 +152,7 @@ fn calculate_log_ticks(min: f64, max: f64, track_height: f32) -> Vec<TickMark> {
                 value: decade_value,
                 normalized_pos: normalized,
                 is_major: should_label,
-                label: if should_label {
-                    Some(format_value_abbrev(decade_value))
-                } else {
-                    None
-                },
+                label: should_label.then(|| format_value_abbrev(decade_value)),
             });
             decade_index += 1;
         }
@@ -280,16 +272,16 @@ mod tests {
     #[test]
     fn linear_ticks_include_min_and_max() {
         let ticks = calculate_ticks(0.0, 100.0, Scale::Linear, 160.0);
-        assert!(ticks.first().unwrap().normalized_pos == 0.0);
-        assert!(ticks.last().unwrap().normalized_pos == 1.0);
+        assert_eq!(ticks.first().unwrap().normalized_pos, 0.0);
+        assert_eq!(ticks.last().unwrap().normalized_pos, 1.0);
         assert!(ticks.iter().any(|t| t.is_major));
     }
 
     #[test]
     fn logarithmic_ticks_include_min_and_max() {
         let ticks = calculate_ticks(20.0, 20_000.0, Scale::Logarithmic, 160.0);
-        assert!(ticks.first().unwrap().normalized_pos == 0.0);
-        assert!(ticks.last().unwrap().normalized_pos == 1.0);
+        assert_eq!(ticks.first().unwrap().normalized_pos, 0.0);
+        assert_eq!(ticks.last().unwrap().normalized_pos, 1.0);
     }
 
     #[test]
@@ -303,7 +295,7 @@ mod tests {
     #[test]
     fn tick_cache_is_bounded() {
         for index in 0..=(TICK_CACHE_CAPACITY as u32 + 1) {
-            calculate_ticks(0.0, 100.0 + index as f64, Scale::Linear, 160.0);
+            calculate_ticks(0.0, 100.0 + f64::from(index), Scale::Linear, 160.0);
         }
         TICK_CACHE.with(|cache| assert!(cache.borrow().len() <= TICK_CACHE_CAPACITY));
     }

@@ -41,8 +41,7 @@ impl LcgRng {
         use web_time::{SystemTime, UNIX_EPOCH};
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(42);
+            .map_or(42, |d| d.as_nanos() as u64);
         Self::new(seed)
     }
 
@@ -135,7 +134,7 @@ impl RandomNormal {
         }
     }
 
-    /// Create a standard normal generator (mean=0, std_dev=1)
+    /// Create a standard normal generator (mean=0, `std_dev=1`)
     pub fn standard() -> Self {
         Self::new(0.0, 1.0)
     }
@@ -240,7 +239,7 @@ impl RandomBernoulli {
 
     /// Sample as 0 or 1
     pub fn sample_int(&self) -> u32 {
-        if self.sample() { 1 } else { 0 }
+        u32::from(self.sample())
     }
 }
 
@@ -412,7 +411,7 @@ mod tests {
     fn test_bernoulli() {
         let bern = RandomBernoulli::with_seed(0.7, 12345);
         let count: u32 = (0..10000).map(|_| bern.sample_int()).sum();
-        let proportion = count as f64 / 10000.0;
+        let proportion = f64::from(count) / 10000.0;
 
         // Should be close to 0.7
         assert!((proportion - 0.7).abs() < 0.05);
@@ -426,7 +425,7 @@ mod tests {
 
         // Same elements
         let mut sorted = shuffled.clone();
-        sorted.sort();
+        sorted.sort_unstable();
         assert_eq!(sorted, data);
 
         // Usually different order (extremely unlikely to be same with seed 12345)

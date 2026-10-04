@@ -92,7 +92,7 @@ fn terrain_noise(x: f64, y: f64) -> f64 {
     let mut amplitude = 1.0;
 
     for octave in 0..3 {
-        let freq = (1 << octave) as f64;
+        let freq = f64::from(1 << octave);
         let nx = x * freq * 5.0;
         let ny = y * freq * 5.0;
 
@@ -113,8 +113,8 @@ fn terrain_noise(x: f64, y: f64) -> f64 {
 #[allow(dead_code)]
 pub fn volcano_extent() -> (f64, f64) {
     let data = generate_volcano_data();
-    let min = data.iter().cloned().fold(f64::INFINITY, f64::min);
-    let max = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let min = data.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = data.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     (min, max)
 }
 

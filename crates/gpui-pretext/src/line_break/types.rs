@@ -71,7 +71,7 @@ pub struct PreparedLineBreakData<'a> {
     pub(crate) kp_item_cache: KpItemCache<'a>,
 }
 
-impl<'a> PreparedLineBreakData<'a> {
+impl PreparedLineBreakData<'_> {
     /// Return a view over a sub-range of segments, remapping the chunk list to a
     /// single chunk covering the range.
     ///
@@ -211,7 +211,7 @@ pub enum LineBreakStrategy {
 /// A candidate breakpoint in the Knuth-Plass item list.
 #[derive(Debug, Clone)]
 pub(crate) struct KPItem {
-    /// Segment index in the PreparedLineBreakData.
+    /// Segment index in the `PreparedLineBreakData`.
     pub(super) segment_index: usize,
     /// Grapheme index within the segment (0 for segment-level breaks).
     pub(super) grapheme_index: usize,
@@ -221,8 +221,8 @@ pub(crate) struct KPItem {
     pub(super) total_stretch: f64,
     /// Cumulative shrink (glue shrinkability) up to this break.
     pub(super) total_shrink: f64,
-    /// Penalty for breaking here. f64::INFINITY means "must not break",
-    /// f64::NEG_INFINITY means "must break" (hard break / end of paragraph).
+    /// Penalty for breaking here. `f64::INFINITY` means "must not break",
+    /// `f64::NEG_INFINITY` means "must break" (hard break / end of paragraph).
     pub(super) penalty: f64,
     /// Whether this break is "flagged" (e.g., a hyphenation break).
     pub(super) flagged: bool,
@@ -268,7 +268,7 @@ impl KpBreaks {
         if offset == 0 {
             return;
         }
-        for (seg, _) in self.0.iter_mut() {
+        for (seg, _) in &mut self.0 {
             *seg += offset;
         }
     }
@@ -591,7 +591,7 @@ pub(super) fn build_kp_items(
 
 /// Run the Knuth-Plass algorithm on a single chunk of prepared data.
 ///
-/// Returns the chosen breakpoints as (segment_index, grapheme_index) pairs,
+/// Returns the chosen breakpoints as (`segment_index`, `grapheme_index`) pairs,
 /// or None if no feasible solution exists.
 pub(super) fn knuth_plass_chunk(
     items: &[KPItem],
@@ -761,9 +761,9 @@ pub(super) fn knuth_plass_chunk(
     })
 }
 
-/// Convert Knuth-Plass breakpoints into InternalLayoutLine entries.
+/// Convert Knuth-Plass breakpoints into `InternalLayoutLine` entries.
 ///
-/// `breaks` contains (segment_index, grapheme_index) pairs representing
+/// `breaks` contains (`segment_index`, `grapheme_index`) pairs representing
 /// the start of each line and the end of the last line.
 pub(super) fn breakpoints_to_lines(
     prepared: &PreparedLineBreakData,

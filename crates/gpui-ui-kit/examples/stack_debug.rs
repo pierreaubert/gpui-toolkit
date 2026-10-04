@@ -1,6 +1,6 @@
 //! Stack Debug Example
 //!
-//! Demonstrates VStack, HStack, Spacer, and Divider components:
+//! Demonstrates `VStack`, `HStack`, Spacer, and Divider components:
 //! - Spacing options
 //! - Alignment
 //! - Dividers

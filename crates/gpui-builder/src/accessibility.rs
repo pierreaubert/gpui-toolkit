@@ -91,10 +91,10 @@ fn build_node(
     let role = meta.role.unwrap_or_else(|| default_role(node));
 
     let label = meta.label.map(str::to_string).or_else(|| {
-        if !node.visible {
-            node.collapse_label.map(str::to_string)
-        } else {
+        if node.visible {
             None
+        } else {
+            node.collapse_label.map(str::to_string)
         }
     });
 

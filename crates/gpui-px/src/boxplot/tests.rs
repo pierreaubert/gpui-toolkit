@@ -75,14 +75,14 @@ fn test_boxplot_mismatched_lengths() {
 
 #[test]
 fn test_boxplot_successful_build() {
-    let x: Vec<f64> = (0..100).map(|i| (i / 10) as f64).collect();
+    let x: Vec<f64> = (0..100).map(|i| f64::from(i / 10)).collect();
     let y: Vec<f64> = x.iter().map(|&xi| xi * 2.0).collect();
 
     let result = boxplot(&x, &y)
         .title("Test Box Plot")
         .box_color(0xcccccc)
         .build();
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn test_boxplot_builder_chain() {
         .bins(5)
         .size(800.0, 600.0)
         .build();
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn test_boxplot_log_scale_positive_values() {
         .x_scale(ScaleType::Log)
         .y_scale(ScaleType::Log)
         .build();
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -149,7 +149,7 @@ fn test_boxplot_responsive_size_defaults_and_fixed_opt_in() {
 
 #[test]
 fn render_with_scales_batches_box_parts() {
-    let x: Vec<f64> = (0..100).map(|i| (i / 10) as f64).collect();
+    let x: Vec<f64> = (0..100).map(|i| f64::from(i / 10)).collect();
     let y: Vec<f64> = x.iter().map(|&xi| xi * 2.0).collect();
 
     let result = boxplot(&x, &y)

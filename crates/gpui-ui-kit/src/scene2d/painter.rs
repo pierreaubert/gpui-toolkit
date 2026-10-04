@@ -1,4 +1,4 @@
-//! Native GPUI painting for retained Scene2D scenes.
+//! Native GPUI painting for retained `Scene2D` scenes.
 
 // Rust guideline compliant 2026-02-21
 
@@ -133,7 +133,7 @@ impl RenderOnce for GameSurface {
                     .upgrade()
                     .and_then(|handler| handler.borrow().clone());
                 dispatch_all(
-                    &transition_handler,
+                    transition_handler.as_ref(),
                     paint_state.take_transition_completions(),
                     window,
                     cx,
@@ -211,7 +211,7 @@ impl RenderOnce for GameSurface {
                     .upgrade()
                     .and_then(|handler| handler.borrow().clone());
                 dispatch_all(
-                    &callback,
+                    callback.as_ref(),
                     lifecycle(super::input::Scene2DLifecycleReason::FocusLost),
                     window,
                     cx,
@@ -229,7 +229,7 @@ impl RenderOnce for GameSurface {
                 dispatch_direct_pointer(
                     &pointer_down_state,
                     &pointer_down_layout,
-                    &pointer_down_input,
+                    pointer_down_input.as_ref(),
                     pointer_down_focus.clone(),
                     event,
                     Scene2DPointerPhase::Down,
@@ -246,7 +246,7 @@ impl RenderOnce for GameSurface {
                 dispatch_direct_pointer(
                     &pointer_move_state,
                     &pointer_move_layout,
-                    &pointer_move_input,
+                    pointer_move_input.as_ref(),
                     pointer_move_focus.clone(),
                     event,
                     Scene2DPointerPhase::Move,
@@ -263,7 +263,7 @@ impl RenderOnce for GameSurface {
                 dispatch_direct_pointer(
                     &pointer_up_state,
                     &pointer_up_layout,
-                    &pointer_up_input,
+                    pointer_up_input.as_ref(),
                     pointer_up_focus.clone(),
                     event,
                     Scene2DPointerPhase::Up,
@@ -280,7 +280,7 @@ impl RenderOnce for GameSurface {
                 dispatch_direct_pointer(
                     &pointer_cancel_state,
                     &pointer_cancel_layout,
-                    &pointer_cancel_input,
+                    pointer_cancel_input.as_ref(),
                     pointer_cancel_focus.clone(),
                     event,
                     Scene2DPointerPhase::Cancel,
@@ -312,7 +312,7 @@ impl RenderOnce for GameSurface {
                     if !routed.is_empty() {
                         cx.stop_propagation();
                     }
-                    dispatch_all(&down_input, routed, window, cx);
+                    dispatch_all(down_input.as_ref(), routed, window, cx);
                 }
             });
 
@@ -341,7 +341,7 @@ impl RenderOnce for GameSurface {
                     if !routed.is_empty() && event.pressed_button.is_some() {
                         cx.stop_propagation();
                     }
-                    dispatch_all(&move_input, routed, window, cx);
+                    dispatch_all(move_input.as_ref(), routed, window, cx);
                 }
             });
 
@@ -353,13 +353,13 @@ impl RenderOnce for GameSurface {
             let outside_input = up_input.clone();
             root = root
                 .on_mouse_up(MouseButton::Left, move |event, window, cx| {
-                    dispatch_mouse_up(&up_state, &up_layout, &up_input, event, window, cx);
+                    dispatch_mouse_up(&up_state, &up_layout, up_input.as_ref(), event, window, cx);
                 })
                 .on_mouse_up_out(MouseButton::Left, move |event, window, cx| {
                     dispatch_mouse_up(
                         &outside_state,
                         &outside_layout,
-                        &outside_input,
+                        outside_input.as_ref(),
                         event,
                         window,
                         cx,
@@ -389,7 +389,7 @@ impl RenderOnce for GameSurface {
                 if !routed.is_empty() {
                     cx.stop_propagation();
                 }
-                dispatch_all(&key_down_input, routed, window, cx);
+                dispatch_all(key_down_input.as_ref(), routed, window, cx);
             });
 
             let key_up_state = state.clone();
@@ -413,7 +413,7 @@ impl RenderOnce for GameSurface {
                 if !routed.is_empty() {
                     cx.stop_propagation();
                 }
-                dispatch_all(&key_up_input, routed, window, cx);
+                dispatch_all(key_up_input.as_ref(), routed, window, cx);
             });
         }
         root
@@ -433,7 +433,7 @@ type Scene2DLayout = (Bounds<Pixels>, Scene2DViewTransform, f32);
 fn dispatch_mouse_up(
     state: &Scene2DState,
     layout: &Rc<RefCell<Option<Scene2DLayout>>>,
-    callback: &Option<Rc<dyn Fn(Scene2DInput, &Window, &mut App) + 'static>>,
+    callback: Option<&Rc<dyn Fn(Scene2DInput, &Window, &mut App) + 'static>>,
     event: &MouseUpEvent,
     window: &mut Window,
     cx: &mut App,
@@ -463,7 +463,7 @@ fn dispatch_mouse_up(
 fn dispatch_direct_pointer(
     state: &Scene2DState,
     layout: &Rc<RefCell<Option<Scene2DLayout>>>,
-    callback: &Option<Rc<dyn Fn(Scene2DInput, &Window, &mut App) + 'static>>,
+    callback: Option<&Rc<dyn Fn(Scene2DInput, &Window, &mut App) + 'static>>,
     focus_handle: gpui::FocusHandle,
     event: &PointerEvent,
     phase: Scene2DPointerPhase,
@@ -572,12 +572,12 @@ fn scene_button(button: MouseButton) -> Option<Scene2DButton> {
         MouseButton::Left => Some(Scene2DButton::Left),
         MouseButton::Right => Some(Scene2DButton::Right),
         MouseButton::Middle => Some(Scene2DButton::Middle),
-        _ => None,
+        MouseButton::Navigate(_) => None,
     }
 }
 
 fn dispatch_all(
-    callback: &Option<Rc<dyn Fn(Scene2DInput, &Window, &mut App) + 'static>>,
+    callback: Option<&Rc<dyn Fn(Scene2DInput, &Window, &mut App) + 'static>>,
     events: Vec<Scene2DInput>,
     window: &Window,
     cx: &mut App,
@@ -710,10 +710,11 @@ fn add_native_semantic_node(
             };
             builder.on_action(id, gpui::accesskit::Action::Click, move |_, window, cx| {
                 dispatch_all(
-                    &state
+                    state
                         .weak_input_handler()
                         .upgrade()
-                        .and_then(|handler| handler.borrow().clone()),
+                        .and_then(|handler| handler.borrow().clone())
+                        .as_ref(),
                     vec![Scene2DInput::Activate {
                         id: object_id.clone(),
                         hit_id: hit_id.clone(),
@@ -1115,7 +1116,7 @@ fn paint_leaf_node(
             node, *center, *radius, *fill, *stroke, transform, bounds, window,
         ),
         Scene2DNodeKind::Line { start, end, stroke } => {
-            paint_line(node, *start, *end, *stroke, transform, bounds, window)
+            paint_line(node, *start, *end, *stroke, transform, bounds, window);
         }
         Scene2DNodeKind::Path {
             commands,
@@ -1179,22 +1180,17 @@ fn paint_rect(
         let width = (bottom_right_x - top_left_x).abs();
         let height = (bottom_right_y - top_left_y).abs();
         let mapped_radius = radius * transform_scale(node.transform) * transform.scale();
-        let background = fill_brush
-            .map(|brush| background_for(brush, node.opacity))
-            .unwrap_or_else(|| gpui::transparent_black().into());
+        let background = fill_brush.map_or_else(|| gpui::transparent_black().into(), |brush| background_for(brush, node.opacity));
         let mut painted = quad(
             Bounds {
                 origin: point(px(x), px(y)),
                 size: size(px(width), px(height)),
             },
             Corners::all(px(mapped_radius)),
-            background.clone(),
+            background,
             stroke
-                .map(|edge| px(edge.width * transform.scale() * transform_scale(node.transform)))
-                .unwrap_or(px(0.0)),
-            stroke
-                .map(|edge| rgba_color(edge.color, node.opacity).into())
-                .unwrap_or_else(|| gpui::transparent_black()),
+                .map_or(px(0.0), |edge| px(edge.width * transform.scale() * transform_scale(node.transform))),
+            stroke.map_or_else(gpui::transparent_black, |edge| rgba_color(edge.color, node.opacity).into()),
             gpui::BorderStyle::default(),
         );
         painted.background = background;
@@ -1232,9 +1228,7 @@ fn paint_circle(
     if is_uniform_orthogonal(node.transform) {
         let mapped_center = window_point(center.x, center.y, node.transform, transform, bounds);
         let mapped_radius = radius * transform_scale(node.transform) * transform.scale();
-        let background = fill_brush
-            .map(|brush| background_for(brush, node.opacity))
-            .unwrap_or_else(|| gpui::transparent_black().into());
+        let background = fill_brush.map_or_else(|| gpui::transparent_black().into(), |brush| background_for(brush, node.opacity));
         let painted = quad(
             Bounds {
                 origin: point(
@@ -1252,11 +1246,8 @@ fn paint_circle(
             Corners::all(px(mapped_radius)),
             background,
             stroke
-                .map(|edge| px(stroke_width(node, edge, transform)))
-                .unwrap_or(px(0.0)),
-            stroke
-                .map(|edge| rgba_color(edge.color, node.opacity).into())
-                .unwrap_or_else(|| gpui::transparent_black()),
+                .map_or(px(0.0), |edge| px(stroke_width(node, edge, transform))),
+            stroke.map_or_else(gpui::transparent_black, |edge| rgba_color(edge.color, node.opacity).into()),
             gpui::BorderStyle::default(),
         );
         window.paint_quad(painted);
@@ -1514,9 +1505,7 @@ fn build_scene_path(
     bounds: Bounds<Pixels>,
     stroke_width: Option<f32>,
 ) -> Option<gpui::Path<Pixels>> {
-    let mut path = stroke_width
-        .map(|width| PathBuilder::stroke(px(width)))
-        .unwrap_or_else(PathBuilder::fill);
+    let mut path = stroke_width.map_or_else(PathBuilder::fill, |width| PathBuilder::stroke(px(width)));
     use super::types::Scene2DPathCommand as Command;
     for command in commands {
         match command {
@@ -1740,7 +1729,7 @@ fn transform_scale(transform: Scene2DTransform) -> f32 {
     let sum = a * a + b * b + c * c + d * d;
     let determinant = a * d - b * c;
     let discriminant = (sum * sum - 4.0 * determinant * determinant).max(0.0);
-    ((sum + discriminant.sqrt()) * 0.5).sqrt()
+    f32::midpoint(sum, discriminant.sqrt()).sqrt()
 }
 
 fn is_uniform_orthogonal(transform: Scene2DTransform) -> bool {
@@ -1782,7 +1771,7 @@ fn background_for(brush: Scene2DBrush, opacity: f32) -> gpui::Background {
 }
 
 // Standard cubic approximation constant for a quarter-circle Bézier curve.
-const CIRCLE_KAPPA: f32 = 0.552_284_75;
+const CIRCLE_KAPPA: f32 = 0.552_284_8;
 
 #[cfg(test)]
 mod tests {
@@ -1797,7 +1786,7 @@ mod tests {
             .aria_label("Test board")
             .aria_role(AriaRole::Group)
             .on_input(|_, _, _| {});
-        assert_eq!(format!("{surface:?}").contains("GameSurface"), true);
+        assert!(format!("{surface:?}").contains("GameSurface"));
     }
 
     #[test]

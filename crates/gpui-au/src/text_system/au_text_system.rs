@@ -51,7 +51,7 @@ impl PlatformTextSystem for AuTextSystem {
         let Some(descriptors) = collection.get_descriptors() else {
             return names;
         };
-        for descriptor in descriptors.into_iter() {
+        for descriptor in &descriptors {
             names.extend(lenient_font_attributes::family_name(&descriptor));
         }
         if let Ok(fonts_in_memory) = self.0.read().memory_source.all_families() {
@@ -60,23 +60,26 @@ impl PlatformTextSystem for AuTextSystem {
         names
     }
 
-    fn font_id(&self, font: &Font) -> Result<FontId> {
+    fn font_id(&self, descriptor: &Font) -> Result<FontId> {
         let lock = self.0.upgradable_read();
-        if let Some(font_id) = lock.font_selections.get(font) {
+        if let Some(font_id) = lock.font_selections.get(descriptor) {
             Ok(*font_id)
         } else {
             let mut lock = RwLockUpgradableReadGuard::upgrade(lock);
             let font_key = Arc::new(FontKey {
-                font_family: font.family.clone(),
-                font_features: font.features.clone(),
-                font_fallbacks: font.fallbacks.clone(),
+                family: descriptor.family.clone(),
+                features: descriptor.features.clone(),
+                fallbacks: descriptor.fallbacks.clone(),
             });
             let candidates: &SmallVec<[FontId; 4]> =
                 if let Some(font_ids) = lock.font_ids_by_font_key.get(&font_key) {
                     font_ids
                 } else {
-                    let font_ids =
-                        lock.load_family(&font.family, &font.features, font.fallbacks.as_ref())?;
+                    let font_ids = lock.load_family(
+                        &descriptor.family,
+                        &descriptor.features,
+                        descriptor.fallbacks.as_ref(),
+                    )?;
                     lock.font_ids_by_font_key
                         .insert(Arc::clone(&font_key), font_ids);
                     lock.font_ids_by_font_key.get(&font_key).unwrap()
@@ -88,13 +91,13 @@ impl PlatformTextSystem for AuTextSystem {
             let ix = font_kit::matching::find_best_match(
                 &candidate_properties,
                 &font_kit::properties::Properties {
-                    style: font_style_to_fontkit(font.style),
-                    weight: font_weight_to_fontkit(font.weight),
+                    style: font_style_to_fontkit(descriptor.style),
+                    weight: font_weight_to_fontkit(descriptor.weight),
                     stretch: Default::default(),
                 },
             )?;
             let font_id = candidates[ix];
-            lock.font_selections.insert(font.clone(), font_id);
+            lock.font_selections.insert(descriptor.clone(), font_id);
             Ok(font_id)
         }
     }
@@ -125,32 +128,32 @@ impl PlatformTextSystem for AuTextSystem {
 
     fn rasterize_glyph(
         &self,
-        glyph_id: &RenderGlyphParams,
+        params: &RenderGlyphParams,
         raster_bounds: Bounds<DevicePixels>,
     ) -> Result<(Size<DevicePixels>, Vec<u8>)> {
-        self.0.read().rasterize_glyph(glyph_id, raster_bounds)
+        self.0.read().rasterize_glyph(params, raster_bounds)
     }
 
     fn rasterize_glyph_into(
         &self,
-        glyph_id: &RenderGlyphParams,
+        params: &RenderGlyphParams,
         raster_bounds: Bounds<DevicePixels>,
         output: &mut Vec<u8>,
     ) -> Result<Size<DevicePixels>> {
         self.0
             .read()
-            .rasterize_glyph_into(glyph_id, raster_bounds, output)
+            .rasterize_glyph_into(params, raster_bounds, output)
     }
 
-    fn layout_line(&self, text: &str, font_size: Pixels, font_runs: &[FontRun]) -> Arc<LineLayout> {
+    fn layout_line(&self, text: &str, font_size: Pixels, runs: &[FontRun]) -> Arc<LineLayout> {
         // Keep an upgradable read lock across the cache lookup. A miss can then
         // promote the same lock instead of dropping a read lock and queuing for
         // an exclusive lock while another caller fills the entry.
         let lock = self.0.upgradable_read();
-        if let Some(layout) = lock.cached_layout_line(text, font_size, font_runs) {
+        if let Some(layout) = lock.cached_layout_line(text, font_size, runs) {
             return layout;
         }
-        RwLockUpgradableReadGuard::upgrade(lock).layout_line(text, font_size, font_runs)
+        RwLockUpgradableReadGuard::upgrade(lock).layout_line(text, font_size, runs)
     }
 
     fn recommended_rendering_mode(

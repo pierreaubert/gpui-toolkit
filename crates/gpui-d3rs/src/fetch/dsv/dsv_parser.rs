@@ -299,7 +299,7 @@ impl DsvParser {
                     line += 1;
                     column = 1;
                     record_start_line = line;
-                    record_start_byte = chars.get(i).map(|(idx, _)| *idx).unwrap_or(text.len());
+                    record_start_byte = chars.get(i).map_or(text.len(), |(idx, _)| *idx);
                     record_has_content = false;
                     last_was_record_terminator = true;
                     continue;
@@ -376,7 +376,7 @@ impl DsvParser {
                 line += 1;
                 column = 1;
                 record_start_line = line;
-                record_start_byte = chars.get(i).map(|(idx, _)| *idx).unwrap_or(text.len());
+                record_start_byte = chars.get(i).map_or(text.len(), |(idx, _)| *idx);
                 record_has_content = false;
                 last_was_record_terminator = true;
                 continue;

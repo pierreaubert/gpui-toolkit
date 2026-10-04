@@ -1,6 +1,6 @@
-//! Integration tests for KeyboardShortcutLabel component
+//! Integration tests for `KeyboardShortcutLabel` component
 //!
-//! Tests the KeyboardShortcutLabel component including:
+//! Tests the `KeyboardShortcutLabel` component including:
 //! - Basic rendering
 //! - Different shortcuts
 //! - All sizes

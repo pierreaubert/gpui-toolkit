@@ -588,6 +588,7 @@ impl PythonSession {
         }
     }
 
+    #[cfg(test)]
     pub fn shutdown(&self) {
         self.wake.notify();
         send_shutdown_when_available(&self.outbound);

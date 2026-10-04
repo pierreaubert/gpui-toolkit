@@ -67,11 +67,14 @@ where
     if ptr.is_null() {
         return None;
     }
-    Some(f(unsafe { &*ptr }))
+    // SAFETY: `ptr` is null-checked and names the registered `AuWindow`,
+    // which outlives registration; main-thread use is asserted above.
+    let window = unsafe { &*ptr };
+    Some(f(window))
 }
 
 pub(crate) struct AuWindow {
-    /// The NSView we render into (owned by the Swift AUViewController)
+    /// The `NSView` we render into (owned by the Swift `AUViewController`)
     pub(super) view: *mut Object,
     pub(super) bounds: Cell<Bounds<Pixels>>,
     pub(super) scale_factor: Cell<f32>,
@@ -99,7 +102,7 @@ pub(crate) struct AuWindow {
     /// main thread during AU instantiation, so it only attaches the cheap
     /// `CAMetalLayer` and stashes these; the blocking `WgpuRenderer::new`
     /// runs lazily from `ensure_renderer_initialized()` on the first frame.
-    /// (AppKit surface creation is main-thread-affine, so a background
+    /// (`AppKit` surface creation is main-thread-affine, so a background
     /// thread cannot safely take this work instead.)
     pending_gpu_init: Mutex<Option<PendingGpuInit>>,
     /// Last time the wgpu surface was reconfigured; gates resize churn.
@@ -123,29 +126,28 @@ struct PendingGpuInit {
 }
 
 impl AuWindow {
-    /// Create a new AU window that renders into the NSView from PENDING_VIEW.
+    /// Create a new AU window that renders into the `NSView` from `PENDING_VIEW`.
     ///
-    /// The NSView must have been set in the PENDING_VIEW thread-local by
+    /// The `NSView` must have been set in the `PENDING_VIEW` thread-local by
     /// `gpui_au_create` before calling `app.run()` / `open_window()`.
-    pub fn new(_handle: AnyWindowHandle, _params: WindowParams) -> anyhow::Result<Self> {
+    pub fn new(_handle: AnyWindowHandle, _params: WindowParams) -> Self {
         nslog_verbose(b"SOTF AuWindow::new: entry");
 
         let view_info = PENDING_VIEW.with(|pv| pv.borrow_mut().take());
-        let (ns_view, width, height, scale) = match view_info {
-            Some(info) => {
-                nslog_verbose(b"SOTF AuWindow::new: PENDING_VIEW found");
-                (info.ns_view, info.width, info.height, info.scale)
-            }
-            None => {
-                nslog_verbose(b"SOTF AuWindow::new: No PENDING_VIEW -- creating without renderer");
-                return Ok(Self::without_view());
-            }
+        let (ns_view, width, height, scale) = if let Some(info) = view_info {
+            nslog_verbose(b"SOTF AuWindow::new: PENDING_VIEW found");
+            (info.ns_view, info.width, info.height, info.scale)
+        } else {
+            nslog_verbose(b"SOTF AuWindow::new: No PENDING_VIEW -- creating without renderer");
+            return Self::without_view();
         };
 
         // Configure the NSView with a CAMetalLayer for wgpu rendering.
         // This is cheap and stays on the instantiation path; the blocking
         // wgpu device/surface creation is deferred to the first frame.
         nslog_verbose(b"SOTF AuWindow::new: setting up CAMetalLayer");
+        // SAFETY: `ns_view` is the non-null view stashed by
+        // `gpui_au_create`; `CAMetalLayer` setup follows AppKit conventions.
         unsafe {
             let _: () = msg_send![ns_view, setWantsLayer: true];
 
@@ -165,7 +167,7 @@ impl AuWindow {
         let pixel_w = ((width * scale) as i32).max(1);
         let pixel_h = ((height * scale) as i32).max(1);
 
-        Ok(Self {
+        Self {
             view: ns_view,
             bounds: Cell::new(Bounds {
                 origin: Default::default(),
@@ -190,7 +192,7 @@ impl AuWindow {
             renderer: Mutex::new(None),
             gpu_context: Rc::new(RefCell::new(None)),
             pending_gpu_init: Mutex::new(Some(PendingGpuInit {
-                ns_view: ns_view as *mut c_void,
+                ns_view: ns_view.cast::<c_void>(),
                 size: size(DevicePixels(pixel_w), DevicePixels(pixel_h)),
             })),
             last_surface_config: Cell::new(None),
@@ -199,10 +201,10 @@ impl AuWindow {
             dropped_frames: AtomicUsize::new(0),
             coalesced_frames: AtomicUsize::new(0),
             parameters: AuParameterTree::with_default_plugin_params(),
-        })
+        }
     }
 
-    /// Window without a host view (no PENDING_VIEW): placeholder bounds and
+    /// Window without a host view (no `PENDING_VIEW)`: placeholder bounds and
     /// no renderer. Drawing falls back to the shared CPU atlas stub and all
     /// surface work is skipped until a view arrives via `handle_resize`.
     fn without_view() -> Self {
@@ -341,15 +343,15 @@ impl AuWindow {
         }
     }
 
-    /// Register this window in the global AU_WINDOW slot.
-    /// Called from AuPlatform::open_window after Boxing.
+    /// Register this window in the global `AU_WINDOW` slot.
+    /// Called from `AuPlatform::open_window` after Boxing.
     pub(crate) fn register_global(boxed: &AuWindow) {
         AuWindowPtr::assert_main_thread();
         let ptr: *const AuWindow = boxed;
         if let Ok(mut guard) = AU_WINDOW.lock() {
             *guard = Some(AuWindowPtr(ptr));
         }
-        let msg = format!("SOTF AuWindow: registered at {:p}", ptr);
+        let msg = format!("SOTF AuWindow: registered at {ptr:p}");
         nslog_verbose(msg.as_bytes());
     }
 
@@ -417,6 +419,8 @@ impl AuWindow {
 
         // Update Metal layer scale and frame
         if !self.view.is_null() {
+            // SAFETY: `view` is null-checked and live; `layer` messaging
+            // uses valid selectors with matching argument types.
             unsafe {
                 let layer: *mut Object = msg_send![self.view, layer];
                 let _: () =
@@ -424,8 +428,8 @@ impl AuWindow {
                 let new_frame = core_graphics::geometry::CGRect {
                     origin: core_graphics::geometry::CGPoint { x: 0.0, y: 0.0 },
                     size: core_graphics::geometry::CGSize {
-                        width: width as f64,
-                        height: height as f64,
+                        width: f64::from(width),
+                        height: f64::from(height),
                     },
                 };
                 let _: () = msg_send![layer, setFrame: new_frame];
@@ -442,7 +446,7 @@ impl AuWindow {
             // failed): refresh the deferred args so the next frame builds
             // the surface at the newest size.
             *self.pending_gpu_init.lock() = Some(PendingGpuInit {
-                ns_view: self.view as *mut c_void,
+                ns_view: self.view.cast::<c_void>(),
                 size: drawable,
             });
         }
@@ -583,10 +587,13 @@ impl HasWindowHandle for AuWindow {
         &self,
     ) -> std::result::Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError>
     {
-        let view = NonNull::new(self.view as *mut c_void)
+        let view = NonNull::new(self.view.cast::<c_void>())
             .ok_or(raw_window_handle::HandleError::Unavailable)?;
         let handle = AppKitWindowHandle::new(view);
-        Ok(unsafe { raw_window_handle::WindowHandle::borrow_raw(handle.into()) })
+        // SAFETY: `view` is a non-null live `NSView` for the borrowed
+        // lifetime; the handle only names it for surface creation.
+        let raw = unsafe { raw_window_handle::WindowHandle::borrow_raw(handle.into()) };
+        Ok(raw)
     }
 }
 
@@ -596,7 +603,10 @@ impl HasDisplayHandle for AuWindow {
     ) -> std::result::Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError>
     {
         let handle = AppKitDisplayHandle::new();
-        Ok(unsafe { raw_window_handle::DisplayHandle::borrow_raw(handle.into()) })
+        // SAFETY: the AppKit display handle is a process-global unit value
+        // with no lifetime obligations beyond the borrow.
+        let raw = unsafe { raw_window_handle::DisplayHandle::borrow_raw(handle.into()) };
+        Ok(raw)
     }
 }
 
@@ -629,6 +639,8 @@ impl PlatformWindow for AuWindow {
         if self.view.is_null() {
             return WindowAppearance::Light;
         }
+        // SAFETY: `view` and every derived object are null-checked, so
+        // only live objects are messaged; unknown states fall back to Light.
         unsafe {
             let effective: *mut Object = msg_send![self.view, effectiveAppearance];
             if effective.is_null() {

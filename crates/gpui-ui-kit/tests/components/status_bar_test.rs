@@ -1,4 +1,4 @@
-//! StatusBar component tests
+//! `StatusBar` component tests
 
 use gpui::div;
 use gpui::prelude::ParentElement;

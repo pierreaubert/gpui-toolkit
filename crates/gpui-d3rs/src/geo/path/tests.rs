@@ -383,7 +383,7 @@ fn test_mercator_pole_clip() {
         (-180.0, -90.0),
     ]]);
     let svg = path.render(&geometry);
-    eprintln!("Mercator pole clip SVG: {}", svg);
+    eprintln!("Mercator pole clip SVG: {svg}");
     assert!(svg.starts_with('M'));
     assert!(svg.ends_with('Z'));
 

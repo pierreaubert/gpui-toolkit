@@ -32,7 +32,7 @@ impl Showcase {
             let entity_close = entity.clone();
 
             let mut trigger = div()
-                .id(SharedString::from(format!("popover-trigger-{}", id)))
+                .id(SharedString::from(format!("popover-trigger-{id}")))
                 .relative()
                 .px_4()
                 .py_2()
@@ -71,7 +71,7 @@ impl Showcase {
                             .text_sm()
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(theme.text_primary)
-                            .child(format!("Popover ({})", label)),
+                            .child(format!("Popover ({label})")),
                     )
                     .child(
                         div()
@@ -81,7 +81,7 @@ impl Showcase {
                     );
 
                 trigger = trigger.child(
-                    Popover::new(format!("popover-{}", id))
+                    Popover::new(format!("popover-{id}"))
                         .placement(placement)
                         .width(px(220.0))
                         .content(popover_content)

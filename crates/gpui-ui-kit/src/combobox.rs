@@ -647,7 +647,6 @@ impl RenderOnce for Combobox {
         });
 
         // i18n is resolved at render for the empty-state row.
-        let _no_results: Option<SharedString> = None;
         let global_theme = cx.theme();
         let combo_theme = ComboboxTheme::from(global_theme);
         let design = crate::design::resolve_design(self.design.clone(), cx);

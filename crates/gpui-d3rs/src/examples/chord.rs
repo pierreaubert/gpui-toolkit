@@ -21,7 +21,7 @@ pub fn default_matrix() -> (Vec<String>, Vec<Vec<f64>>) {
         "Apple", "HTC", "Huawei", "LG", "Nokia", "Samsung", "Sony", "Other",
     ]
     .iter()
-    .map(|s| s.to_string())
+    .map(std::string::ToString::to_string)
     .collect();
 
     let matrix = vec![

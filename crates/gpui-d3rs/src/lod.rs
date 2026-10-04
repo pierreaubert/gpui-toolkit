@@ -50,7 +50,16 @@ pub fn m4_indices(x: &[f64], y: &[f64], x0: f64, x1: f64, columns: usize) -> Vec
             continue;
         }
         let next_bucket = (((x[index] - x0) / bucket_width) as usize).min(columns - 1);
-        if bucket != Some(next_bucket) {
+        if bucket == Some(next_bucket) {
+            if value < min_y {
+                min_y = value;
+                minimum = index;
+            }
+            if value > max_y {
+                max_y = value;
+                maximum = index;
+            }
+        } else {
             if bucket.is_some() {
                 flush(&mut output, first, minimum, maximum, last);
             }
@@ -60,15 +69,6 @@ pub fn m4_indices(x: &[f64], y: &[f64], x0: f64, x1: f64, columns: usize) -> Vec
             maximum = index;
             min_y = value;
             max_y = value;
-        } else {
-            if value < min_y {
-                min_y = value;
-                minimum = index;
-            }
-            if value > max_y {
-                max_y = value;
-                maximum = index;
-            }
         }
         last = index;
     }
@@ -112,7 +112,16 @@ pub fn m4_point_indices(points: &[(f32, f32)], columns: usize) -> Vec<usize> {
         }
         let next_bucket = (x * columns as f32) as usize;
         let next_bucket = next_bucket.min(columns - 1);
-        if bucket != Some(next_bucket) {
+        if bucket == Some(next_bucket) {
+            if y < min_y {
+                min_y = y;
+                minimum = index;
+            }
+            if y > max_y {
+                max_y = y;
+                maximum = index;
+            }
+        } else {
             if bucket.is_some() {
                 flush(&mut output, first, minimum, maximum, last);
             }
@@ -122,15 +131,6 @@ pub fn m4_point_indices(points: &[(f32, f32)], columns: usize) -> Vec<usize> {
             maximum = index;
             min_y = y;
             max_y = y;
-        } else {
-            if y < min_y {
-                min_y = y;
-                minimum = index;
-            }
-            if y > max_y {
-                max_y = y;
-                maximum = index;
-            }
         }
         last = index;
     }
@@ -258,11 +258,11 @@ impl DensityPyramid {
             for row in 0..next_dimension {
                 for column in 0..next_dimension {
                     let source = (row * 2) * dimension + column * 2;
-                    let sum = previous[source] as u64
-                        + previous[source + 1] as u64
-                        + previous[source + dimension] as u64
-                        + previous[source + dimension + 1] as u64;
-                    next[row * next_dimension + column] = sum.min(u32::MAX as u64) as u32;
+                    let sum = u64::from(previous[source])
+                        + u64::from(previous[source + 1])
+                        + u64::from(previous[source + dimension])
+                        + u64::from(previous[source + dimension + 1]);
+                    next[row * next_dimension + column] = sum.min(u64::from(u32::MAX)) as u32;
                 }
             }
             dimensions.push(next_dimension);
@@ -403,7 +403,7 @@ mod tests {
         assert_eq!(
             pyramid.levels[0]
                 .iter()
-                .map(|&value| value as u64)
+                .map(|&value| u64::from(value))
                 .sum::<u64>(),
             5
         );
@@ -418,6 +418,15 @@ mod tests {
         let pyramid = DensityPyramid::build(&x, &y, bounds, 4).unwrap();
         let grid = pyramid.compose(bounds, 4, 4, 1).unwrap();
         assert_eq!(grid.level, 0);
-        assert!((grid.values.iter().map(|&value| value as f64).sum::<f64>() - 4.0).abs() < 1e-6);
+        assert!(
+            (grid
+                .values
+                .iter()
+                .map(|&value| f64::from(value))
+                .sum::<f64>()
+                - 4.0)
+                .abs()
+                < 1e-6
+        );
     }
 }

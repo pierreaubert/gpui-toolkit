@@ -21,7 +21,7 @@ pub trait Projection: Clone {
     /// Project a 3D point to 2D screen coordinates
     fn project(&self, x: f64, y: f64, z: f64) -> Point2D;
 
-    /// Project a SurfacePoint3D to 2D
+    /// Project a `SurfacePoint3D` to 2D
     fn project_point(&self, p: &SurfacePoint3D) -> Point2D {
         self.project(p.x, p.y, p.z)
     }

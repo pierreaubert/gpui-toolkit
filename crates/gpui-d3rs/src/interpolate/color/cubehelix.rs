@@ -25,9 +25,9 @@ impl Cubehelix {
 
     /// Create from RGB.
     pub fn from_rgb(color: &D3Color) -> Self {
-        let r = color.r as f64;
-        let g = color.g as f64;
-        let b = color.b as f64;
+        let r = f64::from(color.r);
+        let g = f64::from(color.g);
+        let b = f64::from(color.b);
 
         let l = (0.299 * r + 0.587 * g + 0.114 * b + 0.00001).clamp(0.0, 1.0);
         let amp = ((-0.14861 * r + 1.78277 * g - 0.29227 * b).powi(2)
@@ -44,7 +44,7 @@ impl Cubehelix {
             h: if h < 0.0 { h + 360.0 } else { h },
             s: if s.is_nan() { 0.0 } else { s },
             l,
-            alpha: color.a as f64,
+            alpha: f64::from(color.a),
         }
     }
 

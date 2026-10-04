@@ -6,11 +6,11 @@
 //! - Expand/collapse via click
 //! - Different orientations (Vertical, Horizontal, Side)
 //! - Disabled items
-//! - on_change callback
+//! - `on_change` callback
 
 use gpui::{
-    Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,
-    VisualTestContext, Window, div,
+    Context, InteractiveElement, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled,
+    TestAppContext, VisualTestContext, Window, div,
 };
 use gpui_ui_kit::accordion::{Accordion, AccordionItem, AccordionMode, AccordionOrientation};
 use std::cell::RefCell;
@@ -237,6 +237,81 @@ async fn test_accordion_side_orientation(cx: &mut TestAppContext) {
     }
 
     let _window = cx.add_window(|_window, _cx| SideView);
+}
+
+struct AccordionGeometryView {
+    orientation: AccordionOrientation,
+}
+
+impl Render for AccordionGeometryView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("accordion-geometry-root")
+            .debug_selector(|| "accordion-geometry-root".to_string())
+            .w(gpui::px(600.0))
+            .h(gpui::px(240.0))
+            .child(
+                Accordion::new()
+                    .orientation(self.orientation)
+                    .bordered(false)
+                    .content_padding(false)
+                    .items(vec![
+                        AccordionItem::new("left", "Left").content("Left content"),
+                        AccordionItem::new("active", "Active").content(
+                            div()
+                                .id("accordion-geometry-content")
+                                .debug_selector(|| "accordion-geometry-content".to_string())
+                                .w_full()
+                                .h(gpui::px(80.0)),
+                        ),
+                        AccordionItem::new("right", "Right").content("Right content"),
+                    ])
+                    .expanded(vec!["active".into()]),
+            )
+    }
+}
+
+#[gpui::test]
+async fn horizontal_accordion_content_spans_header_width(cx: &mut TestAppContext) {
+    let window = cx.open_window(gpui::size(gpui::px(800.0), gpui::px(400.0)), |_window, _cx| {
+        AccordionGeometryView {
+            orientation: AccordionOrientation::Horizontal,
+        }
+    });
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    let root = cx.debug_bounds("accordion-geometry-root").expect("root rendered");
+    let content = cx
+        .debug_bounds("accordion-geometry-content")
+        .expect("expanded content rendered");
+    assert!(root.size.width > gpui::px(0.0));
+    assert!(content.size.width > gpui::px(0.0));
+    assert_eq!(content.origin.x, root.origin.x);
+    assert_eq!(content.size.width, root.size.width);
+}
+
+#[gpui::test]
+async fn side_accordion_places_tabs_on_both_sides_of_content(cx: &mut TestAppContext) {
+    let window = cx.open_window(gpui::size(gpui::px(800.0), gpui::px(400.0)), |_window, _cx| {
+        AccordionGeometryView {
+            orientation: AccordionOrientation::Side,
+        }
+    });
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    let left = cx.debug_bounds("accordion-header-side-left").expect("left tab rendered");
+    let active = cx.debug_bounds("accordion-header-side-active").expect("active tab rendered");
+    let content = cx
+        .debug_bounds("accordion-geometry-content")
+        .expect("expanded content rendered");
+    let right = cx.debug_bounds("accordion-header-side-right").expect("right tab rendered");
+    for bounds in [left, active, content, right] {
+        assert!(bounds.size.width > gpui::px(0.0));
+        assert!(bounds.size.height > gpui::px(0.0));
+    }
+    assert!(left.origin.x + left.size.width <= active.origin.x);
+    assert!(active.origin.x + active.size.width <= content.origin.x);
+    assert!(content.origin.x + content.size.width <= right.origin.x);
 }
 
 // ============================================================================

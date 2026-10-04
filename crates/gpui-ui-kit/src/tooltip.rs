@@ -213,7 +213,7 @@ impl WithTooltip {
                 let placement = self.placement;
                 let delay = self.delay_ms;
                 container = container
-                    .tooltip_show_delay(Duration::from_millis(delay as u64))
+                    .tooltip_show_delay(Duration::from_millis(u64::from(delay)))
                     .hoverable_tooltip(move |_window, cx| {
                         cx.new(|_| TooltipView {
                             content: content.clone(),

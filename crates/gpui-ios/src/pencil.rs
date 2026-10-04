@@ -99,13 +99,12 @@ pub fn set_hover_event_callback(callback: Option<HoverCallback>) {
     *hover_callback_slot().lock().unwrap() = callback;
 }
 
-/// Avoid querying extra UIKit stylus properties unless an application has
+/// Avoid querying extra `UIKit` stylus properties unless an application has
 /// registered an Apple Pencil consumer.
 pub fn has_pencil_callback() -> bool {
     pencil_callback_slot()
         .lock()
-        .map(|callback| callback.is_some())
-        .unwrap_or(false)
+        .is_ok_and(|callback| callback.is_some())
 }
 
 pub fn dispatch_pencil_sample(sample: IosPencilSample) -> bool {

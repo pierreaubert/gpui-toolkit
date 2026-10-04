@@ -135,7 +135,7 @@ impl Render for TableDebug {
             .selection_mode(SelectionMode::Multiple)
             .selected_indices(self.selected_users.clone())
             .on_selection_change(cx.listener(|this, indices: &HashSet<usize>, _window, cx| {
-                this.selected_users = indices.clone();
+                this.selected_users.clone_from(indices);
                 cx.notify();
             }))
             .pagination(self.pagination.clone())

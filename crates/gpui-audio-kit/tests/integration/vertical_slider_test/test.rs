@@ -555,7 +555,7 @@ async fn test_vertical_slider_all_features(cx: &mut TestAppContext) {
     let _window = cx.add_window(|_window, _cx| AllFeaturesView);
 }
 
-/// Test clicking vertical slider triggers on_select callback
+/// Test clicking vertical slider triggers `on_select` callback
 #[gpui::test]
 async fn test_vertical_slider_click_to_select(cx: &mut TestAppContext) {
     let selected = Rc::new(RefCell::new(false));
@@ -628,27 +628,26 @@ async fn test_vertical_slider_click_to_step_value(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             (new_val - 60.0).abs() < 0.01,
-            "Value should be 60 after click step, got {}",
-            new_val
+            "Value should be 60 after click step, got {new_val}"
         );
     }
 }
 
-/// Test mouse down triggers on_drag_start callback
+/// Test mouse down triggers `on_drag_start` callback
 #[gpui::test]
 async fn test_vertical_slider_drag_start_callback(cx: &mut TestAppContext) {
-    let drag_started = Arc::new(AtomicBool::new(false));
-    let drag_y: Rc<RefCell<Option<f32>>> = Rc::new(RefCell::new(None));
-    let drag_value: Rc<RefCell<Option<f64>>> = Rc::new(RefCell::new(None));
+    let started = Arc::new(AtomicBool::new(false));
+    let y_cell: Rc<RefCell<Option<f32>>> = Rc::new(RefCell::new(None));
+    let value_cell: Rc<RefCell<Option<f64>>> = Rc::new(RefCell::new(None));
 
-    let drag_started_clone = drag_started.clone();
-    let drag_y_clone = drag_y.clone();
-    let drag_value_clone = drag_value.clone();
+    let started_clone = started.clone();
+    let y_clone = y_cell.clone();
+    let value_clone = value_cell.clone();
 
     let window = cx.add_window(move |_window, _cx| SliderDragStartView {
-        drag_started: drag_started_clone,
-        drag_y: drag_y_clone,
-        drag_value: drag_value_clone,
+        started: started_clone,
+        y: y_clone,
+        value: value_clone,
     });
 
     let mut cx = VisualTestContext::from_window(window.into(), cx);
@@ -660,23 +659,20 @@ async fn test_vertical_slider_drag_start_callback(cx: &mut TestAppContext) {
         cx.simulate_mouse_down(center, gpui::MouseButton::Left, gpui::Modifiers::default());
         cx.run_until_parked();
 
+        assert!(started.load(Ordering::SeqCst), "Drag should have started");
+        assert!(y_cell.borrow().is_some(), "Drag Y position should be set");
         assert!(
-            drag_started.load(Ordering::SeqCst),
-            "Drag should have started"
-        );
-        assert!(drag_y.borrow().is_some(), "Drag Y position should be set");
-        assert!(
-            drag_value.borrow().is_some(),
+            value_cell.borrow().is_some(),
             "Drag value should be captured"
         );
         assert!(
-            (drag_value.borrow().unwrap() - 50.0).abs() < 0.01,
+            (value_cell.borrow().unwrap() - 50.0).abs() < 0.01,
             "Drag value should be 50"
         );
     }
 }
 
-/// Test both on_select and on_drag_start fire on mouse down
+/// Test both `on_select` and `on_drag_start` fire on mouse down
 #[gpui::test]
 async fn test_vertical_slider_select_and_drag_start_combined(cx: &mut TestAppContext) {
     let select_count = Arc::new(AtomicUsize::new(0));
@@ -710,7 +706,7 @@ async fn test_vertical_slider_select_and_drag_start_combined(cx: &mut TestAppCon
     }
 }
 
-/// Test double-click triggers on_reset callback
+/// Test double-click triggers `on_reset` callback
 #[gpui::test]
 async fn test_vertical_slider_double_click_reset(cx: &mut TestAppContext) {
     let value = Rc::new(RefCell::new(75.0)); // Start at non-default
@@ -793,8 +789,7 @@ async fn test_vertical_slider_arrow_up_increases_value(cx: &mut TestAppContext) 
         let new_val = *value.borrow();
         assert!(
             new_val > 50.0,
-            "Value should increase after Arrow Up, got {}",
-            new_val
+            "Value should increase after Arrow Up, got {new_val}"
         );
     }
 }
@@ -832,8 +827,7 @@ async fn test_vertical_slider_arrow_down_decreases_value(cx: &mut TestAppContext
         let new_val = *value.borrow();
         assert!(
             new_val < 50.0,
-            "Value should decrease after Arrow Down, got {}",
-            new_val
+            "Value should decrease after Arrow Down, got {new_val}"
         );
     }
 }
@@ -871,8 +865,7 @@ async fn test_vertical_slider_home_sets_minimum(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             (new_val - 0.0).abs() < 0.01,
-            "Value should be 0 after Home, got {}",
-            new_val
+            "Value should be 0 after Home, got {new_val}"
         );
     }
 }
@@ -910,8 +903,7 @@ async fn test_vertical_slider_end_sets_maximum(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             (new_val - 100.0).abs() < 0.01,
-            "Value should be 100 after End, got {}",
-            new_val
+            "Value should be 100 after End, got {new_val}"
         );
     }
 }
@@ -961,8 +953,7 @@ async fn test_vertical_slider_escape_resets_value(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             (new_val - 50.0).abs() < 0.01,
-            "Value should be reset to default (50.0), got {}",
-            new_val
+            "Value should be reset to default (50.0), got {new_val}"
         );
     }
 }
@@ -999,8 +990,7 @@ async fn test_vertical_slider_arrow_right_increases_value(cx: &mut TestAppContex
         let new_val = *value.borrow();
         assert!(
             new_val > 50.0,
-            "Value should increase after Arrow Right, got {}",
-            new_val
+            "Value should increase after Arrow Right, got {new_val}"
         );
     }
 }
@@ -1037,8 +1027,7 @@ async fn test_vertical_slider_arrow_left_decreases_value(cx: &mut TestAppContext
         let new_val = *value.borrow();
         assert!(
             new_val < 50.0,
-            "Value should decrease after Arrow Left, got {}",
-            new_val
+            "Value should decrease after Arrow Left, got {new_val}"
         );
     }
 }
@@ -1113,9 +1102,7 @@ async fn test_vertical_slider_log_scale_keyboard_step(cx: &mut TestAppContext) {
         let new_value = *value.borrow();
         assert!(
             new_value > initial_value,
-            "Log scale: value should increase, initial={}, new={}",
-            initial_value,
-            new_value
+            "Log scale: value should increase, initial={initial_value}, new={new_value}"
         );
         // Logarithmic stepping should give a larger absolute change
     }
@@ -1150,8 +1137,7 @@ async fn test_vertical_slider_log_scale_home_sets_min(cx: &mut TestAppContext) {
         let new_value = *value.borrow();
         assert!(
             (new_value - 20.0).abs() < 0.01,
-            "Log scale: Home should set to min (20Hz), got {}",
-            new_value
+            "Log scale: Home should set to min (20Hz), got {new_value}"
         );
     }
 }
@@ -1185,8 +1171,7 @@ async fn test_vertical_slider_log_scale_end_sets_max(cx: &mut TestAppContext) {
         let new_value = *value.borrow();
         assert!(
             (new_value - 20000.0).abs() < 0.01,
-            "Log scale: End should set to max (20kHz), got {}",
-            new_value
+            "Log scale: End should set to max (20kHz), got {new_value}"
         );
     }
 }
@@ -1226,8 +1211,7 @@ async fn test_vertical_slider_multiple_arrow_key_presses(cx: &mut TestAppContext
         let new_val = *value.borrow();
         assert!(
             new_val > 60.0,
-            "Value should increase significantly after 3 Up presses, got {}",
-            new_val
+            "Value should increase significantly after 3 Up presses, got {new_val}"
         );
         assert!(
             change_count.load(Ordering::SeqCst) >= 3,
@@ -1271,8 +1255,7 @@ async fn test_vertical_slider_keyboard_respects_bounds(cx: &mut TestAppContext) 
         let new_val = *value.borrow();
         assert!(
             new_val <= 100.0,
-            "Value should be clamped at max (100), got {}",
-            new_val
+            "Value should be clamped at max (100), got {new_val}"
         );
     }
 }
@@ -1316,8 +1299,7 @@ async fn test_vertical_slider_scroll_wheel_up_increases_value(cx: &mut TestAppCo
         let new_val = *value.borrow();
         assert!(
             new_val > 50.0,
-            "Value should increase after scroll up, got {}",
-            new_val
+            "Value should increase after scroll up, got {new_val}"
         );
         assert_eq!(
             change_count.load(Ordering::SeqCst),
@@ -1359,8 +1341,7 @@ async fn test_vertical_slider_scroll_wheel_down_decreases_value(cx: &mut TestApp
         let new_val = *value.borrow();
         assert!(
             new_val < 50.0,
-            "Value should decrease after scroll down, got {}",
-            new_val
+            "Value should decrease after scroll down, got {new_val}"
         );
     }
 }
@@ -1402,8 +1383,7 @@ async fn test_vertical_slider_scroll_wheel_shift_fine_control(cx: &mut TestAppCo
         // Value should increase but by a smaller amount than normal scroll
         assert!(
             new_val > 50.0 && new_val < 51.0, // Fine control = small change
-            "Shift+scroll should give fine control, got {}",
-            new_val
+            "Shift+scroll should give fine control, got {new_val}"
         );
     }
 }
@@ -1443,8 +1423,7 @@ async fn test_vertical_slider_scroll_wheel_multiple_events(cx: &mut TestAppConte
         // Each scroll should add ~5% (5 units on 0-100 range)
         assert!(
             new_val > 60.0,
-            "Value should increase significantly after 3 scrolls, got {}",
-            new_val
+            "Value should increase significantly after 3 scrolls, got {new_val}"
         );
         assert!(
             change_count.load(Ordering::SeqCst) >= 3,
@@ -1487,8 +1466,7 @@ async fn test_vertical_slider_scroll_wheel_respects_bounds(cx: &mut TestAppConte
         let new_val = *value.borrow();
         assert!(
             new_val <= 100.0,
-            "Value should be clamped at max (100), got {}",
-            new_val
+            "Value should be clamped at max (100), got {new_val}"
         );
     }
 }
@@ -1525,8 +1503,7 @@ async fn test_vertical_slider_scroll_wheel_pixel_delta(cx: &mut TestAppContext) 
         let new_val = *value.borrow();
         assert!(
             new_val > 50.0,
-            "Value should increase after pixel scroll up, got {}",
-            new_val
+            "Value should increase after pixel scroll up, got {new_val}"
         );
     }
 }
@@ -1595,9 +1572,7 @@ async fn test_vertical_slider_scroll_wheel_log_scale(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             new_val > initial_value,
-            "Log scale: value should increase after scroll up, initial={}, new={}",
-            initial_value,
-            new_val
+            "Log scale: value should increase after scroll up, initial={initial_value}, new={new_val}"
         );
         // Logarithmic scale should give a proportional change
     }
@@ -1637,13 +1612,11 @@ async fn test_vertical_slider_percentage_clamped_at_max(cx: &mut TestAppContext)
         let final_val = *value.borrow();
         assert!(
             final_val <= 100.0,
-            "Percentage value should not exceed 100%, got {}",
-            final_val
+            "Percentage value should not exceed 100%, got {final_val}"
         );
         assert!(
             (final_val - 100.0).abs() < 0.01,
-            "Percentage value should be clamped at 100%, got {}",
-            final_val
+            "Percentage value should be clamped at 100%, got {final_val}"
         );
     }
 }
@@ -1682,13 +1655,11 @@ async fn test_vertical_slider_percentage_clamped_at_min(cx: &mut TestAppContext)
         let final_val = *value.borrow();
         assert!(
             final_val >= 0.0,
-            "Percentage value should not go below 0%, got {}",
-            final_val
+            "Percentage value should not go below 0%, got {final_val}"
         );
         assert!(
             final_val.abs() < 0.01,
-            "Percentage value should be clamped at 0%, got {}",
-            final_val
+            "Percentage value should be clamped at 0%, got {final_val}"
         );
     }
 }
@@ -1723,8 +1694,7 @@ async fn test_vertical_slider_percentage_end_key_at_100(cx: &mut TestAppContext)
         let final_val = *value.borrow();
         assert!(
             (final_val - 100.0).abs() < 0.01,
-            "End key should set percentage to exactly 100%, got {}",
-            final_val
+            "End key should set percentage to exactly 100%, got {final_val}"
         );
     }
 }
@@ -1759,8 +1729,7 @@ async fn test_vertical_slider_percentage_home_key_at_0(cx: &mut TestAppContext) 
         let final_val = *value.borrow();
         assert!(
             final_val.abs() < 0.01,
-            "Home key should set percentage to exactly 0%, got {}",
-            final_val
+            "Home key should set percentage to exactly 0%, got {final_val}"
         );
     }
 }
@@ -1797,13 +1766,11 @@ async fn test_vertical_slider_percentage_arrow_keys_respect_bounds(cx: &mut Test
         let final_val = *value.borrow();
         assert!(
             (0.0..=100.0).contains(&final_val),
-            "Percentage value should stay between 0% and 100%, got {}",
-            final_val
+            "Percentage value should stay between 0% and 100%, got {final_val}"
         );
         assert!(
             (final_val - 100.0).abs() < 0.01,
-            "Percentage value should be clamped at 100%, got {}",
-            final_val
+            "Percentage value should be clamped at 100%, got {final_val}"
         );
     }
 }
@@ -1842,8 +1809,7 @@ async fn test_vertical_slider_scroll_wheel_horizontal_fallback(cx: &mut TestAppC
         // Negative X delta = increase value (same as negative Y)
         assert!(
             new_val > 50.0,
-            "Value should increase with X delta when Y is 0, got {}",
-            new_val
+            "Value should increase with X delta when Y is 0, got {new_val}"
         );
     }
 }
@@ -1879,8 +1845,7 @@ async fn test_vertical_slider_track_click_sets_position(cx: &mut TestAppContext)
         let high_val = *value.borrow();
         assert!(
             high_val > 70.0,
-            "Clicking near top of track should give high value (>70), got {}",
-            high_val
+            "Clicking near top of track should give high value (>70), got {high_val}"
         );
 
         // Click near the bottom of the track (should give low value)
@@ -1898,8 +1863,7 @@ async fn test_vertical_slider_track_click_sets_position(cx: &mut TestAppContext)
         let low_val = *value.borrow();
         assert!(
             low_val < 30.0,
-            "Clicking near bottom of track should give low value (<30), got {}",
-            low_val
+            "Clicking near bottom of track should give low value (<30), got {low_val}"
         );
 
         assert!(
@@ -1950,9 +1914,7 @@ async fn test_vertical_slider_track_drag(cx: &mut TestAppContext) {
         let after_drag_val = *value.borrow();
         assert!(
             after_drag_val > start_val,
-            "Dragging up should increase value. Start: {}, After: {}",
-            start_val,
-            after_drag_val
+            "Dragging up should increase value. Start: {start_val}, After: {after_drag_val}"
         );
     }
 }
@@ -1989,8 +1951,7 @@ async fn test_vertical_slider_track_scroll_wheel(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             new_val > 50.0,
-            "Scroll wheel on track should increase value, got {}",
-            new_val
+            "Scroll wheel on track should increase value, got {new_val}"
         );
         assert!(
             change_count.load(Ordering::SeqCst) >= 1,

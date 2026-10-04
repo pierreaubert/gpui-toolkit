@@ -1,4 +1,4 @@
-//! LoadingOverlay component tests
+//! `LoadingOverlay` component tests
 
 use gpui_ui_kit::loading_overlay::LoadingOverlay;
 use gpui_ui_kit::spinner::SpinnerSize;

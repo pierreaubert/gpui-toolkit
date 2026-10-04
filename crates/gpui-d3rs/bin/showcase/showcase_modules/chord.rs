@@ -55,7 +55,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .iter()
         .flat_map(|g| {
             let name = names[g.index % names.len()];
-            let d3_mid = (g.start_angle + g.end_angle) / 2.0;
+            let d3_mid = f64::midpoint(g.start_angle, g.end_angle);
             let std_mid = d3_mid - PI / 2.0;
             let flip = std_mid.sin() > 0.0;
             let advances: Vec<f32> = name

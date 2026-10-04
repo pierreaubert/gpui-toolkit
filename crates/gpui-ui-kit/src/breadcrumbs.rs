@@ -143,7 +143,7 @@ impl Breadcrumbs {
 
             // Breadcrumb item
             let mut crumb = div()
-                .id(SharedString::from(format!("breadcrumb-{}", item_id)))
+                .id(SharedString::from(format!("breadcrumb-{item_id}")))
                 .flex()
                 .items_center()
                 .gap_1();

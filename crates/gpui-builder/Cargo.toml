@@ -9,6 +9,9 @@ license.workspace = true
 repository.workspace = true
 description = "Generic constraint-based layout solver for GPUI applications"
 
+[lints]
+workspace = true
+
 [dependencies]
 gpui-design = { workspace = true, optional = true }
 gpui-pretext = { workspace = true }

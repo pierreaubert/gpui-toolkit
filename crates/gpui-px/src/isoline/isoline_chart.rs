@@ -56,8 +56,8 @@ fn available_plot_dimensions(
     title_height: f32,
 ) -> (f64, f64) {
     (
-        ((layout_width as f64) - 60.0).max(0.0),
-        ((layout_height as f64) - title_height as f64 - 40.0).max(0.0),
+        (f64::from(layout_width) - 60.0).max(0.0),
+        (f64::from(layout_height) - f64::from(title_height) - 40.0).max(0.0),
     )
 }
 
@@ -123,12 +123,10 @@ impl IsolineChart {
 
         let x_domain = self
             .x_range
-            .map(|[min, max]| (min, max))
-            .unwrap_or_else(|| extent_padded(&x_values, 0.0));
+            .map_or_else(|| extent_padded(&x_values, 0.0), |[min, max]| (min, max));
         let y_domain = self
             .y_range
-            .map(|[min, max]| (min, max))
-            .unwrap_or_else(|| extent_padded(&y_values, 0.0));
+            .map_or_else(|| extent_padded(&y_values, 0.0), |[min, max]| (min, max));
         let x_domain = if self.x_scale_type == ScaleType::Log {
             (x_domain.0.max(1e-10), x_domain.1)
         } else {
@@ -144,7 +142,7 @@ impl IsolineChart {
         let levels = self.levels.clone().unwrap_or_else(|| {
             let n = 10;
             (0..=n)
-                .map(|i| z_min + (z_max - z_min) * (i as f64) / (n as f64))
+                .map(|i| z_min + (z_max - z_min) * f64::from(i) / f64::from(n))
                 .collect()
         });
 
@@ -232,32 +230,29 @@ impl IsolineChart {
         expected_field: &'static str,
         log_auto_axis_reason: &'static str,
     ) -> Result<Vec<f64>, ChartError> {
-        match values {
-            Some(values) => {
-                if values.len() != expected_len {
-                    return Err(ChartError::DataLengthMismatch {
-                        x_field: field,
-                        y_field: expected_field,
-                        x_len: values.len(),
-                        y_len: expected_len,
-                    });
-                }
-                validate_data_array(values, field)?;
-                validate_monotonic(values, field)?;
-                if scale_type == ScaleType::Log {
-                    validate_positive(values, field)?;
-                }
-                Ok(values.to_vec())
+        if let Some(values) = values {
+            if values.len() != expected_len {
+                return Err(ChartError::DataLengthMismatch {
+                    x_field: field,
+                    y_field: expected_field,
+                    x_len: values.len(),
+                    y_len: expected_len,
+                });
             }
-            None => {
-                if scale_type == ScaleType::Log {
-                    return Err(ChartError::InvalidData {
-                        field,
-                        reason: log_auto_axis_reason,
-                    });
-                }
-                Ok((0..expected_len).map(|index| index as f64).collect())
+            validate_data_array(values, field)?;
+            validate_monotonic(values, field)?;
+            if scale_type == ScaleType::Log {
+                validate_positive(values, field)?;
             }
+            Ok(values.to_vec())
+        } else {
+            if scale_type == ScaleType::Log {
+                return Err(ChartError::InvalidData {
+                    field,
+                    reason: log_auto_axis_reason,
+                });
+            }
+            Ok((0..expected_len).map(|index| index as f64).collect())
         }
     }
 
@@ -302,7 +297,7 @@ impl IsolineChart {
     /// Set custom x axis values.
     ///
     /// Values must be strictly monotonically increasing.
-    /// Length must match grid_width.
+    /// Length must match `grid_width`.
     pub fn x(mut self, values: &[f64]) -> Self {
         self.x_values = Some(values.to_vec());
         self
@@ -311,7 +306,7 @@ impl IsolineChart {
     /// Set custom y axis values.
     ///
     /// Values must be strictly monotonically increasing.
-    /// Length must match grid_height.
+    /// Length must match `grid_height`.
     pub fn y(mut self, values: &[f64]) -> Self {
         self.y_values = Some(values.to_vec());
         self
@@ -444,61 +439,55 @@ impl IsolineChart {
 
         // Generate or validate x values. Take ownership of explicit values
         // instead of cloning; only allocate when falling back to defaults.
-        let x_values = match self.x_values {
-            Some(v) => {
-                if v.len() != self.grid_width {
-                    return Err(ChartError::DataLengthMismatch {
-                        x_field: "x",
-                        y_field: "grid_width",
-                        x_len: v.len(),
-                        y_len: self.grid_width,
-                    });
-                }
-                validate_data_array(&v, "x")?;
-                validate_monotonic(&v, "x")?;
-                if self.x_scale_type == ScaleType::Log {
-                    validate_positive(&v, "x")?;
-                }
-                v
+        let x_values = if let Some(v) = self.x_values {
+            if v.len() != self.grid_width {
+                return Err(ChartError::DataLengthMismatch {
+                    x_field: "x",
+                    y_field: "grid_width",
+                    x_len: v.len(),
+                    y_len: self.grid_width,
+                });
             }
-            None => {
-                if self.x_scale_type == ScaleType::Log {
-                    return Err(ChartError::InvalidData {
-                        field: "x",
-                        reason: "log scale requires explicit positive x values",
-                    });
-                }
-                (0..self.grid_width).map(|i| i as f64).collect()
+            validate_data_array(&v, "x")?;
+            validate_monotonic(&v, "x")?;
+            if self.x_scale_type == ScaleType::Log {
+                validate_positive(&v, "x")?;
             }
+            v
+        } else {
+            if self.x_scale_type == ScaleType::Log {
+                return Err(ChartError::InvalidData {
+                    field: "x",
+                    reason: "log scale requires explicit positive x values",
+                });
+            }
+            (0..self.grid_width).map(|i| i as f64).collect()
         };
 
         // Generate or validate y values
-        let y_values = match self.y_values {
-            Some(v) => {
-                if v.len() != self.grid_height {
-                    return Err(ChartError::DataLengthMismatch {
-                        x_field: "y",
-                        y_field: "grid_height",
-                        x_len: v.len(),
-                        y_len: self.grid_height,
-                    });
-                }
-                validate_data_array(&v, "y")?;
-                validate_monotonic(&v, "y")?;
-                if self.y_scale_type == ScaleType::Log {
-                    validate_positive(&v, "y")?;
-                }
-                v
+        let y_values = if let Some(v) = self.y_values {
+            if v.len() != self.grid_height {
+                return Err(ChartError::DataLengthMismatch {
+                    x_field: "y",
+                    y_field: "grid_height",
+                    x_len: v.len(),
+                    y_len: self.grid_height,
+                });
             }
-            None => {
-                if self.y_scale_type == ScaleType::Log {
-                    return Err(ChartError::InvalidData {
-                        field: "y",
-                        reason: "log scale requires explicit positive y values",
-                    });
-                }
-                (0..self.grid_height).map(|i| i as f64).collect()
+            validate_data_array(&v, "y")?;
+            validate_monotonic(&v, "y")?;
+            if self.y_scale_type == ScaleType::Log {
+                validate_positive(&v, "y")?;
             }
+            v
+        } else {
+            if self.y_scale_type == ScaleType::Log {
+                return Err(ChartError::InvalidData {
+                    field: "y",
+                    reason: "log scale requires explicit positive y values",
+                });
+            }
+            (0..self.grid_height).map(|i| i as f64).collect()
         };
 
         // Calculate plot area (reserve space for title and axes)
@@ -549,15 +538,14 @@ impl IsolineChart {
         let (z_min, z_max) = extent_padded(&self.z, 0.0);
 
         // Generate levels if not provided
-        let levels = match self.levels {
-            Some(l) => l,
-            None => {
-                // Auto-generate 10 evenly spaced levels
-                let n = 10;
-                (0..=n)
-                    .map(|i| z_min + (z_max - z_min) * (i as f64) / (n as f64))
-                    .collect()
-            }
+        let levels = if let Some(l) = self.levels {
+            l
+        } else {
+            // Auto-generate 10 evenly spaced levels
+            let n = 10;
+            (0..=n)
+                .map(|i| z_min + (z_max - z_min) * f64::from(i) / f64::from(n))
+                .collect()
         };
 
         // Generate contours
@@ -926,8 +914,8 @@ fn draw_static_isoline_axes(
         let t = step as f32 / 4.0;
         let x = plot_left + (plot_right - plot_left) * t;
         let y = plot_bottom + (plot_top - plot_bottom) * t;
-        let x_value = static_axis_tick_value(x_domain, x_scale_type, t as f64);
-        let y_value = static_axis_tick_value(y_domain, y_scale_type, t as f64);
+        let x_value = static_axis_tick_value(x_domain, x_scale_type, f64::from(t));
+        let y_value = static_axis_tick_value(y_domain, y_scale_type, f64::from(t));
         let _ = writeln!(
             svg,
             "<line x1=\"{x:.2}\" y1=\"{plot_top:.2}\" x2=\"{x:.2}\" y2=\"{plot_bottom:.2}\" stroke=\"{grid_color}\" stroke-width=\"1\"/>",
@@ -993,7 +981,7 @@ fn map_static_linear(
     range_end: f32,
 ) -> f32 {
     if domain_max == domain_min {
-        return (range_start + range_end) / 2.0;
+        return f32::midpoint(range_start, range_end);
     }
     let t = ((value - domain_min) / (domain_max - domain_min)).clamp(0.0, 1.0) as f32;
     range_start + (range_end - range_start) * t

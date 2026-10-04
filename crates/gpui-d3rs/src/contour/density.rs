@@ -471,7 +471,7 @@ mod tests {
     #[test]
     fn test_density_rejects_invalid_bandwidth() {
         let estimator = DensityEstimator::new().bandwidth(0.0).size(10, 10);
-        assert!(estimator.try_estimate(&[(0.5, 0.5)]).is_err());
+        estimator.try_estimate(&[(0.5, 0.5)]).unwrap_err();
         assert_eq!(estimator.estimate(&[(0.5, 0.5)]), vec![0.0; 100]);
     }
 

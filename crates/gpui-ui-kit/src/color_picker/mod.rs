@@ -99,19 +99,19 @@ impl ColorPickerView {
 
     fn update_hue(&mut self, value: f32, cx: &mut Context<Self>) {
         let (_, s, l) = self.color.to_hsl();
-        self.color = Color::from_hsl(value, s, l).with_alpha(self.color.a as f32 / 255.0);
+        self.color = Color::from_hsl(value, s, l).with_alpha(f32::from(self.color.a) / 255.0);
         cx.notify();
     }
 
     fn update_saturation(&mut self, value: f32, cx: &mut Context<Self>) {
         let (h, _, l) = self.color.to_hsl();
-        self.color = Color::from_hsl(h, value, l).with_alpha(self.color.a as f32 / 255.0);
+        self.color = Color::from_hsl(h, value, l).with_alpha(f32::from(self.color.a) / 255.0);
         cx.notify();
     }
 
     fn update_lightness(&mut self, value: f32, cx: &mut Context<Self>) {
         let (h, s, _) = self.color.to_hsl();
-        self.color = Color::from_hsl(h, s, value).with_alpha(self.color.a as f32 / 255.0);
+        self.color = Color::from_hsl(h, s, value).with_alpha(f32::from(self.color.a) / 255.0);
         cx.notify();
     }
 
@@ -418,7 +418,7 @@ impl Render for ColorPickerView {
                         VStack::new()
                             .spacing(StackSpacing::Xs)
                             .child(
-                                Text::new(SharedString::from(format!("Hex: {}", hex_string)))
+                                Text::new(SharedString::from(format!("Hex: {hex_string}")))
                                     .size(TextSize::Sm)
                                     .weight(TextWeight::Bold),
                             )
@@ -449,9 +449,9 @@ impl Render for ColorPickerView {
                     .when(mode == ColorPickerMode::RGB, |el| {
                         el.child(self.render_slider(
                             "R",
-                            color.r as f32,
+                            f32::from(color.r),
                             255.0,
-                            original.r as f32,
+                            f32::from(original.r),
                             Some(Rgba {
                                 r: 1.0,
                                 g: 0.0,
@@ -462,9 +462,9 @@ impl Render for ColorPickerView {
                         ))
                         .child(self.render_slider(
                             "G",
-                            color.g as f32,
+                            f32::from(color.g),
                             255.0,
-                            original.g as f32,
+                            f32::from(original.g),
                             Some(Rgba {
                                 r: 0.0,
                                 g: 1.0,
@@ -475,9 +475,9 @@ impl Render for ColorPickerView {
                         ))
                         .child(self.render_slider(
                             "B",
-                            color.b as f32,
+                            f32::from(color.b),
                             255.0,
-                            original.b as f32,
+                            f32::from(original.b),
                             Some(Rgba {
                                 r: 0.0,
                                 g: 0.0,
@@ -530,9 +530,9 @@ impl Render for ColorPickerView {
                     })
                     .child(self.render_slider(
                         "A",
-                        color.a as f32,
+                        f32::from(color.a),
                         255.0,
-                        original.a as f32,
+                        f32::from(original.a),
                         Some(Rgba {
                             r: 0.8,
                             g: 0.8,

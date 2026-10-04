@@ -11,6 +11,9 @@ license.workspace = true
 repository.workspace = true
 readme = "README.md"
 
+[lints]
+workspace = true
+
 [features]
 default = []
 # Install a counting global allocator. Disable for zero-overhead builds.

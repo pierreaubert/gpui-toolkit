@@ -40,17 +40,17 @@ impl HierarchyDemo {
         {
             let mut a = child_a.borrow_mut();
             a.set_children(&child_a, vec![grandchild_a1, grandchild_a2]);
-        }
+        };
 
         {
             let mut b = child_b.borrow_mut();
             b.set_children(&child_b, vec![grandchild_b1, grandchild_b2]);
-        }
+        };
 
         {
             let mut r = root.borrow_mut();
             r.set_children(&root, vec![child_a, child_b]);
-        }
+        };
 
         // Count leaves to setup layout
         HierarchyNode::count(root.clone());
@@ -96,7 +96,7 @@ impl Render for HierarchyDemo {
                     div().absolute().size_full().child(
                         svg()
                             .size_full()
-                            .path(format!("M {},{} L {},{}", x2, y2, x1, y1))
+                            .path(format!("M {x2},{y2} L {x1},{y1}"))
                             .text_color(rgb(0x666666)),
                     ),
                 );

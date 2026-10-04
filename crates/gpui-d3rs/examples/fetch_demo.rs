@@ -19,21 +19,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ========================================
     println!("--- CSV Parsing ---\n");
 
-    let csv_data = r#"name,age,score,active
+    let csv_data = r"name,age,score,active
 Alice,30,95.5,true
 Bob,25,87.2,false
 Carol,35,92.8,true
 Dave,28,,false
-Eve,22,88.0,true"#;
+Eve,22,88.0,true";
 
     println!("Input CSV:");
-    println!("{}\n", csv_data);
+    println!("{csv_data}\n");
 
     let rows = parse_csv(csv_data)?;
     println!("Parsed {} rows:\n", rows.len());
 
     for (i, row) in rows.iter().enumerate() {
-        println!("  Row {}: {:?}", i, row);
+        println!("  Row {i}: {row:?}");
     }
 
     // Access specific fields
@@ -55,7 +55,7 @@ Gadget\t29.99\t50
 Gizmo\t9.99\t200";
 
     println!("Input TSV:");
-    println!("{}\n", tsv_data);
+    println!("{tsv_data}\n");
 
     let tsv_rows = parse_tsv(tsv_data)?;
     println!("Parsed {} rows:", tsv_rows.len());
@@ -79,7 +79,7 @@ Gizmo\t9.99\t200";
 3|Clothing|300";
 
     println!("Input (pipe-delimited):");
-    println!("{}\n", pipe_data);
+    println!("{pipe_data}\n");
 
     let pipe_rows = parse_dsv(pipe_data, '|')?;
     println!("Parsed {} rows:", pipe_rows.len());
@@ -103,7 +103,7 @@ Gizmo\t9.99\t200";
 "Mega Gizmo","He said, ""wow!""",99.99"#;
 
     println!("Input (with quoted fields):");
-    println!("{}\n", quoted_csv);
+    println!("{quoted_csv}\n");
 
     let quoted_rows = parse_csv(quoted_csv)?;
     println!("Parsed {} rows:", quoted_rows.len());
@@ -138,7 +138,7 @@ Gizmo\t9.99\t200";
 
     let output = format_csv(&data, &["x", "y", "label"]);
     println!("Formatted CSV output:");
-    println!("{}", output);
+    println!("{output}");
 
     // ========================================
     // Auto Type Inference
@@ -194,7 +194,7 @@ Gizmo\t9.99\t200";
             AutoTyped::String(_) => "String",
             AutoTyped::Date(_) => "Date",
         };
-        println!("  {}: {:?} ({})", key, value, type_name);
+        println!("  {key}: {value:?} ({type_name})");
     }
 
     // ========================================
@@ -229,7 +229,7 @@ Gizmo\t9.99\t200";
   Bob  ,  200  ";
 
     println!("Input (messy whitespace):");
-    println!("{}\n", messy_csv);
+    println!("{messy_csv}\n");
 
     let cleaned = parser.parse(messy_csv)?;
     println!("Parsed (trimmed):");
@@ -246,7 +246,7 @@ Gizmo\t9.99\t200";
     let raw_rows = parser.parse_rows(raw_data)?;
     println!("\nRaw rows (no headers):");
     for (i, row) in raw_rows.iter().enumerate() {
-        println!("  Row {}: {:?}", i, row);
+        println!("  Row {i}: {row:?}");
     }
 
     // ========================================
@@ -254,12 +254,12 @@ Gizmo\t9.99\t200";
     // ========================================
     println!("\n--- Real-world Example: Sales Data ---\n");
 
-    let sales_csv = r#"date,product,region,quantity,unit_price,total
+    let sales_csv = r"date,product,region,quantity,unit_price,total
 2023-01-15,Widget,North,100,19.99,1999.00
 2023-01-15,Gadget,South,50,29.99,1499.50
 2023-01-16,Widget,East,75,19.99,1499.25
 2023-01-16,Gizmo,West,200,9.99,1998.00
-2023-01-17,Gadget,North,30,29.99,899.70"#;
+2023-01-17,Gadget,North,30,29.99,899.70";
 
     let sales = parse_csv(sales_csv)?;
 
@@ -275,7 +275,7 @@ Gizmo\t9.99\t200";
 
     println!("\n  Total by product:");
     for (product, total) in &by_product {
-        println!("    {}: ${:.2}", product, total);
+        println!("    {product}: ${total:.2}");
     }
 
     // Group by region
@@ -288,12 +288,12 @@ Gizmo\t9.99\t200";
 
     println!("\n  Total by region:");
     for (region, total) in &by_region {
-        println!("    {}: ${:.2}", region, total);
+        println!("    {region}: ${total:.2}");
     }
 
     // Grand total
     let grand_total: f64 = by_product.values().sum();
-    println!("\n  Grand total: ${:.2}", grand_total);
+    println!("\n  Grand total: ${grand_total:.2}");
 
     println!("\n=== End of d3-fetch Demo ===");
     Ok(())

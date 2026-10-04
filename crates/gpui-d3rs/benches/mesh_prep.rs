@@ -77,10 +77,10 @@ fn mesh_prep(c: &mut Criterion) {
         let mesh = fixture(triangle_count);
         let topology = MeshTopology::build(&mesh.triangles);
         group.bench_function(format!("topology_{triangle_count}_triangles"), |b| {
-            b.iter(|| black_box(MeshTopology::build(&mesh.triangles)))
+            b.iter(|| black_box(MeshTopology::build(&mesh.triangles)));
         });
         group.bench_function(format!("prepare_{triangle_count}_triangles"), |b| {
-            b.iter(|| black_box(prepare_upload(&mesh, &topology)))
+            b.iter(|| black_box(prepare_upload(&mesh, &topology)));
         });
 
         let field = vertex_field(&mesh);
@@ -102,15 +102,15 @@ fn mesh_prep(c: &mut Criterion) {
             |b| b.iter(|| black_box(marching.isolines(&contour_levels))),
         );
         group.bench_function(format!("marching_bands_{triangle_count}_triangles"), |b| {
-            b.iter(|| black_box(marching.filled_bands(&contour_levels)))
+            b.iter(|| black_box(marching.filled_bands(&contour_levels)));
         });
 
         group.bench_function(format!("bvh_{triangle_count}_triangles"), |b| {
-            b.iter(|| black_box(MeshBvh::build(&mesh)))
+            b.iter(|| black_box(MeshBvh::build(&mesh)));
         });
         let bvh = MeshBvh::build(&mesh);
         group.bench_function(format!("bvh_query_{triangle_count}_triangles"), |b| {
-            b.iter(|| black_box(bvh.ray_cast([0.25, 0.25, 1.0], [0.0, 0.0, -1.0])))
+            b.iter(|| black_box(bvh.ray_cast([0.25, 0.25, 1.0], [0.0, 0.0, -1.0])));
         });
     }
 
@@ -124,7 +124,7 @@ fn mesh_prep(c: &mut Criterion) {
         end_caps: false,
     };
     group.bench_function("revolve_full_64_segments", |b| {
-        b.iter(|| black_box(revolve(&revolve_mesh, &revolve_spec)))
+        b.iter(|| black_box(revolve(&revolve_mesh, &revolve_spec)));
     });
     let revolve_field_values = vertex_field(&revolve_mesh);
     group.bench_function("revolve_full_64_segments_with_vertex_field", |b| {
@@ -132,7 +132,7 @@ fn mesh_prep(c: &mut Criterion) {
             let revolved = revolve(&revolve_mesh, &revolve_spec)
                 .expect("benchmark fixture has a valid axisymmetric profile");
             black_box(revolve_field(&revolve_field_values, &revolved))
-        })
+        });
     });
     let partial_revolve_spec = RevolveSpec {
         sweep_angle: std::f64::consts::PI,
@@ -140,7 +140,7 @@ fn mesh_prep(c: &mut Criterion) {
         ..revolve_spec
     };
     group.bench_function("revolve_partial_capped_64_segments", |b| {
-        b.iter(|| black_box(revolve(&revolve_mesh, &partial_revolve_spec)))
+        b.iter(|| black_box(revolve(&revolve_mesh, &partial_revolve_spec)));
     });
     group.bench_function(
         "revolve_partial_capped_64_segments_with_vertex_field",
@@ -149,7 +149,7 @@ fn mesh_prep(c: &mut Criterion) {
                 let revolved = revolve(&revolve_mesh, &partial_revolve_spec)
                     .expect("benchmark fixture has a valid axisymmetric profile");
                 black_box(revolve_field(&revolve_field_values, &revolved))
-            })
+            });
         },
     );
 
@@ -167,13 +167,13 @@ fn mesh_prep(c: &mut Criterion) {
     let proxy_topology = MeshTopology::build(&proxy_mesh.triangles);
     let full_topology = MeshTopology::build(&lod_mesh.triangles);
     group.bench_function("lod_proxy_upload_100000_triangles", |b| {
-        b.iter(|| black_box(prepare_upload(&proxy_mesh, &proxy_topology)))
+        b.iter(|| black_box(prepare_upload(&proxy_mesh, &proxy_topology)));
     });
     group.bench_function("lod_full_restore_upload_100000_triangles", |b| {
-        b.iter(|| black_box(prepare_upload(&lod_mesh, &full_topology)))
+        b.iter(|| black_box(prepare_upload(&lod_mesh, &full_topology)));
     });
     group.bench_function("lod_proxy_field_mapping_100000_triangles", |b| {
-        b.iter(|| black_box(lod_controller.active_field(&lod_field)))
+        b.iter(|| black_box(lod_controller.active_field(&lod_field)));
     });
     group.bench_function("lod_drag_transition_100000_triangles", |b| {
         b.iter(|| {
@@ -181,7 +181,7 @@ fn mesh_prep(c: &mut Criterion) {
             let proxy_count = lod_controller.active_mesh().triangles.len();
             lod_controller.end_camera_drag();
             black_box((proxy_count, lod_controller.active_mesh().triangles.len()))
-        })
+        });
     });
     group.finish();
 }

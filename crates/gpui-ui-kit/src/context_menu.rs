@@ -1,4 +1,4 @@
-//! ContextMenu component
+//! `ContextMenu` component
 //!
 //! A positioned context menu (right-click menu) that wraps the Menu component
 //! with positioning logic and backdrop dismiss behavior.
@@ -59,7 +59,7 @@ pub struct ContextMenuTheme {
 }
 
 impl ContextMenuTheme {
-    /// Convert to a MenuTheme for rendering the inner Menu
+    /// Convert to a `MenuTheme` for rendering the inner Menu
     pub fn to_menu_theme(&self) -> MenuTheme {
         MenuTheme {
             background: self.background,

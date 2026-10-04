@@ -1,11 +1,11 @@
-//! macOS AU Window implementation — embeds GPUI rendering inside an NSView.
+//! macOS AU Window implementation — embeds GPUI rendering inside an `NSView`.
 //!
-//! Unlike a standalone macOS window, the AU window does NOT own an NSWindow.
-//! It takes a host-provided NSView, adds a CAMetalLayer-backed subview,
+//! Unlike a standalone macOS window, the AU window does NOT own an `NSWindow`.
+//! It takes a host-provided `NSView`, adds a CAMetalLayer-backed subview,
 //! and renders GPUI content into it via wgpu (Metal backend).
 //!
 //! Frame rendering and event dispatch are driven externally by the Swift
-//! AUViewController via FFI calls (request_frame, mouse events, resize).
+//! `AUViewController` via FFI calls (`request_frame`, mouse events, resize).
 
 use std::cell::RefCell;
 

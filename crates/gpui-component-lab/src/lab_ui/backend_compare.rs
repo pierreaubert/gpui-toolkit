@@ -105,7 +105,7 @@ fn spectrum_preset() -> ChartScene {
         );
     }
     scene.fill_rect(
-        Rect::new(0.0, 30.0, COMPARE_LOGICAL_W as f64, 33.0),
+        Rect::new(0.0, 30.0, f64::from(COMPARE_LOGICAL_W), 33.0),
         translucent(240, 180, 40, 150),
     );
     scene.stroke_polyline(
@@ -170,7 +170,7 @@ fn display_image(mut rgba: Vec<u8>, width: u32, height: u32) -> Arc<RenderImage>
 #[cfg(test)]
 static FORCE_NO_GPU_SNAPSHOT: AtomicBool = AtomicBool::new(false);
 
-/// [`snapshot_scene_gpu`], honoring the test-only FORCE_NO_GPU_SNAPSHOT
+/// [`snapshot_scene_gpu`], honoring the test-only `FORCE_NO_GPU_SNAPSHOT`
 /// override before consulting the process environment.
 fn snapshot_for_compare(
     scene: &ChartScene,

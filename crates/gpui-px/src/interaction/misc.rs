@@ -45,7 +45,7 @@ pub(super) mod gpui_render {
             .top(px(y))
             .w(px(width))
             .h(px(height))
-            .bg(hsla(210.0 / 360.0, 0.5, 0.6, a as f32 / 255.0))
+            .bg(hsla(210.0 / 360.0, 0.5, 0.6, f32::from(a) / 255.0))
             .border_1()
             .border_color(hsla(210.0 / 360.0, 0.5, 0.4, 1.0))
     }
@@ -57,7 +57,7 @@ pub(super) mod gpui_render {
             return div().into_any_element();
         }
 
-        let text = format!("Zoom: {}x", level);
+        let text = format!("Zoom: {level}x");
 
         div()
             .absolute()

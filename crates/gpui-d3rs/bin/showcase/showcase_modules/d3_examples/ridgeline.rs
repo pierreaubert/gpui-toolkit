@@ -1,4 +1,4 @@
-//! Ridgeline Plot — Observable example using d3rs::examples::ridgeline
+//! Ridgeline Plot — Observable example using `d3rs::examples::ridgeline`
 //!
 //! Shows monthly temperature distributions as overlapping area charts.
 //! Uses weather.csv data grouped by month.
@@ -36,7 +36,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         all_colors.push(chart_colors::ink_rgba(&ui_theme, color.to_rgba()).opacity(0.7));
     }
     // Dark ridge outlines like the official example.
-    let outline_color: Hsla = chart_colors::ink_hex(&ui_theme, 0x2c5f8a);
+    let outline_color = chart_colors::ink_hex(&ui_theme, 0x2c5f8a);
 
     // X-axis ticks
     let margin_left = 60.0;
@@ -47,10 +47,13 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     let x_range = result.x_domain[1] - result.x_domain[0];
     let x_tick_step = (x_range / 8.0).ceil().max(1.0);
+    // Terminates: `x_tick_step` is clamped positive above, so the
+    // `take_while` bound is reached after finitely many steps.
+    #[allow(clippy::maybe_infinite_iter)]
     let x_ticks: Vec<f64> = {
         let start = (result.x_domain[0] / x_tick_step).ceil() * x_tick_step;
         (0..)
-            .map(|i| start + i as f64 * x_tick_step)
+            .map(|i| start + f64::from(i) * x_tick_step)
             .take_while(|&v| v <= result.x_domain[1] + 0.01)
             .collect()
     };

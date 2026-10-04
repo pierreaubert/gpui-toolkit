@@ -1,4 +1,4 @@
-//! KeyboardShortcutLabel component
+//! `KeyboardShortcutLabel` component
 //!
 //! Renders keyboard shortcuts as styled key labels (e.g., ⌘+K displays as
 //! individual styled key caps).

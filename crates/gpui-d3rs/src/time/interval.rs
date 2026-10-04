@@ -4,7 +4,7 @@ use super::duration;
 
 fn civil_from_days(days_since_epoch: i64) -> (i64, u32, u32) {
     // Howard Hinnant's proleptic-Gregorian civil calendar algorithm.
-    let z = days_since_epoch as i128 + 719_468;
+    let z = i128::from(days_since_epoch) + 719_468;
     let era = z.div_euclid(146_097);
     let day_of_era = z - era * 146_097;
     let year_of_era =

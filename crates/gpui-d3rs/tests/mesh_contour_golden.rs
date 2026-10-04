@@ -1,4 +1,4 @@
-//! Golden corpus for marching triangles (MeshPlot Task 5).
+//! Golden corpus for marching triangles (`MeshPlot` Task 5).
 //!
 //! Table-driven integration corpus: single triangle, two shared triangles,
 //! square with hole, disconnected islands, saddle field (v = x² - y² sampled
@@ -159,7 +159,7 @@ fn sorted_segment_bits(segs: &[IsolineSegment]) -> Vec<(u64, [u64; 2], [u64; 2])
             (s.level.to_bits(), lo, hi)
         })
         .collect();
-    v.sort();
+    v.sort_unstable();
     v
 }
 

@@ -28,8 +28,8 @@ pub(super) struct TablePaddings {
 pub(super) fn build_header_row<T: 'static>(
     columns: &[Column<T>],
     table_id: &ElementId,
-    sort_state: &Option<SortState>,
-    on_sort: &Option<Rc<Box<dyn Fn(&SortState, &mut Window, &mut App) + 'static>>>,
+    sort_state: Option<&SortState>,
+    on_sort: Option<&Rc<Box<dyn Fn(&SortState, &mut Window, &mut App) + 'static>>>,
     theme: &TableTheme,
     pad: &TablePaddings,
     window: &mut Window,
@@ -42,15 +42,11 @@ pub(super) fn build_header_row<T: 'static>(
         .border_b_1()
         .border_color(theme.header_border);
 
-    let sort_state = sort_state.clone();
-
     for column in columns {
         let column_id = column.id.clone();
-        let is_sorted = sort_state
-            .as_ref()
-            .is_some_and(|s| s.column_id == column_id);
+        let is_sorted = sort_state.is_some_and(|s| s.column_id == column_id);
         let direction = if is_sorted {
-            sort_state.as_ref().map(|s| s.direction)
+            sort_state.map(|s| s.direction)
         } else {
             None
         };
@@ -323,7 +319,7 @@ pub(super) fn build_footer_row<T: 'static>(
 /// Pagination bar; `None` when pagination is disabled.
 pub(super) fn build_pagination_bar(
     pagination: &PaginationState,
-    on_page_change: &Option<Rc<Box<dyn Fn(&usize, &mut Window, &mut App) + 'static>>>,
+    on_page_change: Option<&Rc<Box<dyn Fn(&usize, &mut Window, &mut App) + 'static>>>,
     theme: &TableTheme,
     pad: &TablePaddings,
     _window: &mut Window,

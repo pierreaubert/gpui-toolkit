@@ -44,11 +44,11 @@ pub const FAITHFUL_WAITING: &[f64] = &[
 pub fn faithful_extent() -> (f64, f64) {
     let min = FAITHFUL_WAITING
         .iter()
-        .cloned()
+        .copied()
         .fold(f64::INFINITY, f64::min);
     let max = FAITHFUL_WAITING
         .iter()
-        .cloned()
+        .copied()
         .fold(f64::NEG_INFINITY, f64::max);
     (min, max)
 }

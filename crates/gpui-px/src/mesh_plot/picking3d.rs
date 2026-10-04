@@ -59,8 +59,8 @@ pub fn pick_3d_with_bvh<P: Into<Arc<str>>>(
         return None;
     }
     let hit = bvh.ray_cast(
-        near.to_array().map(|v| v as f64),
-        direction.to_array().map(|v| v as f64),
+        near.to_array().map(f64::from),
+        direction.to_array().map(f64::from),
     )?;
     let (cell_index, _distance, barycentric) = hit;
     let triangle = *mesh.triangles.get(cell_index as usize)?;

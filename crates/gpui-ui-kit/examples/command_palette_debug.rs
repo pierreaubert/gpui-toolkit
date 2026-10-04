@@ -1,6 +1,6 @@
-//! CommandPalette Debug Example
+//! `CommandPalette` Debug Example
 //!
-//! Demonstrates the CommandPalette component:
+//! Demonstrates the `CommandPalette` component:
 //! - With items, shortcuts, categories
 
 use gpui::*;

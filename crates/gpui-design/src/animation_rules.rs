@@ -11,9 +11,9 @@ pub struct AnimationRules {
     pub slow_ms: u32,
     /// Whether to prefer spring physics over eased curves.
     pub prefer_spring: bool,
-    /// Spring stiffness (used when prefer_spring is true).
+    /// Spring stiffness (used when `prefer_spring` is true).
     pub spring_stiffness: f32,
-    /// Spring damping (used when prefer_spring is true).
+    /// Spring damping (used when `prefer_spring` is true).
     pub spring_damping: f32,
 }
 

@@ -1,4 +1,4 @@
-//! Integration tests for ColorPicker component
+//! Integration tests for `ColorPicker` component
 //!
 //! Tests the color picker component including:
 //! - Basic rendering
@@ -91,7 +91,7 @@ async fn test_color_picker_set_color(cx: &mut TestAppContext) {
 async fn test_color_to_hex_string(cx: &mut TestAppContext) {
     let color = Color::rgb(255, 128, 0);
     let hex = color.to_hex_string();
-    assert!(hex.starts_with("#"), "Hex string should start with #");
+    assert!(hex.starts_with('#'), "Hex string should start with #");
 
     let _ = cx; // Satisfy async test requirement
 }
@@ -147,8 +147,8 @@ async fn test_color_picker_mode_default(cx: &mut TestAppContext) {
 #[gpui::test]
 async fn test_color_picker_mode_variants(cx: &mut TestAppContext) {
     // Test both mode variants exist
-    let _rgb = ColorPickerMode::RGB;
-    let _hsl = ColorPickerMode::HSL;
+    let _ = ColorPickerMode::RGB;
+    let _ = ColorPickerMode::HSL;
 
     let _ = cx;
 }

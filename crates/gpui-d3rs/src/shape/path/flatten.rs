@@ -85,8 +85,8 @@ pub(super) fn elliptical_arc_center(
     let cx_prime = coefficient * rx * y1_prime / ry;
     let cy_prime = coefficient * -ry * x1_prime / rx;
     let center = Point::new(
-        cos_phi * cx_prime - sin_phi * cy_prime + (start.x + end.x) / 2.0,
-        sin_phi * cx_prime + cos_phi * cy_prime + (start.y + end.y) / 2.0,
+        cos_phi * cx_prime - sin_phi * cy_prime + f64::midpoint(start.x, end.x),
+        sin_phi * cx_prime + cos_phi * cy_prime + f64::midpoint(start.y, end.y),
     );
 
     let ux = (x1_prime - cx_prime) / rx;

@@ -25,7 +25,7 @@ pub struct HRResult {
     pub y_domain: [f64; 2],
 }
 
-/// Parse catalog.csv: absolute_magnitude,color
+/// Parse catalog.csv: `absolute_magnitude,color`
 pub fn load_csv(csv_str: &str) -> Vec<(f64, f64)> {
     csv_str
         .lines()

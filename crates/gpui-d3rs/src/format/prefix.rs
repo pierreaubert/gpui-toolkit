@@ -86,7 +86,7 @@ pub fn format_prefix(specifier: &str, value: f64) -> impl Fn(f64) -> String {
     move |v: f64| {
         let scaled = v * scale;
         let formatted = DEFAULT_LOCALE.format(&spec, scaled);
-        format!("{}{}", formatted, prefix)
+        format!("{formatted}{prefix}")
     }
 }
 

@@ -1,4 +1,4 @@
-//! CommandPalette component
+//! `CommandPalette` component
 //!
 //! A Cmd+K / Ctrl+K style fuzzy command search overlay.
 //!

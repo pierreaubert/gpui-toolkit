@@ -29,7 +29,7 @@ pub struct SolvedLayoutScenario<'a> {
     pub solved: SolvedNode<'a>,
 }
 
-impl<'a> SolvedLayoutScenario<'a> {
+impl SolvedLayoutScenario<'_> {
     /// Return a stable preference summary for this solved scenario.
     pub fn preferences_text(&self) -> String {
         let ratios = self

@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 /// Canonical indexed-triangle mesh. Deliberately independent of FEM/BEM,
-/// ndarray, NumPy, and num_complex (spec §5).
+/// ndarray, `NumPy`, and `num_complex` (spec §5).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TriangleMesh {
     pub id: Arc<str>,
@@ -241,7 +241,7 @@ mod tests {
             &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
             &[[0, 1, 2]],
         );
-        assert!(m.validate().is_ok());
+        m.validate().unwrap();
     }
 
     #[test]
@@ -396,7 +396,7 @@ mod tests {
             association: ScalarAssociation::Cell,
             valid: None,
         };
-        assert!(f.validate(&m).is_ok());
+        f.validate(&m).unwrap();
     }
 
     #[test]
@@ -433,7 +433,7 @@ mod tests {
             association: ScalarAssociation::Vertex,
             valid: Some(vec![true, false, true].into()),
         };
-        assert!(f.validate(&m).is_ok());
+        f.validate(&m).unwrap();
         let f_unmasked = ScalarField {
             valid: None,
             ..f.clone()

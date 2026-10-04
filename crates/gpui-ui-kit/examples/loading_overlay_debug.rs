@@ -1,6 +1,6 @@
-//! LoadingOverlay Debug Example
+//! `LoadingOverlay` Debug Example
 //!
-//! Demonstrates the LoadingOverlay component:
+//! Demonstrates the `LoadingOverlay` component:
 //! - With message and subtitle
 //! - Different spinner sizes
 

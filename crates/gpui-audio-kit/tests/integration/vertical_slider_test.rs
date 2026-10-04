@@ -1,4 +1,4 @@
-//! Integration tests for VerticalSlider component
+//! Integration tests for `VerticalSlider` component
 //!
 //! Tests the vertical slider component including:
 //! - Basic rendering

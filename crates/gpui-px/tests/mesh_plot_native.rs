@@ -1,4 +1,4 @@
-//! Native Metal window-level interaction coverage for the live MeshPlot.
+//! Native Metal window-level interaction coverage for the live `MeshPlot`.
 //!
 //! This lane is opt-in because ordinary unit-test hosts do not provide a GPU
 //! adapter. Run it on macOS with:

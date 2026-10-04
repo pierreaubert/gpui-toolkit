@@ -1,6 +1,6 @@
-//! ImageView Debug Example
+//! `ImageView` Debug Example
 //!
-//! Demonstrates the ImageView component:
+//! Demonstrates the `ImageView` component:
 //! - Different fit modes
 //! - With border and rounded corners
 //! - Placeholder state

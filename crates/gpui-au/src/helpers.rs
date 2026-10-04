@@ -5,8 +5,8 @@ use std::ffi::CStr;
 
 const DARK_AQUA_APPEARANCE_NAME: &[u8] = b"NSAppearanceNameDarkAqua";
 
-/// Return whether an NSAppearance name is macOS Dark Aqua without creating a
-/// comparison NSString on each lookup.
+/// Return whether an `NSAppearance` name is macOS Dark Aqua without creating a
+/// comparison `NSString` on each lookup.
 pub(crate) unsafe fn is_dark_aqua_appearance_name(name: *mut Object) -> bool {
     if name.is_null() {
         return false;
@@ -18,15 +18,17 @@ pub(crate) unsafe fn is_dark_aqua_appearance_name(name: *mut Object) -> bool {
         return false;
     }
 
-    // `UTF8String` returns a NUL-terminated pointer valid while `name` lives.
-    is_dark_aqua_appearance_name_bytes(unsafe { CStr::from_ptr(utf8) }.to_bytes())
+    // SAFETY: `UTF8String` returns a NUL-terminated pointer that stays
+    // valid while `name` is alive, and `name` outlives this call.
+    let utf8_str = unsafe { CStr::from_ptr(utf8) };
+    is_dark_aqua_appearance_name_bytes(utf8_str.to_bytes())
 }
 
 fn is_dark_aqua_appearance_name_bytes(name: &[u8]) -> bool {
     name == DARK_AQUA_APPEARANCE_NAME
 }
 
-/// Create an NSString from a Rust string using an explicit byte length.
+/// Create an `NSString` from a Rust string using an explicit byte length.
 ///
 /// This avoids the `stringWithUTF8String:` contract, which requires a
 /// null-terminated C string and rejects interior NUL bytes.
@@ -34,7 +36,7 @@ pub(crate) unsafe fn ns_string_from_str(text: &str) -> *mut Object {
     use objc::{class, msg_send, sel, sel_impl};
     msg_send![
         class!(NSString),
-        stringWithBytes: text.as_ptr() as *const std::ffi::c_void
+        stringWithBytes: text.as_ptr().cast::<std::ffi::c_void>()
         length: text.len()
         encoding: 4u64
     ]
@@ -54,17 +56,19 @@ pub(crate) fn nslog_verbose(msg: &[u8]) {
     let _ = msg;
 }
 
-/// Log via NSLog (always visible in Console.app, unlike Rust's log crate).
+/// Log via `NSLog` (always visible in Console.app, unlike Rust's log crate).
 /// Accepts a byte slice with explicit length; the bytes are interpreted as UTF-8.
 ///
 /// Reserved for genuine failures (null FFI arguments, renderer creation
 /// errors). Progress/tracing logs must use [`nslog_verbose`] instead.
 pub(crate) fn nslog(msg: &[u8]) {
     use objc::{class, msg_send, sel, sel_impl};
+    // SAFETY: `stringWithBytes:length:encoding:` copies `msg.len()` bytes
+    // from the live slice; `NSLog` with a `%@` format reads one object.
     unsafe {
         let ns_string: *mut Object = msg_send![
             class!(NSString),
-            stringWithBytes: msg.as_ptr() as *const std::ffi::c_void
+            stringWithBytes: msg.as_ptr().cast::<std::ffi::c_void>()
             length: msg.len()
             encoding: 4u64
         ];

@@ -1,6 +1,6 @@
 //! Pane Divider Debug Example
 //!
-//! Interactive showcase for the PaneDivider component:
+//! Interactive showcase for the `PaneDivider` component:
 //! - Vertical dividers (Left/Right collapse)
 //! - Horizontal dividers (Up/Down collapse)
 //! - Collapsed/expanded states

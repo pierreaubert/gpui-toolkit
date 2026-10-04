@@ -978,7 +978,7 @@ fn default_thinking_orb_dot_color() -> String {
 }
 
 /// Animated dotted-sphere status indicator rendered by the native
-/// `gpui-ui-kit` ThinkingOrb component.
+/// `gpui-ui-kit` `ThinkingOrb` component.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ThinkingOrbNode {
     pub id: String,
@@ -2159,7 +2159,7 @@ pub struct SelectNode {
 }
 
 /// Native RGB/HSL color editor. The value is a CSS-style 6/8 digit hex
-/// string, while user interaction remains in the host's ColorPickerView.
+/// string, while user interaction remains in the host's `ColorPickerView`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColorPickerNode {
     pub id: String,
@@ -2511,7 +2511,7 @@ impl TableNode {
     }
 }
 
-/// Declarative chart metadata bound to a Dataset, DatasetView, or ArrayData.
+/// Declarative chart metadata bound to a Dataset, `DatasetView`, or `ArrayData`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PxChartV2Node {
     pub chart: String,
@@ -3433,7 +3433,7 @@ fn valid_chart_hex(color: &str) -> bool {
 
 fn validate_resource_source(value: &Value) -> Result<(), UiIrError> {
     let source = match value.get("kind").and_then(Value::as_str) {
-        Some("dataset") | Some("array_data") => value,
+        Some("dataset" | "array_data") => value,
         Some("dataset_view") => value
             .get("dataset")
             .ok_or_else(|| UiIrError::InvalidPatch {
@@ -3465,7 +3465,7 @@ fn validate_resource_source(value: &Value) -> Result<(), UiIrError> {
     Ok(())
 }
 
-/// Validate the DatasetView subset this generic host can execute today.
+/// Validate the `DatasetView` subset this generic host can execute today.
 /// Declarations are kept as a serializable AST, but unsupported operations
 /// must fail validation rather than silently rendering the unfiltered source.
 fn validate_dataset_filter_expression(
@@ -3761,7 +3761,7 @@ pub struct Scene3dNode {
     pub height: Option<f32>,
 }
 
-/// A Scene2D surface embedded in a Python UI tree.
+/// A `Scene2D` surface embedded in a Python UI tree.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Scene2DWidgetNode {
     /// Stable UI identity used by scene patch operations.
@@ -3967,7 +3967,7 @@ mod tests {
             width: None,
             height: None,
         };
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
         node.export_action = Some(String::new());
         assert!(matches!(
             node.validate(),
@@ -3997,7 +3997,7 @@ mod tests {
             "aspect_ratio": 1.5
         });
         let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         value["fill"] = Value::Null;
         value["width"] = serde_json::json!(640.0);
@@ -4014,7 +4014,7 @@ mod tests {
             "roles": {"x": "frequency", "y": "level"}
         });
         let node: PxChartV2Node = serde_json::from_value(value).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
     }
 
     #[test]
@@ -4027,7 +4027,7 @@ mod tests {
                 "expression": {"op": "field", "args": ["enabled"]}
             }]
         });
-        assert!(validate_dataset_view_operations(&filtered, false, false).is_ok());
+        validate_dataset_view_operations(&filtered, false, false).unwrap();
         let composed = serde_json::json!({
             "kind": "dataset_view",
             "dataset": {"kind": "dataset", "id": "events", "generation": 1},
@@ -4046,7 +4046,7 @@ mod tests {
                 }
             }]
         });
-        assert!(validate_dataset_view_operations(&composed, false, false).is_ok());
+        validate_dataset_view_operations(&composed, false, false).unwrap();
         let mut malformed = composed.clone();
         malformed["operations"][0]["expression"]["args"] = serde_json::json!([]);
         assert!(matches!(
@@ -4071,7 +4071,7 @@ mod tests {
             "dataset": {"kind": "dataset", "id": "events", "generation": 1},
             "operations": [{"op": "range", "start": 1, "stop": 3}]
         });
-        assert!(validate_dataset_view_operations(&ranged, true, false).is_ok());
+        validate_dataset_view_operations(&ranged, true, false).unwrap();
         assert!(matches!(
             validate_dataset_view_operations(&ranged, false, false),
             Err(UiIrError::InvalidPatch { .. })
@@ -4082,8 +4082,8 @@ mod tests {
             "dataset": {"kind": "dataset", "id": "events", "generation": 1},
             "operations": [{"op": "select", "fields": ["frequency", "spl"]}]
         });
-        assert!(validate_dataset_view_operations(&projected, true, false).is_ok());
-        assert!(validate_dataset_view_projection(&projected, ["frequency", "spl"]).is_ok());
+        validate_dataset_view_operations(&projected, true, false).unwrap();
+        validate_dataset_view_projection(&projected, ["frequency", "spl"]).unwrap();
         assert!(matches!(
             validate_dataset_view_projection(&projected, ["channel"]),
             Err(UiIrError::InvalidPatch { .. })
@@ -4100,7 +4100,7 @@ mod tests {
             "dataset": {"kind": "dataset", "id": "events", "generation": 1},
             "operations": [{"op": "sort", "field": "frequency"}]
         });
-        assert!(validate_dataset_view_operations(&sorted, true, true).is_ok());
+        validate_dataset_view_operations(&sorted, true, true).unwrap();
         assert!(matches!(
             validate_dataset_view_operations(&sorted, true, false),
             Err(UiIrError::InvalidPatch { .. })
@@ -4125,7 +4125,7 @@ mod tests {
 
         value["data"]["key"] = serde_json::json!("event_id");
         let node: TableV2Node = serde_json::from_value(value.clone()).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         value["selection_action"] = serde_json::json!("");
         let node: TableV2Node = serde_json::from_value(value).unwrap();
@@ -4147,7 +4147,7 @@ mod tests {
             "lod": "auto"
         }))
         .unwrap();
-        assert!(array_chart.validate().is_ok());
+        array_chart.validate().unwrap();
 
         let surface: PxChartV2Node = serde_json::from_value(serde_json::json!({
             "chart": "surface",
@@ -4157,7 +4157,7 @@ mod tests {
             "viewport_action": "camera-changed"
         }))
         .unwrap();
-        assert!(surface.validate().is_ok());
+        surface.validate().unwrap();
 
         for lod in ["auto", "off", "aggressive"] {
             let value = serde_json::json!({
@@ -4206,7 +4206,7 @@ mod tests {
 
         value["data"]["roles"]["row_id"] = serde_json::json!("event_id");
         let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         value["selection_action"] = serde_json::json!("");
         let node: PxChartV2Node = serde_json::from_value(value).unwrap();
@@ -4234,7 +4234,7 @@ mod tests {
             }]
         }))
         .unwrap();
-        assert!(valid.validate().is_ok());
+        valid.validate().unwrap();
 
         let missing_label: PxChartV2Node = serde_json::from_value(serde_json::json!({
             "chart": "bar",
@@ -4289,7 +4289,7 @@ mod tests {
             "vello_backend": "cpu"
         });
         let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         let mut bad_color = value.clone();
         bad_color["colors"] = serde_json::json!(["red"]);
@@ -4329,14 +4329,14 @@ mod tests {
             "viewport_action": "viewport-changed"
         });
         let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         // Bar charts interact in category index space; the host slices the
         // visible categories from the retained x domain.
         let mut bar = value.clone();
         bar["chart"] = serde_json::json!("bar");
         let node: PxChartV2Node = serde_json::from_value(bar).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         let mut unsupported = value;
         unsupported["chart"] = serde_json::json!("pie");
@@ -4373,7 +4373,7 @@ mod tests {
             "legend_action": "series-toggled"
         });
         let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         let mut invalid = value;
         invalid["chart"] = serde_json::json!("scatter");
@@ -4400,7 +4400,7 @@ mod tests {
             "smoothing_max_deviation_px": 1.25
         });
         let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         let mut invalid_factor = value.clone();
         invalid_factor["contour_upsample_factor"] = serde_json::json!(9);
@@ -4433,7 +4433,7 @@ mod tests {
             "border_radius": 4.0
         });
         let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         let mut negative = value.clone();
         negative["bar_gap"] = serde_json::json!(-1.0);
@@ -4472,7 +4472,7 @@ mod tests {
             "bins": 8
         });
         let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         let mut invalid_color = value.clone();
         invalid_color["median_color"] = serde_json::json!("red");
@@ -4524,7 +4524,7 @@ mod tests {
             "z_label": "Elevation"
         });
         let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         let mut invalid_range = value.clone();
         invalid_range["z_range"] = serde_json::json!([2.0, 1.0]);
@@ -4559,7 +4559,7 @@ mod tests {
             "sort": false
         });
         let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         let mut invalid_colors = value.clone();
         invalid_colors["colors"] = serde_json::json!([]);
@@ -4594,7 +4594,7 @@ mod tests {
             "y_log": true
         });
         let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         let mut invalid_color = value.clone();
         invalid_color["fill_color"] = serde_json::json!("blue");
@@ -4626,7 +4626,7 @@ mod tests {
             "primary_color": "#abcdef"
         });
         let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         let mut wrong_kind = value;
         wrong_kind["chart"] = serde_json::json!("area");
@@ -4660,7 +4660,7 @@ mod tests {
             "stroke_color": "#123456"
         });
         let node: PxChartV2Node = serde_json::from_value(value.clone()).unwrap();
-        assert!(node.validate().is_ok());
+        node.validate().unwrap();
 
         let mut wrong_kind = value;
         wrong_kind["chart"] = serde_json::json!("heatmap");
@@ -4680,7 +4680,7 @@ mod tests {
         }));
         assert_eq!(app.width, None);
         assert_eq!(app.height, None);
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         app.width = Some(-1.0);
         assert!(matches!(
@@ -4698,7 +4698,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -4729,7 +4729,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         for (property, value) in [
             ("state", serde_json::json!("unknown")),
@@ -4761,7 +4761,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -4788,7 +4788,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -4854,7 +4854,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -4882,7 +4882,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -4906,7 +4906,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
         let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
             "sections": [{"id": "main", "label": "Main", "content": {
@@ -5022,7 +5022,7 @@ mod tests {
             }]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
     }
 
     #[test]
@@ -5036,7 +5036,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         let invalid_mode: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -5073,7 +5073,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -5137,7 +5137,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -5168,7 +5168,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -5199,7 +5199,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -5226,7 +5226,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -5252,7 +5252,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -5466,7 +5466,7 @@ mod tests {
             }}]
         }))
         .unwrap();
-        assert!(app.validate().is_ok());
+        app.validate().unwrap();
 
         let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Audio",
@@ -5524,6 +5524,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::assert_is_empty,
+        reason = "lint's bare `[]` does not infer a type here"
+    )]
     fn patch_operations_cover_structural_edits_and_rejections() {
         use crate::session::PatchOp;
 

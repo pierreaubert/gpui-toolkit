@@ -15,22 +15,22 @@ impl Hsl {
         Self { h, s, l, a: 1.0 }
     }
 
-    /// Create from a D3Color (RGB).
+    /// Create from a `D3Color` (RGB).
     pub fn from_rgb(color: &D3Color) -> Self {
-        let r = color.r as f64;
-        let g = color.g as f64;
-        let b = color.b as f64;
+        let r = f64::from(color.r);
+        let g = f64::from(color.g);
+        let b = f64::from(color.b);
 
         let max = r.max(g).max(b);
         let min = r.min(g).min(b);
-        let l = (max + min) / 2.0;
+        let l = f64::midpoint(max, min);
 
         if (max - min).abs() < f64::EPSILON {
             return Self {
                 h: 0.0,
                 s: 0.0,
                 l,
-                a: color.a as f64,
+                a: f64::from(color.a),
             };
         }
 
@@ -53,11 +53,11 @@ impl Hsl {
             h: h * 60.0,
             s,
             l,
-            a: color.a as f64,
+            a: f64::from(color.a),
         }
     }
 
-    /// Convert to D3Color (RGB).
+    /// Convert to `D3Color` (RGB).
     pub fn to_rgb(&self) -> D3Color {
         let h = self.h / 360.0;
         let s = self.s;

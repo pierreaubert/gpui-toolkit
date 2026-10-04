@@ -1,10 +1,9 @@
 use super::extent::Extent;
 use super::quad_node::{Aggregate, QuadNode};
 use super::quad_point::QuadPoint;
-use std::f64;
 use std::fmt;
 
-/// QuadTree for 2D spatial indexing
+/// `QuadTree` for 2D spatial indexing
 ///
 /// A quadtree recursively partitions 2D space into quadrants, enabling efficient
 /// spatial queries like nearest neighbor search.
@@ -149,7 +148,7 @@ impl<T: Clone> QuadTree<T> {
                 let mut y1 = ext.y1;
 
                 while x < x0 || x >= x1 || y < y0 || y >= y1 {
-                    let i = ((y < y0) as usize) << 1 | (x < x0) as usize;
+                    let i = usize::from(y < y0) << 1 | usize::from(x < x0);
                     let z = x1 - x0;
 
                     match i {
@@ -263,8 +262,8 @@ impl<T: Clone> QuadTree<T> {
                 }
             }
             QuadNode::Internal(mut children, _) => {
-                let xm = (x0 + x1) / 2.0;
-                let ym = (y0 + y1) / 2.0;
+                let xm = f64::midpoint(x0, x1);
+                let ym = f64::midpoint(y0, y1);
                 let i = Self::quadrant(point.x, point.y, xm, ym);
 
                 let (nx0, ny0, nx1, ny1) = Self::child_extent(i, x0, y0, x1, y1, xm, ym);
@@ -289,8 +288,8 @@ impl<T: Clone> QuadTree<T> {
     ) -> QuadNode<T> {
         match node {
             QuadNode::Internal(mut children, _) => {
-                let xm = (x0 + x1) / 2.0;
-                let ym = (y0 + y1) / 2.0;
+                let xm = f64::midpoint(x0, x1);
+                let ym = f64::midpoint(y0, y1);
                 let i = Self::quadrant(point.x, point.y, xm, ym);
 
                 let (nx0, ny0, nx1, ny1) = Self::child_extent(i, x0, y0, x1, y1, xm, ym);
@@ -302,7 +301,7 @@ impl<T: Clone> QuadTree<T> {
 
                 QuadNode::Internal(children, None)
             }
-            _ => panic!("Expected internal node"),
+            QuadNode::Leaf(_) => panic!("Expected internal node"),
         }
     }
 
@@ -312,7 +311,7 @@ impl<T: Clone> QuadTree<T> {
     pub(super) fn quadrant(x: f64, y: f64, xm: f64, ym: f64) -> usize {
         let right = x >= xm;
         let bottom = y >= ym;
-        (bottom as usize) << 1 | (right as usize)
+        usize::from(bottom) << 1 | usize::from(right)
     }
 
     pub(super) fn child_extent(
@@ -459,8 +458,8 @@ impl<T: Clone> QuadTree<T> {
                 }
             }
             QuadNode::Internal(mut children, _) => {
-                let xm = (x0 + x1) / 2.0;
-                let ym = (y0 + y1) / 2.0;
+                let xm = f64::midpoint(x0, x1);
+                let ym = f64::midpoint(y0, y1);
                 let i = Self::quadrant(x, y, xm, ym);
 
                 if let Some(child) = children[i].take() {
@@ -543,9 +542,9 @@ impl<T: Clone> QuadTree<T> {
         self.root.as_ref()?;
         let ext = self.extent?;
         let mut best: Option<(&T, f64)> = None;
-        let mut max_dist_sq = radius.map(|r| r * r).unwrap_or(f64::INFINITY);
+        let mut max_dist_sq = radius.map_or(f64::INFINITY, |r| r * r);
 
-        self.find_recursive(
+        Self::find_recursive(
             self.root.as_ref().unwrap(),
             x,
             y,
@@ -565,7 +564,6 @@ impl<T: Clone> QuadTree<T> {
         reason = "quadtree recursion carries node bounds and search state explicitly"
     )]
     pub(super) fn find_recursive<'a>(
-        &'a self,
         node: &'a QuadNode<T>,
         x: f64,
         y: f64,
@@ -594,8 +592,8 @@ impl<T: Clone> QuadTree<T> {
                 }
             }
             QuadNode::Internal(children, _) => {
-                let xm = (x0 + x1) / 2.0;
-                let ym = (y0 + y1) / 2.0;
+                let xm = f64::midpoint(x0, x1);
+                let ym = f64::midpoint(y0, y1);
 
                 // Visit children in order of distance to query point
                 let mut order = [(0, 0.0), (1, 0.0), (2, 0.0), (3, 0.0)];
@@ -616,7 +614,7 @@ impl<T: Clone> QuadTree<T> {
 
                     if let Some(child) = &children[i] {
                         let (cx0, cy0, cx1, cy1) = Self::child_extent(i, x0, y0, x1, y1, xm, ym);
-                        self.find_recursive(child, x, y, cx0, cy0, cx1, cy1, best, max_dist_sq);
+                        Self::find_recursive(child, x, y, cx0, cy0, cx1, cy1, best, max_dist_sq);
                     }
                 }
             }
@@ -653,12 +651,11 @@ impl<T: Clone> QuadTree<T> {
         F: FnMut(f64, f64, f64, f64, &QuadNode<T>) -> bool,
     {
         if let (Some(root), Some(ext)) = (&self.root, &self.extent) {
-            self.visit_recursive(root, ext.x0, ext.y0, ext.x1, ext.y1, &mut callback);
+            Self::visit_recursive(root, ext.x0, ext.y0, ext.x1, ext.y1, &mut callback);
         }
     }
 
     pub(super) fn visit_recursive<F>(
-        &self,
         node: &QuadNode<T>,
         x0: f64,
         y0: f64,
@@ -673,13 +670,13 @@ impl<T: Clone> QuadTree<T> {
         }
 
         if let QuadNode::Internal(children, _) = node {
-            let xm = (x0 + x1) / 2.0;
-            let ym = (y0 + y1) / 2.0;
+            let xm = f64::midpoint(x0, x1);
+            let ym = f64::midpoint(y0, y1);
 
             for (i, child) in children.iter().enumerate() {
                 if let Some(c) = child {
                     let (cx0, cy0, cx1, cy1) = Self::child_extent(i, x0, y0, x1, y1, xm, ym);
-                    self.visit_recursive(c, cx0, cy0, cx1, cy1, callback);
+                    Self::visit_recursive(c, cx0, cy0, cx1, cy1, callback);
                 }
             }
         }
@@ -691,12 +688,11 @@ impl<T: Clone> QuadTree<T> {
         F: FnMut(f64, f64, f64, f64, &QuadNode<T>),
     {
         if let (Some(root), Some(ext)) = (&self.root, &self.extent) {
-            self.visit_after_recursive(root, ext.x0, ext.y0, ext.x1, ext.y1, &mut callback);
+            Self::visit_after_recursive(root, ext.x0, ext.y0, ext.x1, ext.y1, &mut callback);
         }
     }
 
     pub(super) fn visit_after_recursive<F>(
-        &self,
         node: &QuadNode<T>,
         x0: f64,
         y0: f64,
@@ -707,13 +703,13 @@ impl<T: Clone> QuadTree<T> {
         F: FnMut(f64, f64, f64, f64, &QuadNode<T>),
     {
         if let QuadNode::Internal(children, _) = node {
-            let xm = (x0 + x1) / 2.0;
-            let ym = (y0 + y1) / 2.0;
+            let xm = f64::midpoint(x0, x1);
+            let ym = f64::midpoint(y0, y1);
 
             for (i, child) in children.iter().enumerate() {
                 if let Some(c) = child {
                     let (cx0, cy0, cx1, cy1) = Self::child_extent(i, x0, y0, x1, y1, xm, ym);
-                    self.visit_after_recursive(c, cx0, cy0, cx1, cy1, callback);
+                    Self::visit_after_recursive(c, cx0, cy0, cx1, cy1, callback);
                 }
             }
         }
@@ -743,8 +739,8 @@ impl<T: Clone> QuadTree<T> {
         y1: f64,
     ) {
         if let QuadNode::Internal(children, _) = node {
-            let xm = (x0 + x1) / 2.0;
-            let ym = (y0 + y1) / 2.0;
+            let xm = f64::midpoint(x0, x1);
+            let ym = f64::midpoint(y0, y1);
 
             let mut aggregate: Option<Aggregate> = None;
             for (i, child) in children.iter_mut().enumerate() {
@@ -771,12 +767,11 @@ impl<T: Clone> QuadTree<T> {
         F: FnMut(f64, f64, f64, f64, &QuadNode<T>, Option<Aggregate>) -> bool,
     {
         if let (Some(root), Some(ext)) = (&self.root, &self.extent) {
-            self.visit_aggregate_recursive(root, ext.x0, ext.y0, ext.x1, ext.y1, &mut callback);
+            Self::visit_aggregate_recursive(root, ext.x0, ext.y0, ext.x1, ext.y1, &mut callback);
         }
     }
 
     pub(super) fn visit_aggregate_recursive<F>(
-        &self,
         node: &QuadNode<T>,
         x0: f64,
         y0: f64,
@@ -792,13 +787,13 @@ impl<T: Clone> QuadTree<T> {
         }
 
         if let QuadNode::Internal(children, _) = node {
-            let xm = (x0 + x1) / 2.0;
-            let ym = (y0 + y1) / 2.0;
+            let xm = f64::midpoint(x0, x1);
+            let ym = f64::midpoint(y0, y1);
 
             for (i, child) in children.iter().enumerate() {
                 if let Some(c) = child {
                     let (cx0, cy0, cx1, cy1) = Self::child_extent(i, x0, y0, x1, y1, xm, ym);
-                    self.visit_aggregate_recursive(c, cx0, cy0, cx1, cy1, callback);
+                    Self::visit_aggregate_recursive(c, cx0, cy0, cx1, cy1, callback);
                 }
             }
         }
@@ -859,11 +854,10 @@ impl<T: Clone> QuadTree<T> {
     pub fn find_all_into<'a>(&'a self, x: f64, y: f64, radius: f64, out: &mut Vec<&'a T>) {
         let radius_sq = radius * radius;
 
-        self.find_all_recursive(self.root.as_ref(), x, y, radius_sq, self.extent, out);
+        Self::find_all_recursive(self.root.as_ref(), x, y, radius_sq, self.extent, out);
     }
 
     pub(super) fn find_all_recursive<'a>(
-        &'a self,
         node: Option<&'a QuadNode<T>>,
         x: f64,
         y: f64,
@@ -892,14 +886,14 @@ impl<T: Clone> QuadTree<T> {
                 }
             }
             QuadNode::Internal(children, _) => {
-                let xm = (ext.x0 + ext.x1) / 2.0;
-                let ym = (ext.y0 + ext.y1) / 2.0;
+                let xm = f64::midpoint(ext.x0, ext.x1);
+                let ym = f64::midpoint(ext.y0, ext.y1);
 
                 for (i, child) in children.iter().enumerate() {
                     if child.is_some() {
                         let (cx0, cy0, cx1, cy1) =
                             Self::child_extent(i, ext.x0, ext.y0, ext.x1, ext.y1, xm, ym);
-                        self.find_all_recursive(
+                        Self::find_all_recursive(
                             child.as_ref(),
                             x,
                             y,
@@ -1171,8 +1165,8 @@ mod tests {
     fn test_large_dataset() {
         let points: Vec<(f64, f64, i32)> = (0..1000)
             .map(|i| {
-                let x = (i as f64 * 0.618033988749895).fract() * 100.0;
-                let y = (i as f64 * 0.381966011250105).fract() * 100.0;
+                let x = (f64::from(i) * 0.618033988749895).fract() * 100.0;
+                let y = (f64::from(i) * 0.381966011250105).fract() * 100.0;
                 (x, y, i)
             })
             .collect();
@@ -1242,8 +1236,8 @@ mod tests {
         tree.find_all_into(0.5, 0.5, 2.0, &mut buf);
         let mut got: Vec<i32> = buf.iter().copied().copied().collect();
         let mut expected: Vec<i32> = tree.find_all(0.5, 0.5, 2.0).into_iter().copied().collect();
-        got.sort();
-        expected.sort();
+        got.sort_unstable();
+        expected.sort_unstable();
         assert_eq!(got, expected);
         assert_eq!(got.len(), 3);
     }
@@ -1260,7 +1254,7 @@ mod tests {
         assert_eq!(removed, 2);
         assert_eq!(tree.size(), 2);
         let mut rest: Vec<i32> = tree.data().into_iter().map(|(_, _, d)| d).collect();
-        rest.sort();
+        rest.sort_unstable();
         assert_eq!(rest, vec![1, 3]);
     }
 

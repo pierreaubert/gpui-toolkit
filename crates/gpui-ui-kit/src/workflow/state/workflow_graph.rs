@@ -45,13 +45,11 @@ impl WorkflowGraph {
         to_port: usize,
     ) -> Result<ConnectionId, &'static str> {
         // Validate nodes exist
-        let from_data = match self.nodes.get(&from_node) {
-            Some(n) => n,
-            None => return Err("Source node not found"),
+        let Some(from_data) = self.nodes.get(&from_node) else {
+            return Err("Source node not found");
         };
-        let to_data = match self.nodes.get(&to_node) {
-            Some(n) => n,
-            None => return Err("Target node not found"),
+        let Some(to_data) = self.nodes.get(&to_node) else {
+            return Err("Target node not found");
         };
 
         // Validate port indices

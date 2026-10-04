@@ -123,9 +123,7 @@ impl<R: Clone> QuantizeScale<R> {
 impl<R: Clone> Scale<f64, R> for QuantizeScale<R> {
     fn scale(&self, value: f64) -> R {
         let n = self.range_values.len();
-        if n == 0 {
-            panic!("QuantizeScale requires at least one range value");
-        }
+        assert!(n != 0, "QuantizeScale requires at least one range value");
 
         // Clamp and normalize to [0, 1]
         let t = ((value - self.domain_min) / (self.domain_max - self.domain_min)).clamp(0.0, 1.0);
@@ -151,9 +149,10 @@ impl<R: Clone> Scale<f64, R> for QuantizeScale<R> {
     }
 
     fn range(&self) -> (R, R) {
-        if self.range_values.is_empty() {
-            panic!("QuantizeScale requires at least one range value");
-        }
+        assert!(
+            !self.range_values.is_empty(),
+            "QuantizeScale requires at least one range value"
+        );
         (
             self.range_values.first().unwrap().clone(),
             self.range_values.last().unwrap().clone(),

@@ -1,9 +1,9 @@
-//! Integration tests for the ThinkingOrb component.
+//! Integration tests for the `ThinkingOrb` component.
 //!
 //! Tests entity creation and rendering in actual GPUI windows:
 //! - All 9 states render
-//! - Builder configuration (speed, count_scale, paused, aria_label)
-//! - Runtime updates via `entity.update` (set_count_scale, set_paused)
+//! - Builder configuration (speed, `count_scale`, paused, `aria_label`)
+//! - Runtime updates via `entity.update` (`set_count_scale`, `set_paused`)
 
 use gpui::{
     AppContext, Context, Entity, IntoElement, ParentElement, Render, TestAppContext, Window, div,

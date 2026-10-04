@@ -13,6 +13,9 @@ license.workspace = true
 # Zed publishes that crate to crates.io.
 publish = false
 
+[lints]
+workspace = true
+
 [lib]
 crate-type = ["rlib"]
 

@@ -1,7 +1,7 @@
 //! Integration tests for Checkbox component
 //!
 //! Tests checkbox rendering, toggle on/off, disabled state, sizes,
-//! indeterminate state, labels, and custom theming using VisualTestContext.
+//! indeterminate state, labels, and custom theming using `VisualTestContext`.
 
 use gpui::{
     Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,

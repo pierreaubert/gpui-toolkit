@@ -73,7 +73,7 @@ impl Mercator {
         // Clamp to the Web Mercator latitude limit so the poles (where y tends
         // to infinity) are never projected.
         let phi = phi.clamp(-Self::MAX_PHI, Self::MAX_PHI);
-        (lambda, ((HALF_PI + phi) / 2.0).tan().ln())
+        (lambda, f64::midpoint(HALF_PI, phi).tan().ln())
     }
 
     /// Inverse raw Mercator projection.

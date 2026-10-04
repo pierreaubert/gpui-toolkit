@@ -130,7 +130,7 @@ pub fn compute() -> PackResult {
         .map(|c| {
             let mut builder = PathBuilder::new();
             for v in 0..n_sides {
-                let angle = std::f64::consts::TAU * v as f64 / n_sides as f64;
+                let angle = std::f64::consts::TAU * f64::from(v) / f64::from(n_sides);
                 let x = c.x + c.r * angle.cos();
                 let y = c.y + c.r * angle.sin();
                 if v == 0 {
@@ -227,10 +227,11 @@ fn pack_node(
             let mut found = false;
 
             'search: for ring in 0..50 {
-                let ring_r = ring as f64 * (child_r * 0.3 + 2.0);
+                let ring_r = f64::from(ring) * (child_r * 0.3 + 2.0);
                 let n_tries = if ring == 0 { 1 } else { (ring * 6).max(8) };
                 for t in 0..n_tries {
-                    let angle = t as f64 / n_tries as f64 * std::f64::consts::TAU + i as f64 * 0.5; // offset per child
+                    let angle =
+                        f64::from(t) / f64::from(n_tries) * std::f64::consts::TAU + i as f64 * 0.5; // offset per child
 
                     let px = cx + ring_r * angle.cos();
                     let py = cy + ring_r * angle.sin();

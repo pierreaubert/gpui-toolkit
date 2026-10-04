@@ -35,28 +35,28 @@ pub(super) fn format_log_tick_into(value: f64, buf: &mut String) {
         // Millions: 1M, 2M, etc.
         let millions = value / 1_000_000.0;
         if millions.fract().abs() < 1e-10 {
-            let _ = write!(buf, "{:.0}M", millions);
+            let _ = write!(buf, "{millions:.0}M");
         } else {
-            let _ = write!(buf, "{:.1}M", millions);
+            let _ = write!(buf, "{millions:.1}M");
         }
     } else if abs_value >= 1_000.0 {
         // Thousands: 1k, 10k, 100k, etc.
         let thousands = value / 1_000.0;
         if thousands.fract().abs() < 1e-10 {
-            let _ = write!(buf, "{:.0}k", thousands);
+            let _ = write!(buf, "{thousands:.0}k");
         } else {
-            let _ = write!(buf, "{:.1}k", thousands);
+            let _ = write!(buf, "{thousands:.1}k");
         }
     } else if abs_value >= 1.0 {
         // Regular values >= 1
         if value.fract().abs() < 1e-10 {
-            let _ = write!(buf, "{:.0}", value);
+            let _ = write!(buf, "{value:.0}");
         } else {
-            let _ = write!(buf, "{:.1}", value);
+            let _ = write!(buf, "{value:.1}");
         }
     } else {
         // Small values < 1
-        let _ = write!(buf, "{:.2}", value);
+        let _ = write!(buf, "{value:.2}");
     }
 }
 
@@ -123,7 +123,7 @@ fn generate_log_ticks_uncached(min: f64, max: f64) -> Vec<f64> {
         ticks.push(final_decade);
     }
 
-    ticks.sort_by(|a, b| a.total_cmp(b));
+    ticks.sort_by(f64::total_cmp);
     ticks.dedup();
     ticks
 }

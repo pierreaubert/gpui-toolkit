@@ -2,7 +2,8 @@
 # GPUI Toolkit workspace tasks
 # ----------------------------------------------------------------------
 
-cargo := `if command -v mbx >/dev/null 2>&1; then echo mbx; else echo cargo; fi`
+# cargo := `if command -v mbx >/dev/null 2>&1; then echo mbx; else echo cargo; fi`
+cargo := 'cargo'
 
 set dotenv-load := true
 

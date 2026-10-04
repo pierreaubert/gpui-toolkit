@@ -1,4 +1,4 @@
-//! Integration tests for DragList component
+//! Integration tests for `DragList` component
 
 use gpui::{Context, IntoElement, ParentElement, Render, TestAppContext, Window, div};
 use gpui_ui_kit::drag_list::{DragItem, DragList, DragListOrientation};

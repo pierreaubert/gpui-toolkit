@@ -50,7 +50,7 @@ pub fn frame_orbits(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
                 (uy * a.cos() + vy * a.sin()) * ro,
                 (uz * a.cos() + vz * a.sin()) * ro,
             );
-            let depth = (z / ro + 1.0) / 2.0;
+            let depth = f64::midpoint(z / ro, 1.0);
             dots.push(Dot {
                 x: px,
                 y: py,
@@ -69,7 +69,7 @@ pub fn frame_orbits(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
                 (uy * a.cos() + vy * a.sin()) * ro,
                 (uz * a.cos() + vz * a.sin()) * ro,
             );
-            let depth = (z / ro + 1.0) / 2.0;
+            let depth = f64::midpoint(z / ro, 1.0);
             dots.push(Dot {
                 x: px,
                 y: py,

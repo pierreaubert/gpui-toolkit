@@ -55,26 +55,25 @@ impl NumberEditState {
     ) -> SharedString {
         // Fast path: compare the incoming unit by reference against the stored
         // key so we do not clone the SharedString on every cache hit.
-        let cache_hit = self
-            .last_format_key
-            .as_ref()
-            .map(|(last_value, last_decimals, last_unit)| {
-                let unit_matches = match (last_unit.as_ref(), unit) {
-                    (Some(last_unit), Some(unit)) => last_unit.as_str() == unit.as_str(),
-                    (None, None) => true,
-                    _ => false,
-                };
-                *last_value == value && *last_decimals == decimals && unit_matches
-            })
-            .unwrap_or(false);
+        let cache_hit =
+            self.last_format_key
+                .as_ref()
+                .is_some_and(|(last_value, last_decimals, last_unit)| {
+                    let unit_matches = match (last_unit.as_ref(), unit) {
+                        (Some(last_unit), Some(unit)) => last_unit.as_str() == unit.as_str(),
+                        (None, None) => true,
+                        _ => false,
+                    };
+                    *last_value == value && *last_decimals == decimals && unit_matches
+                });
 
         if cache_hit && let Some(cached) = &self.last_format_value {
             return SharedString::new(cached.clone());
         }
 
-        let formatted = format!("{:.prec$}", value, prec = decimals);
+        let formatted = format!("{value:.decimals$}");
         let result: Arc<str> = if let Some(unit) = unit {
-            Arc::from(format!("{} {}", formatted, unit))
+            Arc::from(format!("{formatted} {unit}"))
         } else {
             Arc::from(formatted)
         };
@@ -102,14 +101,12 @@ impl NumberEditState {
                 .text
                 .char_indices()
                 .nth(self.cursor - 1)
-                .map(|(i, _)| i)
-                .unwrap_or(0);
+                .map_or(0, |(i, _)| i);
             let next_byte = self
                 .text
                 .char_indices()
                 .nth(self.cursor)
-                .map(|(i, _)| i)
-                .unwrap_or(self.text.len());
+                .map_or(self.text.len(), |(i, _)| i);
             self.text.replace_range(byte_pos..next_byte, "");
             self.cursor -= 1;
         }
@@ -128,14 +125,12 @@ impl NumberEditState {
                     .text
                     .char_indices()
                     .nth(self.cursor)
-                    .map(|(i, _)| i)
-                    .unwrap_or(self.text.len());
+                    .map_or(self.text.len(), |(i, _)| i);
                 let next_byte = self
                     .text
                     .char_indices()
                     .nth(self.cursor + 1)
-                    .map(|(i, _)| i)
-                    .unwrap_or(self.text.len());
+                    .map_or(self.text.len(), |(i, _)| i);
                 self.text.replace_range(byte_pos..next_byte, "");
             }
         }
@@ -158,8 +153,7 @@ impl NumberEditState {
             .text
             .char_indices()
             .nth(self.cursor)
-            .map(|(i, _)| i)
-            .unwrap_or(self.text.len());
+            .map_or(self.text.len(), |(i, _)| i);
         self.text.insert(byte_pos, ch);
         self.cursor += 1;
     }
@@ -238,11 +232,7 @@ impl NumberEditState {
     }
 
     pub(super) fn get_selected_text(&self) -> Option<String> {
-        if self.text_selected && !self.text.is_empty() {
-            Some(self.text.clone())
-        } else {
-            None
-        }
+        (self.text_selected && !self.text.is_empty()).then(|| self.text.clone())
     }
 
     pub(super) fn delete_selected(&mut self) -> bool {
@@ -270,8 +260,7 @@ impl NumberEditState {
             .text
             .char_indices()
             .nth(self.cursor)
-            .map(|(i, _)| i)
-            .unwrap_or(self.text.len());
+            .map_or(self.text.len(), |(i, _)| i);
         self.text.insert_str(byte_pos, &filtered);
         self.cursor += filtered.chars().count();
     }

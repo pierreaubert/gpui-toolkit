@@ -63,7 +63,7 @@ impl Surface3DRenderer {
     /// Create a new renderer with the given configuration
     pub fn new(config: Surface3DConfig) -> Option<Self> {
         let (device, queue) = Self::shared_or_new_device()?;
-        Self::with_device(device, queue, config)
+        Some(Self::with_device(device, queue, config))
     }
 
     /// Construct resources on a caller-owned device and queue.
@@ -75,7 +75,7 @@ impl Surface3DRenderer {
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
         config: Surface3DConfig,
-    ) -> Option<Self> {
+    ) -> Self {
         let (
             surface_pipeline,
             wireframe_pipeline,
@@ -98,7 +98,7 @@ impl Surface3DRenderer {
         });
         let grid_index_count = grid_mesh.index_count as u32;
 
-        Some(Self {
+        Self {
             device,
             queue,
             surface_pipeline,
@@ -124,7 +124,7 @@ impl Surface3DRenderer {
             height: 0,
             config,
             billboard: None,
-        })
+        }
     }
 
     pub(super) async fn create_device() -> Option<(wgpu::Device, wgpu::Queue)> {
@@ -277,50 +277,46 @@ impl Surface3DRenderer {
         });
 
         // Create wireframe pipeline if enabled
-        let wireframe_pipeline = if config.wireframe {
-            Some(
-                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("Wireframe Pipeline"),
-                    layout: Some(&pipeline_layout),
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("vs_main"),
-                        buffers: std::slice::from_ref(&vertex_layout),
-                        compilation_options: Default::default(),
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some("fs_wireframe"),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: wgpu::TextureFormat::Rgba8Unorm,
-                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                        compilation_options: Default::default(),
-                    }),
-                    primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::LineList,
-                        ..Default::default()
-                    },
-                    depth_stencil: Some(wgpu::DepthStencilState {
-                        format: wgpu::TextureFormat::Depth32Float,
-                        depth_write_enabled: Some(true),
-                        depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                        stencil: Default::default(),
-                        bias: Default::default(), // bias not compatible with LineList topology
-                    }),
-                    multisample: wgpu::MultisampleState {
-                        count: config.msaa_samples,
-                        mask: !0,
-                        alpha_to_coverage_enabled: false,
-                    },
-                    multiview_mask: None,
-                    cache: None,
+        let wireframe_pipeline = config.wireframe.then(|| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Wireframe Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: std::slice::from_ref(&vertex_layout),
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_wireframe"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
                 }),
-            )
-        } else {
-            None
-        };
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::LineList,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                    stencil: Default::default(),
+                    bias: Default::default(), // bias not compatible with LineList topology
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: config.msaa_samples,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview_mask: None,
+                cache: None,
+            })
+        });
 
         // Create grid pipeline
         let grid_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -509,7 +505,7 @@ impl Surface3DRenderer {
             let bytes_per_row = (width * 4 + 255) & !255;
             self.readback_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Surface Readback Buffer"),
-                size: (bytes_per_row * height) as u64,
+                size: u64::from(bytes_per_row * height),
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                 mapped_at_creation: false,
             }));

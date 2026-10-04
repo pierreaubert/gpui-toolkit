@@ -219,7 +219,7 @@ fn build_tick_geometry(
         if max.abs() < 0.0001 {
             continue;
         }
-        let tick_interval = max / div as f64;
+        let tick_interval = max / f64::from(div);
         if tick_interval.abs() < 0.0001 {
             continue;
         }
@@ -275,7 +275,7 @@ fn build_tick_geometry(
         });
 
         if is_major {
-            let tick_value = scale.normalized_to_value(tick_normalized as f64, min, max);
+            let tick_value = scale.normalized_to_value(f64::from(tick_normalized), min, max);
             let label_x = knob_offset_x + center + label_radius * tick_angle.cos();
             let label_y = knob_offset_y + center + label_radius * tick_angle.sin();
 
@@ -286,12 +286,12 @@ fn build_tick_geometry(
                 if tick_value >= 1000.0 {
                     format!("{:.0}k", tick_value / 1000.0).into()
                 } else {
-                    format!("{:.0}", tick_value).into()
+                    format!("{tick_value:.0}").into()
                 }
             } else if unit == "dB" {
-                format!("{:.0}", tick_value).into()
+                format!("{tick_value:.0}").into()
             } else {
-                format!("{:.1}", tick_value).into()
+                format!("{tick_value:.1}").into()
             };
 
             labels.push((label_text, label_x, label_y));
@@ -434,7 +434,7 @@ impl Element for PotentiometerTickLinesElement {
                     &mut minor
                 };
                 for (index, (x, y)) in points.iter().enumerate() {
-                    let point = (*x as f64, *y as f64);
+                    let point = (f64::from(*x), f64::from(*y));
                     path.push(if index == 0 {
                         PathEl::MoveTo(point.into())
                     } else {
@@ -528,7 +528,7 @@ mod fxhash {
 
     pub fn hash64_with_seed(mut hash: u64, bytes: &[u8]) -> u64 {
         for &b in bytes {
-            hash ^= b as u64;
+            hash ^= u64::from(b);
             hash = hash.wrapping_mul(0x100000001b3);
         }
         hash
@@ -592,7 +592,7 @@ mod tests {
     fn geometry_cache_is_bounded() {
         let unit: SharedString = "Hz".into();
         for index in 0..=(GEOMETRY_CACHE_CAPACITY as u32 + 1) {
-            let min = 20.0 + index as f64;
+            let min = 20.0 + f64::from(index);
             get_tick_geometry(
                 min,
                 20_000.0,

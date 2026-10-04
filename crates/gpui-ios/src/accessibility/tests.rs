@@ -112,6 +112,10 @@ fn button(id: &str, label: &str) -> IosAccessibilityNode {
 }
 
 #[test]
+#[allow(
+    clippy::assert_is_empty,
+    reason = "lint's `[] as [T; 0]` type ascription path does not resolve in this scope"
+)]
 fn diff_identical_snapshots_is_empty() {
     let prev = IosAccessibilitySnapshot::new(
         IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
@@ -133,6 +137,10 @@ fn diff_identical_snapshots_is_empty() {
 }
 
 #[test]
+#[allow(
+    clippy::assert_is_empty,
+    reason = "lint's `[] as [T; 0]` type ascription path does not resolve in this scope"
+)]
 fn diff_property_change_only() {
     let prev = IosAccessibilitySnapshot::new(
         IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
@@ -158,6 +166,10 @@ fn diff_property_change_only() {
 }
 
 #[test]
+#[allow(
+    clippy::assert_is_empty,
+    reason = "lint's `[] as [T; 0]` type ascription path does not resolve in this scope"
+)]
 fn diff_adds_removes_and_reorders() {
     let prev = IosAccessibilitySnapshot::new(
         IosAccessibilityNode::new("root", IosAccessibilityRole::Container)
@@ -223,6 +235,10 @@ fn diff_detects_traits_change() {
 }
 
 #[test]
+#[allow(
+    clippy::assert_is_empty,
+    reason = "lint's `[] as [T; 0]` type ascription path does not resolve in this scope"
+)]
 fn diff_first_snapshot_treats_all_nodes_as_added() {
     let next = IosAccessibilitySnapshot::new(
         IosAccessibilityNode::new("root", IosAccessibilityRole::Container).child(button("a", "A")),

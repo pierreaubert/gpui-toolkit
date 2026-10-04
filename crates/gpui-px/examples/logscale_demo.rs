@@ -1,6 +1,6 @@
 //! Logarithmic Scale Demo - demonstrates log scale support in gpui-px
 //!
-//! Run with: cargo run --example logscale_demo --features gpui
+//! Run with: cargo run --example `logscale_demo` --features gpui
 
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};
@@ -23,7 +23,7 @@ impl Render for LogScaleDemo {
 
         // Generate frequency response data (20 Hz to 20 kHz)
         let freq_x: Vec<f64> = (0..60)
-            .map(|i| 20.0 * 10_f64.powf(i as f64 / 20.0))
+            .map(|i| 20.0 * 10_f64.powf(f64::from(i) / 20.0))
             .collect();
         let freq_y: Vec<f64> = freq_x
             .iter()

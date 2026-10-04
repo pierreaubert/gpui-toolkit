@@ -142,7 +142,7 @@ impl ShowcaseApp {
         if snapshot_mode {
             let output_dir = std::path::Path::new("docs/images");
             if !output_dir.exists() {
-                std::fs::create_dir_all(output_dir).ok();
+                let _ = std::fs::create_dir_all(output_dir);
             }
         }
 
@@ -218,9 +218,9 @@ impl ShowcaseApp {
                 let points = (0..80_000)
                     .map(|index| {
                         state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                        let x_jitter = (state as f64 / u32::MAX as f64 - 0.5) * 22.0;
+                        let x_jitter = (f64::from(state) / f64::from(u32::MAX) - 0.5) * 22.0;
                         state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                        let y_jitter = (state as f64 / u32::MAX as f64 - 0.5) * 18.0;
+                        let y_jitter = (f64::from(state) / f64::from(u32::MAX) - 0.5) * 18.0;
                         let (center_x, center_y) = match index % 3 {
                             0 => (30.0, 36.0),
                             1 => (58.0, 64.0),
@@ -233,7 +233,9 @@ impl ShowcaseApp {
             },
             lod_zoom: d3rs::zoom::ZoomState::default(),
             // Horizon Chart defaults
-            horizon_data: (0..200).map(|i| (i as f64 * 0.1).sin() * 20.0).collect(),
+            horizon_data: (0..200)
+                .map(|i| (f64::from(i) * 0.1).sin() * 20.0)
+                .collect(),
             horizon_offset: 0.0,
             horizon_animating: false,
             use_large_data: false,
@@ -377,7 +379,7 @@ impl ShowcaseApp {
 
         let prefs = LayoutPreferences::new(&[], &[]);
         let solved = solve(&root, w, h, &prefs);
-        solved.find("sidebar").map(|n| n.width).unwrap_or(120.0)
+        solved.find("sidebar").map_or(120.0, |n| n.width)
     }
 
     pub(super) fn render_sidebar(
@@ -723,9 +725,9 @@ fn renderer_selection_for(requested: Option<&str>) -> (Renderer2D, VelloBackend,
         .map(str::to_ascii_lowercase)
         .as_deref()
     {
-        Some("legacy") | Some("gpu2d") => (Renderer2D::Legacy, VelloBackend::Auto, "Legacy"),
+        Some("legacy" | "gpu2d") => (Renderer2D::Legacy, VelloBackend::Auto, "Legacy"),
         #[cfg(feature = "vello")]
-        Some("cpu") | Some("vello-cpu") => (Renderer2D::Vello, VelloBackend::Cpu, "Vello · Cpu"),
+        Some("cpu" | "vello-cpu") => (Renderer2D::Vello, VelloBackend::Cpu, "Vello · Cpu"),
         #[cfg(not(feature = "vello"))]
         Some("cpu") | Some("vello-cpu") => (
             Renderer2D::Legacy,
@@ -758,8 +760,8 @@ impl Render for ShowcaseApp {
                 let index = self.snapshot_index;
                 let label = section
                     .label()
-                    .replace(" ", "_")
-                    .replace(":", "")
+                    .replace(' ', "_")
+                    .replace(':', "")
                     .to_lowercase();
 
                 // Ensure output directory exists (relative to CWD)
@@ -769,7 +771,7 @@ impl Render for ShowcaseApp {
                         .expect("Failed to create docs/images directory");
                 }
 
-                let output_path = format!("docs/images/demo_{:02}_{}.png", index, label);
+                let output_path = format!("docs/images/demo_{index:02}_{label}.png");
                 println!("Capturing: {} -> {}", section.label(), output_path);
 
                 // Try to get window ID via osascript (macOS specific) to capture only the window

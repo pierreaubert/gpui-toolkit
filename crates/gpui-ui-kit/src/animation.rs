@@ -27,16 +27,16 @@
 //!
 //! All standard easing functions are provided:
 //! - Linear
-//! - Quad (In, Out, InOut)
-//! - Cubic (In, Out, InOut)
-//! - Quart (In, Out, InOut)
-//! - Quint (In, Out, InOut)
-//! - Sine (In, Out, InOut)
-//! - Expo (In, Out, InOut)
-//! - Circ (In, Out, InOut)
-//! - Back (In, Out, InOut)
-//! - Elastic (In, Out, InOut)
-//! - Bounce (In, Out, InOut)
+//! - Quad (In, Out, `InOut`)
+//! - Cubic (In, Out, `InOut`)
+//! - Quart (In, Out, `InOut`)
+//! - Quint (In, Out, `InOut`)
+//! - Sine (In, Out, `InOut`)
+//! - Expo (In, Out, `InOut`)
+//! - Circ (In, Out, `InOut`)
+//! - Back (In, Out, `InOut`)
+//! - Elastic (In, Out, `InOut`)
+//! - Bounce (In, Out, `InOut`)
 
 use std::time::Duration;
 
@@ -150,7 +150,7 @@ impl Animation {
             return 0.0;
         }
 
-        let effective_elapsed = elapsed - self.delay;
+        let effective_elapsed = elapsed.checked_sub(self.delay).unwrap();
         if self.duration.is_zero() {
             return ease(self.easing, self.final_progress());
         }

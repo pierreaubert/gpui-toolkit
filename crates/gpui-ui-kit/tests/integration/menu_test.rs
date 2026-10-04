@@ -1,12 +1,12 @@
 //! Integration tests for Menu component
 //!
-//! Tests the Menu, MenuItem, and MenuBar components including:
+//! Tests the Menu, `MenuItem`, and `MenuBar` components including:
 //! - Basic rendering
 //! - Menu items with shortcuts, icons
 //! - Separators and checkboxes
 //! - Disabled and danger items
 //! - Selection callbacks
-//! - MenuBar with multiple menus
+//! - `MenuBar` with multiple menus
 
 use gpui::{
     Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,

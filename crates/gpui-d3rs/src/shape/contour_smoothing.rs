@@ -93,7 +93,7 @@ fn adaptive_distance_jump_threshold(
         return x_jump_threshold.hypot(y_jump_threshold);
     }
 
-    distances.sort_by(|a, b| a.total_cmp(b));
+    distances.sort_by(f32::total_cmp);
     let median = distances[distances.len() / 2];
     let viewport_threshold = x_jump_threshold.hypot(y_jump_threshold);
     (median * 8.0).max(24.0).min(viewport_threshold.max(24.0))

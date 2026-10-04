@@ -127,11 +127,7 @@ fn constraint_to_slot(c: &PluginColumnConstraint) -> LayoutNode<'static> {
         priority: c.priority,
         collapsible: c.collapsible,
         display_tiers: &[],
-        collapse_label: if c.collapsible {
-            Some(role_to_label(c.role))
-        } else {
-            None
-        },
+        collapse_label: c.collapsible.then(|| role_to_label(c.role)),
     })
 }
 
@@ -265,7 +261,7 @@ pub fn plugin_adaptations(
     };
 
     // Find the main slot's width
-    let main_width = solved.find("main").map(|n| n.width).unwrap_or(solved.width);
+    let main_width = solved.find("main").map_or(solved.width, |n| n.width);
 
     let group_direction = if main_width < thresholds.group_stack_threshold {
         GroupDirection::Column

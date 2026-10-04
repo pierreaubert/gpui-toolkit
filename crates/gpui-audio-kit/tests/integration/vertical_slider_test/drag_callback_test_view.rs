@@ -3,7 +3,7 @@ use gpui_audio_kit::audio::vertical_slider::VerticalSlider;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Test on_drag_start callback
+/// Test `on_drag_start` callback
 pub(super) struct DragCallbackTestView {
     pub(super) drag_started: Arc<AtomicBool>,
 }

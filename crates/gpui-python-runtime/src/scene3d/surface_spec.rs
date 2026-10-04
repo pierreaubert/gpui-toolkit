@@ -24,7 +24,7 @@ fn default_axis_values(size: usize) -> &'static [f64] {
     let cache = DEFAULT_AXIS_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
     if let Some(values) = cache
         .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .get(&size)
         .copied()
     {
@@ -33,7 +33,7 @@ fn default_axis_values(size: usize) -> &'static [f64] {
 
     let mut map = cache
         .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     map.entry(size).or_insert_with(|| {
         let values: &'static [f64] = Box::leak(
             (0..size)
@@ -164,8 +164,8 @@ impl SurfaceSpec {
         let mut geometry = DefaultHasher::new();
         self.id.hash(&mut geometry);
         self.z.hash_into(&mut geometry);
-        hash_optional_f64_slice(&self.x, &mut geometry);
-        hash_optional_f64_slice(&self.y, &mut geometry);
+        hash_optional_f64_slice(self.x.as_ref(), &mut geometry);
+        hash_optional_f64_slice(self.y.as_ref(), &mut geometry);
         self.x_log.hash(&mut geometry);
         self.y_log.hash(&mut geometry);
         self.z_log.hash(&mut geometry);

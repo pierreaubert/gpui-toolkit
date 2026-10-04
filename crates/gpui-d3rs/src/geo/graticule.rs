@@ -12,9 +12,9 @@ pub struct GraticuleConfig {
     pub extent_major: [[f64; 2]; 2],
     /// Minor extent: [[lon0, lat0], [lon1, lat1]]
     pub extent_minor: [[f64; 2]; 2],
-    /// Major step: [lon_step, lat_step]
+    /// Major step: [`lon_step`, `lat_step`]
     pub step_major: [f64; 2],
-    /// Minor step: [lon_step, lat_step]
+    /// Minor step: [`lon_step`, `lat_step`]
     pub step_minor: [f64; 2],
     /// Precision for line generation
     pub precision: f64,
@@ -96,7 +96,7 @@ impl Graticule {
         self
     }
 
-    /// Generate all graticule lines as a MultiLineString.
+    /// Generate all graticule lines as a `MultiLineString`.
     ///
     /// Returns a vector of line coordinates, where each line is a vector of (lon, lat) points.
     pub fn lines(&self) -> Vec<Vec<(f64, f64)>> {

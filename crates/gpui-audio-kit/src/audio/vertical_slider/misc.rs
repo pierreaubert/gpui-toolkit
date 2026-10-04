@@ -20,7 +20,7 @@ pub(super) fn format_value_abbrev(value: f64) -> SharedString {
         if (k_value.round() - k_value).abs() < 0.01 {
             format!("{}{}k", sign, k_value.round() as i32).into()
         } else {
-            format!("{}{:.1}k", sign, k_value).into()
+            format!("{sign}{k_value:.1}k").into()
         }
     } else if abs_value >= 10.0 {
         // For values >= 10, show as integer
@@ -30,12 +30,12 @@ pub(super) fn format_value_abbrev(value: f64) -> SharedString {
         if (abs_value.round() - abs_value).abs() < 0.01 {
             format!("{}{}", sign, abs_value.round() as i32).into()
         } else {
-            format!("{}{:.1}", sign, abs_value).into()
+            format!("{sign}{abs_value:.1}").into()
         }
     } else if abs_value >= 0.1 {
-        format!("{}{:.1}", sign, abs_value).into()
+        format!("{sign}{abs_value:.1}").into()
     } else if abs_value > 0.0 {
-        format!("{}{:.2}", sign, abs_value).into()
+        format!("{sign}{abs_value:.2}").into()
     } else {
         "0".into()
     }

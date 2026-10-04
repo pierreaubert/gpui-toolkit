@@ -159,7 +159,7 @@ fn resample_line_to(
 
         let phi2 = asin_clamped(c);
         let lambda2 = if (c.abs() - 1.0).abs() < EPSILON || (lambda0 - lambda1).abs() < EPSILON {
-            (lambda0 + lambda1) / 2.0
+            f64::midpoint(lambda0, lambda1)
         } else {
             b.atan2(a)
         };
@@ -361,7 +361,7 @@ impl ClipBuffer {
 
 impl Sink for ClipBuffer {
     fn point(&mut self, lambda: f64, phi: f64, m: i32) {
-        self.lines[self.current_index].push([lambda, phi, m as f64]);
+        self.lines[self.current_index].push([lambda, phi, f64::from(m)]);
     }
 
     fn line_start(&mut self) {
@@ -415,15 +415,15 @@ impl Sink for OutSink {
 
 impl<T: Sink + ?Sized> Sink for &mut T {
     fn point(&mut self, lambda: f64, phi: f64, m: i32) {
-        (*self).point(lambda, phi, m)
+        (*self).point(lambda, phi, m);
     }
 
     fn line_start(&mut self) {
-        (*self).line_start()
+        (*self).line_start();
     }
 
     fn line_end(&mut self) {
-        (*self).line_end()
+        (*self).line_end();
     }
 }
 
@@ -518,7 +518,7 @@ fn antimeridian_intersect(lambda0: f64, phi0: f64, lambda1: f64, phi1: f64) -> f
             / (cos_phi0 * cos_phi1 * sin_lambda0_lambda1))
             .atan()
     } else {
-        (phi0 + phi1) / 2.0
+        f64::midpoint(phi0, phi1)
     }
 }
 
@@ -552,7 +552,7 @@ impl<S: Sink> AntimeridianClipLine<S> {
 
         if (delta - PI).abs() < EPSILON {
             // Line crosses a pole.
-            let phi_pole = if (self.phi0 + phi1) / 2.0 > 0.0 {
+            let phi_pole = if f64::midpoint(self.phi0, phi1) > 0.0 {
                 HALF_PI
             } else {
                 -HALF_PI
@@ -707,7 +707,7 @@ fn circle_intersect(a: (f64, f64), b: (f64, f64), cr: f64, two: bool) -> Option<
         (delta > PI) ^ (lambda0 <= q.0 && q.0 <= lambda1)
     };
 
-    if on_arc { Some([q, q1]) } else { None }
+    on_arc.then_some([q, q1])
 }
 
 struct CircleClipLine<S: Sink> {
@@ -843,7 +843,7 @@ impl<S: Sink> CircleClipLine<S> {
     }
 
     fn clean(&self) -> i32 {
-        self.clean | ((self.v00 && self.v0) as i32) << 1
+        self.clean | i32::from(self.v00 && self.v0) << 1
     }
 }
 
@@ -1215,7 +1215,7 @@ fn clip_antimeridian_line(coords: &[(f64, f64)]) -> Vec<Vec<(f64, f64)>> {
             line.point(lambda, phi, 0);
         }
         line.line_end();
-    }
+    };
     sink.result()
 }
 
@@ -1228,7 +1228,7 @@ fn clip_circle_line(coords: &[(f64, f64)], radius: f64) -> Vec<Vec<(f64, f64)>> 
             line.point(lambda, phi, 0);
         }
         line.line_end();
-    }
+    };
     sink.result()
 }
 
@@ -1284,7 +1284,7 @@ fn clip_antimeridian_ring(coords: &[(f64, f64)]) -> Vec<Vec<(f64, f64)>> {
     }
 
     rejoin_segments(&segments, start_inside, |from, to, dir, out| {
-        interpolate_antimeridian(from, to, dir, out)
+        interpolate_antimeridian(from, to, dir, out);
     })
 }
 
@@ -1358,7 +1358,7 @@ fn clip_circle_ring(coords: &[(f64, f64)], radius: f64) -> Vec<Vec<(f64, f64)>> 
     }
 
     rejoin_segments(&segments, start_inside, move |from, to, dir, out| {
-        interpolate_circle(radius, from, to, dir, out)
+        interpolate_circle(radius, from, to, dir, out);
     })
 }
 
@@ -1461,7 +1461,7 @@ pub fn clip_antimeridian_polygon<R: AsRef<[(f64, f64)]>>(
 
     if !all_segments.is_empty() {
         let pieces = rejoin_segments(&all_segments, start_inside, |from, to, dir, out| {
-            interpolate_antimeridian(from, to, dir, out)
+            interpolate_antimeridian(from, to, dir, out);
         });
         output_rings.extend(pieces);
     } else if start_inside {
@@ -1573,7 +1573,7 @@ pub fn clip_circle_polygon<R: AsRef<[(f64, f64)]>>(
 
     if !all_segments.is_empty() {
         let pieces = rejoin_segments(&all_segments, start_inside, move |from, to, dir, out| {
-            interpolate_circle(clip_angle_rad, from, to, dir, out)
+            interpolate_circle(clip_angle_rad, from, to, dir, out);
         });
         output_rings.extend(pieces);
     } else if start_inside {
@@ -1721,7 +1721,7 @@ mod tests {
                 }
             }
         }
-        eprintln!("Rust contains count: {}", count);
+        eprintln!("Rust contains count: {count}");
         assert_eq!(count, 0);
     }
 
@@ -1771,7 +1771,7 @@ mod tests {
                 .parallels(29.5, 45.5);
             let path = GeoPath::new(proj.clone());
             let b = path.bounds(&geom);
-            println!("poly1379 bounds rotate 180,-60: {:?}", b);
+            println!("poly1379 bounds rotate 180,-60: {b:?}");
             let s = path.render(&geom);
             let nums: Vec<f64> = s
                 .split(|c: char| {
@@ -1796,10 +1796,7 @@ mod tests {
                     pmax_render = (x, y);
                 }
             }
-            println!(
-                "render min y {:.9} at {:?} max x {:?}",
-                miny, pmin_render, pmax_render
-            );
+            println!("render min y {miny:.9} at {pmin_render:?} max x {pmax_render:?}");
             // find point in clipped piece with min projected y
             use crate::geo::path::clip::{clip_antimeridian_polygon, resample_spherical_line};
             use crate::geo::projection::SphereRotation;
@@ -1808,7 +1805,7 @@ mod tests {
                 use std::io::Write;
                 let mut f = std::fs::File::create("/tmp/rust_rotated_1379_180_60.txt").unwrap();
                 for (ri, ring) in polygons[1379].iter().enumerate() {
-                    writeln!(f, "ring{}", ri).unwrap();
+                    writeln!(f, "ring{ri}").unwrap();
                     for &(lon, lat) in ring {
                         let (l, p) = rotation.rotate(lon.to_radians(), lat.to_radians());
                         writeln!(
@@ -1828,7 +1825,7 @@ mod tests {
                 use std::io::Write;
                 let mut f = std::fs::File::create("/tmp/rust_clipped_1379_180_60.txt").unwrap();
                 for (pi, piece) in pieces.iter().enumerate() {
-                    writeln!(f, "ring{}", pi).unwrap();
+                    writeln!(f, "ring{pi}").unwrap();
                     for &(l, p) in piece {
                         writeln!(f, "{},{} (deg)", l.to_degrees(), p.to_degrees()).unwrap();
                     }
@@ -1849,10 +1846,7 @@ mod tests {
                     }
                 }
             }
-            println!(
-                "resampled min y {:.9} at {:?} max x {:?}",
-                miny2, pmin2, pmax2
-            );
+            println!("resampled min y {miny2:.9} at {pmin2:?} max x {pmax2:?}");
         }
     }
 
@@ -1887,7 +1881,7 @@ mod tests {
                 use std::io::Write;
                 let mut f = std::fs::File::create("/tmp/rust_rotated_1379.txt").unwrap();
                 for (ri, ring) in rings.iter().enumerate() {
-                    writeln!(f, "ring{}", ri).unwrap();
+                    writeln!(f, "ring{ri}").unwrap();
                     for (i, &(lon, lat)) in ring.iter().enumerate() {
                         let (l, p) = rotated_rings[ri][i];
                         writeln!(
@@ -1928,7 +1922,7 @@ mod tests {
                     }
                 }
             }
-            println!("old max_x {}", old_max_x);
+            println!("old max_x {old_max_x}");
             // find projected extrema in piece
             let mut min_x = f64::INFINITY;
             let mut max_x = -f64::INFINITY;
@@ -1936,7 +1930,7 @@ mod tests {
             let mut max_p = (0.0, 0.0);
             for &(l, p) in &pieces[0] {
                 let (x, y) = proj.project_rotated(l, p);
-                if p < -80.0_f64.to_radians() && l > 0.0 {
+                if p < (-80.0_f64).to_radians() && l > 0.0 {
                     println!(
                         "high south pos l={:.3} p={:.3} -> x={:.3} y={:.3}",
                         l.to_degrees(),
@@ -1968,7 +1962,7 @@ mod tests {
                 use std::io::Write;
                 let mut f = std::fs::File::create("/tmp/rust_clipped_1379.txt").unwrap();
                 for (pi, piece) in pieces.iter().enumerate() {
-                    writeln!(f, "ring{}", pi).unwrap();
+                    writeln!(f, "ring{pi}").unwrap();
                     for &(l, p) in piece {
                         writeln!(f, "{},{} (deg)", l.to_degrees(), p.to_degrees()).unwrap();
                     }
@@ -2000,7 +1994,7 @@ mod tests {
                         min_x = x;
                     }
                 }
-                println!("  projected x range {} .. {}", min_x, max_x_local);
+                println!("  projected x range {min_x} .. {max_x_local}");
                 println!("  extreme raw points:");
                 for (k, &(l, p)) in piece.iter().enumerate() {
                     let (x, y) = proj.project_rotated(l, p);
@@ -2016,7 +2010,7 @@ mod tests {
                     }
                 }
             }
-            println!("our antarctica max_x {} at {:?}", max_x, max_pt);
+            println!("our antarctica max_x {max_x} at {max_pt:?}");
             println!(
                 "projected max_pt {:?}",
                 proj.project_rotated(max_pt.0, max_pt.1)
@@ -2045,7 +2039,7 @@ mod tests {
     fn test_rotation_15_90() {
         use crate::geo::projection::SphereRotation;
         let rotation = SphereRotation::from_degrees(180.0, -60.0, 0.0);
-        let (l, p) = rotation.rotate(0.0_f64.to_radians(), -90.0_f64.to_radians());
+        let (l, p) = rotation.rotate(0.0_f64.to_radians(), (-90.0_f64).to_radians());
         println!(
             "rot(0,-90) = {:.6}, {:.6} deg",
             l.to_degrees(),
@@ -2064,9 +2058,9 @@ mod tests {
             .rotate(0.0, -15.0, 0.0)
             .parallels(29.5, 45.5);
         for &(l, p) in &[
-            (77.2_f64.to_radians(), -84.09_f64.to_radians()),
-            (45.0_f64.to_radians(), -84.0_f64.to_radians()),
-            (77.0_f64.to_radians(), -80.0_f64.to_radians()),
+            (77.2_f64.to_radians(), (-84.09_f64).to_radians()),
+            (45.0_f64.to_radians(), (-84.0_f64).to_radians()),
+            (77.0_f64.to_radians(), (-80.0_f64).to_radians()),
         ] {
             let (x, y) = proj.project_rotated(l, p);
             println!(
@@ -2080,7 +2074,7 @@ mod tests {
             let phi0 = 29.5_f64.to_radians();
             let phi1 = 45.5_f64.to_radians();
             let sy0 = phi0.sin();
-            let n = (sy0 + phi1.sin()) / 2.0;
+            let n = f64::midpoint(sy0, phi1.sin());
             let c = 1.0 + sy0 * (2.0 * n - sy0);
             let r0 = c.sqrt() / n;
             let rho_sq = c - 2.0 * n * p.sin();
@@ -2089,8 +2083,7 @@ mod tests {
             let xr = r * theta.sin();
             let yr = r0 - r * theta.cos();
             println!(
-                "  manual raw n={:.6} c={:.6} r0={:.6} r={:.6} theta={:.6} -> ({:.6},{:.6})",
-                n, c, r0, r, theta, xr, yr
+                "  manual raw n={n:.6} c={c:.6} r0={r0:.6} r={r:.6} theta={theta:.6} -> ({xr:.6},{yr:.6})"
             );
         }
     }
@@ -2109,7 +2102,7 @@ mod tests {
             .rotate(60.0, -60.0, 0.0)
             .parallels(29.5, 45.5);
         let (x0, y0) = proj0.project(-60.0, -30.0);
-        println!("DEBUG TOP proj(-60,-30) = {}, {}", x0, y0);
+        println!("DEBUG TOP proj(-60,-30) = {x0}, {y0}");
         let json = include_str!("../../../bin/showcase/data/land-50m.json");
         let land = parse_land(json).expect("parse land");
         let rotation = SphereRotation::from_degrees(60.0, -60.0, 0.0);
@@ -2174,7 +2167,7 @@ mod tests {
                 .map(|s| s.iter().map(|&(x, y)| [x, y, 0.0]).collect())
                 .collect();
             let rejoined = rejoin_segments(&segs3, true, |from, to, dir, out| {
-                interpolate_antimeridian(from, to, dir, out)
+                interpolate_antimeridian(from, to, dir, out);
             });
             println!("direct rejoined pieces: {}", rejoined.len());
             for (i, p) in rejoined.iter().enumerate() {
@@ -2238,7 +2231,7 @@ mod tests {
                     }
                 }
             }
-            println!("our max y {} at {:?}", max_y, max_pt);
+            println!("our max y {max_y} at {max_pt:?}");
             println!(
                 "after max loop proj(-60,-30) = {:?}",
                 proj.project(-60.0, -30.0)
@@ -2259,9 +2252,9 @@ mod tests {
                 println!("  last 5 {:?}", &piece[piece.len().saturating_sub(5)..]);
                 if let Some(last) = piece.last() {
                     let (x, y) = proj.project(last.0, last.1);
-                    println!("  last {:?} projected {}, {}", last, x, y);
+                    println!("  last {last:?} projected {x}, {y}");
                     let (x2, y2) = proj.project(-59.99999999999999, -30.000000000000014);
-                    println!("  direct -60,-30 projected {}, {}", x2, y2);
+                    println!("  direct -60,-30 projected {x2}, {y2}");
                 }
                 use std::io::Write;
                 let mut f = std::fs::File::create("/tmp/our_piece_1200.json").unwrap();
@@ -2269,7 +2262,7 @@ mod tests {
                     if j > 0 {
                         write!(f, ",").unwrap();
                     }
-                    write!(f, "[{},{}]", l, p).unwrap();
+                    write!(f, "[{l},{p}]").unwrap();
                 }
                 writeln!(f).unwrap();
             }

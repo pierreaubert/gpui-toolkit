@@ -6,7 +6,7 @@
 //! - Resolves nice-number contour levels over the field range
 //! - Runs marching triangles: isoline segments + filled bands
 //!
-//! Run with: cargo run --example mesh_contour_demo
+//! Run with: cargo run --example `mesh_contour_demo`
 
 use d3rs::mesh::{
     ContourLevels, CoordinateAxis, MarchingTriangles, MeshTopology, ScalarAssociation, ScalarField,
@@ -125,7 +125,7 @@ fn main() {
     let segments = mt.isolines(&levels);
     for &level in levels.iter() {
         let n = segments.iter().filter(|s| s.level == level).count();
-        println!("  level {:>5.2}: {} segments", level, n);
+        println!("  level {level:>5.2}: {n} segments");
     }
     println!("  total: {} segments", segments.len());
 
@@ -159,7 +159,6 @@ fn main() {
     }
     let band_annulus_area = std::f64::consts::PI * (1.5_f64.powi(2) - 1.0_f64.powi(2));
     println!(
-        "  total band area: {:.4} (exact annulus band {:.4}; polygonal boundary explains the gap)",
-        total_area, band_annulus_area
+        "  total band area: {total_area:.4} (exact annulus band {band_annulus_area:.4}; polygonal boundary explains the gap)"
     );
 }

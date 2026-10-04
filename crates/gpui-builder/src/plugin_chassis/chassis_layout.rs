@@ -78,7 +78,7 @@ impl ChassisLayout {
     ///    the lowest `priority` (mark `visible = false`, contributes 0
     ///    width) and repeat.
     /// 3. Distribute remaining space proportionally to `preferred_width -
-    ///    min_width` of visible sections (clamped at preferred_width).
+    ///    min_width` of visible sections (clamped at `preferred_width`).
     /// 4. Any leftover space flexes the highest-priority visible section.
     pub fn solve(&self, available_width: f32) -> SolvedChassis {
         let mut solved = SolvedChassis {
@@ -213,6 +213,6 @@ impl ChassisLayout {
             } else {
                 total_width
             };
-        })
+        });
     }
 }

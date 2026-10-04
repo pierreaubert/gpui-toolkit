@@ -19,7 +19,7 @@ fn test_stack_spacing_variants() {
         StackSpacing::Custom(gpui::px(12.0)),
     ];
     for spacing in &spacings {
-        let _copy = *spacing;
+        let _ = *spacing;
     }
 }
 
@@ -39,7 +39,7 @@ fn test_stack_align_variants() {
         StackAlign::Baseline,
     ];
     for align in &aligns {
-        let _copy = *align;
+        let _ = *align;
     }
 }
 
@@ -60,7 +60,7 @@ fn test_stack_justify_variants() {
         StackJustify::SpaceEvenly,
     ];
     for justify in &justifies {
-        let _copy = *justify;
+        let _ = *justify;
     }
 }
 
@@ -79,7 +79,7 @@ fn test_stack_overflow_variants() {
         StackOverflow::Auto,
     ];
     for overflow in &overflows {
-        let _copy = *overflow;
+        let _ = *overflow;
     }
 }
 
@@ -98,7 +98,7 @@ fn test_stack_size_variants() {
         StackSize::Fraction(0.5),
     ];
     for size in &sizes {
-        let _copy = *size;
+        let _ = *size;
     }
 }
 

@@ -1,4 +1,4 @@
-//! Sankey Diagram — Observable example using d3rs::examples::sankey
+//! Sankey Diagram — Observable example using `d3rs::examples::sankey`
 //!
 //! Loads the energy flow dataset from energy.json (48 nodes, 68 links).
 //! Demonstrates: `SankeyLayout`, `PathBuilder`, `ColorScheme`,
@@ -25,8 +25,8 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     let scheme = ColorScheme::tableau10();
 
-    let width = app.content_width as f64;
-    let height = (width * 0.71).min(app.content_height as f64 * 0.8);
+    let width = f64::from(app.content_width);
+    let height = (width * 0.71).min(f64::from(app.content_height) * 0.8);
 
     let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
     let mut all_colors: Vec<Hsla> = Vec::new();
@@ -38,7 +38,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
         let sx = source.x1;
         let tx = target.x0;
-        let cx = (sx + tx) / 2.0;
+        let cx = f64::midpoint(sx, tx);
         let hw = link.width / 2.0; // half-width
 
         // Top edge: from source to target at y - hw
@@ -78,7 +78,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .map(|n| {
             let is_right = n.layer > result.nodes.iter().map(|nn| nn.layer).max().unwrap_or(0) / 2;
             let lx = if is_right { n.x0 - 4.0 } else { n.x1 + 4.0 };
-            let ly = (n.y0 + n.y1) / 2.0;
+            let ly = f64::midpoint(n.y0, n.y1);
             (n.id.clone(), lx, ly, is_right)
         })
         .collect();

@@ -1,4 +1,4 @@
-//! Example: Music player app layout (mirrors SotF app-gpui).
+//! Example: Music player app layout (mirrors `SotF` app-gpui).
 //!
 //! Demonstrates:
 //! - Hard constraints (header/footer)
@@ -6,7 +6,7 @@
 //! - Collapsible panels with display tiers
 //! - User preferences (dragged ratios, collapsed state)
 //!
-//! Run: cargo run -p gpui-builder --example app_layout
+//! Run: cargo run -p gpui-builder --example `app_layout`
 
 use gpui_builder::{
     Axis, ContainerNode, DisplayTier, LayoutNode, LayoutPreferences, LayoutScenario, LayoutState,
@@ -129,7 +129,7 @@ fn main() {
 
     let tabs = solved.collapsed_tabs();
     if !tabs.is_empty() {
-        println!("  Collapsed tabs: {:?}", tabs);
+        println!("  Collapsed tabs: {tabs:?}");
     }
     println!();
 
@@ -140,7 +140,7 @@ fn main() {
 
     let tabs = solved.collapsed_tabs();
     if !tabs.is_empty() {
-        println!("  Collapsed tabs: {:?}", tabs);
+        println!("  Collapsed tabs: {tabs:?}");
     }
     println!();
 
@@ -162,6 +162,6 @@ fn main() {
 
     let tabs = solved.collapsed_tabs();
     if !tabs.is_empty() {
-        println!("  Collapsed tabs: {:?}", tabs);
+        println!("  Collapsed tabs: {tabs:?}");
     }
 }

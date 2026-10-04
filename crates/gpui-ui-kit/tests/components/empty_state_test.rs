@@ -1,4 +1,4 @@
-//! EmptyState component tests
+//! `EmptyState` component tests
 
 use gpui::div;
 use gpui::prelude::ParentElement;

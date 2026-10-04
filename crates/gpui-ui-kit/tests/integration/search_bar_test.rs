@@ -1,6 +1,6 @@
-//! Integration tests for SearchBar component
+//! Integration tests for `SearchBar` component
 //!
-//! Tests the SearchBar component including:
+//! Tests the `SearchBar` component including:
 //! - Basic rendering
 //! - With value
 //! - With placeholder
@@ -224,8 +224,7 @@ async fn test_search_bar_typing_changes_query(cx: &mut TestAppContext) {
 
     let center = cx
         .debug_bounds("typing-search")
-        .map(|bounds| bounds.center())
-        .unwrap_or_else(|| point(px(150.), px(24.)));
+        .map_or_else(|| point(px(150.), px(24.)), |bounds| bounds.center());
 
     cx.simulate_mouse_down(center, MouseButton::Left, Modifiers::default());
     cx.simulate_mouse_up(center, MouseButton::Left, Modifiers::default());

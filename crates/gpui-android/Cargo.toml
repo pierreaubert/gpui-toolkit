@@ -9,6 +9,9 @@ description = "Android platform backend for GPUI"
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [lib]
 crate-type = ["rlib"]
 

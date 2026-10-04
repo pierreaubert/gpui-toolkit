@@ -106,7 +106,10 @@ fn adapter_isolines_match_cpu_golden_order_and_geometry() {
     }
     let (mesh, field, topology) = square_fixture();
     let levels = [0.5_f32, 0.75];
-    let cpu_levels = levels.iter().map(|&level| level as f64).collect::<Vec<_>>();
+    let cpu_levels = levels
+        .iter()
+        .map(|&level| f64::from(level))
+        .collect::<Vec<_>>();
     let cpu = MarchingTriangles::new(
         &mesh,
         &field,
@@ -297,7 +300,12 @@ fn adapter_filled_bands_match_cpu_golden_area_and_boundaries() {
         CoordinateAxis::Y,
     )
     .unwrap()
-    .filled_bands(&levels.iter().map(|&level| level as f64).collect::<Vec<_>>());
+    .filled_bands(
+        &levels
+            .iter()
+            .map(|&level| f64::from(level))
+            .collect::<Vec<_>>(),
+    );
     let actual = compute
         .band_triangles(&mesh, &field, &topology, &levels)
         .unwrap();

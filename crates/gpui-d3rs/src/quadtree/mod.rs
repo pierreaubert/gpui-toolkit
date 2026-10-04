@@ -1,4 +1,4 @@
-//! QuadTree module for spatial indexing (d3-quadtree inspired)
+//! `QuadTree` module for spatial indexing (d3-quadtree inspired)
 //!
 //! This module provides a quadtree data structure for efficient 2D spatial queries.
 //! Quadtrees recursively subdivide 2D space into four quadrants, enabling O(log n)

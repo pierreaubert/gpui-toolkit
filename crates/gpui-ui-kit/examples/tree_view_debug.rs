@@ -1,6 +1,6 @@
-//! TreeView Debug Example
+//! `TreeView` Debug Example
 //!
-//! Demonstrates the TreeView component:
+//! Demonstrates the `TreeView` component:
 //! - Nested nodes
 //! - Leaf nodes
 //! - Selected and expanded states

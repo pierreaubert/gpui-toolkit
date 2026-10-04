@@ -1,4 +1,4 @@
-//! Validated Scene2D data and revisioned transactions for Python-authored apps.
+//! Validated `Scene2D` data and revisioned transactions for Python-authored apps.
 //!
 //! The wire model is renderer-independent. Hosts validate complete snapshots
 //! and patches before publishing them to a native surface. Object IDs remain
@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
-/// Current version of the Python-to-native Scene2D schema.
+/// Current version of the Python-to-native `Scene2D` schema.
 pub const SCENE2D_SCHEMA_VERSION: u16 = 1;
 
 // These limits bound retained state and expensive per-frame native work.
@@ -36,7 +36,7 @@ const MAX_GRID_CELLS: usize = 1_000_000;
 const MAX_DIMENSION: f32 = 1_000_000.0;
 const MAX_GROUP_DEPTH: usize = 64;
 
-/// Errors found while decoding, validating, or applying a Scene2D update.
+/// Errors found while decoding, validating, or applying a `Scene2D` update.
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum Scene2DError {
     /// The snapshot uses a different schema version.
@@ -128,7 +128,7 @@ pub struct Scene2DColor {
     pub a: f32,
 }
 
-/// A fill brush supported by the first Scene2D schema.
+/// A fill brush supported by the first `Scene2D` schema.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Scene2DBrush {
@@ -353,19 +353,14 @@ pub struct Scene2DShadow {
     pub color: Scene2DColor,
 }
 
-/// Text alignment used by a Scene2D text object.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Text alignment used by a `Scene2D` text object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Scene2DTextAlign {
+    #[default]
     Left,
     Center,
     Right,
-}
-
-impl Default for Scene2DTextAlign {
-    fn default() -> Self {
-        Self::Left
-    }
 }
 
 /// A path drawing instruction.
@@ -586,7 +581,7 @@ pub struct Scene2DGridCell {
     pub id: String,
 }
 
-/// Why a Scene2D surface cleared held keys or pointer contacts.
+/// Why a `Scene2D` surface cleared held keys or pointer contacts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Scene2DLifecycleReason {
@@ -604,7 +599,7 @@ pub enum Scene2DLifecycleReason {
     Resumed,
 }
 
-/// Input event normalized by a native Scene2D surface.
+/// Input event normalized by a native `Scene2D` surface.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Scene2DInput {
@@ -650,7 +645,7 @@ pub enum Scene2DInput {
     },
     /// Accessibility activation by a semantic hit target.
     Activate {
-        /// Stable Scene2D node ID selected by the platform accessibility API.
+        /// Stable `Scene2D` node ID selected by the platform accessibility API.
         id: String,
         /// Optional application-provided semantic hit ID.
         #[serde(default)]
@@ -713,7 +708,7 @@ fn default_true() -> bool {
 /// A validated ordered display list ready for native rendering.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Scene2DScene {
-    /// Scene2D schema version.
+    /// `Scene2D` schema version.
     #[serde(default = "scene2d_schema_version")]
     pub version: u16,
     /// Monotonically increasing scene revision.
@@ -737,7 +732,7 @@ pub struct Scene2DScene {
     pub input: Scene2DInputConfig,
 }
 
-/// Return the current Scene2D schema version.
+/// Return the current `Scene2D` schema version.
 #[must_use]
 pub const fn scene2d_schema_version() -> u16 {
     SCENE2D_SCHEMA_VERSION
@@ -817,6 +812,9 @@ pub struct Scene2DPatch {
     pub background: Option<Option<Scene2DBrush>>,
 }
 
+// Double Option is serde's missing-vs-null idiom for patch fields; the shape
+// is load-bearing and cannot be flattened without changing the data model.
+#[allow(clippy::option_option)]
 fn deserialize_optional_replacement<'de, D, T>(
     deserializer: D,
 ) -> Result<Option<Option<T>>, D::Error>
@@ -964,13 +962,13 @@ impl Scene2DCache {
             next.view_box = value;
         }
         if let Some(value) = &patch.grid {
-            next.grid = value.clone();
+            next.grid.clone_from(value);
         }
         if let Some(value) = patch.input {
             next.input = value;
         }
         if let Some(value) = &patch.semantic {
-            next.semantic = value.clone();
+            next.semantic.clone_from(value);
         }
         if let Some(value) = patch.background {
             next.background = value;
@@ -1491,7 +1489,7 @@ fn validate_kind(node: &Scene2DNode) -> Result<(), Scene2DError> {
             for command in commands {
                 match command {
                     Scene2DPathCommand::MoveTo { point } | Scene2DPathCommand::LineTo { point } => {
-                        validate_point(*point, "path point")?
+                        validate_point(*point, "path point")?;
                     }
                     Scene2DPathCommand::QuadraticTo { control, point } => {
                         validate_point(*control, "path control point")?;
@@ -1881,9 +1879,8 @@ mod tests {
                 }
             }]
         });
-        match serde_json::from_value::<Scene2DScene>(value) {
-            Ok(scene) => assert!(scene.validate().is_err()),
-            Err(_) => {}
+        if let Ok(scene) = serde_json::from_value::<Scene2DScene>(value) {
+            assert!(scene.validate().is_err());
         }
     }
 
@@ -2002,7 +1999,7 @@ print(json.dumps(app.to_spec(), separators=(",", ":")))
             semantic: None,
             background: None,
         };
-        assert!(cache.apply_patch(&invalid).is_err());
+        cache.apply_patch(&invalid).unwrap_err();
         assert_eq!(cache.scene(), Some(&previous));
         let gap = Scene2DPatch {
             base_revision: 1,

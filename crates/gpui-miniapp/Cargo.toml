@@ -16,6 +16,9 @@ readme = "README.md"
 # stay publishable.
 publish = false
 
+[lints]
+workspace = true
+
 [lib]
 name = "gpui_miniapp"
 path = "src/lib.rs"

@@ -28,7 +28,7 @@ screen-capture = ["gpui/screen-capture", "scap"]
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
 accesskit = "0.24.0"
-accesskit_unix = "0.21.0"
+accesskit_unix = "0.22.1"
 anyhow = "1.0.86"
 bytemuck = "1"
 collections = { workspace = true }
@@ -43,11 +43,11 @@ libc = "0.2"
 log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
 parking_lot = "0.12.1"
 pathfinder_geometry = "0.5"
-pollster = "0.4.0"
+pollster = "1"
 profiling = "1"
 smallvec = { version = "1.6", features = ["union", "const_new"] }
 smol = "2.0"
-strum = { version = "0.27.2", features = ["derive"] }
+strum = { version = "0.28.0", features = ["derive"] }
 url = "2.2"
 uuid = { version = "1.1.2", features = ["v4", "v5", "v7", "serde"] }
 oo7 = { version = "0.6", default-features = false, features = ["async-std", "native_crypto"] }

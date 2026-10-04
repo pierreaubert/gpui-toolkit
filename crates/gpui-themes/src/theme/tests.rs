@@ -69,8 +69,8 @@ fn rust_export_escapes_metadata_and_preserves_separator_precision() {
 
 #[test]
 fn time_of_day_deserialization_rejects_invalid_ranges() {
-    assert!(serde_json::from_str::<TimeOfDay>(r#"{"hour": 24, "minute": 0}"#).is_err());
-    assert!(serde_json::from_str::<TimeOfDay>(r#"{"hour": 0, "minute": 60}"#).is_err());
+    serde_json::from_str::<TimeOfDay>(r#"{"hour": 24, "minute": 0}"#).unwrap_err();
+    serde_json::from_str::<TimeOfDay>(r#"{"hour": 0, "minute": 60}"#).unwrap_err();
     assert_eq!(
         serde_json::from_str::<TimeOfDay>(r#"{"hour": 23, "minute": 59}"#).unwrap(),
         TimeOfDay::new(23, 59)
@@ -162,7 +162,7 @@ fn test_to_accordion_theme_maps_accent_fields() {
 #[test]
 fn test_validate_band_colors_non_empty() {
     let mut theme = EditorTheme::dark();
-    assert!(theme.validate().is_ok());
+    theme.validate().unwrap();
     theme.band_colors.clear();
     assert!(theme.validate().is_err());
 }
@@ -233,7 +233,7 @@ fn test_community_theme_bundle_roundtrip() {
     assert_eq!(loaded.manifest.id, "dracula");
     assert_eq!(loaded.manifest.author, "SOTF");
     assert_eq!(loaded.theme.name, "Dracula");
-    assert!(loaded.validate().is_ok());
+    loaded.validate().unwrap();
 }
 
 #[test]
@@ -357,7 +357,7 @@ fn test_community_theme_manifest_validation_errors() {
     assert!(manifest.validate().is_err());
 
     let mut manifest = CommunityThemeManifest::for_theme(&EditorTheme::dark());
-    manifest.display_name = "".to_string();
+    manifest.display_name = String::new();
     assert!(manifest.validate().is_err());
 }
 
@@ -378,7 +378,7 @@ fn test_community_theme_bundle_accepts_implicit_v1_schema_version() {
         loaded.manifest.schema_version,
         COMMUNITY_THEME_SCHEMA_VERSION
     );
-    assert!(loaded.validate().is_ok());
+    loaded.validate().unwrap();
 }
 
 #[test]
@@ -387,7 +387,7 @@ fn test_community_theme_bundle_from_theme() {
     let bundle = CommunityThemeBundle::from_theme(theme.clone());
     assert_eq!(bundle.theme.name, theme.name);
     assert!(!bundle.manifest.id.is_empty());
-    assert!(bundle.validate().is_ok());
+    bundle.validate().unwrap();
 }
 
 #[test]
@@ -423,7 +423,7 @@ fn test_editor_theme_appearance_and_accessibility() {
     assert_eq!(light.appearance(), ThemeAppearance::Light);
 
     let protanopia = EditorTheme::accessibility_preset(AccessibilityPalette::Protanopia);
-    assert!(protanopia.validate_accessibility().is_ok());
+    protanopia.validate_accessibility().unwrap();
 
     let preset = EditorTheme::preset(BuiltInThemePreset::Nord);
     assert_eq!(preset.name, "Nord");
@@ -564,7 +564,7 @@ fn test_style_dictionary_tokens_round_trip() {
     assert!(!tokens.is_empty());
     let names: Vec<&str> = tokens.iter().map(|t| t.name.as_str()).collect();
     let mut sorted = names.clone();
-    sorted.sort();
+    sorted.sort_unstable();
     assert_eq!(names, sorted);
 
     let accent = tokens
@@ -625,7 +625,7 @@ fn test_contrast_auto_fix_repairs_broken_theme() {
     assert!(broken.accessibility_badge().contains("issue"));
 
     let fixed = broken.clone().auto_fix_contrast();
-    assert!(fixed.validate_accessibility().is_ok());
+    fixed.validate_accessibility().unwrap();
     assert_eq!(fixed.accessibility_badge(), "WCAG AA: pass");
     assert!(fixed.accessibility_issues().is_empty());
 

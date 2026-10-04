@@ -18,11 +18,9 @@ fn source_fields(manifest: &mut Value) {
         return;
     };
     manifest["source_revision"] = Value::String(revision);
-    manifest["source_dirty"] = Value::Bool(
-        env::var(SOURCE_DIRTY_ENV)
-            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE"))
-            .unwrap_or(true),
-    );
+    manifest["source_dirty"] = Value::Bool(env::var(SOURCE_DIRTY_ENV).map_or(true, |value| {
+        matches!(value.as_str(), "1" | "true" | "TRUE")
+    }));
 }
 
 fn write_manifest(mut manifest: Value) -> Result<(), String> {
@@ -119,24 +117,26 @@ fn bands_match(expected: &[ContourBand], actual: &[ContourBand]) -> bool {
 #[test]
 fn metal_compute_release_evidence_covers_cpu_parity_and_gpu_timing() {
     let Some(compute) = MeshCompute::try_new() else {
-        if compute_required() {
-            panic!("required adapter-backed compute device is unavailable");
-        }
+        assert!(
+            !compute_required(),
+            "required adapter-backed compute device is unavailable"
+        );
         write_skip("compute service unavailable");
         return;
     };
     if !compute.adapter_backed() {
-        if compute_required() {
-            panic!("required adapter-backed compute device is unavailable");
-        }
+        assert!(
+            !compute_required(),
+            "required adapter-backed compute device is unavailable"
+        );
         write_skip("no usable adapter-backed compute device");
         return;
     }
 
-    let backend = compute
-        .adapter_backend()
-        .map(|backend| format!("{backend:?}").to_ascii_lowercase())
-        .unwrap_or_else(|| "unknown".into());
+    let backend = compute.adapter_backend().map_or_else(
+        || "unknown".into(),
+        |backend| format!("{backend:?}").to_ascii_lowercase(),
+    );
     let (mesh, field, topology) = square_fixture();
     let levels = [0.25_f32, 0.75];
     let bands_levels = [0.0_f32, 0.5, 1.0];

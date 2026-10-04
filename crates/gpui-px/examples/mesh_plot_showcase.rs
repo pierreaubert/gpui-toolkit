@@ -1,4 +1,4 @@
-//! Deterministic MeshPlot smoke fixtures for Sonium-style result viewers.
+//! Deterministic `MeshPlot` smoke fixtures for Sonium-style result viewers.
 //!
 //! The executable deliberately stays renderer-independent: it exercises the
 //! public builder, validation, contour preparation, axisymmetric derivative,

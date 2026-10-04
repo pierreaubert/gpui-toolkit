@@ -22,7 +22,7 @@ fn bench_format_key_label(c: &mut Criterion) {
             for spec in specs {
                 black_box(format_key_label(black_box(spec)));
             }
-        })
+        });
     });
 }
 
@@ -43,7 +43,7 @@ fn bench_search_command_palette_cached(c: &mut Criterion) {
                     black_box(query),
                 ));
             }
-        })
+        });
     });
 }
 

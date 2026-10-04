@@ -14,7 +14,7 @@ fn test_breadcrumbs_creation() {
         .items(items)
         .separator(BreadcrumbSeparator::Chevron)
         .on_click(|id, _window, _cx| {
-            println!("Clicked: {}", id);
+            println!("Clicked: {id}");
         });
 
     drop(breadcrumbs);

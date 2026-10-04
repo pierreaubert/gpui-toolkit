@@ -1,4 +1,4 @@
-//! TreeView component tests
+//! `TreeView` component tests
 
 use gpui_ui_kit::tree_view::{TreeNode, TreeView};
 use std::collections::HashSet;

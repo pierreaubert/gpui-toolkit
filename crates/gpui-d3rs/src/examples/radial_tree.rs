@@ -111,11 +111,11 @@ fn radial_separation(a: &HierarchyNode<FlareNode>, b: &HierarchyNode<FlareNode>)
     let same_parent = a
         .parent
         .as_ref()
-        .and_then(|p| p.upgrade())
+        .and_then(std::rc::Weak::upgrade)
         .map(|p| p.as_ptr())
         == b.parent
             .as_ref()
-            .and_then(|p| p.upgrade())
+            .and_then(std::rc::Weak::upgrade)
             .map(|p| p.as_ptr());
     (if same_parent { 1.0 } else { 2.0 }) / a.depth as f64
 }
@@ -144,7 +144,7 @@ fn radial_link_path(
     target_angle: f64,
     target_radius: f64,
 ) -> Path {
-    let mid_radius = (source_radius + target_radius) / 2.0;
+    let mid_radius = f64::midpoint(source_radius, target_radius);
     let (sx, sy) = radial_project(source_angle, source_radius);
     let (c1x, c1y) = radial_project(source_angle, mid_radius);
     let (c2x, c2y) = radial_project(target_angle, mid_radius);
@@ -217,7 +217,7 @@ pub fn compute_with_root(
         let parent_idx = n
             .parent
             .as_ref()
-            .and_then(|weak| weak.upgrade())
+            .and_then(std::rc::Weak::upgrade)
             .map(|parent_rc| Rc::as_ptr(&parent_rc) as usize)
             .and_then(|parent_ptr| ptr_to_idx.get(&parent_ptr).copied());
 
@@ -534,11 +534,11 @@ mod tests {
                 let spoke = label.angle - std::f64::consts::FRAC_PI_2;
                 let (ux, uy) = (spoke.cos(), spoke.sin());
                 let side = if label.outward { 1.0 } else { -1.0 };
-                let dist = width as f64 / 2.0 + 6.0;
+                let dist = f64::from(width) / 2.0 + 6.0;
                 let anchor =
                     Affine::translate((label.x + side * ux * dist, label.y + side * uy * dist))
                         * Affine::rotate(label.rotation)
-                        * Affine::translate((-width as f64 / 2.0, 0.35 * size as f64));
+                        * Affine::translate((f64::from(-width) / 2.0, 0.35 * f64::from(size)));
                 assert!(anchor.as_coeffs().iter().all(|c| c.is_finite()));
                 scene.fill_text(
                     &mut engine,

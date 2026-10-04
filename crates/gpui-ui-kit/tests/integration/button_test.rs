@@ -1,7 +1,7 @@
 //! Integration tests for Button component
 //!
 //! Tests button rendering, click handling, disabled state, variants, sizes,
-//! selected state, full width, icons, and custom theming using VisualTestContext.
+//! selected state, full width, icons, and custom theming using `VisualTestContext`.
 
 use gpui::{
     Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,
@@ -342,7 +342,7 @@ async fn test_button_tab_navigation_skips_disabled(cx: &mut TestAppContext) {
     let window = cx.add_window(move |_, _| TabButtons(state));
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     cx.run_until_parked();
-    cx.update(|window, cx| window.focus_next(cx));
+    cx.update(gpui::Window::focus_next);
     cx.simulate_keystrokes("enter");
     assert_eq!(count.load(Ordering::SeqCst), 1);
     cx.simulate_keystrokes("tab enter");

@@ -2,7 +2,7 @@ use gpui::{AtlasKey, AtlasTile};
 use objc::runtime::Object;
 use std::collections::HashMap;
 
-/// Thread-local storage for the NSView pointer + dimensions,
+/// Thread-local storage for the `NSView` pointer + dimensions,
 /// set by `gpui_au_create` before calling `app.run()` so that
 /// `AuWindow::new()` can read it during `open_window()`.
 pub struct PendingViewInfo {

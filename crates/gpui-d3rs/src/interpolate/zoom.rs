@@ -2,10 +2,10 @@
 //!
 //! Implements the zoom interpolation algorithm from d3-interpolate-zoom.
 
-/// Zoom view state representing (center_x, center_y, size)
+/// Zoom view state representing (`center_x`, `center_y`, size)
 ///
 /// The view is defined by:
-/// - center_x, center_y: The center point of the view
+/// - `center_x`, `center_y`: The center point of the view
 /// - size: The size/scale of the view (larger = more zoomed out)
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ZoomView {

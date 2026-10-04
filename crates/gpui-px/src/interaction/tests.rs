@@ -225,13 +225,11 @@ fn test_wheel_zoom_clamps_log_scale() {
     let (y_min, y_max) = interaction.y_domain();
     assert!(
         x_min > 0.0,
-        "log x_min should be clamped above 0, got {}",
-        x_min
+        "log x_min should be clamped above 0, got {x_min}"
     );
     assert!(
         y_min > 0.0,
-        "log y_min should be clamped above 0, got {}",
-        y_min
+        "log y_min should be clamped above 0, got {y_min}"
     );
     assert!(x_min < x_max);
     assert!(y_min < y_max);
@@ -254,13 +252,11 @@ fn test_pan_clamps_log_scale() {
         let (y_min, y_max) = state.y_domain();
         assert!(
             x_min > 0.0,
-            "log x_min should be clamped above 0, got {}",
-            x_min
+            "log x_min should be clamped above 0, got {x_min}"
         );
         assert!(
             y_min > 0.0,
-            "log y_min should be clamped above 0, got {}",
-            y_min
+            "log y_min should be clamped above 0, got {y_min}"
         );
         assert!(x_min < x_max);
         assert!(y_min < y_max);

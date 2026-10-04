@@ -1,9 +1,9 @@
 //! Spinner Debug Example
 //!
-//! Demonstrates the Spinner and LoadingDots components:
+//! Demonstrates the Spinner and `LoadingDots` components:
 //! - All sizes
 //! - With label
-//! - LoadingDots
+//! - `LoadingDots`
 
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};

@@ -1,4 +1,4 @@
-//! RadioGroup component
+//! `RadioGroup` component
 //!
 //! A single-select option group with keyboard navigation, mirroring native
 //! radio-group semantics: arrow keys move *and* select, `Space`/`Enter`

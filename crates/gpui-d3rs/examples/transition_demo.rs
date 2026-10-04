@@ -1,6 +1,6 @@
 //! Transition module demonstration
 //!
-//! Run with: cargo run --example transition_demo --no-default-features
+//! Run with: cargo run --example `transition_demo` --no-default-features
 
 use d3rs::ease::{
     ease_back_in_out, ease_bounce_out, ease_cubic_in_out, ease_elastic_out, ease_linear,
@@ -91,7 +91,7 @@ fn main() {
             .ease(*ease_fn)
             .from_to(0.0, 100.0);
 
-        println!("{}:", name);
+        println!("{name}:");
 
         // Sample at key points
         for &progress in &[0.0, 250.0, 500.0, 750.0, 1000.0] {
@@ -102,13 +102,12 @@ fn main() {
 
             while t.state() != TransitionState::Ended {
                 t.tick(16.67);
-                let elapsed = match t.state() {
-                    TransitionState::Pending => 0.0,
-                    _ => {
-                        // Approximate elapsed time
-                        let val = t.value();
-                        (val / 100.0) * 1000.0
-                    }
+                let elapsed = if t.state() == TransitionState::Pending {
+                    0.0
+                } else {
+                    // Approximate elapsed time
+                    let val = t.value();
+                    (val / 100.0) * 1000.0
                 };
 
                 if (elapsed - progress).abs() < 20.0 || t.is_complete() {
@@ -158,7 +157,7 @@ fn main() {
     while total_time < 500.0 {
         let value = interruptible.tick(frame_time);
         total_time += frame_time;
-        println!("  t={:.0}ms: value={:.2}", total_time, value);
+        println!("  t={total_time:.0}ms: value={value:.2}");
     }
 
     println!("Interrupting at t=500ms...");
@@ -207,9 +206,9 @@ fn main() {
         total_time += frame_time;
 
         if total_time % 200.0 < frame_time {
-            println!("t={:.0}ms:", total_time);
+            println!("t={total_time:.0}ms:");
             for (name, value) in &values {
-                println!("  {}: {:.2}", name, value);
+                println!("  {name}: {value:.2}");
             }
         }
     }
@@ -238,7 +237,7 @@ fn main() {
     }
 
     let pos = manager.get("position").unwrap();
-    println!("Position after 300ms: {:.2}", pos);
+    println!("Position after 300ms: {pos:.2}");
 
     // Replace with new transition
     println!("Replacing with new transition...");
@@ -298,7 +297,7 @@ fn main() {
     }
 
     let final_value = manager.get("value").unwrap_or(0.0);
-    println!("Final value: {:.2}\n", final_value);
+    println!("Final value: {final_value:.2}\n");
 
     // =========================================================================
     // Summary

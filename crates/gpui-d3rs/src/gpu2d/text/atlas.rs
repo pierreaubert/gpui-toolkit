@@ -25,7 +25,7 @@ impl GlyphKey {
 /// Information about a cached glyph in the atlas
 #[derive(Debug, Clone, Copy)]
 pub struct GlyphInfo {
-    /// UV coordinates in atlas (min_u, min_v, max_u, max_v)
+    /// UV coordinates in atlas (`min_u`, `min_v`, `max_u`, `max_v`)
     pub uv: [f32; 4],
     /// Offset from baseline (x, y)
     pub bearing: [f32; 2],
@@ -192,7 +192,7 @@ impl TextAtlas {
     }
 
     fn rasterize_and_pack(&mut self, key: GlyphKey) -> Option<GlyphInfo> {
-        let (metrics, bitmap) = self.font.rasterize(key.codepoint, key.size_px as f32);
+        let (metrics, bitmap) = self.font.rasterize(key.codepoint, f32::from(key.size_px));
         if metrics.width == 0 || metrics.height == 0 {
             return Some(GlyphInfo {
                 uv: [0.0, 0.0, 0.0, 0.0],
@@ -250,7 +250,7 @@ impl TextAtlas {
                     depth_or_array_layers: 1,
                 },
             );
-        }
+        };
 
         let size = self.size as f32;
         let info = GlyphInfo {

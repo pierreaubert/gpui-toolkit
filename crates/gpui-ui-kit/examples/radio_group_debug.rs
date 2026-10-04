@@ -1,7 +1,7 @@
-//! RadioGroup Debug Example
+//! `RadioGroup` Debug Example
 //!
-//! Demonstrates the RadioGroup component:
-//! - Single selection with on_change
+//! Demonstrates the `RadioGroup` component:
+//! - Single selection with `on_change`
 //! - Vertical and horizontal orientations
 //! - All sizes, disabled group and disabled option
 

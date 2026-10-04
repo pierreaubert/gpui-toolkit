@@ -39,7 +39,7 @@ pub fn ensure_force_animation(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseAp
             if !still_force {
                 break;
             }
-            this.update(cx, |_, cx| cx.notify()).ok();
+            let _ = this.update(cx, |_, cx| cx.notify());
         }
     })
     .detach();
@@ -80,12 +80,17 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     VelloChartElement::with_builder(move |width, height| {
                         let mut scene = ChartScene::new();
                         scene.fill_rect(
-                            Rect::new(0.0, 0.0, width as f64, height as f64),
+                            Rect::new(0.0, 0.0, f64::from(width), f64::from(height)),
                             Brush::Solid(Color::new([0.94, 0.94, 0.94, 1.0])),
                         );
                         let node_brush = Brush::Solid(Color::new([1.0, 0.2, 0.2, 1.0]));
                         for (x, y) in node_data.borrow().iter() {
-                            scene.fill_circle(*x as f64, *y as f64, 5.0, node_brush.clone());
+                            scene.fill_circle(
+                                f64::from(*x),
+                                f64::from(*y),
+                                5.0,
+                                node_brush.clone(),
+                            );
                         }
                         scene
                     })

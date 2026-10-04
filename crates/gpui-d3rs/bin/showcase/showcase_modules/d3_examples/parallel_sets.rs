@@ -1,4 +1,4 @@
-//! Parallel Sets — Observable example using d3rs::examples::parallel_sets
+//! Parallel Sets — Observable example using `d3rs::examples::parallel_sets`
 //!
 //! Loads Titanic survival data and renders categorical flow visualization.
 //! Demonstrates: `SankeyLayout`, `PathBuilder`, `ColorScheme`.
@@ -21,8 +21,8 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let result = d3rs::examples::parallel_sets::compute(&names, &links);
 
     let scheme = ColorScheme::tableau10();
-    let width = app.content_width as f64;
-    let height = (width * 0.86).min(app.content_height as f64 * 0.8);
+    let width = f64::from(app.content_width);
+    let height = (width * 0.86).min(f64::from(app.content_height) * 0.8);
 
     let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
     let mut all_colors: Vec<Hsla> = Vec::new();
@@ -34,7 +34,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
         let sx = source.x1;
         let tx = target.x0;
-        let cx = (sx + tx) / 2.0;
+        let cx = f64::midpoint(sx, tx);
         let hw = link.width / 2.0;
 
         let path = D3PathBuilder::new()
@@ -69,7 +69,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .map(|n| {
             let is_right = n.layer > 0;
             let lx = if is_right { n.x0 - 4.0 } else { n.x1 + 4.0 };
-            let ly = (n.y0 + n.y1) / 2.0;
+            let ly = f64::midpoint(n.y0, n.y1);
             (format!("{} ({:.0})", n.id, n.value), lx, ly, is_right)
         })
         .collect();
@@ -129,7 +129,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .nodes
                         .iter()
                         .filter(|n| n.layer == li)
-                        .map(|n| (n.x0 + n.x1) / 2.0)
+                        .map(|n| f64::midpoint(n.x0, n.x1))
                         .collect();
                     let avg_x = if x_positions.is_empty() {
                         0.0

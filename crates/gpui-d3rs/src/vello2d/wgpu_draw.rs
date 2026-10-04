@@ -140,12 +140,12 @@ pub fn physical_size(width: f32, height: f32, scale_factor: f32) -> [u32; 2] {
 pub fn scene_scale(logical_w: f32, logical_h: f32, physical_w: f32, physical_h: f32) -> [f64; 2] {
     [
         if logical_w > 0.0 {
-            (physical_w / logical_w) as f64
+            f64::from(physical_w / logical_w)
         } else {
             1.0
         },
         if logical_h > 0.0 {
-            (physical_h / logical_h) as f64
+            f64::from(physical_h / logical_h)
         } else {
             1.0
         },
@@ -183,14 +183,28 @@ fn shared_gpu_state(ctx: &WgpuContext) -> Option<Rc<SharedGpuState>> {
             return Some(state);
         }
 
+        let diagnose_init = std::env::var_os("SOTF_VELLO_VALIDATE_INIT").is_some();
+        let error_scope =
+            diagnose_init.then(|| ctx.device.push_error_scope(wgpu::ErrorFilter::Validation));
         let renderer = Renderer::new(
             &ctx.device,
             RendererOptions {
                 antialiasing_support: AaSupport::area_only(),
+                // WGPU scopes are thread-local; keep shader creation on this
+                // thread while diagnosing this renderer's pipelines.
+                num_init_threads: if diagnose_init {
+                    std::num::NonZeroUsize::new(1)
+                } else {
+                    RendererOptions::default().num_init_threads
+                },
                 ..Default::default()
             },
-        )
-        .ok()?;
+        );
+        if let Some(error) = error_scope.and_then(|scope| smol::block_on(scope.pop())) {
+            log::error!("vello2d: renderer initialization validation failed: {error}");
+            return None;
+        }
+        let renderer = renderer.ok()?;
         let state = Rc::new(SharedGpuState {
             renderer: RefCell::new(renderer),
             composites: RefCell::default(),
@@ -262,6 +276,18 @@ impl WgpuCustomDraw for WgpuVelloDraw {
 
         let mut gpu_slot = self.gpu.borrow_mut();
         if gpu_slot.is_none() {
+            let limits = ctx.device.limits();
+            if limits.max_storage_buffers_per_shader_stage < 8
+                || limits.max_compute_workgroup_storage_size < 16_384
+            {
+                log::warn!(
+                    "vello2d: GPU compute limits are insufficient (storage buffers {}, workgroup memory {}); using CPU",
+                    limits.max_storage_buffers_per_shader_stage,
+                    limits.max_compute_workgroup_storage_size
+                );
+                self.failed.set(true);
+                return;
+            }
             let Some(shared) = shared_gpu_state(ctx) else {
                 log::error!(
                     "vello2d: shared vello renderer initialization failed; element falls back to CPU"
@@ -408,7 +434,7 @@ pub(crate) struct CompositeResources {
     sampler: wgpu::Sampler,
 }
 
-const COMPOSITE_WGSL: &str = r#"
+const COMPOSITE_WGSL: &str = r"
 struct Uniforms {
     dst_origin: vec2<f32>,
     dst_size: vec2<f32>,
@@ -450,7 +476,7 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
     // convert here. Without this, translucent content composites over-bright.
     return vec4(sample.rgb * sample.a, sample.a);
 }
-"#;
+";
 
 impl CompositeResources {
     pub(crate) fn new(ctx: &WgpuContext, target_format: wgpu::TextureFormat) -> Self {

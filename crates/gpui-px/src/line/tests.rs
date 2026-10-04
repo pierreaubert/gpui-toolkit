@@ -215,7 +215,7 @@ fn test_line_hidden_series_builds() {
         .add_series(&y2, Some("Second"), 0xff0000, 2.0, 1.0)
         .hidden_series(&[1])
         .build();
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]
@@ -233,7 +233,7 @@ fn test_line_builder_chain() {
         .show_points(true)
         .size(800.0, 600.0)
         .build();
-    assert!(result.is_ok());
+    result.unwrap();
 }
 
 #[test]

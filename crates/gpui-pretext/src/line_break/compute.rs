@@ -8,7 +8,7 @@ use super::types::KPItem;
 /// - r = 0 means the line exactly fits.
 /// - r > 0 means the line is short and needs stretching.
 /// - r < 0 means the line is long and needs shrinking.
-/// - r = f64::INFINITY means infeasible (cannot stretch enough).
+/// - r = `f64::INFINITY` means infeasible (cannot stretch enough).
 pub(super) fn compute_adjustment_ratio(
     items: &[KPItem],
     a: usize,

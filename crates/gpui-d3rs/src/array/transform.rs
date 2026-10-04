@@ -7,7 +7,7 @@ use std::hash::Hash;
 
 /// Groups elements by a key function.
 ///
-/// Returns a HashMap where each key maps to a Vec of elements with that key.
+/// Returns a `HashMap` where each key maps to a Vec of elements with that key.
 ///
 /// # Example
 ///

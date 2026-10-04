@@ -1,11 +1,11 @@
 //! Integration tests for Alert component
 //!
-//! Tests the Alert and InlineAlert components including:
+//! Tests the Alert and `InlineAlert` components including:
 //! - All variants (Info, Success, Warning, Error)
 //! - Closeable alerts with callback
 //! - Alerts with title
 //! - Custom icons
-//! - InlineAlert variants
+//! - `InlineAlert` variants
 
 use gpui::{
     Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,

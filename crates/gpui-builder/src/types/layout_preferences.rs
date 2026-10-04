@@ -36,7 +36,7 @@ impl<'a> LayoutPreferences<'a> {
         }
     }
 
-    /// Per-slot ratio overrides, keyed by (slot_id, parent_axis).
+    /// Per-slot ratio overrides, keyed by (`slot_id`, `parent_axis`).
     /// When the solver resolves a `Fractional` slot, it looks here first.
     /// If not found, uses `Sizing::Fractional::initial`.
     pub fn ratios(&self) -> &HashMap<(&'a str, Axis), f32> {

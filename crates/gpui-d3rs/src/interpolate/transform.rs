@@ -189,13 +189,13 @@ impl Transform2D {
             ));
         }
         if rotate_deg.abs() > 1e-10 {
-            parts.push(format!("rotate({:.3}deg)", rotate_deg));
+            parts.push(format!("rotate({rotate_deg:.3}deg)"));
         }
         if (self.scale_x - 1.0).abs() > 1e-10 || (self.scale_y - 1.0).abs() > 1e-10 {
             parts.push(format!("scale({:.3}, {:.3})", self.scale_x, self.scale_y));
         }
         if skew_deg.abs() > 1e-10 {
-            parts.push(format!("skewX({:.3}deg)", skew_deg));
+            parts.push(format!("skewX({skew_deg:.3}deg)"));
         }
 
         if parts.is_empty() {
@@ -208,14 +208,11 @@ impl Transform2D {
     /// Convert to SVG transform attribute string.
     pub fn to_svg(&self) -> String {
         let [a, b, c, d, e, f] = self.to_matrix();
-        format!(
-            "matrix({:.6}, {:.6}, {:.6}, {:.6}, {:.6}, {:.6})",
-            a, b, c, d, e, f
-        )
+        format!("matrix({a:.6}, {b:.6}, {c:.6}, {d:.6}, {e:.6}, {f:.6})")
     }
 }
 
-/// Create an interpolator between two Transform2D values.
+/// Create an interpolator between two `Transform2D` values.
 ///
 /// # Example
 ///

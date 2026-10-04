@@ -66,8 +66,8 @@ impl WorkflowNodeData {
         self
     }
 
-    /// Grow input_count up to `target`, clamped by max_input_count.
-    /// Returns the resulting input_count.
+    /// Grow `input_count` up to `target`, clamped by `max_input_count`.
+    /// Returns the resulting `input_count`.
     pub fn grow_inputs_to(&mut self, target: usize) -> usize {
         let max = self.max_input_count.unwrap_or(usize::MAX);
         let new_count = target.min(max);
@@ -96,9 +96,9 @@ impl WorkflowNodeData {
     /// Get port position for an input port (left side)
     ///
     /// This matches the layout in node.rs where:
-    /// - Header takes ~28px (py_1 + text_sm + py_1)
-    /// - Content area has py_2 (8px) padding
-    /// - Ports are distributed with justify_around
+    /// - Header takes ~28px (`py_1` + `text_sm` + `py_1`)
+    /// - Content area has `py_2` (8px) padding
+    /// - Ports are distributed with `justify_around`
     pub fn input_port_position(&self, index: usize) -> Position {
         let header_height = 28.0;
         let padding = 8.0;
@@ -119,9 +119,9 @@ impl WorkflowNodeData {
     /// Get port position for an output port (right side)
     ///
     /// This matches the layout in node.rs where:
-    /// - Header takes ~28px (py_1 + text_sm + py_1)
-    /// - Content area has py_2 (8px) padding
-    /// - Ports are distributed with justify_around
+    /// - Header takes ~28px (`py_1` + `text_sm` + `py_1`)
+    /// - Content area has `py_2` (8px) padding
+    /// - Ports are distributed with `justify_around`
     pub fn output_port_position(&self, index: usize) -> Position {
         let header_height = 28.0;
         let padding = 8.0;

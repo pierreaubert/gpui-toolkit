@@ -158,7 +158,7 @@ impl Scale<f64, f64> for PowScale {
         let pow_max = self.pow(self.domain_max);
         let pow_span = pow_max - pow_min;
         if pow_span == 0.0 {
-            return (self.range_min + self.range_max) / 2.0;
+            return f64::midpoint(self.range_min, self.range_max);
         }
         let pow_value = self.pow(value);
 
@@ -178,7 +178,7 @@ impl Scale<f64, f64> for PowScale {
 
         let range_span = self.range_max - self.range_min;
         if range_span == 0.0 {
-            return Some((self.domain_min + self.domain_max) / 2.0);
+            return Some(f64::midpoint(self.domain_min, self.domain_max));
         }
 
         let t = (value - self.range_min) / range_span;

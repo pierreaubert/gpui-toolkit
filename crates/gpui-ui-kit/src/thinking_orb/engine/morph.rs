@@ -45,10 +45,10 @@ impl PolyPath {
         }
         let a = self.verts[i];
         let b = self.verts[(i + 1) % v];
-        let ff = if self.segs[i] != 0.0 {
-            (target / self.segs[i]).min(1.0)
-        } else {
+        let ff = if self.segs[i] == 0.0 {
             0.0
+        } else {
+            (target / self.segs[i]).min(1.0)
         };
         (a.0 + (b.0 - a.0) * ff, a.1 + (b.1 - a.1) * ff)
     }
@@ -163,10 +163,10 @@ pub fn frame_morph(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
         }
         let a = pts[seg];
         let b = pts[(seg + 1) % m_samples];
-        let f = if seg_lens[seg] != 0.0 {
-            ((target - acc) / seg_lens[seg]).min(1.0)
-        } else {
+        let f = if seg_lens[seg] == 0.0 {
             0.0
+        } else {
+            ((target - acc) / seg_lens[seg]).min(1.0)
         };
         let x = (a.0 + (b.0 - a.0) * f) * pulse;
         let y = (a.1 + (b.1 - a.1) * f) * pulse;

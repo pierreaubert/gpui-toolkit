@@ -116,7 +116,7 @@ pub fn render_offscreen(
         if use_view_transform {
             let clip = transform_point(state.view_transform, p)?;
             Some([
-                (clip[0] + 1.0) * 0.5 * width as f32,
+                f32::midpoint(clip[0], 1.0) * width as f32,
                 (1.0 - clip[1]) * 0.5 * height as f32,
             ])
         } else {

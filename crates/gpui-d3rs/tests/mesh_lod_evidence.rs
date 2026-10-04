@@ -34,11 +34,9 @@ fn source_fields(manifest: &mut Value) {
         return;
     };
     manifest["source_revision"] = Value::String(revision);
-    manifest["source_dirty"] = Value::Bool(
-        env::var(SOURCE_DIRTY_ENV)
-            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE"))
-            .unwrap_or(true),
-    );
+    manifest["source_dirty"] = Value::Bool(env::var(SOURCE_DIRTY_ENV).map_or(true, |value| {
+        matches!(value.as_str(), "1" | "true" | "TRUE")
+    }));
 }
 
 fn write_manifest(mut manifest: Value) -> Result<(), String> {
@@ -188,7 +186,7 @@ fn changed_fraction(left: &image::RgbaImage, right: &image::RgbaImage) -> f64 {
         .zip(right.pixels())
         .filter(|(left, right)| left.0 != right.0)
         .count();
-    changed as f64 / left.width().max(1) as f64 / left.height().max(1) as f64
+    changed as f64 / f64::from(left.width().max(1)) / f64::from(left.height().max(1))
 }
 
 #[test]
@@ -196,9 +194,10 @@ fn adapter_lod_release_evidence_covers_drag_budget_and_visual_restore() {
     let Some(context) = (match WgpuContext::headless() {
         Ok(context) => Some(context),
         Err(error) => {
-            if env::var_os("QA_WGPU_REQUIRED").is_some_and(|value| value == "1") {
-                panic!("required WGPU adapter is unavailable: {error:#}");
-            }
+            assert!(
+                env::var_os("QA_WGPU_REQUIRED").is_none_or(|value| value != "1"),
+                "required WGPU adapter is unavailable: {error:#}"
+            );
             eprintln!("SKIP WGPU LOD evidence: {error:#}");
             write_skip("no usable WGPU adapter");
             None

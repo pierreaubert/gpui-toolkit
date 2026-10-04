@@ -1,7 +1,7 @@
 //! tvOS showcase staticlib -- bridges gpui-showcase into the tvOS app.
 //!
 //! This crate compiles to a static library (.a) that the Xcode project links.
-//! The Swift AppDelegate calls `showcase_tvos_start()` to launch the GPUI app.
+//! The Swift `AppDelegate` calls `showcase_tvos_start()` to launch the GPUI app.
 
 #[cfg(target_os = "tvos")]
 mod imp {

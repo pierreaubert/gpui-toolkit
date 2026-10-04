@@ -1,10 +1,10 @@
 //! Avatar Debug Example
 //!
-//! Demonstrates the Avatar and AvatarGroup components:
+//! Demonstrates the Avatar and `AvatarGroup` components:
 //! - All sizes
 //! - Circle and Square shapes
 //! - Status indicators
-//! - AvatarGroup
+//! - `AvatarGroup`
 
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};

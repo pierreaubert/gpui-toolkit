@@ -125,7 +125,7 @@ where
             let n = self.domain.len();
             if n == 1 {
                 // Single point: center in range
-                let center = (self.range_start + self.range_end) / 2.0;
+                let center = f64::midpoint(self.range_start, self.range_end);
                 return Some(if self.round { center.round() } else { center });
             }
             let pos = self.padding * self.step + index as f64 * self.step;

@@ -133,11 +133,7 @@ pub(super) fn measure_analysis(
                 chunks: Vec::new(),
                 kp_item_cache: RefCell::new(HashMap::new()),
             },
-            if include_segments {
-                Some(Vec::new())
-            } else {
-                None
-            },
+            include_segments.then(Vec::new),
         );
     }
 
@@ -390,11 +386,7 @@ pub(super) fn measure_analysis(
         kp_item_cache: RefCell::new(HashMap::new()),
     };
 
-    let segs = if include_segments {
-        Some(segments)
-    } else {
-        None
-    };
+    let segs = include_segments.then_some(segments);
 
     (core, segs)
 }

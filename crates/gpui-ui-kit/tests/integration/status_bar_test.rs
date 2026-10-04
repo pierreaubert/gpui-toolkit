@@ -1,6 +1,6 @@
-//! Integration tests for StatusBar component
+//! Integration tests for `StatusBar` component
 //!
-//! Tests the StatusBar component including:
+//! Tests the `StatusBar` component including:
 //! - Basic rendering
 //! - Top and bottom positions
 //! - With left, center, and right sections

@@ -1,6 +1,6 @@
 //! Integration tests for Toast component
 //!
-//! Tests the Toast and ToastContainer components including:
+//! Tests the Toast and `ToastContainer` components including:
 //! - All variants rendering
 //! - Closeable toast with callback
 //! - Toast container with positions

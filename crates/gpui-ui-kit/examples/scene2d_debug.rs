@@ -1,4 +1,4 @@
-//! Native retained Scene2D drawing and input example.
+//! Native retained `Scene2D` drawing and input example.
 
 // Rust guideline compliant 2026-02-21
 

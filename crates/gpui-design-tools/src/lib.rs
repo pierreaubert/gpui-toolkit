@@ -326,7 +326,12 @@ pub fn validate_design_tokens(
         DesignTokenFormat::StyleDictionaryJson => inspect_token_value(&raw),
         DesignTokenFormat::W3cDtcgJson => inspect_dtcg_value(&raw),
     };
-    validate_with_counts(preset_count, token_count, findings, render_markdown)
+    Ok(validate_with_counts(
+        preset_count,
+        token_count,
+        findings,
+        render_markdown,
+    ))
 }
 
 fn validate_with_counts(
@@ -334,7 +339,7 @@ fn validate_with_counts(
     token_count: usize,
     mut findings: Vec<Cow<'static, str>>,
     render_markdown: bool,
-) -> Result<DesignTokenValidationReport> {
+) -> DesignTokenValidationReport {
     let matrix = DesignConformanceMatrix::all_presets();
     for (case, finding) in matrix.findings() {
         findings.push(Cow::Owned(format!(
@@ -351,7 +356,7 @@ fn validate_with_counts(
         String::new()
     };
 
-    Ok(DesignTokenValidationReport {
+    DesignTokenValidationReport {
         schema_version: DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION,
         report_type: Cow::Borrowed(DESIGN_TOKEN_VALIDATION_REPORT_TYPE),
         passed: findings.is_empty(),
@@ -359,7 +364,7 @@ fn validate_with_counts(
         preset_count,
         token_count,
         conformance_markdown,
-    })
+    }
 }
 
 /// Export tokens to a path.
@@ -518,13 +523,13 @@ pub fn validate_current_design_tokens(
     render_markdown: bool,
 ) -> Result<DesignTokenValidationReport> {
     let export = DesignTokenExport::for_all_presets();
-    validate_design_token_export(&export, render_markdown)
+    Ok(validate_design_token_export(&export, render_markdown))
 }
 
 fn validate_design_token_export(
     export: &DesignTokenExport,
     render_markdown: bool,
-) -> Result<DesignTokenValidationReport> {
+) -> DesignTokenValidationReport {
     let preset_count = export.presets.len();
     let token_count = export.presets.iter().map(|p| p.tokens.len()).sum();
     let mut findings: Vec<Cow<'static, str>> = Vec::new();
@@ -553,7 +558,7 @@ fn validate_design_token_export(
         String::new()
     };
 
-    Ok(DesignTokenValidationReport {
+    DesignTokenValidationReport {
         schema_version: DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION,
         report_type: Cow::Borrowed(DESIGN_TOKEN_VALIDATION_REPORT_TYPE),
         passed: findings.is_empty(),
@@ -561,7 +566,7 @@ fn validate_design_token_export(
         preset_count,
         token_count,
         conformance_markdown,
-    })
+    }
 }
 
 /// Build the W3C DTCG JSON value for the built-in presets.
@@ -985,7 +990,7 @@ mod tests {
             token_count: 1,
             conformance_markdown: String::new(),
         };
-        assert!(ensure_passed(&passing).is_ok());
+        ensure_passed(&passing).unwrap();
 
         let failing = DesignTokenValidationReport {
             schema_version: DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION,
@@ -1023,7 +1028,7 @@ mod tests {
         );
         assert_eq!(
             json["schema_version"].as_u64(),
-            Some(DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION as u64)
+            Some(u64::from(DESIGN_TOKEN_VALIDATION_REPORT_SCHEMA_VERSION))
         );
         assert_eq!(
             json["report_type"].as_str(),
@@ -1145,7 +1150,7 @@ mod tests {
         );
         assert_eq!(
             json["schema_version"].as_u64(),
-            Some(DESIGN_TOOLING_HANDOFF_REPORT_SCHEMA_VERSION as u64)
+            Some(u64::from(DESIGN_TOOLING_HANDOFF_REPORT_SCHEMA_VERSION))
         );
         assert_eq!(
             json["report_type"].as_str(),
@@ -1247,7 +1252,7 @@ mod tests {
             Path::new("/nonexistent/gpui-design-tools-test.json"),
             DesignTokenFormat::StyleDictionaryJson,
         );
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -1257,7 +1262,7 @@ mod tests {
             DesignTokenFormat::StyleDictionaryJson,
             false,
         );
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -1609,18 +1614,14 @@ mod tests {
     #[test]
     fn diff_rejects_invalid_documents() {
         let ok = export_design_tokens(DesignTokenFormat::StyleDictionaryJson).unwrap();
-        assert!(
-            diff_design_tokens("not json", &ok, DesignTokenFormat::StyleDictionaryJson).is_err()
-        );
-        assert!(diff_design_tokens("{}", &ok, DesignTokenFormat::StyleDictionaryJson).is_err());
-        assert!(
-            diff_design_tokens_from_paths(
-                Path::new("/nonexistent/gpui-design-tools-diff-old.json"),
-                Path::new("/nonexistent/gpui-design-tools-diff-new.json"),
-                DesignTokenFormat::StyleDictionaryJson,
-            )
-            .is_err()
-        );
+        diff_design_tokens("not json", &ok, DesignTokenFormat::StyleDictionaryJson).unwrap_err();
+        diff_design_tokens("{}", &ok, DesignTokenFormat::StyleDictionaryJson).unwrap_err();
+        diff_design_tokens_from_paths(
+            Path::new("/nonexistent/gpui-design-tools-diff-old.json"),
+            Path::new("/nonexistent/gpui-design-tools-diff-new.json"),
+            DesignTokenFormat::StyleDictionaryJson,
+        )
+        .unwrap_err();
     }
 
     #[test]

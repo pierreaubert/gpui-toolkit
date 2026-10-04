@@ -245,7 +245,7 @@ impl Versor {
     /// This matches D3's versor library.
     ///
     /// Input: (lambda, phi) in radians.
-    /// Output: (rotated_lambda, rotated_phi) in radians.
+    /// Output: (`rotated_lambda`, `rotated_phi`) in radians.
     pub fn rotate_spherical(self, lambda: f64, phi: f64) -> (f64, f64) {
         // Convert spherical to Cartesian
         let cos_phi = phi.cos();
@@ -273,7 +273,7 @@ impl Versor {
     /// Rotate a point using Euler angles [λ, φ, γ] in degrees.
     ///
     /// Input: (lon, lat) in degrees.
-    /// Output: (rotated_lon, rotated_lat) in degrees.
+    /// Output: (`rotated_lon`, `rotated_lat`) in degrees.
     pub fn rotate_degrees(rotation_angles: (f64, f64, f64), lon: f64, lat: f64) -> (f64, f64) {
         let q = Self::from_angles(rotation_angles.0, rotation_angles.1, rotation_angles.2);
         let (rl, rp) = q.rotate_spherical(lon * RADIANS, lat * RADIANS);

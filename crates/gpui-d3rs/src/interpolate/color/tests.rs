@@ -65,11 +65,12 @@ fn test_cubehelix_default() {
     let end = interp(1.0);
 
     // Start should be dark, end should be light
-    let start_lum = 0.299 * start.r as f64 + 0.587 * start.g as f64 + 0.114 * start.b as f64;
-    let end_lum = 0.299 * end.r as f64 + 0.587 * end.g as f64 + 0.114 * end.b as f64;
+    let start_lum =
+        0.299 * f64::from(start.r) + 0.587 * f64::from(start.g) + 0.114 * f64::from(start.b);
+    let end_lum = 0.299 * f64::from(end.r) + 0.587 * f64::from(end.g) + 0.114 * f64::from(end.b);
 
-    assert!(start_lum < mid.g as f64);
-    assert!(end_lum > mid.g as f64);
+    assert!(start_lum < f64::from(mid.g));
+    assert!(end_lum > f64::from(mid.g));
 }
 
 #[test]

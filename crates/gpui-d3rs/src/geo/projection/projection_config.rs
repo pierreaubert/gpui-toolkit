@@ -28,7 +28,7 @@ impl Default for ProjectionConfig {
     }
 }
 
-/// Build a SphereRotation from a ProjectionConfig's rotate fields.
+/// Build a `SphereRotation` from a `ProjectionConfig`'s rotate fields.
 ///
 /// This matches D3's internal `projection.rotate([λ, φ, γ])` rotation, which is
 /// `geoRotation([λ, φ, γ])`. The projection center is therefore the point that
@@ -41,7 +41,7 @@ pub(super) fn build_rotation(config: &ProjectionConfig) -> SphereRotation {
 ///
 /// This matches D3's pre-projection rotation stage. The projection center is
 /// handled as a post-projection planar offset (see individual projections).
-/// Returns (lambda, phi) in radians, ready for project_raw.
+/// Returns (lambda, phi) in radians, ready for `project_raw`.
 pub(super) fn apply_rotation(config: &ProjectionConfig, lon: f64, lat: f64) -> (f64, f64) {
     let rotation = build_rotation(config);
     rotation.rotate(radians(lon), radians(lat))
@@ -55,10 +55,10 @@ pub(super) fn invert_rotation(config: &ProjectionConfig, lambda: f64, phi: f64) 
     (degrees(rl), degrees(rp))
 }
 
-/// Check visibility against clip_angle after applying rotation.
+/// Check visibility against `clip_angle` after applying rotation.
 ///
 /// Returns `true` when the point's angular distance from the projection
-/// center is within `clip_angle`, or when no clip_angle is set.
+/// center is within `clip_angle`, or when no `clip_angle` is set.
 pub(super) fn clip_angle_visible(config: &ProjectionConfig, lon: f64, lat: f64) -> bool {
     match config.clip_angle {
         None => true,

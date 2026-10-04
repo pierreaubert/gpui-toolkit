@@ -91,7 +91,7 @@ impl TransverseMercator {
     /// Raw transverse Mercator projection.
     pub(super) fn project_raw(lambda: f64, phi: f64) -> (f64, f64) {
         let phi = phi.clamp(-Self::MAX_PHI, Self::MAX_PHI);
-        (((HALF_PI + phi) / 2.0).tan().ln(), -lambda)
+        (f64::midpoint(HALF_PI, phi).tan().ln(), -lambda)
     }
 
     /// Inverse raw transverse Mercator projection.

@@ -4,9 +4,9 @@
 //! 1. Transparent dropdown background
 //! 2. Dropdown going under other elements (z-index issue)
 //!
-//! Also demonstrates the new ButtonSet component.
+//! Also demonstrates the new `ButtonSet` component.
 //!
-//! Solution: Use gpui::deferred() and gpui::anchored() for proper overlay rendering
+//! Solution: Use `gpui::deferred()` and `gpui::anchored()` for proper overlay rendering
 
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};

@@ -175,7 +175,7 @@ pub fn compute_with_zoom(
     let n_sides = 64;
     let mut globe_builder = PathBuilder::new();
     for v in 0..n_sides {
-        let angle = std::f64::consts::TAU * v as f64 / n_sides as f64;
+        let angle = std::f64::consts::TAU * f64::from(v) / f64::from(n_sides);
         let x = width / 2.0 + scale * angle.cos();
         let y = height / 2.0 + scale * angle.sin();
         if v == 0 {
@@ -189,10 +189,10 @@ pub fn compute_with_zoom(
     // Graticule
     let mut grat_builder = PathBuilder::new();
     for lon_i in (-180..180).step_by(30) {
-        let lon = lon_i as f64;
+        let lon = f64::from(lon_i);
         let mut first = true;
         for lat_i in (-90..=90).step_by(3) {
-            let lat = lat_i as f64;
+            let lat = f64::from(lat_i);
             let (px, py) = ortho.project(lon, lat);
             if px.is_finite() && py.is_finite() {
                 let dx = px - width / 2.0;
@@ -211,10 +211,10 @@ pub fn compute_with_zoom(
         }
     }
     for lat_i in (-60..=60).step_by(30) {
-        let lat = lat_i as f64;
+        let lat = f64::from(lat_i);
         let mut first = true;
         for lon_i in (-180..=180).step_by(3) {
-            let lon = lon_i as f64;
+            let lon = f64::from(lon_i);
             let (px, py) = ortho.project(lon, lat);
             if px.is_finite() && py.is_finite() {
                 let dx = px - width / 2.0;

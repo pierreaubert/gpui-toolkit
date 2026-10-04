@@ -349,9 +349,9 @@ fn decode_floats(
         .chunks_exact(bytes_per_value)
         .map(|chunk| {
             let value = match resource.dtype {
-                MeshDtype::F32LE => {
-                    f32::from_le_bytes(chunk.try_into().map_err(|_| "invalid f32 bytes")?) as f64
-                }
+                MeshDtype::F32LE => f64::from(f32::from_le_bytes(
+                    chunk.try_into().map_err(|_| "invalid f32 bytes")?,
+                )),
                 MeshDtype::F64LE => {
                     f64::from_le_bytes(chunk.try_into().map_err(|_| "invalid f64 bytes")?)
                 }
@@ -456,9 +456,9 @@ fn decode_ids(resource: &RetainedMeshResource, name: &str) -> Result<Vec<u64>, S
         .payload
         .chunks_exact(bytes_per_value)
         .map(|chunk| match resource.dtype {
-            MeshDtype::U32LE => {
-                Ok(u32::from_le_bytes(chunk.try_into().map_err(|_| "invalid u32 bytes")?) as u64)
-            }
+            MeshDtype::U32LE => Ok(u64::from(u32::from_le_bytes(
+                chunk.try_into().map_err(|_| "invalid u32 bytes")?,
+            ))),
             MeshDtype::U64LE => Ok(u64::from_le_bytes(
                 chunk.try_into().map_err(|_| "invalid u64 bytes")?,
             )),
@@ -746,14 +746,11 @@ impl MeshFrameStore {
         expected_kind: MeshFrameKind,
         name: &str,
     ) -> Result<&'a RetainedMeshResource, String> {
-        let resource = match self.entries.get(key) {
-            Some(MeshEntry::Resource(resource)) => resource,
-            _ => {
-                return Err(format!(
-                    "missing {name} resource {:?} generation {}",
-                    key.0, key.1
-                ));
-            }
+        let Some(MeshEntry::Resource(resource)) = self.entries.get(key) else {
+            return Err(format!(
+                "missing {name} resource {:?} generation {}",
+                key.0, key.1
+            ));
         };
         if resource.kind != expected_kind {
             return Err(format!(
@@ -783,7 +780,7 @@ impl MeshFrameStore {
         }
     }
 
-    /// Keep a completed resource alive while a native MeshPlot references it.
+    /// Keep a completed resource alive while a native `MeshPlot` references it.
     ///
     /// Resource generations remain immutable. A newer generation may coexist
     /// with a referenced older generation until the old plot releases it.
@@ -1028,7 +1025,7 @@ mod tests {
 
     fn fixture() -> MeshFrame {
         let payload = (0..300)
-            .flat_map(|value| (value as f64).to_le_bytes())
+            .flat_map(|value| f64::from(value).to_le_bytes())
             .collect::<Vec<_>>();
         let checksum = MeshFrame::checksum(&payload);
         MeshFrame {
@@ -1124,7 +1121,7 @@ mod tests {
             .decoded_positions("geometry", 2)
             .expect("new generation decodes");
         assert!(!Arc::ptr_eq(&first, &newer));
-        assert!(store.decoded_positions("geometry", 1).is_err());
+        store.decoded_positions("geometry", 1).unwrap_err();
     }
 
     #[test]
@@ -1173,9 +1170,7 @@ mod tests {
 
     #[test]
     fn chunk_assembly_orders_by_sequence() {
-        let payload = (0..12_u32)
-            .flat_map(|value| value.to_le_bytes())
-            .collect::<Vec<_>>();
+        let payload = (0..12_u32).flat_map(u32::to_le_bytes).collect::<Vec<_>>();
         let frames = (0..3)
             .map(|sequence| {
                 let payload = payload[sequence as usize * 16..sequence as usize * 16 + 16].to_vec();
@@ -1221,9 +1216,7 @@ mod tests {
             "shape": [MAX_MESH_FRAME_BYTES as u32 + 1],
             "byte_length": MAX_MESH_FRAME_BYTES + 1,
         });
-        assert!(
-            MeshFrame::decode(&header.to_string(), &vec![0; MAX_MESH_FRAME_BYTES + 1]).is_err()
-        );
+        MeshFrame::decode(&header.to_string(), &vec![0; MAX_MESH_FRAME_BYTES + 1]).unwrap_err();
     }
 
     #[test]
@@ -1256,10 +1249,10 @@ mod tests {
         frame.shape = vec![8];
         frame.payload = vec![0x01];
         frame.checksum = MeshFrame::checksum(&frame.payload);
-        assert!(frame.validate().is_ok());
+        frame.validate().unwrap();
         frame.dtype = MeshDtype::BoolBytes;
         frame.shape = vec![1];
-        assert!(frame.validate().is_ok());
+        frame.validate().unwrap();
         frame.dtype = MeshDtype::F64LE;
         frame.shape = Vec::new();
         assert!(matches!(

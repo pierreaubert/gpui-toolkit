@@ -1,7 +1,7 @@
 //! Card component tests
 
 use gpui::div;
-use gpui::prelude::{IntoElement, ParentElement, Styled};
+use gpui::prelude::{IntoElement, ParentElement};
 use gpui_ui_kit::card::Card;
 
 #[test]
@@ -10,7 +10,7 @@ fn test_card_composition() {
         .header(div().child("Header"))
         .content(div().child("Content"))
         .footer(div().child("Footer"))
-        .style(|div| div.p_4())
+        .style(gpui::Styled::p_4)
         .background(gpui::rgb(0xFF0000))
         .border(gpui::rgb(0x00FF00));
 

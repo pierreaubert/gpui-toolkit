@@ -1,4 +1,4 @@
-//! NumberInput component tests
+//! `NumberInput` component tests
 
 use gpui_ui_kit::number_input::{NumberInput, NumberInputSize};
 
@@ -16,7 +16,7 @@ fn test_number_input_configuration() {
         .width(100.0)
         .disabled(false)
         .on_change(|val, _window, _cx| {
-            println!("Value: {}", val);
+            println!("Value: {val}");
         });
 
     drop(input);

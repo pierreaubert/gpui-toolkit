@@ -1,4 +1,4 @@
-//! Integration tests for PaneDivider component
+//! Integration tests for `PaneDivider` component
 //!
 //! Tests the pane divider component including:
 //! - Basic rendering (vertical and horizontal)

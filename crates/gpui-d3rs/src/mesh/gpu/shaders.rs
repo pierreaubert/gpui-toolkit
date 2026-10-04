@@ -4,7 +4,7 @@
 //! here rather than duplicated in the backend. The 3D shader has a matching
 //! source so a scalar field has the same visual contract in both views.
 
-pub const MESH_WGSL: &str = r#"
+pub const MESH_WGSL: &str = r"
 
 struct Uniforms {
     view_transform: mat4x4<f32>,
@@ -135,7 +135,7 @@ fn fragment(input: VertexOut) -> @location(0) vec4<f32> {
 fn line_fragment(_input: VertexOut) -> @location(0) vec4<f32> {
     return vec4<f32>(0.08, 0.10, 0.14, 0.9);
 }
-"#;
+";
 
 #[cfg(test)]
 mod tests {

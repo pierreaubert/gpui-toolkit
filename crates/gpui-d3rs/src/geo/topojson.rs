@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 use super::GeoJsonGeometry;
 
-/// Decoded `(id, rings)` polygon geometries collected from TopoJSON objects.
+/// Decoded `(id, rings)` polygon geometries collected from `TopoJSON` objects.
 type IdGeometries = Vec<(String, Vec<Vec<(f64, f64)>>)>;
 
 #[derive(Debug, Deserialize)]
@@ -31,7 +31,7 @@ pub struct Topology {
     pub transform: Transform,
 }
 
-/// Limits for parsing a TopoJSON land object.
+/// Limits for parsing a `TopoJSON` land object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TopoJsonBudget {
     pub max_input_bytes: usize,
@@ -71,7 +71,7 @@ impl Default for TopoJsonBudget {
     }
 }
 
-/// Failure while parsing or bounding a TopoJSON input.
+/// Failure while parsing or bounding a `TopoJSON` input.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TopoJsonError {
     InvalidJson(String),
@@ -101,7 +101,7 @@ impl std::fmt::Display for TopoJsonError {
 
 impl std::error::Error for TopoJsonError {}
 
-/// Parse a TopoJSON `land` object into a single `GeoJsonGeometry::MultiPolygon`.
+/// Parse a `TopoJSON` `land` object into a single `GeoJsonGeometry::MultiPolygon`.
 ///
 /// All polygon and multipolygon geometries in the land collection are flattened
 /// into one multipolygon so that `GeoPath` can render the whole world in a
@@ -110,7 +110,7 @@ pub fn parse_land(json: &str) -> Option<GeoJsonGeometry> {
     parse_land_with_budget(json, &TopoJsonBudget::default()).ok()
 }
 
-/// Parse a TopoJSON `land` object under explicit input and output limits.
+/// Parse a `TopoJSON` `land` object under explicit input and output limits.
 pub fn parse_land_with_budget(
     json: &str,
     budget: &TopoJsonBudget,
@@ -190,8 +190,8 @@ fn decode_arcs(arcs: &[Vec<[i32; 2]>], transform: &Transform) -> Vec<Vec<(f64, f
                     x += point[0];
                     y += point[1];
                     (
-                        x as f64 * scale[0] + translate[0],
-                        y as f64 * scale[1] + translate[1],
+                        f64::from(x) * scale[0] + translate[0],
+                        f64::from(y) * scale[1] + translate[1],
                     )
                 })
                 .collect()
@@ -310,7 +310,7 @@ fn decode_polygon(
     Ok(polygon)
 }
 
-/// A TopoJSON polygon geometry carrying a feature id (e.g. a county FIPS
+/// A `TopoJSON` polygon geometry carrying a feature id (e.g. a county FIPS
 /// code), as found in `us-atlas` county topologies.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
@@ -352,7 +352,7 @@ pub struct CountyFeature {
     pub geometry: GeoJsonGeometry,
 }
 
-fn feature_id(value: &Option<serde_json::Value>) -> String {
+fn feature_id(value: Option<&serde_json::Value>) -> String {
     match value {
         Some(serde_json::Value::String(s)) => s.clone(),
         Some(serde_json::Value::Number(n)) => {
@@ -376,12 +376,12 @@ fn collect_id_geometries(
     match geom {
         IdGeometry::Polygon { arcs, id } => {
             out.push((
-                feature_id(id),
+                feature_id(id.as_ref()),
                 decode_polygon(arcs, decoded_arcs, budget, output_points)?,
             ));
         }
         IdGeometry::MultiPolygon { arcs, id } => {
-            let id = feature_id(id);
+            let id = feature_id(id.as_ref());
             for polygon_arcs in arcs {
                 out.push((
                     id.clone(),
@@ -475,9 +475,8 @@ pub fn parse_counties_with_budget(
 pub fn parse_county_states(json: &str) -> Result<Option<GeoJsonGeometry>, TopoJsonError> {
     let topology: CountyTopology = serde_json::from_str(json)
         .map_err(|error| TopoJsonError::InvalidJson(error.to_string()))?;
-    let states = match &topology.objects.states {
-        Some(states) => states,
-        None => return Ok(None),
+    let Some(states) = &topology.objects.states else {
+        return Ok(None);
     };
     let decoded_arcs = decode_arcs(&topology.arcs, &topology.transform);
     let mut raw: IdGeometries = Vec::new();

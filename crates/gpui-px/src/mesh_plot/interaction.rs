@@ -103,7 +103,7 @@ pub struct RetainedMesh3DStats {
     pub gpu_frame_gpu_time_count: u64,
 }
 
-/// CPU-side timing counters for expensive MeshPlot operations.
+/// CPU-side timing counters for expensive `MeshPlot` operations.
 ///
 /// The counters stay in retained plot state so release hosts can sample them
 /// without adding file I/O to the render thread. Nanoseconds are totals across
@@ -604,9 +604,12 @@ impl MeshPlotState {
             self.retained_planar_index = None;
             self.contour_preparation_inflight = None;
             #[cfg(all(feature = "gpu-3d", not(test)))]
+            // Braces required: `#[cfg] stmt;` on a non-block statement is E0658,
+            // so the lint-suggested collapse does not compile.
+            #[allow(clippy::unnecessary_operation, clippy::semicolon_if_nothing_returned)]
             {
-                self.retained_3d = None;
-            }
+                self.retained_3d = None
+            };
             #[cfg(feature = "gpu-3d")]
             {
                 self.retained_bvh = None;
@@ -1070,9 +1073,9 @@ impl MeshPlotState {
             mesh, field, index, horizontal, vertical, point_2d, plot_id,
         );
         self.record_pick(started.elapsed());
-        self.hover = pick.clone();
+        self.hover.clone_from(&pick);
         if select {
-            self.selection = pick.clone();
+            self.selection.clone_from(&pick);
         }
         pick
     }
@@ -1154,6 +1157,9 @@ impl MeshPlotState {
 
     /// Apply a keyboard navigation action subject to the plot's declared
     /// interaction capabilities.
+    // Permission flags are toggled individually by embedding apps; a
+    // params struct would break this public key-handling API.
+    #[allow(clippy::fn_params_excessive_bools)]
     pub fn handle_key_with_permissions(
         &mut self,
         key: &str,
@@ -1178,14 +1184,14 @@ impl MeshPlotState {
         use crate::interaction::ChartKeyboardAction;
         match action {
             ChartKeyboardAction::ZoomIn if allow_zoom => {
-                self.interaction.zoom_around_pixel(300.0, 200.0, 0.8)
+                self.interaction.zoom_around_pixel(300.0, 200.0, 0.8);
             }
             ChartKeyboardAction::ZoomOut if allow_zoom => {
-                self.interaction.zoom_around_pixel(300.0, 200.0, 1.25)
+                self.interaction.zoom_around_pixel(300.0, 200.0, 1.25);
             }
             ChartKeyboardAction::PanLeft if allow_pan => self.interaction.pan_by_pixels(24.0, 0.0),
             ChartKeyboardAction::PanRight if allow_pan => {
-                self.interaction.pan_by_pixels(-24.0, 0.0)
+                self.interaction.pan_by_pixels(-24.0, 0.0);
             }
             ChartKeyboardAction::PanUp if allow_pan => self.interaction.pan_by_pixels(0.0, 24.0),
             ChartKeyboardAction::PanDown if allow_pan => self.interaction.pan_by_pixels(0.0, -24.0),
@@ -1217,9 +1223,12 @@ impl MeshPlotState {
         self.field_values.extend_from_slice(values);
         self.field_revision = revision;
         #[cfg(feature = "gpu-3d")]
+        // Braces required: `#[cfg] stmt;` on a non-block statement is E0658,
+        // so the lint-suggested collapse does not compile.
+        #[allow(clippy::unnecessary_operation, clippy::semicolon_if_nothing_returned)]
         {
-            self.retained_revolved_field = None;
-        }
+            self.retained_revolved_field = None
+        };
         true
     }
 
@@ -1281,6 +1290,9 @@ impl MeshPlotState {
 
     #[cfg(feature = "gpu-3d")]
     /// Apply a 3D keyboard action subject to the plot's declared capabilities.
+    // Permission flags are toggled individually by embedding apps; a
+    // params struct would break this public key-handling API.
+    #[allow(clippy::fn_params_excessive_bools)]
     pub fn handle_3d_key_with_permissions(
         &mut self,
         key: &str,
@@ -1292,6 +1304,9 @@ impl MeshPlotState {
         self.handle_3d_key_with_fit(key, allow_pan, allow_zoom, allow_reset, allow_fit, None)
     }
 
+    // Mirrors the public permission-flags signature above so the wrapper
+    // stays a mechanical pass-through.
+    #[allow(clippy::fn_params_excessive_bools)]
     #[cfg(feature = "gpu-3d")]
     pub(crate) fn handle_3d_key_with_fit(
         &mut self,

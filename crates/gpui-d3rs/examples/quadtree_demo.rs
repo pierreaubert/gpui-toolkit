@@ -1,4 +1,4 @@
-//! QuadTree demonstration
+//! `QuadTree` demonstration
 //!
 //! This example demonstrates the d3rs quadtree implementation, showing:
 //! - Building a quadtree from data points
@@ -40,7 +40,7 @@ fn main() {
 
     for (qx, qy) in queries {
         if let Some(nearest) = tree.find(qx, qy, None) {
-            println!("   Nearest to ({:.1}, {:.1}): '{}'", qx, qy, nearest);
+            println!("   Nearest to ({qx:.1}, {qy:.1}): '{nearest}'");
         }
     }
 
@@ -50,15 +50,9 @@ fn main() {
     let (qx, qy) = (0.5, 0.5);
     for radius in [0.3, 0.5, 1.0, 2.0] {
         if let Some(nearest) = tree.find(qx, qy, Some(radius)) {
-            println!(
-                "   Nearest to ({:.1}, {:.1}) within {:.1}: '{}'",
-                qx, qy, radius, nearest
-            );
+            println!("   Nearest to ({qx:.1}, {qy:.1}) within {radius:.1}: '{nearest}'");
         } else {
-            println!(
-                "   Nearest to ({:.1}, {:.1}) within {:.1}: none found",
-                qx, qy, radius
-            );
+            println!("   Nearest to ({qx:.1}, {qy:.1}) within {radius:.1}: none found");
         }
     }
 
@@ -75,7 +69,7 @@ fn main() {
         within.len()
     );
     for point in within {
-        println!("   - '{}'", point);
+        println!("   - '{point}'");
     }
 
     // Tree traversal
@@ -96,26 +90,20 @@ fn main() {
             }
             QuadNode::Internal(_, _) => {
                 internal_count += 1;
-                println!(
-                    "   Internal node: ({:.2}, {:.2})-({:.2}, {:.2})",
-                    x0, y0, x1, y1
-                );
+                println!("   Internal node: ({x0:.2}, {y0:.2})-({x1:.2}, {y1:.2})");
             }
         }
         true // Continue visiting children
     });
 
-    println!(
-        "\n   Total nodes: {}, Leaves: {}, Internal: {}",
-        node_count, leaf_count, internal_count
-    );
+    println!("\n   Total nodes: {node_count}, Leaves: {leaf_count}, Internal: {internal_count}");
 
     // Data extraction
     println!("\n6. Extracting All Data:");
     let all_data = tree.data();
     println!("   Retrieved {} points:", all_data.len());
     for (x, y, name) in &all_data {
-        println!("   ({:.2}, {:.2}): {}", x, y, name);
+        println!("   ({x:.2}, {y:.2}): {name}");
     }
 
     // Demonstrate adding and removing
@@ -153,8 +141,8 @@ fn main() {
     let mut large_tree: QuadTree<i32> = QuadTree::new();
     for i in 0..10000 {
         // Use golden ratio for nice distribution
-        let x = (i as f64 * 0.618033988749895).fract() * 100.0;
-        let y = (i as f64 * 0.381966011250105).fract() * 100.0;
+        let x = (f64::from(i) * 0.618033988749895).fract() * 100.0;
+        let y = (f64::from(i) * 0.381966011250105).fract() * 100.0;
         large_tree.add(x, y, i);
     }
 
@@ -171,30 +159,26 @@ fn main() {
     let start = std::time::Instant::now();
     let mut found_count = 0;
     for i in 0..1000 {
-        let x = (i as f64 * 0.123).fract() * 100.0;
-        let y = (i as f64 * 0.456).fract() * 100.0;
+        let x = (f64::from(i) * 0.123).fract() * 100.0;
+        let y = (f64::from(i) * 0.456).fract() * 100.0;
         if large_tree.find(x, y, None).is_some() {
             found_count += 1;
         }
     }
     let query_time = start.elapsed();
-    println!(
-        "   Performed 1000 nearest-neighbor queries in {:?} ({} found)",
-        query_time, found_count
-    );
+    println!("   Performed 1000 nearest-neighbor queries in {query_time:?} ({found_count} found)");
 
     // Range queries
     let start = std::time::Instant::now();
     let mut total_found = 0;
     for i in 0..100 {
-        let x = (i as f64 * 0.789).fract() * 100.0;
-        let y = (i as f64 * 0.321).fract() * 100.0;
+        let x = (f64::from(i) * 0.789).fract() * 100.0;
+        let y = (f64::from(i) * 0.321).fract() * 100.0;
         total_found += large_tree.find_all(x, y, 5.0).len();
     }
     let range_time = start.elapsed();
     println!(
-        "   Performed 100 range queries (r=5.0) in {:?} ({} total points found)",
-        range_time, total_found
+        "   Performed 100 range queries (r=5.0) in {range_time:?} ({total_found} total points found)"
     );
 
     println!("\n=== Demo Complete ===");

@@ -136,12 +136,12 @@ impl ChartInteraction {
 
     /// Start a brush selection at the given pixel coordinates.
     pub fn start_brush(&mut self, x: f32, y: f32) {
-        self.brush.start(x as f64, y as f64);
+        self.brush.start(f64::from(x), f64::from(y));
     }
 
     /// Update the brush selection while dragging.
     pub fn update_brush(&mut self, x: f32, y: f32) {
-        self.brush.update(x as f64, y as f64);
+        self.brush.update(f64::from(x), f64::from(y));
     }
 
     /// End the brush selection and optionally apply zoom.
@@ -234,31 +234,31 @@ impl ChartInteraction {
         if self.x_is_log {
             let x_scale = LogScale::new()
                 .domain(x_min.max(1e-10), x_max)
-                .range(0.0, width as f64);
+                .range(0.0, f64::from(width));
             if self.y_is_log {
                 let y_scale = LogScale::new()
                     .domain(y_min.max(1e-10), y_max)
-                    .range(height as f64, 0.0);
+                    .range(f64::from(height), 0.0);
                 selection.to_domain(&x_scale, &y_scale)
             } else {
                 let y_scale = LinearScale::new()
                     .domain(y_min, y_max)
-                    .range(height as f64, 0.0);
+                    .range(f64::from(height), 0.0);
                 selection.to_domain(&x_scale, &y_scale)
             }
         } else {
             let x_scale = LinearScale::new()
                 .domain(x_min, x_max)
-                .range(0.0, width as f64);
+                .range(0.0, f64::from(width));
             if self.y_is_log {
                 let y_scale = LogScale::new()
                     .domain(y_min.max(1e-10), y_max)
-                    .range(height as f64, 0.0);
+                    .range(f64::from(height), 0.0);
                 selection.to_domain(&x_scale, &y_scale)
             } else {
                 let y_scale = LinearScale::new()
                     .domain(y_min, y_max)
-                    .range(height as f64, 0.0);
+                    .range(f64::from(height), 0.0);
                 selection.to_domain(&x_scale, &y_scale)
             }
         }
@@ -273,25 +273,25 @@ impl ChartInteraction {
         let domain_x = if self.x_is_log {
             let x_scale = LogScale::new()
                 .domain(x_min.max(1e-10), x_max)
-                .range(0.0, width as f64);
-            x_scale.invert(x as f64).unwrap_or(x_min)
+                .range(0.0, f64::from(width));
+            x_scale.invert(f64::from(x)).unwrap_or(x_min)
         } else {
             let x_scale = LinearScale::new()
                 .domain(x_min, x_max)
-                .range(0.0, width as f64);
-            x_scale.invert(x as f64).unwrap_or(x_min)
+                .range(0.0, f64::from(width));
+            x_scale.invert(f64::from(x)).unwrap_or(x_min)
         };
 
         let domain_y = if self.y_is_log {
             let y_scale = LogScale::new()
                 .domain(y_min.max(1e-10), y_max)
-                .range(height as f64, 0.0);
-            y_scale.invert(y as f64).unwrap_or(y_min)
+                .range(f64::from(height), 0.0);
+            y_scale.invert(f64::from(y)).unwrap_or(y_min)
         } else {
             let y_scale = LinearScale::new()
                 .domain(y_min, y_max)
-                .range(height as f64, 0.0);
-            y_scale.invert(y as f64).unwrap_or(y_min)
+                .range(f64::from(height), 0.0);
+            y_scale.invert(f64::from(y)).unwrap_or(y_min)
         };
 
         (domain_x, domain_y)
@@ -344,13 +344,13 @@ impl ChartInteraction {
             let log_min = x_min.max(1e-10).log10();
             let log_max = x_max.max(1e-10).log10();
             let log_range = log_max - log_min;
-            let log_delta = -(dx as f64 / plot_width as f64) * log_range;
+            let log_delta = -(f64::from(dx) / f64::from(plot_width)) * log_range;
             (
                 10_f64.powf(log_min + log_delta),
                 10_f64.powf(log_max + log_delta),
             )
         } else {
-            let delta = -(dx as f64 / plot_width as f64) * x_range;
+            let delta = -(f64::from(dx) / f64::from(plot_width)) * x_range;
             (x_min + delta, x_max + delta)
         };
 
@@ -358,13 +358,13 @@ impl ChartInteraction {
             let log_min = y_min.max(1e-10).log10();
             let log_max = y_max.max(1e-10).log10();
             let log_range = log_max - log_min;
-            let log_delta = (dy as f64 / plot_height as f64) * log_range;
+            let log_delta = (f64::from(dy) / f64::from(plot_height)) * log_range;
             (
                 10_f64.powf(log_min + log_delta),
                 10_f64.powf(log_max + log_delta),
             )
         } else {
-            let delta = (dy as f64 / plot_height as f64) * y_range;
+            let delta = (f64::from(dy) / f64::from(plot_height)) * y_range;
             (y_min + delta, y_max + delta)
         };
 
@@ -644,7 +644,7 @@ pub(super) mod interactive_chart {
             {
                 let mut interaction = self.interaction.borrow_mut();
                 interaction.zoom = interaction.zoom.clone().with_log_x(is_log);
-            }
+            };
             self
         }
 
@@ -654,7 +654,7 @@ pub(super) mod interactive_chart {
             {
                 let mut interaction = self.interaction.borrow_mut();
                 interaction.zoom = interaction.zoom.clone().with_log_y(is_log);
-            }
+            };
             self
         }
 

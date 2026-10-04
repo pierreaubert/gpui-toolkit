@@ -29,7 +29,7 @@ fn format_audio_freq(freq: f64) -> String {
     if freq >= 1000.0 {
         format!("{}k", freq / 1000.0)
     } else {
-        format!("{}", freq)
+        format!("{freq}")
     }
 }
 

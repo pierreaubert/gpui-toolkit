@@ -134,7 +134,7 @@ where
 
     let mut prepared = Vec::with_capacity(contours.iter().map(|c| c.coordinates.len()).sum());
 
-    for contour in contours.iter() {
+    for contour in contours {
         let stroke_color = get_color(contour.value, config.stroke_color);
         let fill_color = get_color(contour.value, config.fill_color);
 
@@ -202,10 +202,10 @@ where
                     if dx < 2.0 && dy < 2.0 {
                         &screen_points[..screen_points.len() - 1]
                     } else {
-                        &screen_points[..]
+                        &*screen_points
                     }
                 } else {
-                    &screen_points[..]
+                    &*screen_points
                 };
 
                 let segments =

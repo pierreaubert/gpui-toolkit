@@ -123,8 +123,8 @@ impl ArcDatum {
     ///
     /// Returns the point at the center of the arc, useful for label positioning.
     pub fn centroid(&self) -> Point {
-        let r = (self.inner_radius + self.outer_radius) / 2.0;
-        let a = (self.start_angle + self.end_angle) / 2.0 - PI / 2.0;
+        let r = f64::midpoint(self.inner_radius, self.outer_radius);
+        let a = f64::midpoint(self.start_angle, self.end_angle) - PI / 2.0;
         Point::new(r * a.cos(), r * a.sin())
     }
 }
@@ -195,7 +195,7 @@ impl Arc {
                 start += pad;
                 end -= pad;
             } else {
-                let mid = (start + end) / 2.0;
+                let mid = f64::midpoint(start, end);
                 start = mid;
                 end = mid;
             }

@@ -17,7 +17,7 @@ pub struct StreamgraphResult {
 pub fn default_data() -> (Vec<String>, Vec<Vec<f64>>) {
     let categories: Vec<String> = ["alpha", "beta", "gamma", "delta", "epsilon"]
         .iter()
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .collect();
     let n = 20;
     let mut matrix = Vec::with_capacity(n);

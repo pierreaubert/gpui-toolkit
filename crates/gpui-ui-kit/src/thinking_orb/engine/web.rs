@@ -50,7 +50,7 @@ pub fn frame_web(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
             }
             let (x1, y1, z1) = pt.project(nodes[i].0, nodes[i].1, nodes[i].2);
             let (x2, y2, z2) = pt.project(nodes[j].0, nodes[j].1, nodes[j].2);
-            let depth = ((z1 + z2) / 2.0 + 1.0) / 2.0;
+            let depth = f64::midpoint(f64::midpoint(z1, z2), 1.0);
             lines.push(Line {
                 x1,
                 y1,
@@ -65,7 +65,7 @@ pub fn frame_web(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
 
     for (i, node) in nodes.iter().enumerate() {
         let (px, py, z) = pt.project(node.0, node.1, node.2);
-        let depth = (z + 1.0) / 2.0;
+        let depth = f64::midpoint(z, 1.0);
         let pulse = 1.0 + 0.25 * (t * 1.4 + i as f64 * 2.7).sin();
         dots.push(Dot {
             x: px,
@@ -92,7 +92,7 @@ pub fn frame_web(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
         let z = lerp(nodes[a].2, nodes[b].2, f);
         let l = (x * x + y * y + z * z).sqrt().max(1e-6);
         let (px, py, zr) = pt.project(x / l, y / l, z / l);
-        let depth = (zr + 1.0) / 2.0;
+        let depth = f64::midpoint(zr, 1.0);
         dots.push(Dot {
             x: px,
             y: py,

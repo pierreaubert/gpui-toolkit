@@ -3,7 +3,7 @@ use gpui::*;
 #[cfg(all(test, feature = "builder"))]
 use gpui_builder::{Axis, SolvedNode};
 
-/// Default MiniApp shell that applies designer defaults and solves the content
+/// Default `MiniApp` shell that applies designer defaults and solves the content
 /// slot with gpui-builder when the default `builder` feature is enabled.
 pub(super) struct MiniAppShell {
     /// Content view handle. `AnyView` is already a cheap cloneable handle
@@ -69,7 +69,10 @@ impl Render for MiniAppShell {
                 })
                 .w(px(content_width))
                 .h(px(content_height))
-                .when(self.scrollable, |el| el.overflow_y_scroll())
+                .when(
+                    self.scrollable,
+                    gpui::StatefulInteractiveElement::overflow_y_scroll,
+                )
                 .child(self.inner.clone()),
         )
     }

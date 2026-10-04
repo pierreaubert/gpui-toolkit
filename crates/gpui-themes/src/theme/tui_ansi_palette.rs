@@ -36,7 +36,7 @@ impl TuiAnsiPalette {
         } else {
             EditorTheme::dark()
         };
-        theme.name = self.name.clone();
+        theme.name.clone_from(&self.name);
         theme.background = self.background;
         // ANSI index 0 is not necessarily the terminal surface. Using the
         // terminal background keeps the editor's text/surface WCAG contract

@@ -94,7 +94,7 @@ where
         .children(ticks.iter().flat_map(|&tick_value| {
             let range_value = scale.scale(tick_value);
             let x_pos = (range_value - range_min) / range_span;
-            let label = format_tick(tick_value, &config.tick_format);
+            let label = format_tick(tick_value, config.tick_format.as_ref());
             let half_tick_width = config.domain_line_width / 2.0;
 
             // Convert angle from degrees to radians
@@ -236,7 +236,7 @@ where
         .children(ticks.iter().flat_map(|&tick_value| {
             let range_value = scale.scale(tick_value);
             let x_pos = (range_value - range_min) / range_span;
-            let label = format_tick(tick_value, &config.tick_format);
+            let label = format_tick(tick_value, config.tick_format.as_ref());
             let half_tick_width = config.domain_line_width / 2.0;
             let font_config =
                 GlyphTextConfig::horizontal(config.label_font_size, theme.axis_label_color());
@@ -372,7 +372,7 @@ where
             let range_value = scale.scale(tick_value);
             // Invert Y for screen coordinates (bottom-to-top becomes top-to-bottom)
             let y_pos = 1.0 - (range_value - range_min) / range_span;
-            let label = format_tick(tick_value, &config.tick_format);
+            let label = format_tick(tick_value, config.tick_format.as_ref());
             let half_tick_height = config.domain_line_width / 2.0;
             let font_config =
                 GlyphTextConfig::horizontal(config.label_font_size, theme.axis_label_color());
@@ -470,7 +470,7 @@ where
             let range_value = scale.scale(tick_value);
             // Invert Y for screen coordinates (bottom-to-top becomes top-to-bottom)
             let y_pos = 1.0 - (range_value - range_min) / range_span;
-            let label = format_tick(tick_value, &config.tick_format);
+            let label = format_tick(tick_value, config.tick_format.as_ref());
             let half_tick_height = config.domain_line_width / 2.0;
             let font_config =
                 GlyphTextConfig::horizontal(config.label_font_size, theme.axis_label_color());

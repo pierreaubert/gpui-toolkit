@@ -1,4 +1,4 @@
-//! Integration tests for SplitPane component
+//! Integration tests for `SplitPane` component
 
 use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div, px};
 use gpui_ui_kit::split_pane::{SplitDirection, SplitPane};

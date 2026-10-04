@@ -1,4 +1,4 @@
-//! IconButton component
+//! `IconButton` component
 //!
 //! A button that displays only an icon, with optional tooltip.
 //! Supports both text/emoji icons and custom child elements (like SVG icons).
@@ -85,7 +85,7 @@ pub struct IconButtonTheme {
     pub border: Rgba,
 }
 
-/// IconButton size variants. Sizes are returned as `Rems` so the click
+/// `IconButton` size variants. Sizes are returned as `Rems` so the click
 /// target scales with `window.set_rem_size` (font zoom). The `Sm`, `Md`,
 /// `Lg`, and `Xl` variants all meet the WCAG 2.5.8 24×24 minimum target
 /// size at 1× zoom; `Xs` (1.0 rem ≈ 16 px) is intentionally below the
@@ -143,7 +143,7 @@ impl From<crate::ComponentSize> for IconButtonSize {
     }
 }
 
-/// IconButton variant
+/// `IconButton` variant
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IconButtonVariant {
     /// Ghost button (transparent, default)

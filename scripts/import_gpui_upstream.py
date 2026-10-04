@@ -13,9 +13,13 @@ import tomllib
 from pathlib import Path
 
 ZED_GIT = "https://github.com/zed-industries/zed.git"
+ZED_V1_9_0_REV = "ced90fc636c4ede05402befc38a63bae7fd741bd"
 ZED_TARBALL = "https://github.com/zed-industries/zed/archive/refs/tags/{ref}.tar.gz"
 DEFAULT_ROOTS = ["gpui", "gpui_macros", "gpui_macos", "gpui_linux", "collections", "util", "gpui_web"]
 EXCLUDED_CRATES = {"reqwest_client", "gpui_platform", "zlog", "ztracing", "ztracing_macro"}
+# These Zed crates are pinned directly; keep their dependency edges when
+# rewriting GPUI manifests, but omit their directories from the vendor set.
+EXTERNAL_ZED_CRATES = {"refineable", "derive_refineable", "gpui_shared_string"}
 EXCLUDED_DIRS = {"examples", "benches"}
 VENDOR_DIR = Path("crates/3rdparties")
 GPUI_IMAGE_FEATURES = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"]
@@ -138,6 +142,8 @@ def resolve_dep(name: str, spec, ctx: dict):
         if version is None:
             raise SystemExit(f"error: internal crate not in vendor set: {canonical}")
         merged = {"version": version, "git": ZED_GIT, "tag": ctx["ref"]}
+        if canonical in EXTERNAL_ZED_CRATES and ctx["ref"] == "v1.9.0":
+            merged = {"version": version, "git": ZED_GIT, "rev": ZED_V1_9_0_REV}
         if canonical != name:
             merged = {"package": canonical, **merged}
     else:
@@ -201,7 +207,9 @@ def compute_closure(zdir: Path, ctx: dict, roots: list[str]) -> list[str]:
                     continue
                 base = dep_base(dep_name, spec, ctx["ws_deps"])
                 canonical = base.get("package", dep_name)
-                if "path" in base and canonical not in seen and canonical not in EXCLUDED_CRATES:
+                if ("path" in base and canonical not in seen
+                        and canonical not in EXCLUDED_CRATES
+                        and canonical not in EXTERNAL_ZED_CRATES):
                     # Workspace-dep paths are repo-relative; a direct path dep
                     # would be relative to the crate's own directory.
                     dep_path = base["path"]
@@ -293,7 +301,7 @@ def _vendored_md(name: str, path: str, ref: str, prior: str | None) -> str:
         tail = prior[prior.index(LOCAL_PATCHES_HEADER):].rstrip() + "\n"
     else:
         tail = LOCAL_PATCHES_HEADER + "\n\nnone\n"
-    nested_exclusion = ", nested derive_refineable/ (vendored separately)" if name == "refineable" else ""
+    nested_exclusion = ", nested derive_refineable/ (resolved from pinned Zed Git)" if name == "refineable" else ""
     return (
         f"# Vendored: {name}\n\n"
         f"- Upstream: https://github.com/zed-industries/zed/tree/{ref}/{path}\n"

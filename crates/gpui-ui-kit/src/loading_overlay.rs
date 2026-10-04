@@ -1,4 +1,4 @@
-//! LoadingOverlay component
+//! `LoadingOverlay` component
 //!
 //! A full-area overlay with a spinner and optional message, used to indicate
 //! loading or processing state.

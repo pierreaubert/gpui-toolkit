@@ -31,11 +31,11 @@ fn build_grouped_bars_linear_and_log_scale() {
         .add_series(&extra, Some("Extra"), 0x2ca02c, 0.8)
         .y_scale(ScaleType::Linear)
         .build();
-    assert!(linear.is_ok());
+    linear.unwrap();
 
     let log = bar(&categories, &values)
         .add_series(&extra, Some("Extra"), 0x2ca02c, 0.8)
         .y_scale(ScaleType::Log)
         .build();
-    assert!(log.is_ok());
+    log.unwrap();
 }

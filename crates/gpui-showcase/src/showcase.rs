@@ -125,7 +125,7 @@ fn showcase_layout_for_width(width: f32) -> ShowcaseLayout {
 fn normalized_section_key(value: &str) -> String {
     value
         .chars()
-        .filter(|character| character.is_ascii_alphanumeric())
+        .filter(char::is_ascii_alphanumeric)
         .map(|character| character.to_ascii_lowercase())
         .collect()
 }
@@ -483,7 +483,7 @@ impl Showcase {
         let mut showcase = Self::new(cx);
         showcase.current_section = section;
         showcase.games_entity.update(cx, |games, cx| {
-            games.set_active(section == ShowcaseSection::Games, cx)
+            games.set_active(section == ShowcaseSection::Games, cx);
         });
         showcase.ensure_animated_qr(section, cx);
         showcase.embedded = true;
@@ -514,7 +514,7 @@ impl Showcase {
         self.ensure_animated_qr(section, cx);
         self.current_section = section;
         self.games_entity.update(cx, |games, cx| {
-            games.set_active(section == ShowcaseSection::Games, cx)
+            games.set_active(section == ShowcaseSection::Games, cx);
         });
         self.content_entity.update(cx, |content, cx| {
             content

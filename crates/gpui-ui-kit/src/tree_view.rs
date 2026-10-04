@@ -1,4 +1,4 @@
-//! TreeView component
+//! `TreeView` component
 //!
 //! A hierarchical collapsible list for displaying tree-structured data.
 //!
@@ -251,8 +251,8 @@ impl TreeView {
     #[allow(clippy::too_many_arguments)]
     fn render_visible_nodes<F>(
         nodes: &[VisibleTreeNode],
-        selected: &Option<SharedString>,
-        focused: &Option<SharedString>,
+        selected: Option<&SharedString>,
+        focused: Option<&SharedString>,
         focus_handle: &FocusHandle,
         parent_id: &ElementId,
         on_focus_change: Option<
@@ -271,8 +271,8 @@ impl TreeView {
         F: Fn(StyleRefinement) -> StyleRefinement + Copy,
     {
         for node in nodes {
-            let is_selected = selected.as_ref() == Some(&node.id);
-            let is_focused = focused.as_ref() == Some(&node.id);
+            let is_selected = selected == Some(&node.id);
+            let is_focused = focused == Some(&node.id);
             let node_id = node.id.clone();
             let focus_handle_for_row = focus_handle.clone();
             let on_focus_change_for_row = on_focus_change.cloned();
@@ -390,8 +390,8 @@ impl TreeView {
         let mut elements = Vec::new();
         Self::render_visible_nodes(
             &visible_nodes,
-            &self.selected,
-            &focused,
+            self.selected.as_ref(),
+            focused.as_ref(),
             &focus_handle,
             &self.id,
             on_focus_change.as_ref(),
@@ -472,7 +472,7 @@ impl TreeView {
                                 handler(id, action == DataNavigationAction::Expand, window, cx);
                             }
                         }
-                        _ => {}
+                        DataNavigationAction::Dismiss => {}
                     }
                 },
             );
@@ -509,11 +509,7 @@ fn virtual_spacer_height(row_height: Option<f32>, row_count: usize) -> Option<Pi
     }
 
     let height = row_height * row_count as f32;
-    if height.is_finite() && height > 0.0 {
-        Some(px(height))
-    } else {
-        None
-    }
+    (height.is_finite() && height > 0.0).then(|| px(height))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

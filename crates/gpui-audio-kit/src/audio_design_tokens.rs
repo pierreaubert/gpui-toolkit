@@ -1,7 +1,7 @@
 //! Audio Design Tokens
 //!
 //! Lightweight design token struct consumed by audio UI components
-//! (Potentiometer, VerticalSlider, Toggle). This replaces hardcoded
+//! (Potentiometer, `VerticalSlider`, Toggle). This replaces hardcoded
 //! geometry/timing values with configurable parameters driven by the
 //! platform design system (Apple HIG, Material 3, Fluent, Neutral).
 //!
@@ -103,10 +103,10 @@ pub struct AudioDesignTokens {
     /// Whether to prefer spring physics over eased curves.
     /// Default: false.
     pub prefer_spring: bool,
-    /// Spring stiffness (used when prefer_spring is true).
+    /// Spring stiffness (used when `prefer_spring` is true).
     /// Default: 170.0.
     pub spring_stiffness: f32,
-    /// Spring damping (used when prefer_spring is true).
+    /// Spring damping (used when `prefer_spring` is true).
     /// Default: 26.0.
     pub spring_damping: f32,
 }
@@ -197,7 +197,7 @@ impl From<gpui_design::DesignSystem> for AudioDesignTokens {
     }
 }
 
-/// Toggle variant constants (matches design_system::ToggleVariant ordering).
+/// Toggle variant constants (matches `design_system::ToggleVariant` ordering).
 impl AudioDesignTokens {
     pub const TOGGLE_SLIDING: u8 = 0;
     pub const TOGGLE_SEGMENTED: u8 = 1;

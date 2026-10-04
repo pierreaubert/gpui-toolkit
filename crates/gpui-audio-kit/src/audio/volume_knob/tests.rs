@@ -17,8 +17,7 @@ fn test_asin_clamp_prevents_nan() {
         let result = ratio.clamp(-1.0, 1.0).asin();
         assert!(
             !result.is_nan(),
-            "asin should not produce NaN for ratio {}",
-            ratio
+            "asin should not produce NaN for ratio {ratio}"
         );
     }
 }

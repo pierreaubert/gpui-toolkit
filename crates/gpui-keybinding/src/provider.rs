@@ -248,6 +248,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(
+        clippy::assert_is_empty,
+        reason = "lint's `[] as [T; 0]` type ascription path does not resolve in this scope"
+    )]
     fn parse_user_overrides_accepts_bindings_object_and_blank() {
         assert_eq!(
             parse_user_overrides("").expect("blank is empty"),
@@ -273,9 +277,9 @@ mod tests {
 
     #[test]
     fn parse_user_overrides_rejects_malformed_documents() {
-        assert!(parse_user_overrides("{not json").is_err());
-        assert!(parse_user_overrides("{\"bindings\": 42}").is_err());
-        assert!(parse_user_overrides("[{\"key\": 42}]").is_err());
+        parse_user_overrides("{not json").unwrap_err();
+        parse_user_overrides("{\"bindings\": 42}").unwrap_err();
+        parse_user_overrides("[{\"key\": 42}]").unwrap_err();
     }
 
     #[test]

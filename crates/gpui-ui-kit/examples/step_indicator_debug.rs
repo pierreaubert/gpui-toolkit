@@ -1,6 +1,6 @@
-//! StepIndicator Debug Example
+//! `StepIndicator` Debug Example
 //!
-//! Demonstrates the StepIndicator component:
+//! Demonstrates the `StepIndicator` component:
 //! - Horizontal and vertical orientations
 //! - Different step statuses
 

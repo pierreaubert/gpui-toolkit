@@ -39,7 +39,9 @@ pub fn cleanup_input_state(id: &ElementId) {
 ///     .collect();
 /// cleanup_stale_input_states(&visible_ids);
 /// ```
-pub fn cleanup_stale_input_states(retained_ids: &std::collections::HashSet<ElementId>) {
+pub fn cleanup_stale_input_states<S: std::hash::BuildHasher>(
+    retained_ids: &std::collections::HashSet<ElementId, S>,
+) {
     FOCUS_HANDLES.with(|handles| {
         handles
             .borrow_mut()

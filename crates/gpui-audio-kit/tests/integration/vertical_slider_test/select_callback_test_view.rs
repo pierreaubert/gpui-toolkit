@@ -3,7 +3,7 @@ use gpui_audio_kit::audio::vertical_slider::VerticalSlider;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Test on_select callback
+/// Test `on_select` callback
 pub(super) struct SelectCallbackTestView {
     pub(super) select_count: Arc<AtomicUsize>,
 }

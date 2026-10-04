@@ -1,5 +1,3 @@
-use std::f64;
-
 /// Extent (bounding box) of the quadtree
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Extent {

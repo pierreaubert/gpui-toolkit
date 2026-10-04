@@ -1,12 +1,12 @@
 //! Timer module demo
 //!
-//! Run with: cargo run --example timer_demo
+//! Run with: cargo run --example `timer_demo`
 //!
 //! This demonstrates the d3-timer module functionality:
-//! - now() - monotonic time since epoch
-//! - timer() - repeating callback at ~60fps
-//! - timeout() - one-shot delayed callback
-//! - interval() - repeating callback at fixed intervals
+//! - `now()` - monotonic time since epoch
+//! - `timer()` - repeating callback at ~60fps
+//! - `timeout()` - one-shot delayed callback
+//! - `interval()` - repeating callback at fixed intervals
 
 use d3rs::timer::{Interval, Timeout, Timer, interval, now, timeout, timer, timer_flush};
 use std::sync::Arc;
@@ -20,10 +20,10 @@ fn main() {
     // Initialize the epoch and demonstrate now()
     println!("--- now() Demo ---");
     let t0 = now();
-    println!("Initial time: {:.2} ms", t0);
+    println!("Initial time: {t0:.2} ms");
     thread::sleep(Duration::from_millis(100));
     let t1 = now();
-    println!("After 100ms sleep: {:.2} ms", t1);
+    println!("After 100ms sleep: {t1:.2} ms");
     println!("Elapsed: {:.2} ms (expected ~100)\n", t1 - t0);
 
     // timer_flush() demo
@@ -84,10 +84,7 @@ fn main() {
 
     let total = now() - start;
     let first = *first_tick_time.lock().unwrap();
-    println!(
-        "First tick at {:.1}ms elapsed (total runtime: {:.1}ms)\n",
-        first, total
-    );
+    println!("First tick at {first:.1}ms elapsed (total runtime: {total:.1}ms)\n");
 
     // Timeout demo
     println!("--- Timeout Demo ---");
@@ -113,10 +110,7 @@ fn main() {
     let total = now() - start;
     let did_fire = *fired.lock().unwrap();
     let fire_at = *fire_time.lock().unwrap();
-    println!(
-        "Timeout fired: {} at {:.1}ms (total: {:.1}ms)\n",
-        did_fire, fire_at, total
-    );
+    println!("Timeout fired: {did_fire} at {fire_at:.1}ms (total: {total:.1}ms)\n");
 
     // Timeout cancellation demo
     println!("--- Timeout Cancellation Demo ---");
@@ -139,7 +133,7 @@ fn main() {
 
     thread::sleep(Duration::from_millis(100));
     let fire_count = fired.load(Ordering::SeqCst);
-    println!("Fire count after stop: {} (should be 0)\n", fire_count);
+    println!("Fire count after stop: {fire_count} (should be 0)\n");
 
     // Interval demo
     println!("--- Interval Demo ---");
@@ -172,7 +166,7 @@ fn main() {
             expected
         );
     }
-    println!("Total runtime: {:.1}ms\n", total);
+    println!("Total runtime: {total:.1}ms\n");
 
     // Multiple concurrent timers demo
     println!("--- Concurrent Timers Demo ---");
@@ -234,7 +228,7 @@ fn main() {
         "Timer 3 ticks: {} (target: 1)",
         counter3.load(Ordering::SeqCst)
     );
-    println!("All completed in {:.1}ms\n", total);
+    println!("All completed in {total:.1}ms\n");
 
     // Timer restart demo
     println!("--- Timer Restart Demo ---");
@@ -255,7 +249,7 @@ fn main() {
     // Wait for first timer to complete
     thread::sleep(Duration::from_millis(100));
     let first_count = counter.load(Ordering::SeqCst);
-    println!("First timer completed with {} ticks", first_count);
+    println!("First timer completed with {first_count} ticks");
 
     // Restart with new callback
     let counter2 = Arc::new(AtomicUsize::new(0));

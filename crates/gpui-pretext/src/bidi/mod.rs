@@ -22,7 +22,7 @@ enum BidiType {
     NSM,
 }
 
-use BidiType::*;
+use BidiType::{AL, AN, B, BN, CS, EN, ET, L, NSM, ON, R, S, WS};
 
 #[rustfmt::skip]
 static BASE_TYPES: [BidiType; 256] = [

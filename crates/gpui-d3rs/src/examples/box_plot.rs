@@ -41,7 +41,7 @@ pub fn default_data() -> Vec<(String, Vec<f64>)> {
             let spread = 5.0 + gi as f64 * 3.0;
             let values: Vec<f64> = (0..50)
                 .map(|i| {
-                    let r = (i as f64 * 7.3 + gi as f64 * 13.1).sin() * 0.5 + 0.5;
+                    let r = (f64::from(i) * 7.3 + gi as f64 * 13.1).sin() * 0.5 + 0.5;
                     let mut v = base + (r - 0.5) * spread * 2.0;
                     if i % 17 == 0 {
                         v = base + spread * 4.0 * if r > 0.5 { 1.0 } else { -1.0 };
@@ -57,9 +57,7 @@ pub fn default_data() -> Vec<(String, Vec<f64>)> {
 pub fn compute(data: &[(String, Vec<f64>)]) -> BoxPlotResult {
     let width = 928.0;
     let height = 500.0;
-    let _margin_top = 20.0;
     let margin_right = 20.0;
-    let _margin_bottom = 30.0;
     let margin_left = 40.0;
 
     let group_names: Vec<String> = data.iter().map(|(g, _)| g.clone()).collect();
@@ -68,7 +66,7 @@ pub fn compute(data: &[(String, Vec<f64>)]) -> BoxPlotResult {
         .iter()
         .map(|(group, raw_values)| {
             let mut values = raw_values.clone();
-            values.sort_by(|a, b| a.total_cmp(b));
+            values.sort_by(f64::total_cmp);
 
             let q1 = quantile_sorted(&values, 0.25).unwrap_or(f64::NAN);
             let q2 = quantile_sorted(&values, 0.50).unwrap_or(f64::NAN);

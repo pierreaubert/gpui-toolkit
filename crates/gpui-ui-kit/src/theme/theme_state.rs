@@ -45,12 +45,13 @@ impl Default for ThemeState {
 
 impl ThemeExt for App {
     fn theme(&self) -> Arc<Theme> {
-        self.try_global::<ThemeState>()
-            .map(|s| s.theme.clone())
-            .unwrap_or_else(|| {
+        self.try_global::<ThemeState>().map_or_else(
+            || {
                 // The fallback theme is allocated once and reused across calls.
                 static FALLBACK: std::sync::OnceLock<Arc<Theme>> = std::sync::OnceLock::new();
                 FALLBACK.get_or_init(|| Arc::new(Theme::dark())).clone()
-            })
+            },
+            |s| s.theme.clone(),
+        )
     }
 }

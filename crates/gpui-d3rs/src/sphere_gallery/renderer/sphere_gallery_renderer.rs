@@ -49,7 +49,7 @@ impl SphereGalleryRenderer {
     /// Create a new renderer
     pub fn new(config: SphereGalleryConfig) -> Option<Self> {
         let (device, queue) = Self::shared_or_new_device()?;
-        Self::with_device(device, queue, config)
+        Some(Self::with_device(device, queue, config))
     }
 
     /// Construct resources on a caller-owned WGPU device and queue.
@@ -57,7 +57,7 @@ impl SphereGalleryRenderer {
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
         config: SphereGalleryConfig,
-    ) -> Option<Self> {
+    ) -> Self {
         // Create sampler
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Gallery Atlas Sampler"),
@@ -231,7 +231,7 @@ impl SphereGalleryRenderer {
             cache: None,
         });
 
-        Some(Self {
+        Self {
             device,
             queue,
             pipeline,
@@ -251,7 +251,7 @@ impl SphereGalleryRenderer {
             height: 0,
             config,
             billboard: None,
-        })
+        }
     }
 
     pub(super) async fn create_device() -> Option<(wgpu::Device, wgpu::Queue)> {
@@ -437,8 +437,8 @@ impl SphereGalleryRenderer {
             atlas_cols: self.config.cols as f32,
             atlas_rows: self.config.rows as f32,
             cell_count: cell_count as f32,
-            selected_index: selected_index.map(|index| index as f32).unwrap_or(-1.0),
-            hovered_index: hovered_index.map(|index| index as f32).unwrap_or(-1.0),
+            selected_index: selected_index.map_or(-1.0, |index| index as f32),
+            hovered_index: hovered_index.map_or(-1.0, |index| index as f32),
             ambient: self.config.ambient,
             diffuse: self.config.diffuse,
             _pad: 0.0,
@@ -455,9 +455,9 @@ impl SphereGalleryRenderer {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: background[0] as f64,
-                            g: background[1] as f64,
-                            b: background[2] as f64,
+                            r: f64::from(background[0]),
+                            g: f64::from(background[1]),
+                            b: f64::from(background[2]),
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -537,8 +537,8 @@ impl SphereGalleryRenderer {
             atlas_cols: self.config.cols as f32,
             atlas_rows: self.config.rows as f32,
             cell_count: cell_count as f32,
-            selected_index: selected_index.map(|i| i as f32).unwrap_or(-1.0),
-            hovered_index: hovered_index.map(|i| i as f32).unwrap_or(-1.0),
+            selected_index: selected_index.map_or(-1.0, |i| i as f32),
+            hovered_index: hovered_index.map_or(-1.0, |i| i as f32),
             ambient: self.config.ambient,
             diffuse: self.config.diffuse,
             _pad: 0.0,
@@ -563,9 +563,9 @@ impl SphereGalleryRenderer {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: bg[0] as f64,
-                            g: bg[1] as f64,
-                            b: bg[2] as f64,
+                            r: f64::from(bg[0]),
+                            g: f64::from(bg[1]),
+                            b: f64::from(bg[2]),
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -591,13 +591,13 @@ impl SphereGalleryRenderer {
                 wgpu::IndexFormat::Uint32,
             );
             render_pass.draw_indexed(0..self.index_count, 0, 0..1);
-        }
+        };
 
         // Copy to staging buffer for readback
         let bytes_per_row = (self.width * 4 + 255) & !255;
         let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Gallery Staging Buffer"),
-            size: (bytes_per_row * self.height) as u64,
+            size: u64::from(bytes_per_row * self.height),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });

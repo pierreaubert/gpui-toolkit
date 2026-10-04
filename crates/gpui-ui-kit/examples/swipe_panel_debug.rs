@@ -1,6 +1,6 @@
-//! SwipePanel Debug Example
+//! `SwipePanel` Debug Example
 //!
-//! Demonstrates the SwipePanel bottom-sheet component:
+//! Demonstrates the `SwipePanel` bottom-sheet component:
 //! - Peek state (half-hidden by default)
 //! - Drag up to expand
 //! - Drag down to collapse or return to peek

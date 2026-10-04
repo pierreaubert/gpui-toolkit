@@ -17,7 +17,7 @@ pub struct RidgelineResult {
 }
 
 /// Parse weather CSV into monthly temperature distributions.
-/// Returns (month_name, sorted_values) pairs.
+/// Returns (`month_name`, `sorted_values`) pairs.
 pub fn load_csv(csv_str: &str) -> Vec<(String, Vec<f64>)> {
     let month_names = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",

@@ -1,10 +1,10 @@
 //! Progress Debug Example
 //!
-//! Demonstrates the Progress and CircularProgress components:
+//! Demonstrates the Progress and `CircularProgress` components:
 //! - All variants
 //! - All sizes
 //! - With label
-//! - CircularProgress
+//! - `CircularProgress`
 
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};

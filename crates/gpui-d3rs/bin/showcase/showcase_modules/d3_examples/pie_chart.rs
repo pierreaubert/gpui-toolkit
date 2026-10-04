@@ -1,4 +1,4 @@
-//! Pie Chart -- Observable example using d3rs::examples::pie_chart
+//! Pie Chart -- Observable example using `d3rs::examples::pie_chart`
 //!
 //! Demonstrates idiomatic d3rs usage: `Pie` layout + `Arc` generator + `d3rs_path_to_gpui_simple`.
 use crate::ShowcaseApp;

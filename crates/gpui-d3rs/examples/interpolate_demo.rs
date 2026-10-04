@@ -72,7 +72,7 @@ fn main() {
     // Basis spline interpolation
     let values = vec![0.0, 10.0, 50.0, 30.0, 100.0];
     let basis = interpolate_basis(&values);
-    println!("\nBasis spline through {:?}:", values);
+    println!("\nBasis spline through {values:?}:");
     for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
         println!("  t={:.2}: {:.1}", t, basis(t));
     }
@@ -153,7 +153,7 @@ fn main() {
     for t in [0.0, 0.5, 1.0] {
         let tr = transform_interp(t);
         let (x, y) = tr.apply(10.0, 10.0);
-        println!("  t={:.1}: ({:.1}, {:.1})", t, x, y);
+        println!("  t={t:.1}: ({x:.1}, {y:.1})");
     }
 
     // CSS output
@@ -192,7 +192,7 @@ fn main() {
     }
 
     let duration = zoom_duration(view_start, view_end);
-    println!("\nZoom duration (normalized): {:.2}", duration);
+    println!("\nZoom duration (normalized): {duration:.2}");
 
     // ========================================
     // String Interpolation
@@ -219,16 +219,16 @@ fn main() {
     let pw = piecewise(&values);
     println!("Piecewise numeric (0, 10, 30, 60, 100):");
     for i in 0..=10 {
-        let t = i as f64 / 10.0;
+        let t = f64::from(i) / 10.0;
         println!("  t={:.1}: {:.1}", t, pw(t));
     }
 
     // Quantize creates a step function
     let step_values = vec![10.0, 20.0, 30.0, 40.0, 50.0];
     let quantized = quantize(&step_values);
-    println!("\nQuantize ({:?}):", step_values);
+    println!("\nQuantize ({step_values:?}):");
     for i in 0..=10 {
-        let t = i as f64 / 10.0;
+        let t = f64::from(i) / 10.0;
         println!("  t={:.1}: {:.0}", t, quantized(t));
     }
 

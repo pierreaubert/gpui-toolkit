@@ -4,7 +4,7 @@
 //! ported from: <https://observablehq.com/@d3/volcano-contours/2>
 //!
 //! The example shows both:
-//! 1. **Low-level API**: Direct use of ContourGenerator, scales, and manual rendering
+//! 1. **Low-level API**: Direct use of `ContourGenerator`, scales, and manual rendering
 //! 2. **High-level API**: Using the Vello-default contour and heatmap helpers
 
 use super::volcano_data::{VOLCANO_HEIGHT, VOLCANO_WIDTH, generate_volcano_data};
@@ -53,8 +53,8 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     // Get volcano data
     let values = generate_volcano_data();
     let (min_elev, max_elev) = {
-        let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min = values.iter().copied().fold(f64::INFINITY, f64::min);
+        let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         (min, max)
     };
 
@@ -76,7 +76,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let bands = generator.contour_bands(&values, &thresholds);
 
     // Scales for positioning
-    let plot_width = (app.content_width as f64).min(app.content_height as f64 * 0.7);
+    let plot_width = f64::from(app.content_width).min(f64::from(app.content_height) * 0.7);
     let plot_height = (VOLCANO_HEIGHT as f64 / VOLCANO_WIDTH as f64 * plot_width).round();
 
     let x_scale = LinearScale::new()
@@ -389,13 +389,12 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                     VOLCANO_WIDTH * VOLCANO_HEIGHT
                                 )))
                                 .child(div().text_sm().child(format!(
-                                    "Elevation: {:.0}m - {:.0}m",
-                                    min_elev, max_elev
+                                    "Elevation: {min_elev:.0}m - {max_elev:.0}m"
                                 )))
                                 .child(
                                     div()
                                         .text_sm()
-                                        .child(format!("Contour levels: {}", num_thresholds)),
+                                        .child(format!("Contour levels: {num_thresholds}")),
                                 )
                                 .child(div().text_sm().child(format!(
                                     "Total contours: {}",
@@ -421,7 +420,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .child("LOW-LEVEL API USAGE"),
                                 )
                                 .child(div().text_xs().font_family("monospace").child(
-                                    r#"// 1. Generate data
+                                    r"// 1. Generate data
 let values = generate_volcano_data();
 
 // 2. Create contour generator
@@ -439,7 +438,7 @@ let config = ContourConfig::new()
     .color_scale(chart_colors::ink_scale(chart_colors::background_lightness(&ui_theme), turbo_color_scale()));
 
 // 5. Render
-render_contour_bands(bands, &x_scale, &y_scale, &config)"#,
+render_contour_bands(bands, &x_scale, &y_scale, &config)",
                                 )),
                         ),
                 ),
@@ -468,7 +467,7 @@ fn render_color_legend(scale_type: VolcanoColorScale, min_val: f64, max_val: f64
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(div().text_xs().child(format!("{:.0}m", min_val)))
+                .child(div().text_xs().child(format!("{min_val:.0}m")))
                 .child(
                     div()
                         .flex()
@@ -476,7 +475,7 @@ fn render_color_legend(scale_type: VolcanoColorScale, min_val: f64, max_val: f64
                         .rounded_sm()
                         .overflow_hidden()
                         .children((0..num_steps).map(|i| {
-                            let t = i as f64 / (num_steps - 1) as f64;
+                            let t = f64::from(i) / f64::from(num_steps - 1);
                             let color = match scale_type {
                                 VolcanoColorScale::Turbo => {
                                     chart_colors::ink_scale(bg, turbo_color_scale())(t)
@@ -493,7 +492,7 @@ fn render_color_legend(scale_type: VolcanoColorScale, min_val: f64, max_val: f64
                             ))
                         })),
                 )
-                .child(div().text_xs().child(format!("{:.0}m", max_val))),
+                .child(div().text_xs().child(format!("{max_val:.0}m"))),
         )
 }
 

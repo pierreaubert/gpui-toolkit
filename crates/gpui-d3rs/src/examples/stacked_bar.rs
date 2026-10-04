@@ -21,13 +21,13 @@ pub struct StackedBarResult {
 pub fn default_data() -> (Vec<String>, Vec<String>, Vec<Vec<f64>>) {
     let states: Vec<String> = ["California", "Texas", "Florida", "New York", "Illinois"]
         .iter()
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .collect();
     let ages: Vec<String> = [
         "<10", "10-19", "20-29", "30-39", "40-49", "50-59", "60-69", "70+",
     ]
     .iter()
-    .map(|s| s.to_string())
+    .map(std::string::ToString::to_string)
     .collect();
     let matrix = vec![
         vec![
@@ -52,9 +52,7 @@ pub fn default_data() -> (Vec<String>, Vec<String>, Vec<Vec<f64>>) {
 pub fn compute(states: &[String], categories: &[String], matrix: &[Vec<f64>]) -> StackedBarResult {
     let width = 928.0;
     let height = 500.0;
-    let _margin_top = 10.0;
     let margin_right = 10.0;
-    let _margin_bottom = 20.0;
     let margin_left = 40.0;
 
     let stack = Stack::new()

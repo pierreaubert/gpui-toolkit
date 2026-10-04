@@ -9,3 +9,7 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 publish = false
+
+[lints]
+workspace = true
+

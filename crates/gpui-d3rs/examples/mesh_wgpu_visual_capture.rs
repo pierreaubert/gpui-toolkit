@@ -1,4 +1,4 @@
-//! Capture retained MeshPlot scenes through the real WGPU adapter-backed
+//! Capture retained `MeshPlot` scenes through the real WGPU adapter-backed
 //! renderer. The output is consumed by the WGPU visual QA lane.
 
 use d3rs::gpu3d::Camera3D;

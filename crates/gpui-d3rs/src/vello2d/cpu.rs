@@ -1,4 +1,4 @@
-//! CPU replay of a [`ChartScene`] via vello_cpu's sparse-strips rasterizer.
+//! CPU replay of a [`ChartScene`] via `vello_cpu`'s sparse-strips rasterizer.
 //!
 //! Universal fallback (Metal renderer, missing wgpu hook) and the
 //! deterministic QA oracle for GPU output. Output is premultiplied RGBA8,
@@ -10,7 +10,7 @@ use vello_cpu::peniko::Brush;
 use vello_cpu::peniko::kurbo::Affine;
 use vello_cpu::{Pixmap, RenderContext, Resources};
 
-/// Reusable vello_cpu rasterizer; recreates its context only on resize.
+/// Reusable `vello_cpu` rasterizer; recreates its context only on resize.
 pub struct CpuRasterizer {
     ctx: RenderContext,
     resources: Resources,
@@ -38,17 +38,17 @@ impl CpuRasterizer {
         height: u16,
         scale: f32,
     ) -> Vec<u8> {
-        if self.size != (width, height) {
-            *self = Self::new(width, height);
-        } else {
+        if self.size == (width, height) {
             self.ctx.reset();
+        } else {
+            *self = Self::new(width, height);
         }
         // Map logical scene coordinates onto the physical pixmap. Set after
         // every reset/new: neither preserves a previous transform. Text runs
         // temporarily replace it with their composed anchor (restored
         // below), because the glyph builder's own transform only shapes
         // outlines in place — it does not move run offsets.
-        let scene_scale = Affine::scale(scale.max(0.01) as f64);
+        let scene_scale = Affine::scale(f64::from(scale.max(0.01)));
         self.ctx.set_transform(scene_scale);
         for cmd in scene.commands() {
             match cmd {

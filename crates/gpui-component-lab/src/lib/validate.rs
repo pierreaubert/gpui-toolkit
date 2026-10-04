@@ -18,7 +18,7 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 /// Validate story metadata, persisted designer state, responsive constraints,
-/// reduced-motion coverage, and the DesignSystem token report used by the lab.
+/// reduced-motion coverage, and the `DesignSystem` token report used by the lab.
 pub fn validate_component_lab_conformance(
     registry: &StoryRegistry,
     documents: &[StoryDocument],
@@ -900,8 +900,8 @@ fn validate_layout_constraints(
             .viewports
             .iter()
             .find(|viewport| viewport.id.as_str() == viewport_id)
-        && (min_width.is_some_and(|value| value > viewport.width as f64)
-            || min_height.is_some_and(|value| value > viewport.height as f64))
+        && (min_width.is_some_and(|value| value > f64::from(viewport.width))
+            || min_height.is_some_and(|value| value > f64::from(viewport.height)))
     {
         findings.push(ComponentLabConformanceFinding::new(
             "responsive",

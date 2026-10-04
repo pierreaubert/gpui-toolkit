@@ -1,4 +1,4 @@
-//! macOS display handling using NSScreen.
+//! macOS display handling using `NSScreen`.
 
 use core_graphics::geometry::CGRect;
 use gpui::{Bounds, DisplayId, Pixels, PlatformDisplay, px, size};
@@ -11,7 +11,11 @@ pub(crate) struct AuDisplay {
     uuid: Uuid,
 }
 
+// SAFETY: `screen` names the AppKit-owned main `NSScreen`, which lives for
+// the process lifetime; only its `frame` is read, which performs no
+// mutation, so sharing the pointer across threads is sound.
 unsafe impl Send for AuDisplay {}
+// SAFETY: same as `Send` above; `frame` reads are thread-safe.
 unsafe impl Sync for AuDisplay {}
 
 impl AuDisplay {
@@ -22,6 +26,8 @@ impl AuDisplay {
     }
 
     pub fn main() -> Self {
+        // SAFETY: `NSScreen` and its `mainScreen` class method always exist;
+        // the message takes no arguments and returns an object pointer.
         unsafe {
             let screen: *mut objc::runtime::Object = msg_send![class!(NSScreen), mainScreen];
             Self {
@@ -32,6 +38,8 @@ impl AuDisplay {
     }
 
     fn bounds_in_points(&self) -> CGRect {
+        // SAFETY: callers check for null first, so `screen` is a live
+        // `NSScreen`; `frame` takes no arguments and returns a `CGRect`.
         unsafe { msg_send![self.screen, frame] }
     }
 }

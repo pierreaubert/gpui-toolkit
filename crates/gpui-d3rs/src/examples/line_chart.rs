@@ -20,12 +20,12 @@ pub fn default_data() -> Vec<(f64, f64)> {
     let n = 30;
     (0..n)
         .map(|i| {
-            let t = i as f64 / (n - 1) as f64;
+            let t = f64::from(i) / f64::from(n - 1);
             let v = 15.0
                 + 10.0 * (t * 2.0 * std::f64::consts::PI).sin()
                 + 3.0 * (t * 4.0 * std::f64::consts::PI).cos()
-                + 2.0 * (i as f64 * 1.7).sin();
-            (i as f64, (v * 100.0).round() / 100.0)
+                + 2.0 * (f64::from(i) * 1.7).sin();
+            (f64::from(i), (v * 100.0).round() / 100.0)
         })
         .collect()
 }

@@ -63,7 +63,7 @@ pub struct Surface3DChart {
 }
 
 fn reshape_z_grid(z: &[f64], grid_width: usize) -> Vec<Vec<f64>> {
-    z.chunks_exact(grid_width).map(|row| row.to_vec()).collect()
+    z.chunks_exact(grid_width).map(<[f64]>::to_vec).collect()
 }
 
 fn surface_camera_snapshot(state: &Surface3DState) -> Surface3DCamera {
@@ -85,7 +85,7 @@ impl std::fmt::Debug for Surface3DChart {
             .field("wireframe", &self.wireframe)
             .field("width", &self.width)
             .field("height", &self.height)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -120,15 +120,12 @@ impl Surface3DChart {
             self.y_log,
             "y",
         )?;
-        let z_domain = match (self.z_min, self.z_max) {
-            (Some(min), Some(max)) => {
-                crate::validate_range(min, max, "z_range")?;
-                (min, max)
-            }
-            _ => {
-                let [min, max] = finite_range(self.z.iter()).unwrap_or([0.0, 1.0]);
-                (min, max)
-            }
+        let z_domain = if let (Some(min), Some(max)) = (self.z_min, self.z_max) {
+            crate::validate_range(min, max, "z_range")?;
+            (min, max)
+        } else {
+            let [min, max] = finite_range(self.z.iter()).unwrap_or([0.0, 1.0]);
+            (min, max)
         };
 
         let plot_left = options.margin_left;
@@ -311,7 +308,7 @@ impl Surface3DChart {
     /// Set custom x axis values.
     ///
     /// Values must be strictly monotonically increasing.
-    /// Length must match grid_width.
+    /// Length must match `grid_width`.
     pub fn x(mut self, values: &[f64]) -> Self {
         self.x_values = Some(values.to_vec());
         self
@@ -320,7 +317,7 @@ impl Surface3DChart {
     /// Set custom y axis values.
     ///
     /// Values must be strictly monotonically increasing.
-    /// Length must match grid_height.
+    /// Length must match `grid_height`.
     pub fn y(mut self, values: &[f64]) -> Self {
         self.y_values = Some(values.to_vec());
         self
@@ -440,40 +437,37 @@ impl Surface3DChart {
         is_log: bool,
         field: &'static str,
     ) -> Result<Vec<f64>, ChartError> {
-        match values {
-            Some(values) => {
-                if values.len() != expected_len {
-                    return Err(ChartError::DataLengthMismatch {
-                        x_field: field,
-                        y_field: if field == "x" {
-                            "grid_width"
-                        } else {
-                            "grid_height"
-                        },
-                        x_len: values.len(),
-                        y_len: expected_len,
-                    });
-                }
-                validate_data_array(values, field)?;
-                validate_monotonic(values, field)?;
-                if is_log {
-                    validate_positive(values, field)?;
-                }
-                Ok(values.to_vec())
+        if let Some(values) = values {
+            if values.len() != expected_len {
+                return Err(ChartError::DataLengthMismatch {
+                    x_field: field,
+                    y_field: if field == "x" {
+                        "grid_width"
+                    } else {
+                        "grid_height"
+                    },
+                    x_len: values.len(),
+                    y_len: expected_len,
+                });
             }
-            None => {
-                if is_log {
-                    return Err(ChartError::InvalidData {
-                        field,
-                        reason: if field == "x" {
-                            "log scale requires explicit positive x values"
-                        } else {
-                            "log scale requires explicit positive y values"
-                        },
-                    });
-                }
-                Ok((0..expected_len).map(|index| index as f64).collect())
+            validate_data_array(values, field)?;
+            validate_monotonic(values, field)?;
+            if is_log {
+                validate_positive(values, field)?;
             }
+            Ok(values.to_vec())
+        } else {
+            if is_log {
+                return Err(ChartError::InvalidData {
+                    field,
+                    reason: if field == "x" {
+                        "log scale requires explicit positive x values"
+                    } else {
+                        "log scale requires explicit positive y values"
+                    },
+                });
+            }
+            Ok((0..expected_len).map(|index| index as f64).collect())
         }
     }
 
@@ -489,61 +483,55 @@ impl Surface3DChart {
 
         // Generate or validate x values. Take ownership of explicit values
         // instead of cloning; only allocate when falling back to defaults.
-        let x_values = match self.x_values {
-            Some(v) => {
-                if v.len() != self.grid_width {
-                    return Err(ChartError::DataLengthMismatch {
-                        x_field: "x",
-                        y_field: "grid_width",
-                        x_len: v.len(),
-                        y_len: self.grid_width,
-                    });
-                }
-                validate_data_array(&v, "x")?;
-                validate_monotonic(&v, "x")?;
-                if self.x_log {
-                    validate_positive(&v, "x")?;
-                }
-                v
+        let x_values = if let Some(v) = self.x_values {
+            if v.len() != self.grid_width {
+                return Err(ChartError::DataLengthMismatch {
+                    x_field: "x",
+                    y_field: "grid_width",
+                    x_len: v.len(),
+                    y_len: self.grid_width,
+                });
             }
-            None => {
-                if self.x_log {
-                    return Err(ChartError::InvalidData {
-                        field: "x",
-                        reason: "log scale requires explicit positive x values",
-                    });
-                }
-                (0..self.grid_width).map(|i| i as f64).collect()
+            validate_data_array(&v, "x")?;
+            validate_monotonic(&v, "x")?;
+            if self.x_log {
+                validate_positive(&v, "x")?;
             }
+            v
+        } else {
+            if self.x_log {
+                return Err(ChartError::InvalidData {
+                    field: "x",
+                    reason: "log scale requires explicit positive x values",
+                });
+            }
+            (0..self.grid_width).map(|i| i as f64).collect()
         };
 
         // Generate or validate y values
-        let y_values = match self.y_values {
-            Some(v) => {
-                if v.len() != self.grid_height {
-                    return Err(ChartError::DataLengthMismatch {
-                        x_field: "y",
-                        y_field: "grid_height",
-                        x_len: v.len(),
-                        y_len: self.grid_height,
-                    });
-                }
-                validate_data_array(&v, "y")?;
-                validate_monotonic(&v, "y")?;
-                if self.y_log {
-                    validate_positive(&v, "y")?;
-                }
-                v
+        let y_values = if let Some(v) = self.y_values {
+            if v.len() != self.grid_height {
+                return Err(ChartError::DataLengthMismatch {
+                    x_field: "y",
+                    y_field: "grid_height",
+                    x_len: v.len(),
+                    y_len: self.grid_height,
+                });
             }
-            None => {
-                if self.y_log {
-                    return Err(ChartError::InvalidData {
-                        field: "y",
-                        reason: "log scale requires explicit positive y values",
-                    });
-                }
-                (0..self.grid_height).map(|i| i as f64).collect()
+            validate_data_array(&v, "y")?;
+            validate_monotonic(&v, "y")?;
+            if self.y_log {
+                validate_positive(&v, "y")?;
             }
+            v
+        } else {
+            if self.y_log {
+                return Err(ChartError::InvalidData {
+                    field: "y",
+                    reason: "log scale requires explicit positive y values",
+                });
+            }
+            (0..self.grid_height).map(|i| i as f64).collect()
         };
 
         // Reshape z into Vec<Vec<f64>>
@@ -936,7 +924,7 @@ fn project_static_surface_point(
     let x = normalize_static_surface_axis(x, x_domain, x_log) * 2.0 - 1.0;
     let y = normalize_static_surface_axis(y, y_domain, y_log) * 2.0 - 1.0;
     let z = normalize_static_surface_z(z, z_domain);
-    let center_x = (layout.left + layout.right) / 2.0;
+    let center_x = f32::midpoint(layout.left, layout.right);
     let origin_y = layout.top + layout.height() * 0.72;
     let scale_x = layout.width() * 0.30;
     let scale_y = layout.height() * 0.16;
@@ -998,7 +986,7 @@ mod tests {
     fn test_surface3d_builds() {
         let z = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
         let result = surface3d(&z, 3, 3).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1007,7 +995,7 @@ mod tests {
         let x = vec![0.0, 1.0];
         let y = vec![0.0, 1.0];
         let result = surface3d(&z, 2, 2).x(&x).y(&y).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1027,7 +1015,7 @@ mod tests {
             .z_label("\u{3bc}Pa")
             .build();
 
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]

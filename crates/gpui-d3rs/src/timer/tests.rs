@@ -93,8 +93,7 @@ fn test_timer_with_delay() {
     // The callback should have fired after the delay
     assert!(
         elapsed >= 45.0,
-        "Total time should be at least 45ms, got {}",
-        elapsed
+        "Total time should be at least 45ms, got {elapsed}"
     );
     assert!(fired >= 0.0, "Fired elapsed should be >= 0");
 }
@@ -184,9 +183,7 @@ fn test_interval_timing() {
         let diff = recorded[i] - recorded[i - 1];
         assert!(
             (20.0..=200.0).contains(&diff),
-            "Interval {} was {} ms, expected 30ms on an unloaded runner",
-            i,
-            diff
+            "Interval {i} was {diff} ms, expected 30ms on an unloaded runner"
         );
     }
 }

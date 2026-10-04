@@ -3,7 +3,7 @@ use crate::color::D3Color;
 #[cfg(not(feature = "vello-gpui"))]
 use std::sync::Arc;
 
-/// Convert D3Color + opacity to Color4
+/// Convert `D3Color` + opacity to Color4
 pub(super) fn to_color4(color: &D3Color, opacity: f32) -> Color4 {
     // Use D3Color fields directly (they're already f32 in [0,1] range)
     [color.r, color.g, color.b, color.a * opacity]

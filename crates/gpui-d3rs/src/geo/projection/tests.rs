@@ -75,8 +75,8 @@ fn test_stereographic_invert() {
     // Project and invert at origin (simpler case)
     let (x0, y0) = proj.project(0.0, 0.0);
     let (lon0, lat0) = proj.invert(x0, y0).unwrap();
-    assert!(lon0.abs() < 1.0, "Origin lon should be near 0: {}", lon0);
-    assert!(lat0.abs() < 1.0, "Origin lat should be near 0: {}", lat0);
+    assert!(lon0.abs() < 1.0, "Origin lon should be near 0: {lon0}");
+    assert!(lat0.abs() < 1.0, "Origin lat should be near 0: {lat0}");
 }
 
 #[test]

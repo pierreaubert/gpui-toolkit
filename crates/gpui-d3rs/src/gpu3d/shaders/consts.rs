@@ -1,5 +1,5 @@
 /// Common struct definitions shared by all shaders
-pub const COMMON_DEFINITIONS: &str = r#"
+pub const COMMON_DEFINITIONS: &str = r"
 struct Uniforms {
     view_proj: mat4x4<f32>,
     model: mat4x4<f32>,
@@ -37,10 +37,10 @@ struct VertexOutput {
     @location(1) normalized_value: f32,
     @location(2) world_pos: vec3<f32>,
 }
-"#;
+";
 
 /// Vertex shader for surface rendering
-pub const SURFACE_VERTEX_SHADER: &str = r#"
+pub const SURFACE_VERTEX_SHADER: &str = r"
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -62,10 +62,10 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     return out;
 }
-"#;
+";
 
 /// Fragment shader for surface rendering with colormap
-pub const SURFACE_FRAGMENT_SHADER: &str = r#"
+pub const SURFACE_FRAGMENT_SHADER: &str = r"
 
 // Viridis colormap approximation
 fn viridis(t: f32) -> vec3<f32> {
@@ -206,18 +206,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     return vec4<f32>(color, uniforms.opacity);
 }
-"#;
+";
 
 /// Simple wireframe shader (uses same vertex shader)
-pub const WIREFRAME_FRAGMENT_SHADER: &str = r#"
+pub const WIREFRAME_FRAGMENT_SHADER: &str = r"
 @fragment
 fn fs_wireframe(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(0.2, 0.2, 0.2, 0.5);
 }
-"#;
+";
 
 /// Vertex shader for projection/isolines
-pub const PROJECTION_VERTEX_SHADER: &str = r#"
+pub const PROJECTION_VERTEX_SHADER: &str = r"
 @vertex
 fn vs_projection(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -235,10 +235,10 @@ fn vs_projection(in: VertexInput) -> VertexOutput {
 
     return out;
 }
-"#;
+";
 
 /// Fragment shader for isolines
-pub const PROJECTION_FRAGMENT_SHADER: &str = r#"
+pub const PROJECTION_FRAGMENT_SHADER: &str = r"
 @fragment
 fn fs_projection(in: VertexOutput) -> @location(0) vec4<f32> {
     let line_alpha = isoline_alpha(in.normalized_value) * uniforms.isoline_opacity;
@@ -250,10 +250,10 @@ fn fs_projection(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     return vec4<f32>(0.0, 0.0, 0.0, 0.0);
 }
-"#;
+";
 
 /// Fragment shader for grid box
-pub const GRID_FRAGMENT_SHADER: &str = r#"
+pub const GRID_FRAGMENT_SHADER: &str = r"
 
 // Helper: compute distance to nearest log-spaced grid line
 // For frequency axis with standard audio ticks: 100, 200, 500, 1k, 2k, 5k, 10k, 20k
@@ -527,18 +527,11 @@ fn fs_grid(in: VertexOutput) -> @location(0) vec4<f32> {
 
     return color;
 }
-"#;
+";
 
 /// Combined shader source
 pub fn combined_shader() -> String {
     format!(
-        "{}\n{}\n{}\n{}\n{}\n{}\n{}",
-        COMMON_DEFINITIONS,
-        SURFACE_VERTEX_SHADER,
-        SURFACE_FRAGMENT_SHADER,
-        WIREFRAME_FRAGMENT_SHADER,
-        PROJECTION_VERTEX_SHADER,
-        PROJECTION_FRAGMENT_SHADER,
-        GRID_FRAGMENT_SHADER
+        "{COMMON_DEFINITIONS}\n{SURFACE_VERTEX_SHADER}\n{SURFACE_FRAGMENT_SHADER}\n{WIREFRAME_FRAGMENT_SHADER}\n{PROJECTION_VERTEX_SHADER}\n{PROJECTION_FRAGMENT_SHADER}\n{GRID_FRAGMENT_SHADER}"
     )
 }

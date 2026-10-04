@@ -215,15 +215,15 @@ fn bar_scene_from_quads(
     } else {
         1.0
     };
-    let radius = config.border_radius.max(0.0) as f64 * sx.abs().min(sy.abs()) as f64;
+    let radius = f64::from(config.border_radius.max(0.0)) * f64::from(sx.abs().min(sy.abs()));
     let fill = config.fill_color.to_rgba();
     let mut scene = crate::vello2d::ChartScene::new();
     for quad in quads {
         let rect = Rect::new(
-            (quad.x * sx) as f64,
-            (quad.y * sy) as f64,
-            ((quad.x + quad.width) * sx) as f64,
-            ((quad.y + quad.height) * sy) as f64,
+            f64::from(quad.x * sx),
+            f64::from(quad.y * sy),
+            f64::from((quad.x + quad.width) * sx),
+            f64::from((quad.y + quad.height) * sy),
         );
         scene.fill_rounded_rect(
             rect,
@@ -240,10 +240,10 @@ fn bar_scene_from_quads(
         let mut path = BezPath::new();
         for quad in quads {
             let rect = Rect::new(
-                (quad.x * sx) as f64,
-                (quad.y * sy) as f64,
-                ((quad.x + quad.width) * sx) as f64,
-                ((quad.y + quad.height) * sy) as f64,
+                f64::from(quad.x * sx),
+                f64::from(quad.y * sy),
+                f64::from((quad.x + quad.width) * sx),
+                f64::from((quad.y + quad.height) * sy),
             );
             path.extend(RoundedRect::from_rect(rect, radius).to_path(0.1));
         }
@@ -251,7 +251,7 @@ fn bar_scene_from_quads(
             let color = stroke_color.to_rgba();
             scene.stroke_path(
                 path,
-                Stroke::new(config.stroke_width as f64),
+                Stroke::new(f64::from(config.stroke_width)),
                 Brush::Solid(Color::new([color.r, color.g, color.b, color.a])),
             );
         }
@@ -522,7 +522,7 @@ fn grouped_scene_from_quads(
     } else {
         1.0
     };
-    let radius = config.border_radius.max(0.0) as f64 * sx.abs().min(sy.abs()) as f64;
+    let radius = f64::from(config.border_radius.max(0.0)) * f64::from(sx.abs().min(sy.abs()));
     let mut scene = crate::vello2d::ChartScene::new();
     let mut start = 0usize;
     while start < quads.len() {
@@ -534,10 +534,10 @@ fn grouped_scene_from_quads(
         for quad in &quads[start..end] {
             scene.fill_rounded_rect(
                 Rect::new(
-                    (quad.x * sx) as f64,
-                    (quad.y * sy) as f64,
-                    ((quad.x + quad.width) * sx) as f64,
-                    ((quad.y + quad.height) * sy) as f64,
+                    f64::from(quad.x * sx),
+                    f64::from(quad.y * sy),
+                    f64::from((quad.x + quad.width) * sx),
+                    f64::from((quad.y + quad.height) * sy),
                 ),
                 radius,
                 Brush::Solid(Color::new([

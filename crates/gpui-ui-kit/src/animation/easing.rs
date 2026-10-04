@@ -96,7 +96,7 @@ pub fn ease(easing: Easing, t: f32) -> f32 {
             if t < 0.5 {
                 (1.0 - (1.0 - (2.0 * t).powi(2)).sqrt()) / 2.0
             } else {
-                ((1.0 - (-2.0 * t + 2.0).powi(2)).sqrt() + 1.0) / 2.0
+                f32::midpoint((1.0 - (-2.0 * t + 2.0).powi(2)).sqrt(), 1.0)
             }
         }
 
@@ -117,7 +117,10 @@ pub fn ease(easing: Easing, t: f32) -> f32 {
             if t < 0.5 {
                 ((2.0 * t).powi(2) * ((c2 + 1.0) * 2.0 * t - c2)) / 2.0
             } else {
-                ((2.0 * t - 2.0).powi(2) * ((c2 + 1.0) * (t * 2.0 - 2.0) + c2) + 2.0) / 2.0
+                f32::midpoint(
+                    (2.0 * t - 2.0).powi(2) * ((c2 + 1.0) * (t * 2.0 - 2.0) + c2),
+                    2.0,
+                )
             }
         }
 
@@ -177,7 +180,7 @@ pub fn ease(easing: Easing, t: f32) -> f32 {
             if t < 0.5 {
                 (1.0 - ease(Easing::EaseOutBounce, 1.0 - 2.0 * t)) / 2.0
             } else {
-                (1.0 + ease(Easing::EaseOutBounce, 2.0 * t - 1.0)) / 2.0
+                f32::midpoint(1.0, ease(Easing::EaseOutBounce, 2.0 * t - 1.0))
             }
         }
     }

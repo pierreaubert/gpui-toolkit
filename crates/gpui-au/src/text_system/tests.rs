@@ -54,7 +54,7 @@ fn test_rasterize_glyph_empty_bounds_errors() {
         origin: point(DevicePixels(0), DevicePixels(0)),
         size: size(DevicePixels(0), DevicePixels(0)),
     };
-    assert!(state.rasterize_glyph(&params, bounds).is_err());
+    state.rasterize_glyph(&params, bounds).unwrap_err();
 }
 
 #[test]
@@ -68,12 +68,9 @@ fn test_layout_line_empty_text() {
 #[test]
 fn test_layout_line_repeated_text_is_consistent() {
     let mut state = empty_state();
-    let font_id = match load_system_family(&mut state, ".AppleSystemUIFont") {
-        Some(id) => id,
-        None => {
-            // System font may not be available in all test environments.
-            return;
-        }
+    let Some(font_id) = load_system_family(&mut state, ".AppleSystemUIFont") else {
+        // System font may not be available in all test environments.
+        return;
     };
     let text = "hello";
     let runs = [FontRun {
@@ -100,12 +97,9 @@ fn test_string_index_converter_rewind() {
 #[test]
 fn test_layout_line_uses_cache_for_repeated_calls() {
     let mut state = empty_state();
-    let font_id = match load_system_family(&mut state, ".AppleSystemUIFont") {
-        Some(id) => id,
-        None => {
-            // System font may not be available in all test environments.
-            return;
-        }
+    let Some(font_id) = load_system_family(&mut state, ".AppleSystemUIFont") else {
+        // System font may not be available in all test environments.
+        return;
     };
     let text = "cache me";
     let runs = [FontRun {
@@ -135,9 +129,8 @@ fn test_layout_line_uses_cache_for_repeated_calls() {
 #[test]
 fn layout_cache_is_bounded() {
     let mut state = empty_state();
-    let font_id = match load_system_family(&mut state, ".AppleSystemUIFont") {
-        Some(id) => id,
-        None => return,
+    let Some(font_id) = load_system_family(&mut state, ".AppleSystemUIFont") else {
+        return;
     };
 
     for index in 0..1_025 {

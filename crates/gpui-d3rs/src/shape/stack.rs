@@ -423,7 +423,7 @@ impl Stack {
 /// assert_eq!(result.len(), 2);
 /// ```
 pub fn stack(data: &[Vec<f64>]) -> Vec<StackSeries> {
-    let num_series = data.first().map(|row| row.len()).unwrap_or(0);
+    let num_series = data.first().map_or(0, std::vec::Vec::len);
     let keys: Vec<String> = (0..num_series).map(|i| i.to_string()).collect();
 
     Stack::new().keys(keys).generate(data)
@@ -431,7 +431,7 @@ pub fn stack(data: &[Vec<f64>]) -> Vec<StackSeries> {
 
 /// Checked simple stack function for basic use cases.
 pub fn try_stack(data: &[Vec<f64>]) -> Result<Vec<StackSeries>, StackLayoutError> {
-    let num_series = data.first().map(|row| row.len()).unwrap_or(0);
+    let num_series = data.first().map_or(0, std::vec::Vec::len);
     let keys: Vec<String> = (0..num_series).map(|i| i.to_string()).collect();
 
     Stack::new().keys(keys).try_generate(data)
@@ -439,7 +439,7 @@ pub fn try_stack(data: &[Vec<f64>]) -> Result<Vec<StackSeries>, StackLayoutError
 
 /// Create a 100% stacked layout.
 pub fn stack_expand(data: &[Vec<f64>]) -> Vec<StackSeries> {
-    let num_series = data.first().map(|row| row.len()).unwrap_or(0);
+    let num_series = data.first().map_or(0, std::vec::Vec::len);
     let keys: Vec<String> = (0..num_series).map(|i| i.to_string()).collect();
 
     Stack::new()
@@ -450,7 +450,7 @@ pub fn stack_expand(data: &[Vec<f64>]) -> Vec<StackSeries> {
 
 /// Create a checked 100% stacked layout.
 pub fn try_stack_expand(data: &[Vec<f64>]) -> Result<Vec<StackSeries>, StackLayoutError> {
-    let num_series = data.first().map(|row| row.len()).unwrap_or(0);
+    let num_series = data.first().map_or(0, std::vec::Vec::len);
     let keys: Vec<String> = (0..num_series).map(|i| i.to_string()).collect();
 
     Stack::new()
@@ -461,7 +461,7 @@ pub fn try_stack_expand(data: &[Vec<f64>]) -> Result<Vec<StackSeries>, StackLayo
 
 /// Create a streamgraph layout (wiggle offset with inside-out ordering).
 pub fn streamgraph(data: &[Vec<f64>]) -> Vec<StackSeries> {
-    let num_series = data.first().map(|row| row.len()).unwrap_or(0);
+    let num_series = data.first().map_or(0, std::vec::Vec::len);
     let keys: Vec<String> = (0..num_series).map(|i| i.to_string()).collect();
 
     Stack::new()
@@ -473,7 +473,7 @@ pub fn streamgraph(data: &[Vec<f64>]) -> Vec<StackSeries> {
 
 /// Create a checked streamgraph layout.
 pub fn try_streamgraph(data: &[Vec<f64>]) -> Result<Vec<StackSeries>, StackLayoutError> {
-    let num_series = data.first().map(|row| row.len()).unwrap_or(0);
+    let num_series = data.first().map_or(0, std::vec::Vec::len);
     let keys: Vec<String> = (0..num_series).map(|i| i.to_string()).collect();
 
     Stack::new()

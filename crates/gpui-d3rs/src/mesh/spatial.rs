@@ -6,7 +6,7 @@
 //! counts as inside both adjacent triangles; callers resolve ties (e.g. by
 //! depth or first hit).
 
-/// Which mesh coordinate feeds a 2D plot axis (spec §5, MeshPlotView).
+/// Which mesh coordinate feeds a 2D plot axis (spec §5, `MeshPlotView`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CoordinateAxis {
     X,
@@ -52,9 +52,9 @@ impl MeshBounds {
 
     pub fn origin(&self) -> [f64; 3] {
         [
-            0.5 * (self.min[0] + self.max[0]),
-            0.5 * (self.min[1] + self.max[1]),
-            0.5 * (self.min[2] + self.max[2]),
+            f64::midpoint(self.min[0], self.max[0]),
+            f64::midpoint(self.min[1], self.max[1]),
+            f64::midpoint(self.min[2], self.max[2]),
         ]
     }
 }
@@ -78,15 +78,11 @@ pub fn barycentric_2d(p: [f64; 2], a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> Opt
     let w = (d00 * d21 - d01 * d20) / denom;
     let u = 1.0 - v - w;
     const TOL: f64 = -1e-12;
-    if u > TOL && v > TOL && w > TOL {
-        Some([u, v, w])
-    } else {
-        None
-    }
+    (u > TOL && v > TOL && w > TOL).then_some([u, v, w])
 }
 
 /// Uniform-grid spatial index over 2D-projected triangles for picking.
-/// Grid resolution n = sqrt(triangle_count).clamp(8, 128) cells per axis;
+/// Grid resolution n = `sqrt(triangle_count).clamp(8`, 128) cells per axis;
 /// cell size = domain extent / n. Deterministic iteration (triangle indices
 /// sorted).
 #[derive(Debug, Clone)]

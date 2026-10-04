@@ -43,7 +43,7 @@ pub struct LayoutSnapshot<'a> {
     pub root: SolvedNode<'a>,
 }
 
-impl<'a> LayoutSnapshot<'a> {
+impl LayoutSnapshot<'_> {
     /// Return the ids of visible nodes in depth-first order.
     pub fn visible_ids(&self) -> Vec<&str> {
         let mut ids = Vec::new();
@@ -107,7 +107,7 @@ pub struct LayoutSnapshotMatrix<'a> {
     pub snapshots: Vec<LayoutSnapshot<'a>>,
 }
 
-impl<'a> LayoutSnapshotMatrix<'a> {
+impl LayoutSnapshotMatrix<'_> {
     /// Return true when there are no snapshots.
     pub fn is_empty(&self) -> bool {
         self.snapshots.is_empty()

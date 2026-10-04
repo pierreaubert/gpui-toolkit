@@ -1,6 +1,6 @@
 //! Geo module demonstration
 //!
-//! Run with: cargo run --example geo_demo --no-default-features
+//! Run with: cargo run --example `geo_demo` --no-default-features
 
 use d3rs::geo::{
     Albers, ConicEqualArea, Equirectangular, GeoJsonGeometry, GeoPath, Graticule, Mercator,
@@ -22,31 +22,25 @@ fn main() {
     let london = (0.0, 51.5);
     let distance = geo_distance(new_york.0, new_york.1, london.0, london.1);
     let distance_km = distance * 6371.0; // Earth radius in km
-    println!(
-        "Great circle distance NYC -> London: {:.0} km ({:.4} radians)",
-        distance_km, distance
-    );
+    println!("Great circle distance NYC -> London: {distance_km:.0} km ({distance:.4} radians)");
 
     // Path length
     let path = vec![(-74.0, 40.7), (-73.0, 41.0), (-72.0, 41.5)];
     let length = geo_length(&path);
-    println!("Path length: {:.4} radians", length);
+    println!("Path length: {length:.4} radians");
 
     // Spherical interpolation
     let (mid_lon, mid_lat) = geo_interpolate(-74.0, 40.7, 0.0, 51.5, 0.5);
-    println!("Midpoint NYC-London: ({:.2}, {:.2})", mid_lon, mid_lat);
+    println!("Midpoint NYC-London: ({mid_lon:.2}, {mid_lat:.2})");
 
     // Bounds
     let coords = vec![(0.0, 0.0), (10.0, 10.0), (20.0, 5.0)];
     let ((min_lon, min_lat), (max_lon, max_lat)) = geo_bounds(&coords);
-    println!(
-        "Bounds: lon [{:.1}, {:.1}], lat [{:.1}, {:.1}]",
-        min_lon, max_lon, min_lat, max_lat
-    );
+    println!("Bounds: lon [{min_lon:.1}, {max_lon:.1}], lat [{min_lat:.1}, {max_lat:.1}]");
 
     // Centroid
     let (cx, cy) = geo_centroid(&coords);
-    println!("Centroid: ({:.2}, {:.2})", cx, cy);
+    println!("Centroid: ({cx:.2}, {cy:.2})");
 
     // Point-in-polygon
     let polygon = vec![
@@ -62,7 +56,7 @@ fn main() {
     // Rotation
     let rot = Rotation::new().angles(90.0, 0.0, 0.0);
     let (rlon, rlat) = rot.rotate(0.0, 45.0);
-    println!("Rotate (0, 45) by 90 degrees: ({:.2}, {:.2})", rlon, rlat);
+    println!("Rotate (0, 45) by 90 degrees: ({rlon:.2}, {rlat:.2})");
 
     println!();
 
@@ -75,14 +69,14 @@ fn main() {
     // Mercator
     let mercator = Mercator::new().scale(100.0).translate(400.0, 300.0);
     let (x, y) = mercator.project(0.0, 0.0);
-    println!("Mercator (0, 0) -> ({:.2}, {:.2})", x, y);
+    println!("Mercator (0, 0) -> ({x:.2}, {y:.2})");
     let (x, y) = mercator.project(-74.0, 40.7);
-    println!("Mercator NYC -> ({:.2}, {:.2})", x, y);
+    println!("Mercator NYC -> ({x:.2}, {y:.2})");
 
     // Equirectangular
     let equirect = Equirectangular::new().scale(100.0).translate(400.0, 300.0);
     let (x, y) = equirect.project(0.0, 0.0);
-    println!("Equirectangular (0, 0) -> ({:.2}, {:.2})", x, y);
+    println!("Equirectangular (0, 0) -> ({x:.2}, {y:.2})");
 
     // Orthographic (globe view)
     let ortho = Orthographic::new()
@@ -90,41 +84,38 @@ fn main() {
         .translate(400.0, 300.0)
         .rotate(-74.0, -40.7, 0.0); // Center on NYC
     let (x, y) = ortho.project(-74.0, 40.7);
-    println!("Orthographic NYC (centered) -> ({:.2}, {:.2})", x, y);
+    println!("Orthographic NYC (centered) -> ({x:.2}, {y:.2})");
 
     // Stereographic
     let stereo = Stereographic::new().scale(100.0).translate(400.0, 300.0);
     let (x, y) = stereo.project(0.0, 0.0);
-    println!("Stereographic (0, 0) -> ({:.2}, {:.2})", x, y);
+    println!("Stereographic (0, 0) -> ({x:.2}, {y:.2})");
 
     // Transverse Mercator
     let tm = TransverseMercator::new()
         .scale(100.0)
         .translate(400.0, 300.0);
     let (x, y) = tm.project(0.0, 0.0);
-    println!("Transverse Mercator (0, 0) -> ({:.2}, {:.2})", x, y);
+    println!("Transverse Mercator (0, 0) -> ({x:.2}, {y:.2})");
 
     // Conic Equal-Area
     let conic = ConicEqualArea::with_parallels(30.0, 60.0)
         .scale(100.0)
         .translate(400.0, 300.0);
     let (x, y) = conic.project(0.0, 45.0);
-    println!("Conic Equal-Area (0, 45) -> ({:.2}, {:.2})", x, y);
+    println!("Conic Equal-Area (0, 45) -> ({x:.2}, {y:.2})");
 
     // Albers USA
     let albers = Albers::new();
     let (x, y) = albers.project(-98.0, 39.0); // Kansas City
-    println!("Albers USA (-98, 39) -> ({:.2}, {:.2})", x, y);
+    println!("Albers USA (-98, 39) -> ({x:.2}, {y:.2})");
 
     // Inversion test
     println!("\n--- Inversion Test ---\n");
     let proj = Mercator::new().scale(100.0).translate(400.0, 300.0);
     let (x, y) = proj.project(45.0, 30.0);
     if let Some((lon, lat)) = proj.invert(x, y) {
-        println!(
-            "Mercator: (45, 30) -> ({:.2}, {:.2}) -> ({:.4}, {:.4})",
-            x, y, lon, lat
-        );
+        println!("Mercator: (45, 30) -> ({x:.2}, {y:.2}) -> ({lon:.4}, {lat:.4})");
     }
 
     println!();
@@ -180,7 +171,7 @@ fn main() {
         GeoJsonGeometry::Polygon(vec![vec![(0.0, 0.0), (10.0, 0.0), (5.0, 10.0), (0.0, 0.0)]]);
     let svg = path.render(&poly);
     println!("Polygon SVG: {} chars", svg.len());
-    println!("  {}", svg);
+    println!("  {svg}");
 
     // Bounds and centroid
     let bbox = path.bounds(&line);
@@ -190,7 +181,7 @@ fn main() {
     );
 
     let (cx, cy) = path.centroid(&line);
-    println!("LineString centroid: ({:.2}, {:.2})", cx, cy);
+    println!("LineString centroid: ({cx:.2}, {cy:.2})");
 
     println!();
 
@@ -234,7 +225,7 @@ fn main() {
     println!("\nProjected city locations:");
     for (name, lon, lat) in &cities {
         let (x, y) = world_proj.project(*lon, *lat);
-        println!("  {}: ({:.1}, {:.1})", name, x, y);
+        println!("  {name}: ({x:.1}, {y:.1})");
     }
 
     println!("\n=== Demo Complete ===");

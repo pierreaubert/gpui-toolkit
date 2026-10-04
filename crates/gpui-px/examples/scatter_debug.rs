@@ -85,7 +85,7 @@ impl ScatterDebugApp {
                                 let is_selected = current_position == position;
 
                                 div()
-                                    .id(ElementId::Name(format!("pos-{}", label).into()))
+                                    .id(ElementId::Name(format!("pos-{label}").into()))
                                     .px_4()
                                     .py_2()
                                     .rounded_md()
@@ -132,7 +132,7 @@ impl ScatterDebugApp {
                                 let is_selected = current_position == position;
 
                                 div()
-                                    .id(ElementId::Name(format!("pos-{}", label).into()))
+                                    .id(ElementId::Name(format!("pos-{label}").into()))
                                     .px_4()
                                     .py_2()
                                     .rounded_md()
@@ -225,7 +225,7 @@ impl ScatterDebugApp {
                                     .text_sm()
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_color(rgb(0x3b82f6))
-                                    .child(format!("{:.2}", current_ratio)),
+                                    .child(format!("{current_ratio:.2}")),
                             ),
                     )
                     .child(
@@ -240,7 +240,7 @@ impl ScatterDebugApp {
                                 let is_active = (current_ratio - ratio).abs() < 0.08;
 
                                 div()
-                                    .id(ElementId::Name(format!("ratio-{}", i).into()))
+                                    .id(ElementId::Name(format!("ratio-{i}").into()))
                                     .w(px(24.0))
                                     .h(px(24.0))
                                     .rounded_md()
@@ -286,7 +286,7 @@ impl ScatterDebugApp {
                                 let is_selected = (current_ratio - ratio).abs() < 0.01;
 
                                 div()
-                                    .id(ElementId::Name(format!("preset-{}", label).into()))
+                                    .id(ElementId::Name(format!("preset-{label}").into()))
                                     .px_2()
                                     .py_1()
                                     .rounded_md()

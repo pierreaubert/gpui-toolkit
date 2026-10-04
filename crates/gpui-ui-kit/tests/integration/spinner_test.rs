@@ -1,10 +1,10 @@
 //! Integration tests for Spinner component
 //!
-//! Tests the Spinner and LoadingDots components including:
+//! Tests the Spinner and `LoadingDots` components including:
 //! - All sizes (Xs to Xl)
 //! - Custom colors
 //! - With label
-//! - LoadingDots variants
+//! - `LoadingDots` variants
 
 use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div, rgb};
 use gpui_ui_kit::spinner::{LoadingDots, Spinner, SpinnerSize};

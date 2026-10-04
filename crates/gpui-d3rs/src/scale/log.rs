@@ -76,13 +76,11 @@ impl LogScale {
     pub fn domain(mut self, min: f64, max: f64) -> Self {
         debug_assert!(
             min > 0.0,
-            "Log scale domain minimum must be positive, got {}",
-            min
+            "Log scale domain minimum must be positive, got {min}"
         );
         debug_assert!(
             max > 0.0,
-            "Log scale domain maximum must be positive, got {}",
-            max
+            "Log scale domain maximum must be positive, got {max}"
         );
         self.domain_min = min;
         self.domain_max = max;
@@ -310,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "Log scale domain minimum must be positive")]
     #[cfg(debug_assertions)]
     fn test_log_scale_negative_domain() {
         LogScale::new().domain(-10.0, 10.0);

@@ -7,7 +7,7 @@ impl GpuVertex {
             position: position.to_array(),
             normal: normal.to_array(),
             value,
-            _padding: 0.0,
+            padding: 0.0,
         }
     }
 }

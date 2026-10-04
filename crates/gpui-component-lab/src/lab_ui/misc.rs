@@ -25,7 +25,9 @@ type VecF64Cache = Mutex<HashMap<(usize, usize), Arc<[f64]>>>;
 /// Locks a cache mutex, recovering the inner value when a previous
 /// holder panicked instead of crashing the lab on a poisoned lock.
 pub(super) fn lock_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poison| poison.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 pub(super) fn showcase_section_for_story_id(story_id: &str) -> Option<ShowcaseSection> {

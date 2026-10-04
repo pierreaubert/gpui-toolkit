@@ -677,49 +677,49 @@ impl Theme {
     // Color Token Accessors
     // =========================================================================
 
-    /// Get a ColorToken for the accent color with auto-generated variants
+    /// Get a `ColorToken` for the accent color with auto-generated variants
     ///
     /// Returns a token with base, hover, active, muted, and subtle variants.
     pub fn accent_token(&self) -> ColorToken {
         ColorToken::from_base(self.accent)
     }
 
-    /// Get a ColorToken for the success color
+    /// Get a `ColorToken` for the success color
     pub fn success_token(&self) -> ColorToken {
         ColorToken::from_base(self.success)
     }
 
-    /// Get a ColorToken for the warning color
+    /// Get a `ColorToken` for the warning color
     pub fn warning_token(&self) -> ColorToken {
         ColorToken::from_base(self.warning)
     }
 
-    /// Get a ColorToken for the error color
+    /// Get a `ColorToken` for the error color
     pub fn error_token(&self) -> ColorToken {
         ColorToken::from_base(self.error)
     }
 
-    /// Get a ColorToken for the info color
+    /// Get a `ColorToken` for the info color
     pub fn info_token(&self) -> ColorToken {
         ColorToken::from_base(self.info)
     }
 
-    /// Get a ColorToken for the surface color
+    /// Get a `ColorToken` for the surface color
     pub fn surface_token(&self) -> ColorToken {
         ColorToken::from_base(self.surface)
     }
 
-    /// Get a ColorToken for the primary text color
+    /// Get a `ColorToken` for the primary text color
     pub fn text_primary_token(&self) -> ColorToken {
         ColorToken::from_base(self.text_primary)
     }
 
-    /// Get a ColorToken for the border color
+    /// Get a `ColorToken` for the border color
     pub fn border_token(&self) -> ColorToken {
         ColorToken::from_base(self.border)
     }
 
-    /// Convert the theme to a full ColorPalette
+    /// Convert the theme to a full `ColorPalette`
     ///
     /// This is useful when you need structured access to all color tokens.
     pub fn to_palette(&self) -> ColorPalette {

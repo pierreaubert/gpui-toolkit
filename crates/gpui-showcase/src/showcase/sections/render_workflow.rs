@@ -51,7 +51,7 @@ impl Showcase {
                                             .on_click({
                                                 let entity = entity.clone();
                                                 move |_, cx| {
-                                                    entity.update(cx, |this, cx| this.workflow_add_node(cx));
+                                                    entity.update(cx, super::super::Showcase::workflow_add_node);
                                                 }
                                             }),
                                     )
@@ -63,14 +63,14 @@ impl Showcase {
                                                 let entity = entity.clone();
                                                 move |_, cx| {
                                                     entity.update(cx, |this, cx| {
-                                                        this.workflow_canvas.update(cx, |canvas, cx| canvas.clear(cx));
+                                                        this.workflow_canvas.update(cx, gpui_ui_kit::WorkflowCanvas::clear);
                                                     });
                                                 }
                                             }),
                                     )
                             )
                             .child(
-                                Text::new(format!("Nodes: {} | Conns: {}", node_count, connection_count))
+                                Text::new(format!("Nodes: {node_count} | Conns: {connection_count}"))
                                     .size(TextSize::Xs)
                                     .muted(true)
                             )
@@ -107,7 +107,7 @@ impl Showcase {
         let x = 100.0 + (id as f32 * 30.0) % 400.0;
         let y = 100.0 + (id as f32 * 20.0) % 300.0;
 
-        let node = WorkflowNodeData::new(format!("Node {}", id), Position::new(x, y))
+        let node = WorkflowNodeData::new(format!("Node {id}"), Position::new(x, y))
             .with_ports(1, 1)
             .with_size(160.0, 70.0);
 

@@ -1,4 +1,4 @@
-//! StepIndicator component
+//! `StepIndicator` component
 //!
 //! A step progress indicator showing the current position in a multi-step workflow.
 //!

@@ -1,9 +1,9 @@
 //! Integration tests for Tooltip component
 //!
-//! Tests the Tooltip and WithTooltip components including:
+//! Tests the Tooltip and `WithTooltip` components including:
 //! - All placements (Top, Bottom, Left, Right)
 //! - Custom delay
-//! - WithTooltip wrapper
+//! - `WithTooltip` wrapper
 
 use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div};
 use gpui_ui_kit::tooltip::{Tooltip, TooltipPlacement, WithTooltip};

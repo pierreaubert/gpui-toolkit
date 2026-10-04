@@ -16,7 +16,7 @@ fn brush(rgba: [f32; 4]) -> Brush {
 fn demo_scene(width: f32, height: f32) -> ChartScene {
     let mut scene = ChartScene::new();
     scene.fill_rect(
-        Rect::new(0.0, 0.0, width as f64, height as f64),
+        Rect::new(0.0, 0.0, f64::from(width), f64::from(height)),
         brush([0.12, 0.12, 0.12, 1.0]),
     );
 
@@ -24,7 +24,7 @@ fn demo_scene(width: f32, height: f32) -> ChartScene {
     let mut x = 50.0;
     while x < width {
         scene.stroke_polyline(
-            &[(x as f64, 0.0), (x as f64, height as f64)],
+            &[(f64::from(x), 0.0), (f64::from(x), f64::from(height))],
             Stroke::new(1.0),
             grid.clone(),
         );
@@ -33,7 +33,7 @@ fn demo_scene(width: f32, height: f32) -> ChartScene {
     let mut y = 50.0;
     while y < height {
         scene.stroke_polyline(
-            &[(0.0, y as f64), (width as f64, y as f64)],
+            &[(0.0, f64::from(y)), (f64::from(width), f64::from(y))],
             Stroke::new(1.0),
             grid.clone(),
         );
@@ -74,10 +74,13 @@ fn demo_scene(width: f32, height: f32) -> ChartScene {
             (x, y)
         })
         .collect();
-    let data_path: Vec<_> = points.iter().map(|&(x, y)| (x as f64, y as f64)).collect();
+    let data_path: Vec<_> = points
+        .iter()
+        .map(|&(x, y)| (f64::from(x), f64::from(y)))
+        .collect();
     scene.stroke_polyline(&data_path, Stroke::new(2.0), brush([0.4, 0.8, 1.0, 1.0]));
     for (x, y) in points {
-        scene.fill_circle(x as f64, y as f64, 5.0, brush([1.0, 0.5, 0.0, 1.0]));
+        scene.fill_circle(f64::from(x), f64::from(y), 5.0, brush([1.0, 0.5, 0.0, 1.0]));
     }
 
     scene.fill_circle(500.0, 150.0, 30.0, brush([0.8, 0.2, 0.8, 1.0]));

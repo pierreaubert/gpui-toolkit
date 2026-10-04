@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum DesignLanguage {
     /// Apple Human Interface Guidelines (macOS, iOS).
     AppleHig,
-    /// Material Design 3 (Android, ChromeOS, web).
+    /// Material Design 3 (Android, `ChromeOS`, web).
     Material3,
     /// Windows Fluent Design (Windows 10/11).
     Fluent,

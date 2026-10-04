@@ -23,7 +23,7 @@ fn golden() -> Value {
 
 fn parse_state_size(case: &Value) -> (OrbState, OrbSize) {
     let state = OrbState::from_str(case["state"].as_str().unwrap())
-        .unwrap_or_else(|_| panic!("unknown state in case {}", case["key"]));
+        .unwrap_or_else(|()| panic!("unknown state in case {}", case["key"]));
     let size = match case["size"].as_u64().unwrap() {
         64 => OrbSize::Px64,
         20 => OrbSize::Px20,

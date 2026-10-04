@@ -28,7 +28,7 @@ impl HierarchyNode {
         if let Some(v) = self.value {
             v
         } else {
-            self.children.iter().map(|c| c.total_value()).sum()
+            self.children.iter().map(HierarchyNode::total_value).sum()
         }
     }
 
@@ -43,7 +43,12 @@ impl HierarchyNode {
         if self.children.is_empty() {
             0
         } else {
-            1 + self.children.iter().map(|c| c.depth()).max().unwrap_or(0)
+            1 + self
+                .children
+                .iter()
+                .map(HierarchyNode::depth)
+                .max()
+                .unwrap_or(0)
         }
     }
 
@@ -53,7 +58,7 @@ impl HierarchyNode {
         if self.is_leaf() {
             1
         } else {
-            self.children.iter().map(|c| c.leaf_count()).sum()
+            self.children.iter().map(HierarchyNode::leaf_count).sum()
         }
     }
 }

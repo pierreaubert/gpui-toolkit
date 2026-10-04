@@ -1,8 +1,8 @@
 //! Integration tests for Stack layout components
 //!
 //! Tests the stack layout components including:
-//! - VStack (vertical stack)
-//! - HStack (horizontal stack)
+//! - `VStack` (vertical stack)
+//! - `HStack` (horizontal stack)
 //! - Spacer
 //! - Divider
 //! - Spacing variants

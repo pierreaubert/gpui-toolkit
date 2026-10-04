@@ -40,7 +40,7 @@ fn capture_label() -> &'static Mutex<Option<String>> {
 pub fn emit_signpost(category: IosSignpostCategory, name: impl Into<Arc<str>>) {
     let name = name.into();
     if log::log_enabled!(log::Level::Info) {
-        log::info!("GPUI iOS signpost {:?}: {}", category, name);
+        log::info!("GPUI iOS signpost {category:?}: {name}");
     }
     let mut signposts = signposts().lock().unwrap();
     if signposts.len() == SIGNPOST_CAPACITY {

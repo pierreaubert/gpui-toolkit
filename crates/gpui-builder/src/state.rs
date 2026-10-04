@@ -190,7 +190,7 @@ impl LayoutState {
             } => self.set_ratio(&slot_id, axis, ratio),
             LayoutAction::ClearRatio { slot_id, axis } => self.clear_ratio(&slot_id, axis),
             LayoutAction::SetCollapsed { slot_id, collapsed } => {
-                self.set_collapsed(&slot_id, collapsed)
+                self.set_collapsed(&slot_id, collapsed);
             }
             LayoutAction::ToggleCollapsed { slot_id } => self.toggle_collapsed(&slot_id),
             LayoutAction::ClearCollapsed { slot_id } => self.clear_collapsed(&slot_id),

@@ -93,7 +93,7 @@ mod tests {
     fn test_all_presets_have_up() {
         for preset in KeymapPreset::all() {
             let key = navigation_key(NavigationAction::Up, *preset);
-            assert!(key.is_some(), "preset {:?} missing Up mapping", preset);
+            assert!(key.is_some(), "preset {preset:?} missing Up mapping");
         }
     }
 

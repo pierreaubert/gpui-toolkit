@@ -51,7 +51,7 @@ fn main() {
     // Sample data
     let data = vec![4.0, 2.0, 7.0, 1.0, 9.0, 3.0, 6.0, 8.0, 5.0];
     let mut data_for_median = data.clone();
-    println!("Sample data: {:?}\n", data);
+    println!("Sample data: {data:?}\n");
 
     // ========================================
     // Statistics
@@ -88,7 +88,7 @@ fn main() {
     println!("\n--- Search / Bisection ---");
 
     let sorted = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
-    println!("Sorted array: {:?}", sorted);
+    println!("Sorted array: {sorted:?}");
 
     // Find insertion points (using f64-specific functions)
     println!(
@@ -130,7 +130,7 @@ fn main() {
         },
     ];
 
-    let age_bisector = Bisector::new(|p: &Person| p.age as f64);
+    let age_bisector = Bisector::new(|p: &Person| f64::from(p.age));
     println!(
         "\nPeople by age: {:?}",
         people.iter().map(|p| (p.name, p.age)).collect::<Vec<_>>()
@@ -189,7 +189,7 @@ fn main() {
     );
     println!("\nTotal by category:");
     for (category, total) in &totals {
-        println!("  {}: ${:.2}", category, total);
+        println!("  {category}: ${total:.2}");
     }
 
     // ========================================
@@ -201,7 +201,7 @@ fn main() {
         12.0, 15.0, 18.0, 22.0, 25.0, 28.0, 31.0, 35.0, 42.0, 45.0, 48.0, 55.0, 62.0, 68.0, 75.0,
         82.0,
     ];
-    println!("Values: {:?}", values);
+    println!("Values: {values:?}");
 
     // Create bins using the bin function (5 bins)
     let bins = bin(&values, 5);
@@ -225,19 +225,19 @@ fn main() {
 
     // Linear ticks
     let linear_ticks = ticks(0.0, 100.0, 10);
-    println!("Linear ticks (0-100, ~10 ticks): {:?}", linear_ticks);
+    println!("Linear ticks (0-100, ~10 ticks): {linear_ticks:?}");
 
     // Tick step
     let step = tick_step(0.0, 100.0, 10);
-    println!("Tick step: {}", step);
+    println!("Tick step: {step}");
 
     // Nice domain
     let (nice_start, nice_end) = nice(0.127, 9.873, 10);
-    println!("Nice domain (0.127, 9.873): ({}, {})", nice_start, nice_end);
+    println!("Nice domain (0.127, 9.873): ({nice_start}, {nice_end})");
 
     // Logarithmic ticks (base 10, no subdivisions)
     let log_t = log_ticks(1.0, 1000.0, 10.0, false);
-    println!("Log ticks (1-1000, base 10): {:?}", log_t);
+    println!("Log ticks (1-1000, base 10): {log_t:?}");
 
     // ========================================
     // Set Operations
@@ -247,8 +247,8 @@ fn main() {
     let set_a = vec![1, 2, 3, 4, 5];
     let set_b = vec![3, 4, 5, 6, 7];
 
-    println!("Set A: {:?}", set_a);
-    println!("Set B: {:?}", set_b);
+    println!("Set A: {set_a:?}");
+    println!("Set B: {set_b:?}");
     println!("Union:        {:?}", union(&set_a, &set_b));
     println!("Intersection: {:?}", intersection(&set_a, &set_b));
     println!("Difference:   {:?}", difference(&set_a, &set_b));

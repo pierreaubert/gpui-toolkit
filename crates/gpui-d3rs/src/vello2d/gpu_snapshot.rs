@@ -153,7 +153,7 @@ pub fn snapshot_scene_gpu(
             renderer,
         } = &mut ***device;
 
-        let vello_scene = to_vello_scene(scene, Affine::scale(scale.max(0.01) as f64));
+        let vello_scene = to_vello_scene(scene, Affine::scale(f64::from(scale.max(0.01))));
         let texture = wgpu_device.create_texture(&wgpu::TextureDescriptor {
             label: Some("vello2d_snapshot"),
             size: wgpu::Extent3d {

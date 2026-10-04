@@ -1,6 +1,6 @@
 //! Integration tests for accessibility tree registration
 //!
-//! Verifies that components register themselves in the AccessibilityTree
+//! Verifies that components register themselves in the `AccessibilityTree`
 //! during render with correct roles, labels, and states.
 
 use gpui::{Context, ElementId, IntoElement, ParentElement, Render, TestAppContext, Window, div};

@@ -55,7 +55,7 @@ where
     *UI_DISPATCHER
         .get_or_init(|| RwLock::new(None))
         .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Arc::new(dispatcher));
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::new(dispatcher));
 }
 
 /// Remove the process-wide UI-thread callback dispatcher.
@@ -63,7 +63,7 @@ pub fn clear_ui_dispatcher() {
     if let Some(dispatcher) = UI_DISPATCHER.get() {
         *dispatcher
             .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
     }
 }
 
@@ -71,7 +71,7 @@ fn ui_dispatcher() -> Option<TimerDispatcher> {
     UI_DISPATCHER.get().and_then(|dispatcher| {
         dispatcher
             .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     })
 }
@@ -208,13 +208,12 @@ fn dispatch_due_task(task: ScheduledTask, sender: &Sender<SchedulerCommand>) {
     } else {
         let keep_running = invoke_callback(&task);
         if keep_running && !task.stopped.load(std::sync::atomic::Ordering::Acquire) {
-            scheduler()
+            let _ = scheduler()
                 .sender
                 .send(SchedulerCommand::Schedule(ScheduledTask {
                     next_tick: Instant::now() + task.period,
                     task,
-                }))
-                .ok();
+                }));
         } else {
             task.stopped
                 .store(true, std::sync::atomic::Ordering::Release);
@@ -229,7 +228,7 @@ fn invoke_callback(task: &TaskSpec) -> bool {
         let mut callback = task
             .callback
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         callback(elapsed)
     }))
     .unwrap_or(false)
@@ -237,7 +236,9 @@ fn invoke_callback(task: &TaskSpec) -> bool {
 
 fn finish_task(task: &TaskSpec) {
     let (lock, condvar) = &*task.completion;
-    let mut done = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut done = lock
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     *done = true;
     condvar.notify_all();
 }
@@ -275,12 +276,14 @@ impl std::fmt::Debug for Timer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Timer")
             .field("id", &self.id)
+            .field("callback", &std::any::type_name::<TimerCallback>())
             .field("delay", &self.delay)
             .field("start_time", &self.start_time)
             .field(
                 "stopped",
                 &self.stopped.load(std::sync::atomic::Ordering::Acquire),
             )
+            .field("completion", &self.completion)
             .finish()
     }
 }
@@ -391,11 +394,13 @@ impl Timer {
     /// [`Self::try_join`] there instead.
     pub fn join(self) {
         let (lock, condvar) = &*self.completion;
-        let mut done = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut done = lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         while !*done {
             done = condvar
                 .wait(done)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 
@@ -406,13 +411,15 @@ impl Timer {
     /// [`set_ui_dispatcher`], this prevents an unbounded self-deadlock.
     pub fn try_join(&self, timeout: Duration) -> bool {
         let (lock, condvar) = &*self.completion;
-        let done = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let done = lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if *done {
             return true;
         }
         let (done, _) = condvar
             .wait_timeout_while(done, timeout, |done| !*done)
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *done
     }
 }

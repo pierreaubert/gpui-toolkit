@@ -1,6 +1,6 @@
-//! Donut Chart -- Observable example using d3rs::examples::donut_chart
+//! Donut Chart -- Observable example using `d3rs::examples::donut_chart`
 //!
-//! Demonstrates idiomatic d3rs usage: `Pie` with inner_radius + `Arc` generator + `d3rs_path_to_gpui_simple`.
+//! Demonstrates idiomatic d3rs usage: `Pie` with `inner_radius` + `Arc` generator + `d3rs_path_to_gpui_simple`.
 use crate::ShowcaseApp;
 use crate::showcase_modules::chart_colors;
 use d3rs::color::ColorScheme;
@@ -44,7 +44,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     for (i, s) in slices.iter().enumerate() {
         let path = arc_gen.generate(&s.arc);
         d3_paths.push(path);
-        let mid = (s.arc.start_angle + s.arc.end_angle) / 2.0;
+        let mid = f64::midpoint(s.arc.start_angle, s.arc.end_angle);
         let std_angle = mid - std::f64::consts::FRAC_PI_2;
         let (dx, dy) = (std_angle.cos(), std_angle.sin());
         let c = s.arc.centroid();
@@ -73,7 +73,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let colors: Vec<Hsla> = (0..scheme.len())
         .map(|i| chart_colors::categorical(&ui_theme, &scheme, i))
         .collect();
-    let leader_color: Hsla = hsla(0.0, 0.0, 0.5, 1.0);
+    let leader_color = hsla(0.0, 0.0, 0.5, 1.0);
     div()
         .flex()
         .flex_col()

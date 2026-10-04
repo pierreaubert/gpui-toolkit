@@ -32,7 +32,7 @@ const STYLE_DICTIONARY_TOKEN_COUNT: usize = 60;
 /// needed to render platform-appropriate UIs.
 ///
 /// Orthogonal to the Theme (which handles colors). Any Theme works with
-/// any DesignSystem.
+/// any `DesignSystem`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DesignSystem {
     /// Which platform language this represents.

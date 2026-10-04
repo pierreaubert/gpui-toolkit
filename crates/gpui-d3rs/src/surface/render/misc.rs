@@ -96,15 +96,15 @@ pub(super) fn format_tick_value(value: f64, min: f64, max: f64) -> String {
         if k == k.floor() {
             format!("{}k", k as i32)
         } else {
-            format!("{:.1}k", k)
+            format!("{k:.1}k")
         }
     } else if range < 10.0 {
         // Small range - show one decimal
-        format!("{:.1}", value)
+        format!("{value:.1}")
     } else if value == value.floor() {
         // Integer value
         format!("{}", value as i32)
     } else {
-        format!("{:.0}", value)
+        format!("{value:.0}")
     }
 }

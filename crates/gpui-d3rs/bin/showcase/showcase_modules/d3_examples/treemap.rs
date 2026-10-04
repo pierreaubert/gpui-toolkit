@@ -4,7 +4,7 @@
 //! ported from: <https://observablehq.com/@d3/treemap/2>
 //!
 //! The example shows:
-//! 1. Multiple tiling algorithms (Squarify, Binary, Slice, Dice, SliceDice)
+//! 1. Multiple tiling algorithms (Squarify, Binary, Slice, Dice, `SliceDice`)
 //! 2. Color coding by top-level category
 //! 3. Interactive controls for tiling method
 

@@ -1,7 +1,7 @@
-//! Integration tests for RadioGroup component
+//! Integration tests for `RadioGroup` component
 //!
 //! Tests radio group rendering, click selection, disabled state, sizes,
-//! orientation, and keyboard navigation using VisualTestContext.
+//! orientation, and keyboard navigation using `VisualTestContext`.
 
 use gpui::{
     Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,

@@ -1,11 +1,11 @@
 //! Integration tests for Badge component
 //!
-//! Tests the Badge and BadgeDot components including:
+//! Tests the Badge and `BadgeDot` components including:
 //! - All variants (Default, Primary, Success, Warning, Error, Info)
 //! - All sizes (Sm, Md, Lg)
 //! - Rounded (pill) shape
 //! - With icon
-//! - BadgeDot variants
+//! - `BadgeDot` variants
 
 use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div, px};
 use gpui_ui_kit::badge::{Badge, BadgeDot, BadgeSize, BadgeVariant};

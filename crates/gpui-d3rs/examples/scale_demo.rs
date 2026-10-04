@@ -14,13 +14,13 @@ fn main() {
 
     for value in [0.0, 25.0, 50.0, 75.0, 100.0] {
         let scaled = linear.scale(value);
-        println!("  {:.1} → {:.1}", value, scaled);
+        println!("  {value:.1} → {scaled:.1}");
     }
 
     println!("\nLinear scale ticks:");
     let ticks = linear.ticks(10);
     for tick in &ticks {
-        println!("  {:.1}", tick);
+        println!("  {tick:.1}");
     }
 
     // Logarithmic scale example
@@ -29,13 +29,13 @@ fn main() {
 
     for freq in [20.0, 100.0, 1000.0, 10000.0, 20000.0] {
         let position = log_scale.scale(freq);
-        println!("  {:.0}Hz → {:.3}", freq, position);
+        println!("  {freq:.0}Hz → {position:.3}");
     }
 
     println!("\nLog scale ticks:");
     let log_ticks = log_scale.ticks(10);
     for tick in &log_ticks {
-        println!("  {:.0}Hz", tick);
+        println!("  {tick:.0}Hz");
     }
 
     // Inverted range example (for screen coordinates)
@@ -44,7 +44,7 @@ fn main() {
 
     for db in [-24.0, -12.0, 0.0, 12.0, 24.0] {
         let y_pos = db_scale.scale(db);
-        println!("  {:+.0}dB → y={:.0}px", db, y_pos);
+        println!("  {db:+.0}dB → y={y_pos:.0}px");
     }
 
     // Scale inversion example
@@ -53,7 +53,7 @@ fn main() {
 
     for range_val in [0.0, 125.0, 250.0, 375.0, 500.0] {
         if let Some(domain_val) = scale.invert(range_val) {
-            println!("  {:.0}px → {:.1}", range_val, domain_val);
+            println!("  {range_val:.0}px → {domain_val:.1}");
         }
     }
 

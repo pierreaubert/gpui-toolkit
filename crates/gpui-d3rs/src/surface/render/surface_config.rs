@@ -16,7 +16,7 @@ pub struct SurfaceConfig {
     pub camera: Camera2D,
     /// Color scale for the surface
     pub color_scale: ColorScaleType,
-    /// Custom color function (overrides color_scale if set)
+    /// Custom color function (overrides `color_scale` if set)
     pub custom_color: Option<Arc<dyn Fn(f64) -> D3Color + Send + Sync>>,
     /// Surface opacity (0.0 - 1.0)
     pub opacity: f32,

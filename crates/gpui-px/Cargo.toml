@@ -9,6 +9,9 @@ license.workspace = true
 repository.workspace = true
 description = "High-level Plotly Express-style charting API built on d3rs and GPUI"
 
+[lints]
+workspace = true
+
 [features]
 default = ["gpui", "gpu-2d", "gpu-3d", "vello", "vello-metal"]
 autoeq = []

@@ -31,7 +31,7 @@ pub(super) fn parse_rgb_string(s: &str) -> (u8, u8, u8) {
             parts[2].trim().parse().unwrap(),
         )
     } else {
-        panic!("Cannot parse RGB string: {}", s)
+        panic!("Cannot parse RGB string: {s}")
     }
 }
 

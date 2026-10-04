@@ -235,13 +235,13 @@ fn sizing_text_debug_equality_and_min_size() {
     assert_eq!(t1, t2);
     assert_ne!(t1, t3);
     assert_eq!(
-        format!("{:?}", t1),
+        format!("{t1:?}"),
         r#"Text { text: "a", line_height: 20, min: 5 }"#
     );
     assert_eq!(t1.min_size(), 5.0);
 
     let fixed = Sizing::Fixed(12.0);
-    assert_eq!(format!("{:?}", fixed), "Fixed(12)");
+    assert_eq!(format!("{fixed:?}"), "Fixed(12)");
     assert_eq!(fixed.min_size(), 12.0);
 
     let frac = Sizing::Fractional {
@@ -250,7 +250,7 @@ fn sizing_text_debug_equality_and_min_size() {
         max: 100.0,
     };
     assert_eq!(
-        format!("{:?}", frac),
+        format!("{frac:?}"),
         "Fractional { initial: 0.25, min: 10, max: 100 }"
     );
     assert_eq!(frac.min_size(), 10.0);
@@ -259,7 +259,7 @@ fn sizing_text_debug_equality_and_min_size() {
         min: 20.0,
         weight: 2.0,
     };
-    assert_eq!(format!("{:?}", flex), "Flex { min: 20, weight: 2 }");
+    assert_eq!(format!("{flex:?}"), "Flex { min: 20, weight: 2 }");
     assert_eq!(flex.min_size(), 20.0);
 }
 

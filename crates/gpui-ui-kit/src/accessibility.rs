@@ -889,7 +889,7 @@ impl AccessibilityBridgeSnapshot {
                 node.value.text.as_ref(),
             ) {
                 (_, _, _, Some(text)) => text.as_ref().to_string(),
-                (Some(now), Some(min), Some(max), None) => format!("{} [{}..{}]", now, min, max),
+                (Some(now), Some(min), Some(max), None) => format!("{now} [{min}..{max}]"),
                 (Some(now), _, _, None) => now.to_string(),
                 _ => String::new(),
             };
@@ -1229,7 +1229,7 @@ mod tests {
             snapshot.nodes[0]
                 .description
                 .as_ref()
-                .map(|text| text.as_ref()),
+                .map(std::convert::AsRef::as_ref),
             Some("Playback volume")
         );
         assert_eq!(snapshot.nodes[0].states[0].name, "disabled");
@@ -1239,7 +1239,7 @@ mod tests {
                 .value
                 .text
                 .as_ref()
-                .map(|text| text.as_ref()),
+                .map(std::convert::AsRef::as_ref),
             Some("75%")
         );
         assert_eq!(snapshot.nodes[1].live, Some("polite"));

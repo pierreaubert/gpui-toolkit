@@ -67,7 +67,7 @@ pub fn ease_quad_in_out(t: f64) -> f64 {
         t * t / 2.0
     } else {
         let t = t - 1.0;
-        (t * (2.0 - t) + 1.0) / 2.0
+        f64::midpoint(t * (2.0 - t), 1.0)
     }
 }
 
@@ -89,7 +89,7 @@ pub fn ease_cubic_in_out(t: f64) -> f64 {
         t * t * t / 2.0
     } else {
         let t = t - 2.0;
-        (t * t * t + 2.0) / 2.0
+        f64::midpoint(t * t * t, 2.0)
     }
 }
 
@@ -182,7 +182,7 @@ pub fn ease_circle_in_out(t: f64) -> f64 {
         (1.0 - (1.0 - t * t).sqrt()) / 2.0
     } else {
         let t = t - 2.0;
-        ((1.0 - t * t).sqrt() + 1.0) / 2.0
+        f64::midpoint((1.0 - t * t).sqrt(), 1.0)
     }
 }
 
@@ -234,7 +234,7 @@ pub fn ease_elastic_in_out(t: f64) -> f64 {
     if t <= 1.0 {
         ease_elastic_in(t) / 2.0
     } else {
-        (ease_elastic_out(t - 1.0) + 1.0) / 2.0
+        f64::midpoint(ease_elastic_out(t - 1.0), 1.0)
     }
 }
 
@@ -259,7 +259,7 @@ pub fn ease_back_in_out_with(s: f64) -> impl Fn(f64) -> f64 {
             t * t * ((s + 1.0) * t - s) / 2.0
         } else {
             let t = t - 2.0;
-            (t * t * ((s + 1.0) * t + s) + 2.0) / 2.0
+            f64::midpoint(t * t * ((s + 1.0) * t + s), 2.0)
         }
     }
 }
@@ -306,6 +306,6 @@ pub fn ease_bounce_in_out(t: f64) -> f64 {
     if t <= 1.0 {
         (1.0 - ease_bounce_out(1.0 - t)) / 2.0
     } else {
-        (ease_bounce_out(t - 1.0) + 1.0) / 2.0
+        f64::midpoint(ease_bounce_out(t - 1.0), 1.0)
     }
 }

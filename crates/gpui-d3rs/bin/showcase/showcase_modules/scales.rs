@@ -91,7 +91,7 @@ where
                 .flex()
                 .gap_4()
                 .text_sm()
-                .child(div().w(px(80.0)).child(format!("{:.0}", v)))
+                .child(div().w(px(80.0)).child(format!("{v:.0}")))
                 .child(div().child("->"))
                 .child(div().font_weight(FontWeight::MEDIUM).child(transform(*v)))
         }))

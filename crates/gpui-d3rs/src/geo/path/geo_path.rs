@@ -12,9 +12,9 @@ use super::types::GeoJsonGeometry;
 use crate::util::scratch;
 use std::f64::consts::PI;
 
-/// A path generator for GeoJSON geometries.
+/// A path generator for `GeoJSON` geometries.
 ///
-/// GeoPath projects geographic coordinates using a projection and generates
+/// `GeoPath` projects geographic coordinates using a projection and generates
 /// SVG path data or other path representations.
 #[derive(Clone)]
 pub struct GeoPath<P: Projection> {
@@ -23,7 +23,7 @@ pub struct GeoPath<P: Projection> {
 }
 
 impl<P: Projection> GeoPath<P> {
-    /// Create a new GeoPath with the given projection.
+    /// Create a new `GeoPath` with the given projection.
     pub fn new(projection: P) -> Self {
         Self {
             projection,
@@ -53,7 +53,7 @@ impl<P: Projection> GeoPath<P> {
         &mut self.projection
     }
 
-    /// Render a GeoJSON geometry to an SVG path string.
+    /// Render a `GeoJSON` geometry to an SVG path string.
     ///
     /// The result is built in a thread-local scratch buffer and cloned, so
     /// repeated calls retain the buffer's capacity.
@@ -64,7 +64,7 @@ impl<P: Projection> GeoPath<P> {
         })
     }
 
-    /// Render a GeoJSON geometry to an SVG path string, returning a `Cow`.
+    /// Render a `GeoJSON` geometry to an SVG path string, returning a `Cow`.
     ///
     /// This is useful for callers that can accept a borrowed string for empty
     /// or trivial geometries. The owned branch still reuses the thread-local
@@ -80,7 +80,7 @@ impl<P: Projection> GeoPath<P> {
         })
     }
 
-    /// Render a GeoJSON geometry into `buf`.
+    /// Render a `GeoJSON` geometry into `buf`.
     pub fn render_into(&self, geometry: &GeoJsonGeometry, buf: &mut String) {
         match geometry {
             GeoJsonGeometry::Point(lon, lat) => self.render_point_into(*lon, *lat, buf),
@@ -169,18 +169,15 @@ impl<P: Projection> GeoPath<P> {
         let rotate = self.projection.stream_rotation();
         let rotation = clip_rotation(rotate);
 
-        match self.projection.clip_angle() {
-            Some(angle) => {
-                let pieces = clip_circle(coords, false, &rotation, radians(angle));
-                for piece in &pieces {
-                    self.render_line_piece(buf, d, piece);
-                }
+        if let Some(angle) = self.projection.clip_angle() {
+            let pieces = clip_circle(coords, false, &rotation, radians(angle));
+            for piece in &pieces {
+                self.render_line_piece(buf, d, piece);
             }
-            None => {
-                let pieces = clip_antimeridian(coords, false, &rotation);
-                for piece in &pieces {
-                    self.render_line_piece(buf, d, piece);
-                }
+        } else {
+            let pieces = clip_antimeridian(coords, false, &rotation);
+            for piece in &pieces {
+                self.render_line_piece(buf, d, piece);
             }
         }
     }
@@ -203,10 +200,10 @@ impl<P: Projection> GeoPath<P> {
             }
 
             if need_move {
-                write!(buf, "M{:.d$},{:.d$}", x, y, d = d).unwrap();
+                write!(buf, "M{x:.d$},{y:.d$}").unwrap();
                 need_move = false;
             } else {
-                write!(buf, "L{:.d$},{:.d$}", x, y, d = d).unwrap();
+                write!(buf, "L{x:.d$},{y:.d$}").unwrap();
             }
         }
     }
@@ -233,7 +230,8 @@ impl<P: Projection> GeoPath<P> {
     /// Render a polygon.
     #[allow(dead_code)]
     pub(super) fn render_polygon(&self, rings: &[Vec<(f64, f64)>]) -> String {
-        let mut buf = String::with_capacity(rings.iter().map(|r| r.len()).sum::<usize>() * 24);
+        let mut buf =
+            String::with_capacity(rings.iter().map(std::vec::Vec::len).sum::<usize>() * 24);
         self.render_polygon_into(rings, &mut buf);
         buf
     }
@@ -310,11 +308,11 @@ impl<P: Projection> GeoPath<P> {
                 continue;
             }
 
-            if !ring_started {
-                write!(buf, "M{:.d$},{:.d$}", x, y, d = d).unwrap();
-                ring_started = true;
+            if ring_started {
+                write!(buf, "L{x:.d$},{y:.d$}").unwrap();
             } else {
-                write!(buf, "L{:.d$},{:.d$}", x, y, d = d).unwrap();
+                write!(buf, "M{x:.d$},{y:.d$}").unwrap();
+                ring_started = true;
             }
         }
 
@@ -998,7 +996,7 @@ fn great_circle_intersection_to_plane(
 
     let (mut lo, mut hi) = (0.0, 1.0);
     for _ in 0..16 {
-        let mid = (lo + hi) / 2.0;
+        let mid = f64::midpoint(lo, hi);
         let m = vec_slerp(a, b, mid);
         let dm = vec_dot(m, center);
         if (da - target_dot).signum() == (dm - target_dot).signum() {
@@ -1007,7 +1005,7 @@ fn great_circle_intersection_to_plane(
             hi = mid;
         }
     }
-    cartesian_to_spherical(vec_slerp(a, b, (lo + hi) / 2.0))
+    cartesian_to_spherical(vec_slerp(a, b, f64::midpoint(lo, hi)))
 }
 
 /// Sample points along the shorter arc of the spherical-cap boundary between
@@ -1437,7 +1435,7 @@ fn circle_segment_intersection(
     let discriminant = b * b - 4.0 * a * d_val;
     if discriminant < 0.0 {
         // No real intersection; return midpoint.
-        return ((p1.0 + p2.0) / 2.0, (p1.1 + p2.1) / 2.0);
+        return (f64::midpoint(p1.0, p2.0), f64::midpoint(p1.1, p2.1));
     }
     let sqrt_disc = discriminant.sqrt();
     let t1 = (-b - sqrt_disc) / (2.0 * a);

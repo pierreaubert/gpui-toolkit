@@ -226,7 +226,7 @@ impl PieChart {
         let plot_width = layout_width;
 
         // Calculate radius
-        let radius = (plot_width.min(plot_height) / 2.0) as f64 * 0.9; // 90% fit
+        let radius = f64::from(plot_width.min(plot_height) / 2.0) * 0.9; // 90% fit
         let inner_radius = radius * self.inner_radius_fraction;
 
         // Prepare pie generator
@@ -245,14 +245,13 @@ impl PieChart {
         // default palette is a `static` slice, so no allocation is needed when
         // no custom colors are supplied. An empty custom palette is treated as
         // `None` to avoid division by zero.
-        let custom_palette: Option<Vec<u32>> =
-            self.colors.filter(|c| !c.is_empty()).map(|c| c.to_vec());
+        let custom_palette: Option<Vec<u32>> = self.colors.filter(|c| !c.is_empty());
 
         // Pre-build flattened paths for every slice. The points are relative to
         // the plot-area origin, with the pie centered at (plot_width/2,
         // plot_height/2); bounds.origin is applied in the paint closure.
-        let center_x = plot_width as f64 / 2.0;
-        let center_y = plot_height as f64 / 2.0;
+        let center_x = f64::from(plot_width) / 2.0;
+        let center_y = f64::from(plot_height) / 2.0;
         let arc_gen = Arc::new().center(center_x, center_y);
         let slice_paths: StdArc<[Vec<gpui::Point<gpui::Pixels>>]> = slices
             .iter()
@@ -403,12 +402,12 @@ pub fn pie_chart_scene(
     use d3rs::vello2d::peniko::{Brush, Color};
 
     let sx = if source_width > 0.0 {
-        width as f64 / source_width as f64
+        f64::from(width) / f64::from(source_width)
     } else {
         1.0
     };
     let sy = if source_height > 0.0 {
-        height as f64 / source_height as f64
+        f64::from(height) / f64::from(source_height)
     } else {
         1.0
     };
@@ -423,16 +422,16 @@ pub fn pie_chart_scene(
         let mut path = BezPath::new();
         path.push(PathEl::MoveTo(
             (
-                f32::from(first.x) as f64 * sx,
-                f32::from(first.y) as f64 * sy,
+                f64::from(f32::from(first.x)) * sx,
+                f64::from(f32::from(first.y)) * sy,
             )
                 .into(),
         ));
         for point in points.iter().skip(1) {
             path.push(PathEl::LineTo(
                 (
-                    f32::from(point.x) as f64 * sx,
-                    f32::from(point.y) as f64 * sy,
+                    f64::from(f32::from(point.x)) * sx,
+                    f64::from(f32::from(point.y)) * sy,
                 )
                     .into(),
             ));
@@ -485,7 +484,12 @@ pub fn pie(values: &[f64]) -> PieChart {
 impl PieChart {
     /// Set labels for slices (used for tooltips/legend - currently unused).
     pub fn labels(mut self, labels: &[impl ToString]) -> Self {
-        self.labels = Some(labels.iter().map(|l| l.to_string()).collect());
+        self.labels = Some(
+            labels
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
+        );
         self
     }
 }
@@ -527,7 +531,7 @@ mod tests {
     fn test_pie_valid_values() {
         let values = vec![10.0, 20.0, 30.0];
         let result = pie(&values).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -617,7 +621,7 @@ mod tests {
     #[test]
     fn test_pie_donut_builds() {
         let result = donut(&[10.0, 20.0, 30.0]).title("Donut").build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -625,13 +629,13 @@ mod tests {
         let result = pie(&[10.0, 20.0, 30.0])
             .colors(&[0xff0000, 0x00ff00, 0x0000ff])
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
     fn test_pie_empty_custom_colors_treated_as_default() {
         let result = pie(&[10.0, 20.0, 30.0]).colors(&[]).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -645,13 +649,13 @@ mod tests {
             .colors(&[0xff0000, 0x00ff00, 0x0000ff])
             .size(500.0, 500.0)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
     fn test_pie_all_zero_but_one() {
         // Sum is positive, should build
         let result = pie(&[0.0, 0.0, 10.0]).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 }

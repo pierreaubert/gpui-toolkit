@@ -88,7 +88,7 @@ pub fn geo_distance(lon1: f64, lat1: f64, lon2: f64, lat2: f64) -> f64 {
     sin_sigma.atan2(cos_sigma)
 }
 
-/// Calculate the length of a GeoJSON LineString or MultiLineString in radians.
+/// Calculate the length of a `GeoJSON` `LineString` or `MultiLineString` in radians.
 ///
 /// # Arguments
 /// * `coordinates` - Slice of (longitude, latitude) pairs in degrees

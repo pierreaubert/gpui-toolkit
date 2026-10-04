@@ -1,4 +1,4 @@
-//! WidgetKit / Live Activity snapshot bridge.
+//! `WidgetKit` / Live Activity snapshot bridge.
 //!
 //! Widget extensions cannot host an interactive GPUI renderer. The containing
 //! app renders deterministic image payloads and timeline metadata into an App

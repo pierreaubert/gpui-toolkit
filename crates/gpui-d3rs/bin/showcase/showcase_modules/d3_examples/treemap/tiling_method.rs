@@ -154,10 +154,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         &root,
         0.0,
         0.0,
-        plot_size as f64,
-        plot_size as f64,
+        f64::from(plot_size),
+        f64::from(plot_size),
         tiling_method,
-        padding as f64,
+        f64::from(padding),
         0,
         0,
         &mut rects,
@@ -454,7 +454,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                 .child(
                                     div()
                                         .text_sm()
-                                        .child(format!("Total size: {} bytes", total_value)),
+                                        .child(format!("Total size: {total_value} bytes")),
                                 )
                                 .child(
                                     div()

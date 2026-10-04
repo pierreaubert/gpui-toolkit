@@ -9,6 +9,9 @@ use gpui_ui_kit::theme::ThemeExt;
 /// The surface functions and ranges are fixed, so the key currently only
 /// captures the grid resolutions. If the analytic functions are ever changed,
 /// additional fields should be added here and to [`SURFACE_PLOT_CACHE_KEY`].
+// The `_res` suffix is intentional: every field is a grid resolution and the
+// explicit suffix prevents mix-ups with counts or sizes at use sites.
+#[allow(clippy::struct_field_names)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SurfacePlotCacheKey {
     pub freq_response_res: usize,

@@ -1,9 +1,9 @@
-//! Integration tests for ContextMenu component
+//! Integration tests for `ContextMenu` component
 //!
-//! Tests the ContextMenu component including:
+//! Tests the `ContextMenu` component including:
 //! - Basic rendering
 //! - With position
-//! - With handlers (on_select, on_close)
+//! - With handlers (`on_select`, `on_close`)
 //! - With min width
 //! - Full configuration
 

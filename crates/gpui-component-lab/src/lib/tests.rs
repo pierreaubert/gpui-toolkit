@@ -720,5 +720,5 @@ fn ensure_conformance_passed_reports_failures() {
 
     let passing = ComponentLabConformanceReport::new(1, &token_report, Vec::new());
     assert!(passing.passed());
-    assert!(ensure_component_lab_conformance_passed(&passing).is_ok());
+    ensure_component_lab_conformance_passed(&passing).unwrap();
 }

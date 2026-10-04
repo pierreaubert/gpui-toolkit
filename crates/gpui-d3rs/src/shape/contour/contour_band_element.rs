@@ -126,7 +126,7 @@ where
 
     let mut prepared = Vec::with_capacity(bands.iter().map(|b| b.polygons.len()).sum());
 
-    for band in bands.iter() {
+    for band in bands {
         let fill_color = get_fill_color(band.mid_value());
 
         for ring in &band.polygons {
