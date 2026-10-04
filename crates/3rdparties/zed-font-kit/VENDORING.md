@@ -5,8 +5,32 @@
 - Source: `https://github.com/zed-industries/font-kit`
 - Upstream base: Servo `font-kit`
 - Local package: `zed-font-kit 0.14.1-zed`
-- Root dependency pin: `110523127440aefb11ce0cf280ae7c5071337ec5`
-- Last reviewed: 2026-07-08
+- Root dependency pin: `94b0f28166665e8fd2f53ff6d268a14955c82269`
+- Last reviewed: 2026-10-04 against that pinned revision
+
+## Pinned source comparison
+
+- Upstream root tree: `a9dd26e1b5f651d474b3ffe11a16f0c7471b9440`.
+- Local tree at toolkit `77d13fa8d9cf1f7462aece14dfd946a3900483be`:
+  `fd3baa7d0e1fc56f35dd1448e728fcee426d7842`.
+- Eight common source files differ, including canvas conversion, font source
+  selection, and platform loaders; local split loader/source modules also
+  differ structurally. The manifest carries target cfg and `dirs` alignment.
+  The source differences need classification before claiming upstream parity.
+
+The changed common sources are `src/canvas.rs`, `src/loaders/core_text.rs`,
+`src/loaders/directwrite.rs`, `src/loaders/freetype.rs`, `src/loaders/mod.rs`,
+`src/source.rs`, `src/sources/fontconfig.rs`, and `src/sources/mod.rs`.
+
+Reproduce the comparison from clean checkouts outside active worktrees
+(exit status 1 means files differ):
+
+```sh
+git clone https://github.com/zed-industries/font-kit /tmp/zed-font-kit-audit
+git -C /tmp/zed-font-kit-audit checkout --detach 94b0f28166665e8fd2f53ff6d268a14955c82269
+git -C gpui-toolkit worktree add --detach /tmp/gpui-toolkit-audit 77d13fa8d9cf1f7462aece14dfd946a3900483be
+git diff --no-index -- /tmp/zed-font-kit-audit/src /tmp/gpui-toolkit-audit/crates/3rdparties/zed-font-kit/src
+```
 
 ## Build Status
 
@@ -51,6 +75,9 @@ targets. The vendored copy carries the Apple mobile target fixes.
 - On upgrade, diff this directory against the target `zed-industries/font-kit`
   revision; add any newly retained source changes to this file and the manifest
   before release.
+- Removal requires equivalent Apple mobile target selection, bitmap expansion,
+  and CSS-generic family behavior in the selected upstream revision, plus
+  direct canvas/source tests and Apple mobile/font discovery checks.
 
 ## Upgrade Procedure
 
