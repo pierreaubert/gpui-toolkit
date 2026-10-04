@@ -384,6 +384,7 @@ codegen-units = 256
 zed-font-kit = { path = "crates/3rdparties/zed-font-kit" }
 
 [patch.crates-io]
+psm = { git = "https://github.com/pierreaubert/stacker.git", rev = "48bf8e3abfb350de9387a675275a629e4daf9717" }
 block = { path = "crates/3rdparties/block" }
 objc = { path = "crates/3rdparties/objc" }
 async-task = { git = "https://github.com/smol-rs/async-task.git", rev = "b4486cd71e4e94fbda54ce6302444de14f4d190e" }
