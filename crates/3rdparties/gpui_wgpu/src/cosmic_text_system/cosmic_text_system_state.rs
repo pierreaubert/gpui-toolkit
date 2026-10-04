@@ -302,6 +302,7 @@ impl CosmicTextSystemState {
             &attrs_list,
             cosmic_text::Shaping::Advanced,
             4,
+            cosmic_text::Direction::Auto,
         );
         let mut layout_lines = Vec::with_capacity(1);
         line.layout_to_buffer(
@@ -309,6 +310,7 @@ impl CosmicTextSystemState {
             f32::from(font_size),
             None, // We do our own wrapping
             cosmic_text::Wrap::None,
+            cosmic_text::Ellipsize::None,
             None,
             &mut layout_lines,
             None,
