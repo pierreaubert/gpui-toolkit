@@ -31,7 +31,7 @@ fn builder_supplies_scene_lazily() {
     let element = VelloChartElement::with_builder(|w, h| {
         let mut scene = ChartScene::new();
         scene.fill_rect(
-            Rect::new(0.0, 0.0, w as f64, h as f64),
+            Rect::new(0.0, 0.0, f64::from(w), f64::from(h)),
             Brush::Solid(Color::from_rgb8(1, 2, 3)),
         );
         scene

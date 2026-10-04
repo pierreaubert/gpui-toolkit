@@ -83,7 +83,7 @@ impl Action for SetDesignLanguage {
     }
 }
 
-/// MiniApp provides a minimal application shell for GPUI examples and showcases
+/// `MiniApp` provides a minimal application shell for GPUI examples and showcases
 ///
 /// It handles:
 /// - Application lifecycle
@@ -117,7 +117,7 @@ pub(super) fn should_refresh_menus(
 }
 
 impl MiniApp {
-    /// Run a MiniApp with the given configuration and view builder
+    /// Run a `MiniApp` with the given configuration and view builder
     ///
     /// The `build_view` closure receives a `&mut Context<V>` and should return
     /// a `V` instance that implements `Render`.
@@ -145,7 +145,7 @@ impl MiniApp {
         Self::run_with_close_handler(config, |_, _| {}, build_view);
     }
 
-    /// Run a MiniApp, invoking `on_close` every time a window closes.
+    /// Run a `MiniApp`, invoking `on_close` every time a window closes.
     ///
     /// When [`MiniAppConfig::state_file`] is set, the current session state is
     /// saved first and `on_close` runs afterwards, so the handler observes the
@@ -225,7 +225,8 @@ impl MiniApp {
             crate::web_mark_ready();
         };
 
-        let app = gpui::Application::with_platform(platform).with_assets(crate::browser_fonts::BrowserFonts);
+        let app = gpui::Application::with_platform(platform)
+            .with_assets(crate::browser_fonts::BrowserFonts);
         #[cfg(target_family = "wasm")]
         {
             // `WebPlatform::run` returns immediately after scheduling the
@@ -237,7 +238,7 @@ impl MiniApp {
         app.run(launch);
     }
 
-    /// Run a MiniApp opening one window per configuration. Actions and the
+    /// Run a `MiniApp` opening one window per configuration. Actions and the
     /// menu bar come from the first configuration; `build_view` receives the
     /// window index so each window can render distinct content.
     pub fn run_multi<V, F>(configs: Vec<MiniAppConfig>, build_view: F)
@@ -328,7 +329,8 @@ impl MiniApp {
             crate::web_mark_ready();
         };
 
-        let app = gpui::Application::with_platform(platform).with_assets(crate::browser_fonts::BrowserFonts);
+        let app = gpui::Application::with_platform(platform)
+            .with_assets(crate::browser_fonts::BrowserFonts);
         #[cfg(target_family = "wasm")]
         {
             std::mem::forget(app.run_embedded(launch));
@@ -417,12 +419,10 @@ impl MiniApp {
         let initial_size = size(px(config.width), px(config.height));
         let initial_size = window_min_size
             .as_ref()
-            .map(|min_size| initial_size.max(min_size))
-            .unwrap_or(initial_size);
+            .map_or(initial_size, |min_size| initial_size.max(min_size));
         let initial_size = display_size
             .as_ref()
-            .map(|display_size| initial_size.min(display_size))
-            .unwrap_or(initial_size);
+            .map_or(initial_size, |display_size| initial_size.min(display_size));
         let bounds = Bounds::centered(None, initial_size, cx);
 
         let scrollable = config.scrollable;
@@ -516,12 +516,10 @@ impl MiniApp {
             if let Some(path) = state_file.as_deref() {
                 let theme = cx
                     .try_global::<ThemeState>()
-                    .map(|state| state.theme.variant)
-                    .unwrap_or(fallback_theme);
+                    .map_or(fallback_theme, |state| state.theme.variant);
                 let language = cx
                     .try_global::<I18nState>()
-                    .map(|state| state.language)
-                    .unwrap_or(fallback_language);
+                    .map_or(fallback_language, |state| state.language);
                 let snapshot =
                     MiniAppState::snapshot(fallback_size.0, fallback_size.1, theme, language);
                 if let Err(error) = save_miniapp_state(path, &snapshot) {
@@ -604,7 +602,7 @@ impl MiniApp {
                 disabled: false,
                 items: view_items,
             });
-        }
+        };
 
         // Language menu if i18n enabled
         if config.with_i18n {
@@ -651,16 +649,14 @@ impl MiniApp {
     fn refresh_menus(cx: &mut App, config: &MiniAppConfig) {
         let current_theme = cx
             .try_global::<ThemeState>()
-            .map(|state| state.theme.variant)
-            .unwrap_or(config.initial_theme);
-        let current_design = cx
-            .try_global::<DesignSystemState>()
-            .map(|state| state.system.language)
-            .unwrap_or_else(|| DesignSystem::platform_default().language);
+            .map_or(config.initial_theme, |state| state.theme.variant);
+        let current_design = cx.try_global::<DesignSystemState>().map_or_else(
+            || DesignSystem::platform_default().language,
+            |state| state.system.language,
+        );
         let current_language = cx
             .try_global::<I18nState>()
-            .map(|state| state.language)
-            .unwrap_or(config.initial_language);
+            .map_or(config.initial_language, |state| state.language);
         let signature = AppliedMenuSignature {
             theme: current_theme,
             design: current_design,
@@ -720,9 +716,9 @@ impl MiniApp {
         cx.refresh_windows();
     }
 
-    /// Run a MiniApp with default configuration
+    /// Run a `MiniApp` with default configuration
     ///
-    /// Uses "MiniApp" as the default title and 900x700 window size.
+    /// Uses "`MiniApp`" as the default title and 900x700 window size.
     pub fn run_default<V, F>(build_view: F)
     where
         V: Render + 'static,

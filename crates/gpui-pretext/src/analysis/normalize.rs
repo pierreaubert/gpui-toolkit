@@ -67,9 +67,9 @@ pub fn normalize_whitespace_pre_wrap(text: &str) -> Cow<'_, str> {
             result.push(ch);
         }
     }
-    if !changed {
-        Cow::Borrowed(text)
-    } else {
+    if changed {
         Cow::Owned(result)
+    } else {
+        Cow::Borrowed(text)
     }
 }

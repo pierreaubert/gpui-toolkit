@@ -247,9 +247,9 @@ fn render_cached_scatter_vello(
             for &(x, y) in normalized.iter() {
                 if (0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y) {
                     scene.fill_circle(
-                        x * width as f64,
-                        (1.0 - y) * height as f64,
-                        point_radius as f64,
+                        x * f64::from(width),
+                        (1.0 - y) * f64::from(height),
+                        f64::from(point_radius),
                         brush(color),
                     );
                 }
@@ -270,9 +270,9 @@ fn render_cached_scatter_vello(
                     continue;
                 }
                 scene.fill_circle(
-                    (x - viewport.x0) / x_span * width as f64,
-                    (1.0 - (y - viewport.y0) / y_span) * height as f64,
-                    point_radius.max(1.5) as f64,
+                    (x - viewport.x0) / x_span * f64::from(width),
+                    (1.0 - (y - viewport.y0) / y_span) * f64::from(height),
+                    f64::from(point_radius.max(1.5)),
                     brush(color),
                 );
             }
@@ -296,10 +296,10 @@ fn render_cached_scatter_vello(
             let y = row as f32 * cell_height;
             scene.fill_rect(
                 Rect::new(
-                    x as f64,
-                    y as f64,
-                    (x + cell_width.ceil()) as f64,
-                    (y + cell_height.ceil()) as f64,
+                    f64::from(x),
+                    f64::from(y),
+                    f64::from(x + cell_width.ceil()),
+                    f64::from(y + cell_height.ceil()),
                 ),
                 brush([color[0], color[1], color[2], alpha]),
             );

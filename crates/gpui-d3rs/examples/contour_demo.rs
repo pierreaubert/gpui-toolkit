@@ -46,7 +46,7 @@ fn main() {
     let thresholds = vec![0.25, 0.5, 0.75];
     let generator = ContourGenerator::new(5, 5);
 
-    println!("\nContours at thresholds {:?}:", thresholds);
+    println!("\nContours at thresholds {thresholds:?}:");
     for threshold in &thresholds {
         let c = generator.contour(&grid, *threshold);
         println!(
@@ -82,14 +82,14 @@ fn main() {
         }
     }
 
-    println!("{}x{} Gaussian peak grid:", size, size);
+    println!("{size}x{size} Gaussian peak grid:");
     println!(
         "  Min: {:.3}",
-        large_grid.iter().cloned().fold(f64::INFINITY, f64::min)
+        large_grid.iter().copied().fold(f64::INFINITY, f64::min)
     );
     println!(
         "  Max: {:.3}",
-        large_grid.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+        large_grid.iter().copied().fold(f64::NEG_INFINITY, f64::max)
     );
 
     // Generate multiple contour levels
@@ -117,14 +117,14 @@ fn main() {
         let mut pts = Vec::new();
         // Cluster 1 around (0.3, 0.3)
         for i in 0..50 {
-            let angle = (i as f64) * 0.1;
-            let r = 0.1 * (i as f64 % 5.0) / 5.0;
+            let angle = f64::from(i) * 0.1;
+            let r = 0.1 * (f64::from(i) % 5.0) / 5.0;
             pts.push((0.3 + r * angle.cos(), 0.3 + r * angle.sin()));
         }
         // Cluster 2 around (0.7, 0.7)
         for i in 0..30 {
-            let angle = (i as f64) * 0.15;
-            let r = 0.08 * (i as f64 % 4.0) / 4.0;
+            let angle = f64::from(i) * 0.15;
+            let r = 0.08 * (f64::from(i) % 4.0) / 4.0;
             pts.push((0.7 + r * angle.cos(), 0.7 + r * angle.sin()));
         }
         pts
@@ -143,12 +143,12 @@ fn main() {
 
     let density_grid = estimator.estimate(&points);
 
-    let max_density = density_grid.iter().cloned().fold(0.0_f64, f64::max);
+    let max_density = density_grid.iter().copied().fold(0.0_f64, f64::max);
     let mean_density: f64 = density_grid.iter().sum::<f64>() / density_grid.len() as f64;
 
     println!("\nDensity estimation (20x20, bandwidth=0.1):");
-    println!("  Max density: {:.4}", max_density);
-    println!("  Mean density: {:.6}", mean_density);
+    println!("  Max density: {max_density:.4}");
+    println!("  Mean density: {mean_density:.6}");
 
     // Find peak locations
     let mut max_idx = 0;
@@ -161,7 +161,7 @@ fn main() {
     }
     let peak_x = (max_idx % 20) as f64 / 20.0;
     let peak_y = (max_idx / 20) as f64 / 20.0;
-    println!("  Peak location: ({:.2}, {:.2})", peak_x, peak_y);
+    println!("  Peak location: ({peak_x:.2}, {peak_y:.2})");
 
     // Generate density contours
     println!("\nDensity contours:");
@@ -181,10 +181,10 @@ fn main() {
 
     let (grid, width, height) = density_2d(&simple_points, 10, 10, 0.15);
     println!("Simple density_2d() for {} points:", simple_points.len());
-    println!("  Grid size: {}x{}", width, height);
+    println!("  Grid size: {width}x{height}");
     println!(
         "  Max value: {:.4}",
-        grid.iter().cloned().fold(0.0_f64, f64::max)
+        grid.iter().copied().fold(0.0_f64, f64::max)
     );
 
     // ========================================
@@ -196,7 +196,7 @@ fn main() {
     for x in [-2.0, -1.0, 0.0, 1.0, 2.0] {
         let k = gaussian_kernel(x, 1.0);
         let bar: String = std::iter::repeat_n('#', (k * 50.0) as usize).collect();
-        println!("  x={:5.1}: {:.4} {}", x, k, bar);
+        println!("  x={x:5.1}: {k:.4} {bar}");
     }
 
     // ========================================
@@ -204,7 +204,7 @@ fn main() {
     // ========================================
     println!("\n--- Threshold Calculation ---\n");
 
-    let values: Vec<f64> = (0..100).map(|i| i as f64).collect();
+    let values: Vec<f64> = (0..100).map(f64::from).collect();
     let min = 0.0;
     let max = 100.0;
 
@@ -250,7 +250,7 @@ fn main() {
 
     // ASCII visualization with contour levels
     let chars = [' ', '.', ':', '-', '=', '+', '*', '#', '@'];
-    println!("Contour visualization ({}x{}):", viz_size, viz_size);
+    println!("Contour visualization ({viz_size}x{viz_size}):");
     for y in 0..viz_size {
         print!("  ");
         for x in 0..viz_size {

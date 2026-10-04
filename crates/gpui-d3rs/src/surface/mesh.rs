@@ -196,7 +196,7 @@ impl Default for SurfaceMesh {
 
 /// Triangulate a grid of points into triangles
 ///
-/// This is a utility function that can be used independently of SurfaceMesh.
+/// This is a utility function that can be used independently of `SurfaceMesh`.
 pub fn _triangulate_grid(data: &SurfaceData) -> Vec<Triangle> {
     SurfaceMesh::from_surface_data(data).triangles
 }

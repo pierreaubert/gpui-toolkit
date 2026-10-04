@@ -1,4 +1,4 @@
-//! DragList component
+//! `DragList` component
 //!
 //! A reorderable list via drag-and-drop. Items can be reordered by dragging.
 //!
@@ -166,7 +166,7 @@ impl DragList {
         self
     }
 
-    /// Called when items are reordered (from_index, to_index)
+    /// Called when items are reordered (`from_index`, `to_index`)
     pub fn on_reorder(
         mut self,
         handler: impl Fn(usize, usize, &mut Window, &mut App) + 'static,
@@ -206,11 +206,7 @@ impl DragList {
                     container = container.child(div().h(px(top)));
                 }
                 let bottom = (total.saturating_sub(end)) as f32 * row_height;
-                if bottom > 0.0 {
-                    Some(div().h(px(bottom)))
-                } else {
-                    None
-                }
+                (bottom > 0.0).then(|| div().h(px(bottom)))
             }
             None => None,
         };

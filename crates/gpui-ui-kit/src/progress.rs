@@ -175,7 +175,7 @@ impl Progress {
                     .justify_between()
                     .text_xs()
                     .text_color(theme.text_secondary)
-                    .child(format!("{:.0}%", percentage)),
+                    .child(format!("{percentage:.0}%")),
             );
         }
 
@@ -207,7 +207,7 @@ impl RenderOnce for Progress {
             element_id: ElementId::Name("progress".into()),
             label: self.aria_label.clone().unwrap_or_default(),
             props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Progressbar))
-                .value_range(self.value as f64, 0.0, self.max as f64),
+                .value_range(f64::from(self.value), 0.0, f64::from(self.max)),
         });
 
         let theme = cx.theme();
@@ -323,7 +323,7 @@ impl CircularProgress {
                     .text_xs()
                     .font_weight(FontWeight::BOLD)
                     .text_color(theme.text_secondary)
-                    .child(format!("{:.0}%", percentage)),
+                    .child(format!("{percentage:.0}%")),
             );
         }
 

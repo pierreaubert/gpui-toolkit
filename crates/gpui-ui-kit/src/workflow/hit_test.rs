@@ -16,9 +16,9 @@ pub enum HitTestResult {
     None,
     /// A node was hit
     Node(NodeId),
-    /// An input port was hit (node_id, port_index)
+    /// An input port was hit (`node_id`, `port_index`)
     InputPort(NodeId, usize),
-    /// An output port was hit (node_id, port_index)
+    /// An output port was hit (`node_id`, `port_index`)
     OutputPort(NodeId, usize),
     /// A connection was hit
     Connection(ConnectionId),
@@ -140,7 +140,7 @@ impl HitTester {
     ///
     /// This matches the visual layout where:
     /// - Node position is scaled by zoom and offset by viewport
-    /// - Header, padding, and border are fixed screen pixels (matching WorkflowTheme defaults)
+    /// - Header, padding, and border are fixed screen pixels (matching `WorkflowTheme` defaults)
     /// - Content area is scaled node height minus fixed header
     /// - Ports are positioned at content edges (inside the border)
     fn port_screen_position(
@@ -232,13 +232,11 @@ impl HitTester {
         conn: &Connection,
         graph: &WorkflowGraph,
     ) -> bool {
-        let from_node = match graph.nodes.get(&conn.from_node) {
-            Some(n) => n,
-            None => return false,
+        let Some(from_node) = graph.nodes.get(&conn.from_node) else {
+            return false;
         };
-        let to_node = match graph.nodes.get(&conn.to_node) {
-            Some(n) => n,
-            None => return false,
+        let Some(to_node) = graph.nodes.get(&conn.to_node) else {
+            return false;
         };
 
         let from_pos = from_node.output_port_position(conn.from_port);
@@ -279,13 +277,11 @@ impl HitTester {
         viewport: &ViewportState,
         obstacles: &[ObstacleRect],
     ) -> bool {
-        let from_node = match graph.nodes.get(&conn.from_node) {
-            Some(n) => n,
-            None => return false,
+        let Some(from_node) = graph.nodes.get(&conn.from_node) else {
+            return false;
         };
-        let to_node = match graph.nodes.get(&conn.to_node) {
-            Some(n) => n,
-            None => return false,
+        let Some(to_node) = graph.nodes.get(&conn.to_node) else {
+            return false;
         };
 
         // Get port positions in screen coordinates
@@ -404,7 +400,7 @@ mod tests {
         let result = tester.hit_test(Position::new(150.0, 130.0), &graph);
         match result {
             HitTestResult::Node(_) => (),
-            _ => panic!("Expected Node hit, got {:?}", result),
+            _ => panic!("Expected Node hit, got {result:?}"),
         }
     }
 

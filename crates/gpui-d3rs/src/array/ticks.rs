@@ -99,7 +99,7 @@ pub fn tick_increment(start: f64, stop: f64, count: usize) -> f64 {
 
 /// Extend the domain to nice round values.
 ///
-/// Returns (nice_start, nice_stop) that encompass the original domain
+/// Returns (`nice_start`, `nice_stop`) that encompass the original domain
 /// and align with the tick step.
 ///
 /// # Example
@@ -219,7 +219,7 @@ pub fn log_ticks(min: f64, max: f64, base: f64, subdivisions: bool) -> Vec<f64> 
         // Add subdivisions (e.g., 20, 30, ..., 90 for base 10)
         if subdivisions && exp < log_max {
             for i in 2..base.ceil() as i32 {
-                let sub_tick = tick * i as f64;
+                let sub_tick = tick * f64::from(i);
                 if sub_tick >= min && sub_tick <= max {
                     ticks.push(sub_tick);
                 }
@@ -229,7 +229,7 @@ pub fn log_ticks(min: f64, max: f64, base: f64, subdivisions: bool) -> Vec<f64> 
         exp += 1.0;
     }
 
-    ticks.sort_by(|a, b| a.total_cmp(b));
+    ticks.sort_by(f64::total_cmp);
     ticks
 }
 

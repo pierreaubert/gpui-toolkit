@@ -69,8 +69,7 @@ fn metal_uniform(state: &MeshSceneState, is_3d: bool, camera: Option<&Camera3D>)
     let origin = state
         .upload
         .as_ref()
-        .map(|upload| upload.origin)
-        .unwrap_or([0.0; 3]);
+        .map_or([0.0; 3], |upload| upload.origin);
     let (view_proj, model) = if is_3d {
         // Keep the Metal transform in the same two-matrix form as the WGPU
         // path. The camera projection and rebased upload origin remain
@@ -78,8 +77,10 @@ fn metal_uniform(state: &MeshSceneState, is_3d: bool, camera: Option<&Camera3D>)
         // both adapters.
         (
             camera
-                .map(Camera3D::view_projection_matrix)
-                .unwrap_or_else(|| Mat4::from_cols_array_2d(&state.view_transform))
+                .map_or_else(
+                    || Mat4::from_cols_array_2d(&state.view_transform),
+                    Camera3D::view_projection_matrix,
+                )
                 .to_cols_array_2d(),
             Mat4::from_translation(Vec3::new(
                 origin[0] as f32,
@@ -112,7 +113,7 @@ fn metal_uniform(state: &MeshSceneState, is_3d: bool, camera: Option<&Camera3D>)
         light_dir: [0.35, 0.55, 0.75, 0.0],
         params: [
             state.color.colormap as f32,
-            (is_3d && state.color.unlit) as u8 as f32,
+            f32::from(u8::from(is_3d && state.color.unlit)),
             0.3,
             0.7,
         ],
@@ -120,7 +121,7 @@ fn metal_uniform(state: &MeshSceneState, is_3d: bool, camera: Option<&Camera3D>)
             state.color.range[0],
             state.color.range[1],
             if is_3d {
-                field_enabled as u32 as f32
+                u32::from(field_enabled) as f32
             } else {
                 state.color.colormap as f32
             },
@@ -147,7 +148,7 @@ fn metal_uniform_2d(state: &MeshSceneState) -> MetalUniform2d {
         ],
         style: [
             state.color.isoline_width_px,
-            state.color.wireframe as u32 as f32,
+            u32::from(state.color.wireframe) as f32,
             0.0,
             0.0,
         ],
@@ -329,34 +330,34 @@ impl MetalResources {
         }
         let options = MTLResourceOptions::StorageModeShared;
         let vertex_buffer = device.new_buffer_with_data(
-            vertices.as_ptr() as *const c_void,
+            vertices.as_ptr().cast::<c_void>(),
             (vertices.len() * std::mem::size_of::<MetalVertex>()) as u64,
             options,
         );
         let field_values = is_3d.then(|| metal_field_values(upload));
         let value_buffer = field_values.as_ref().map(|values| {
             device.new_buffer_with_data(
-                values.as_ptr() as *const c_void,
+                values.as_ptr().cast::<c_void>(),
                 (values.len() * std::mem::size_of::<f32>()).max(4) as u64,
                 options,
             )
         });
         let line_buffer = device.new_buffer_with_data(
-            lines.as_ptr() as *const c_void,
+            lines.as_ptr().cast::<c_void>(),
             (lines.len() * std::mem::size_of::<MetalVertex>()) as u64,
             options,
         );
         let uniform_buffer = if is_3d {
             let uniform = metal_uniform(state, true, camera);
             device.new_buffer_with_data(
-                &uniform as *const MetalUniform as *const c_void,
+                (&raw const uniform).cast(),
                 std::mem::size_of::<MetalUniform>() as u64,
                 options,
             )
         } else {
             let uniform = metal_uniform_2d(state);
             device.new_buffer_with_data(
-                &uniform as *const MetalUniform2d as *const c_void,
+                (&raw const uniform).cast(),
                 std::mem::size_of::<MetalUniform2d>() as u64,
                 options,
             )
@@ -410,7 +411,7 @@ impl MetalResources {
         let (triad, triad_pipeline, triad_depth_state, triad_count) = if is_3d {
             let triad_vertices = metal_triad_vertices(None);
             let triad = device.new_buffer_with_data(
-                triad_vertices.as_ptr() as *const c_void,
+                triad_vertices.as_ptr().cast::<c_void>(),
                 (triad_vertices.len() * std::mem::size_of::<MetalVertex>()) as u64,
                 options,
             );
@@ -506,11 +507,11 @@ impl MetalResources {
             // that capacity.
             unsafe {
                 ptr::copy_nonoverlapping(
-                    values.as_ptr() as *const u8,
-                    values_buffer.contents() as *mut u8,
+                    values.as_ptr().cast::<u8>(),
+                    values_buffer.contents().cast::<u8>(),
                     std::mem::size_of_val(values.as_slice()),
                 );
-            }
+            };
             return std::mem::size_of_val(values.as_slice()) as u64;
         }
 
@@ -523,7 +524,7 @@ impl MetalResources {
         }
 
         let mut offset = 0usize;
-        let contents = self.vertices.contents() as *mut MetalVertex;
+        let contents = self.vertices.contents().cast::<MetalVertex>();
         for (cell, triangle) in upload.indices.as_chunks::<3>().0.iter().enumerate() {
             let cell_value = upload
                 .cell_values_f32
@@ -545,7 +546,7 @@ impl MetalResources {
                 // count, and `MetalVertex` matches the buffer's vertex layout.
                 unsafe {
                     (*contents.add(offset)).value = value;
-                }
+                };
                 offset += 1;
             }
         }
@@ -560,15 +561,15 @@ impl MetalResources {
         unsafe {
             if self.is_3d {
                 ptr::copy_nonoverlapping(
-                    &uniform as *const MetalUniform as *const u8,
-                    self.uniform.contents() as *mut u8,
+                    (&raw const uniform).cast(),
+                    self.uniform.contents().cast::<u8>(),
                     std::mem::size_of::<MetalUniform>(),
                 );
             } else {
                 let uniform = metal_uniform_2d(state);
                 ptr::copy_nonoverlapping(
-                    &uniform as *const MetalUniform2d as *const u8,
-                    self.uniform.contents() as *mut u8,
+                    (&raw const uniform).cast(),
+                    self.uniform.contents().cast::<u8>(),
                     std::mem::size_of::<MetalUniform2d>(),
                 );
             }
@@ -585,8 +586,8 @@ impl MetalResources {
         // array on the render thread.
         unsafe {
             ptr::copy_nonoverlapping(
-                vertices.as_ptr() as *const u8,
-                triad.contents() as *mut u8,
+                vertices.as_ptr().cast::<u8>(),
+                triad.contents().cast::<u8>(),
                 std::mem::size_of_val(&vertices),
             );
         }
@@ -676,7 +677,7 @@ impl MetalCustomDraw for MetalMeshDraw {
             }
             state.set_gpu_memory(resident_bytes, field_capacity_bytes);
             state.set_gpu_driver_memory(driver_allocated_bytes);
-        }
+        };
         let state = self.state.borrow();
         resources.update_uniform(&state, camera.as_ref());
         resources.update_triad(camera.as_ref());
@@ -718,10 +719,10 @@ impl MetalCustomDraw for MetalMeshDraw {
         let viewport_width = (right - left).max(1.0);
         let viewport_height = (bottom - top).max(1.0);
         encoder.set_viewport(MTLViewport {
-            originX: left as f64,
-            originY: top as f64,
-            width: viewport_width as f64,
-            height: viewport_height as f64,
+            originX: f64::from(left),
+            originY: f64::from(top),
+            width: f64::from(viewport_width),
+            height: f64::from(viewport_height),
             znear: 0.0,
             zfar: 1.0,
         });
@@ -742,7 +743,7 @@ impl MetalCustomDraw for MetalMeshDraw {
         // Vertex and fragment stages have independent bindings. The old 2D
         // path used the same buffer layout; bind it explicitly so 3D scalar
         // coloring/lighting never reads an unbound fragment uniform.
-        encoder.set_fragment_buffer(if self.is_3d { 0 } else { 1 }, Some(&resources.uniform), 0);
+        encoder.set_fragment_buffer(u64::from(!self.is_3d), Some(&resources.uniform), 0);
         if resources.vertex_count != 0 {
             encoder.draw_primitives(MTLPrimitiveType::Triangle, 0, resources.vertex_count as u64);
         }

@@ -317,7 +317,7 @@ pub const PX_CHART_STORY_IDS: &[&str] = &[
 
 /// Component-lab mesh stories. The base story is the editable mode matrix;
 /// the named variants keep the release captures deterministic and make each
-/// required MeshPlot view directly addressable from the lab.
+/// required `MeshPlot` view directly addressable from the lab.
 pub const MESH_PLOT_STORY_IDS: &[&str] = &[
     "px.mesh_plot",
     "px.mesh_plot.mesh_only",

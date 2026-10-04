@@ -10,6 +10,9 @@ readme = "README.md"
 keywords = ["gpui", "theme", "ui"]
 categories = ["gui"]
 
+[lints]
+workspace = true
+
 [features]
 default = []
 autoeq = []

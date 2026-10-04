@@ -44,7 +44,7 @@
 //! The thread-local `HashMap` entries grow as new element IDs are used and are
 //! never automatically cleaned up. For most applications this is fine because:
 //! - Element IDs are typically static or part of a bounded set
-//! - The stored data is small (FocusHandle, EditState)
+//! - The stored data is small (`FocusHandle`, `EditState`)
 //!
 //! If you have dynamic element IDs (e.g., from a virtualized list), consider:
 //! 1. Using a stable ID scheme that reuses IDs
@@ -490,14 +490,12 @@ impl InputEntity {
             .text
             .char_indices()
             .nth(start)
-            .map(|(idx, _)| idx)
-            .unwrap_or(state.text.len());
+            .map_or(state.text.len(), |(idx, _)| idx);
         let end_byte = state
             .text
             .char_indices()
             .nth(end)
-            .map(|(idx, _)| idx)
-            .unwrap_or(state.text.len());
+            .map_or(state.text.len(), |(idx, _)| idx);
 
         state.text.replace_range(start_byte..end_byte, text);
         state.cursor = start + text.chars().count();
@@ -623,7 +621,7 @@ impl InputEntity {
         &mut self,
         event: &MouseMoveEvent,
         window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
         let mut state = self.edit_state.borrow_mut();
         if state.is_dragging && state.editing {
@@ -637,7 +635,7 @@ impl InputEntity {
             state.update_selection(char_pos);
             let selection = Self::selection_from_state(&state);
             drop(state);
-            self.emit_selection_change(selection, window, _cx);
+            self.emit_selection_change(selection, window, cx);
             window.refresh();
         }
     }
@@ -646,14 +644,14 @@ impl InputEntity {
         &mut self,
         _event: &MouseUpEvent,
         window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
         let mut state = self.edit_state.borrow_mut();
         if state.is_dragging {
             state.end_selection();
             let selection = Self::selection_from_state(&state);
             drop(state);
-            self.emit_selection_change(selection, window, _cx);
+            self.emit_selection_change(selection, window, cx);
             window.refresh();
         }
     }
@@ -921,6 +919,9 @@ impl InputEntity {
     }
 
     /// Unmodified keys: commit, escape, editing, navigation, text entry.
+    // Modifier flags mirror the key-event fields one-to-one; routing
+    // them through a struct adds indirection at every call site.
+    #[allow(clippy::fn_params_excessive_bools)]
     fn handle_plain_key(
         &mut self,
         key: &str,
@@ -1106,14 +1107,12 @@ impl EntityInputHandler for InputEntity {
             .text
             .char_indices()
             .nth(start)
-            .map(|(idx, _)| idx)
-            .unwrap_or(state.text.len());
+            .map_or(state.text.len(), |(idx, _)| idx);
         let end_byte = state
             .text
             .char_indices()
             .nth(end)
-            .map(|(idx, _)| idx)
-            .unwrap_or(state.text.len());
+            .map_or(state.text.len(), |(idx, _)| idx);
         *adjusted_range =
             Some(Self::char_to_utf16(&state.text, start)..Self::char_to_utf16(&state.text, end));
         Some(state.text[start_byte..end_byte].to_string())
@@ -1164,12 +1163,10 @@ impl EntityInputHandler for InputEntity {
 
         self.ensure_editing_state();
         let mut state = self.edit_state.borrow_mut();
-        let range = range
-            .map(|range| {
+        let range = range.map_or_else(|| Self::current_selected_char_range(&state), |range| {
                 Self::utf16_to_char(&state.text, range.start)
                     ..Self::utf16_to_char(&state.text, range.end)
-            })
-            .unwrap_or_else(|| Self::current_selected_char_range(&state));
+            });
         Self::replace_char_range(&mut state, range, text);
         let selection = Self::selection_from_state(&state);
         self.emit_text_change(&state.text, window, cx);
@@ -1376,11 +1373,7 @@ impl Render for InputEntity {
             None
         };
         let cursor_pos = state.cursor;
-        let edit_text: Option<SharedString> = if editing && state.editing {
-            Some(state.text.clone().into())
-        } else {
-            None
-        };
+        let edit_text: Option<SharedString> = (editing && state.editing).then(|| state.text.clone().into());
         drop(state);
 
         let border_color = if has_error {
@@ -1532,22 +1525,7 @@ impl Render for InputEntity {
 
             text_el = text_el.text_color(text_color).whitespace_nowrap();
 
-            if sel_start != sel_end {
-                let text = display_text.as_ref();
-                let (sel_start_byte, sel_end_byte) =
-                    Self::char_range_byte_offsets(text, sel_start, sel_end);
-                let before: SharedString = text[..sel_start_byte].into();
-                let selected: SharedString = text[sel_start_byte..sel_end_byte].into();
-                let after: SharedString = text[sel_end_byte..].into();
-
-                if !before.is_empty() {
-                    text_el = text_el.child(before);
-                }
-                text_el = text_el.child(div().bg(selection_bg).child(selected));
-                if !after.is_empty() {
-                    text_el = text_el.child(after);
-                }
-            } else {
+            if sel_start == sel_end {
                 let text = display_text.as_ref();
                 let (cursor_byte, _) = Self::char_range_byte_offsets(text, cursor_pos, len);
                 let before: SharedString = text[..cursor_byte].into();
@@ -1571,6 +1549,21 @@ impl Render for InputEntity {
                         .h(cursor_height)
                         .bg(cursor_color),
                 );
+                if !after.is_empty() {
+                    text_el = text_el.child(after);
+                }
+            } else {
+                let text = display_text.as_ref();
+                let (sel_start_byte, sel_end_byte) =
+                    Self::char_range_byte_offsets(text, sel_start, sel_end);
+                let before: SharedString = text[..sel_start_byte].into();
+                let selected: SharedString = text[sel_start_byte..sel_end_byte].into();
+                let after: SharedString = text[sel_end_byte..].into();
+
+                if !before.is_empty() {
+                    text_el = text_el.child(before);
+                }
+                text_el = text_el.child(div().bg(selection_bg).child(selected));
                 if !after.is_empty() {
                     text_el = text_el.child(after);
                 }

@@ -5,7 +5,7 @@
 use super::types::{Scene2DGridCell, Scene2DInputConfig, Scene2DScene, ScenePoint};
 use std::collections::HashMap;
 
-/// Pointer phase delivered to a Scene2D surface.
+/// Pointer phase delivered to a `Scene2D` surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Scene2DPointerPhase {
@@ -206,7 +206,7 @@ impl Scene2DPointerEvent {
     }
 }
 
-/// Stateful input normalizer for one retained Scene2D surface.
+/// Stateful input normalizer for one retained `Scene2D` surface.
 #[derive(Debug, Default)]
 pub struct Scene2DInputRouter {
     contacts: HashMap<u64, ActiveContact>,
@@ -289,9 +289,7 @@ impl Scene2DInputRouter {
                 self.held_keys.insert(key.clone(), modifiers.clone());
             }
             Scene2DKeyPhase::Up => {
-                if self.held_keys.remove(&key).is_none() {
-                    return None;
-                }
+                self.held_keys.remove(&key)?;
                 self.key_order.retain(|held| held != &key);
             }
         }
@@ -408,20 +406,16 @@ impl Scene2DInputRouter {
                 {
                     continue;
                 }
-                let position = scene
-                    .grid
-                    .as_ref()
-                    .map(|grid| {
-                        ScenePoint::new(
-                            grid.x
-                                + cell.column as f32 * (grid.cell_width + grid.gap)
-                                + grid.cell_width * 0.5,
-                            grid.y
-                                + cell.row as f32 * (grid.cell_height + grid.gap)
-                                + grid.cell_height * 0.5,
-                        )
-                    })
-                    .unwrap_or(event.position);
+                let position = scene.grid.as_ref().map_or(event.position, |grid| {
+                    ScenePoint::new(
+                        grid.x
+                            + cell.column as f32 * (grid.cell_width + grid.gap)
+                            + grid.cell_width * 0.5,
+                        grid.y
+                            + cell.row as f32 * (grid.cell_height + grid.gap)
+                            + grid.cell_height * 0.5,
+                    )
+                });
                 let node_hit = scene.hit_test(position).hit_id;
                 output.push(Scene2DInput::Pointer {
                     phase: Scene2DPointerPhase::Move,
@@ -494,7 +488,7 @@ fn pointer_input_with_phase(
     }
 }
 
-/// Normalizes key names to the cross-platform Scene2D contract.
+/// Normalizes key names to the cross-platform `Scene2D` contract.
 pub fn normalize_key(key: &str) -> String {
     let normalized = key.to_lowercase();
     match normalized.as_str() {

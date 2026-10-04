@@ -71,8 +71,8 @@ impl VelocityTracker {
         if dt < 1e-6 {
             return (0.0, 0.0);
         }
-        let vx = ((last.x - first.x) as f64 / dt) as f32;
-        let vy = ((last.y - first.y) as f64 / dt) as f32;
+        let vx = (f64::from(last.x - first.x) / dt) as f32;
+        let vy = (f64::from(last.y - first.y) / dt) as f32;
         (clamp_velocity(vx), clamp_velocity(vy))
     }
 
@@ -102,10 +102,10 @@ fn weighted_velocity(samples: &[&Sample]) -> (f32, f32) {
         sum_w += w;
         sum_wt += w * t;
         sum_wt2 += w * t * t;
-        sum_wx += w * s.x as f64;
-        sum_wy += w * s.y as f64;
-        sum_wtx += w * t * s.x as f64;
-        sum_wty += w * t * s.y as f64;
+        sum_wx += w * f64::from(s.x);
+        sum_wy += w * f64::from(s.y);
+        sum_wtx += w * t * f64::from(s.x);
+        sum_wty += w * t * f64::from(s.y);
     }
     let denom = sum_w * sum_wt2 - sum_wt * sum_wt;
     if denom.abs() < 1e-12 {
@@ -116,8 +116,8 @@ fn weighted_velocity(samples: &[&Sample]) -> (f32, f32) {
             return (0.0, 0.0);
         }
         return (
-            ((last.x - first.x) as f64 / dt) as f32,
-            ((last.y - first.y) as f64 / dt) as f32,
+            (f64::from(last.x - first.x) / dt) as f32,
+            (f64::from(last.y - first.y) / dt) as f32,
         );
     }
     let vx = (sum_w * sum_wtx - sum_wt * sum_wx) / denom;
@@ -258,7 +258,9 @@ mod tests {
 
         // Exhaust the fling
         while scroller.is_active() {
-            scroller.last_time = Instant::now() - Duration::from_millis(33);
+            scroller.last_time = Instant::now()
+                .checked_sub(Duration::from_millis(33))
+                .unwrap();
             let _ = scroller.step();
         }
         assert!(scroller.is_finished());
@@ -270,7 +272,9 @@ mod tests {
         scroller.fling(100.0, 0.0, 0.0, 0.0);
 
         // First step should produce a delta
-        scroller.last_time = Instant::now() - Duration::from_millis(16);
+        scroller.last_time = Instant::now()
+            .checked_sub(Duration::from_millis(16))
+            .unwrap();
         assert!(scroller.step().is_some());
 
         // A sub-microsecond step returns None

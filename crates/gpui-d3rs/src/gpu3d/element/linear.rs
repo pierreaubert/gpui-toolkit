@@ -57,10 +57,10 @@ pub(super) fn format_plain_tick(value: f64) -> String {
     if value.fract() == 0.0 && value.abs() < 1e15 {
         return format!("{}", value as i64);
     }
-    let trimmed = format!("{:.4}", value);
+    let trimmed = format!("{value:.4}");
     let trimmed = trimmed.trim_end_matches('0').trim_end_matches('.');
     if trimmed == "0" || trimmed == "-0" {
-        format!("{}", value)
+        format!("{value}")
     } else {
         trimmed.to_string()
     }

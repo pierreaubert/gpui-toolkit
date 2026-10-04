@@ -1,6 +1,6 @@
-//! Integration tests for ConfirmDialog component
+//! Integration tests for `ConfirmDialog` component
 //!
-//! Tests the ConfirmDialog component including:
+//! Tests the `ConfirmDialog` component including:
 //! - Basic rendering
 //! - All variants (Default, Destructive, Warning)
 //! - With title

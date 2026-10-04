@@ -1,7 +1,7 @@
 //! Histogram — Observable example
 //!
 //! Loads diamonds.csv and bins the carat column into a histogram.
-//! Uses d3rs LinearScale, PathBuilder, ColorScheme, and d3rs_path_to_gpui_simple.
+//! Uses d3rs `LinearScale`, `PathBuilder`, `ColorScheme`, and `d3rs_path_to_gpui_simple`.
 //!
 //! Source: <https://observablehq.com/@d3/histogram>
 
@@ -72,7 +72,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .range(margin_top + chart_height, margin_top);
 
     // Official bars are steelblue and contiguous (no gaps).
-    let bar_color: Hsla = chart_colors::ink_hex(&ui_theme, 0x4682b4);
+    let bar_color = chart_colors::ink_hex(&ui_theme, 0x4682b4);
 
     // Build bar paths
     let mut d3_paths: Vec<d3rs::shape::path::Path> = Vec::new();
@@ -114,8 +114,11 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     // Y grid lines (theme-aware via the shared helper).
     let y_tick_step = (max_bin / 5.0).ceil().max(1.0);
+    // Terminates: `y_tick_step` is clamped positive above, so the
+    // `take_while` bound is reached after finitely many steps.
+    #[allow(clippy::maybe_infinite_iter)]
     let y_ticks: Vec<f64> = (0..)
-        .map(|i| i as f64 * y_tick_step)
+        .map(|i| f64::from(i) * y_tick_step)
         .take_while(|&v| v <= max_bin)
         .collect();
 
@@ -135,8 +138,11 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     // X tick values
     let x_tick_step = ((max_val - min_val) / 8.0 * 10.0).round() / 10.0;
+    // Terminates for the histogram data shown here (`max_val` exceeds
+    // `min_val`, so the step is positive and the bound is reached).
+    #[allow(clippy::maybe_infinite_iter)]
     let x_ticks: Vec<f64> = (0..)
-        .map(|i| min_val + i as f64 * x_tick_step)
+        .map(|i| min_val + f64::from(i) * x_tick_step)
         .take_while(|&v| v <= max_val + 0.01)
         .collect();
 
@@ -196,7 +202,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .justify_end()
                         .pr_1()
                         .text_size(px(9.0))
-                        .child(format!("{:.0}", tick_val))
+                        .child(format!("{tick_val:.0}"))
                 }))
                 // X-axis labels
                 .children(x_ticks.iter().map(|&tick_val| {

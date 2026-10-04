@@ -5,14 +5,14 @@ use gpui::{ElementId, Keystroke};
 
 const MAX_NUMBER_INPUT_STATES: usize = 500;
 
-/// Returns true if any NumberInput is currently in editing mode.
+/// Returns true if any `NumberInput` is currently in editing mode.
 /// Useful for parent views that need to suppress keybindings during text entry.
 pub fn is_number_input_editing() -> bool {
     NUMBER_INPUT_EDIT_STATES
         .with(|states| states.borrow().values().any(|state| state.borrow().editing))
 }
 
-/// Evict oldest entries from NumberInput thread-local storage if over the limit.
+/// Evict oldest entries from `NumberInput` thread-local storage if over the limit.
 fn trim_number_input_storage() {
     NUMBER_INPUT_FOCUS_HANDLES.with(|handles| {
         let mut handles = handles.borrow_mut();
@@ -40,9 +40,9 @@ fn trim_number_input_storage() {
     });
 }
 
-/// Clean up thread-local state for a NumberInput element.
+/// Clean up thread-local state for a `NumberInput` element.
 ///
-/// Call this when removing a NumberInput with a dynamic element ID to prevent
+/// Call this when removing a `NumberInput` with a dynamic element ID to prevent
 /// memory leaks. For static element IDs, cleanup is not necessary.
 ///
 /// # Example

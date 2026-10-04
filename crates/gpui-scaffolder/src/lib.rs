@@ -378,6 +378,9 @@ fn toolkit_dependency_paths(app_dir: &Path, toolkit_root: &Path) -> DependencyPa
 /// Android Java host sources: embedded at compile time with the default
 /// `mobile` feature, otherwise read from the surrounding toolkit checkout so
 /// lean binaries pay no size cost.
+// The `Result` mirrors the non-`mobile` implementation (which reads from
+// disk) so the shared call site keeps a single `?`-based shape.
+#[allow(clippy::unnecessary_wraps)]
 #[cfg(feature = "mobile")]
 fn android_java_sources(_toolkit_root: &Path) -> Result<(String, String)> {
     Ok((
@@ -524,12 +527,12 @@ impl AppNames {
 
         let package_name = package_name(trimmed);
         let library_name = package_name.replace('-', "_");
-        let ffi_start_symbol = format!("{}_ios_start", library_name);
+        let ffi_start_symbol = format!("{library_name}_ios_start");
         let xcode_target_name = pascal_case(&package_name);
-        let ios_source_dir = format!("{}App", xcode_target_name);
+        let ios_source_dir = format!("{xcode_target_name}App");
         let bundle_identifier = format!("com.example.{}", separated_identifier(&package_name, '.'));
         let title = title_case(trimmed);
-        let view_name = format!("{}View", xcode_target_name);
+        let view_name = format!("{xcode_target_name}View");
 
         Ok(Self {
             directory_name: trimmed.to_owned(),
@@ -797,7 +800,7 @@ gpui_zed_tag = "{gpui_zed_tag}"
 
 fn justfile(names: &AppNames, flags: &ScaffoldFlags) -> String {
     let mut out = String::from(
-        r#"default:
+        r"default:
 	just --list
 
 run:
@@ -806,7 +809,7 @@ run:
 check:
 	cargo check
 
-"#,
+",
     );
 
     if !flags.no_ios {
@@ -996,11 +999,11 @@ pub fn open_app_window(cx: &mut App) {{
 
 fn lib_rs(names: &AppNames, flags: &ScaffoldFlags) -> String {
     let mut out = format!(
-        r#"mod app;
+        r"mod app;
 
 pub use app::{{open_app_window, run_desktop, {view_name}}};
 
-"#,
+",
         view_name = names.view_name,
     );
 
@@ -1156,7 +1159,7 @@ targets:
 
 fn swift_app_delegate(names: &AppNames) -> String {
     format!(
-        r#"import UIKit
+        r"import UIKit
 import QuartzCore
 
 @main
@@ -1200,14 +1203,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {{
         displayLink?.invalidate()
     }}
 }}
-"#,
+",
         ffi_start_symbol = names.ffi_start_symbol,
     )
 }
 
 fn bridging_header(names: &AppNames) -> String {
     format!(
-        r#"#ifndef {header_guard}
+        r"#ifndef {header_guard}
 #define {header_guard}
 
 #include <stdint.h>
@@ -1221,7 +1224,7 @@ void gpui_ios_will_resign_active(void *app);
 void gpui_ios_did_enter_background(void *app);
 
 #endif
-"#,
+",
         ffi_start_symbol = names.ffi_start_symbol,
         header_guard = format!(
             "{}_BRIDGING_HEADER_H",
@@ -1325,10 +1328,10 @@ fn android_root_build_gradle() -> String {
 }
 
 fn android_gradle_properties() -> String {
-    r#"android.useAndroidX=true
+    r"android.useAndroidX=true
 android.nonTransitiveRClass=true
 org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-"#
+"
     .to_owned()
 }
 
@@ -1442,7 +1445,7 @@ fn android_strings(names: &AppNames) -> String {
 }
 
 fn android_styles() -> String {
-    r##"<?xml version="1.0" encoding="utf-8"?>
+    r#"<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="GpuiTheme" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowNoTitle">true</item>
@@ -1453,7 +1456,7 @@ fn android_styles() -> String {
         <item name="android:statusBarColor">#202020</item>
     </style>
 </resources>
-"##
+"#
     .to_owned()
 }
 
@@ -1502,9 +1505,9 @@ mod tests {
 
     #[test]
     fn rejects_paths_as_names() {
-        assert!(AppNames::new("../outside").is_err());
-        assert!(AppNames::new("nested/app").is_err());
-        assert!(AppNames::new("").is_err());
+        AppNames::new("../outside").unwrap_err();
+        AppNames::new("nested/app").unwrap_err();
+        AppNames::new("").unwrap_err();
     }
 
     #[test]
@@ -2064,15 +2067,13 @@ mod tests {
         fs::create_dir(&output)?;
         fs::write(output.join("file.txt"), "x")?;
 
-        assert!(
-            scaffold_app(&ScaffoldOptions {
-                name: "existing".to_owned(),
-                output_dir: dir.path().to_path_buf(),
-                force: false,
-                dry_run: false,
-            })
-            .is_err()
-        );
+        scaffold_app(&ScaffoldOptions {
+            name: "existing".to_owned(),
+            output_dir: dir.path().to_path_buf(),
+            force: false,
+            dry_run: false,
+        })
+        .unwrap_err();
 
         Ok(())
     }
@@ -2133,15 +2134,13 @@ mod tests {
         let output = dir.path().join("existing");
         fs::write(&output, "x")?;
 
-        assert!(
-            scaffold_app(&ScaffoldOptions {
-                name: "existing".to_owned(),
-                output_dir: dir.path().to_path_buf(),
-                force: true,
-                dry_run: false,
-            })
-            .is_err()
-        );
+        scaffold_app(&ScaffoldOptions {
+            name: "existing".to_owned(),
+            output_dir: dir.path().to_path_buf(),
+            force: true,
+            dry_run: false,
+        })
+        .unwrap_err();
 
         Ok(())
     }
@@ -2272,29 +2271,25 @@ mod tests {
         let empty = dir.path().join("empty");
         fs::create_dir(&empty)?;
 
-        assert!(
-            scaffold_app(&ScaffoldOptions {
-                name: "empty".to_owned(),
-                output_dir: dir.path().to_path_buf(),
-                force: false,
-                dry_run: true,
-            })
-            .is_err()
-        );
+        scaffold_app(&ScaffoldOptions {
+            name: "empty".to_owned(),
+            output_dir: dir.path().to_path_buf(),
+            force: false,
+            dry_run: true,
+        })
+        .unwrap_err();
 
         let non_empty = dir.path().join("non-empty");
         fs::create_dir(&non_empty)?;
         fs::write(non_empty.join("file.txt"), "x")?;
 
-        assert!(
-            scaffold_app(&ScaffoldOptions {
-                name: "non-empty".to_owned(),
-                output_dir: dir.path().to_path_buf(),
-                force: true,
-                dry_run: true,
-            })
-            .is_err()
-        );
+        scaffold_app(&ScaffoldOptions {
+            name: "non-empty".to_owned(),
+            output_dir: dir.path().to_path_buf(),
+            force: true,
+            dry_run: true,
+        })
+        .unwrap_err();
         assert!(non_empty.join("file.txt").is_file());
 
         Ok(())

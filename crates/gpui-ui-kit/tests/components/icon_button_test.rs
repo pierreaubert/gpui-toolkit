@@ -1,4 +1,4 @@
-//! IconButton component tests
+//! `IconButton` component tests
 
 use gpui::prelude::ParentElement;
 use gpui_ui_kit::ComponentSize;

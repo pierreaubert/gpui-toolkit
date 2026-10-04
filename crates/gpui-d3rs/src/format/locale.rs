@@ -168,21 +168,21 @@ impl Locale<'_> {
         let mut result = match spec.format_type {
             FormatType::None => {
                 if spec.precision.is_some() {
-                    format!("{:.prec$}", value, prec = precision)
+                    format!("{value:.precision$}")
                 } else {
-                    format!("{}", value)
+                    format!("{value}")
                 }
             }
             FormatType::Exponent => {
-                format!("{:.prec$e}", value, prec = precision)
+                format!("{value:.precision$e}")
             }
             FormatType::Fixed => {
-                format!("{:.prec$}", value, prec = precision)
+                format!("{value:.precision$}")
             }
             FormatType::General => {
                 // Use shorter of exponential or fixed
-                let exp = format!("{:.prec$e}", value, prec = precision);
-                let fixed = format!("{:.prec$}", value, prec = precision);
+                let exp = format!("{value:.precision$e}");
+                let fixed = format!("{value:.precision$}");
                 if exp.len() < fixed.len() { exp } else { fixed }
             }
             FormatType::Round => {
@@ -194,15 +194,15 @@ impl Locale<'_> {
                     let magnitude = value.abs().log10().floor() as i32;
                     let scale = 10_f64.powi(digits as i32 - 1 - magnitude);
                     let rounded = (value * scale).round() / scale;
-                    format!("{}", rounded)
+                    format!("{rounded}")
                 }
             }
             FormatType::Si => self.format_si(value, precision),
             FormatType::Percent | FormatType::PercentRounded => {
-                format!("{:.prec$}", value, prec = precision)
+                format!("{value:.precision$}")
             }
             FormatType::Decimal => {
-                format!("{:.0}", value)
+                format!("{value:.0}")
             }
             FormatType::Binary => {
                 format!("{:b}", value as i64)
@@ -250,7 +250,7 @@ impl Locale<'_> {
         let prefix = SI_PREFIXES[si_index];
 
         let scaled = value / 10_f64.powi(exp * 3);
-        format!("{:.prec$}{}", scaled, prefix, prec = precision)
+        format!("{scaled:.precision$}{prefix}")
     }
 
     /// Apply thousands grouping

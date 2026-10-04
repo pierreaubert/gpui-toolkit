@@ -1,6 +1,6 @@
-//! SplitPane Debug Example
+//! `SplitPane` Debug Example
 //!
-//! Demonstrates the SplitPane component:
+//! Demonstrates the `SplitPane` component:
 //! - Horizontal and vertical splits
 //! - Custom ratio
 

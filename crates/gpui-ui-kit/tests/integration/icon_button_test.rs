@@ -1,7 +1,7 @@
-//! Integration tests for IconButton component
+//! Integration tests for `IconButton` component
 //!
-//! Tests the IconButton component including:
-//! - Click callback with VisualTestContext
+//! Tests the `IconButton` component including:
+//! - Click callback with `VisualTestContext`
 //! - Disabled state ignoring clicks
 //! - All sizes rendering
 //! - All variants rendering

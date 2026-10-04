@@ -1,4 +1,4 @@
-//! Same-device SphereGallery custom drawing for GPUI WGPU renderers.
+//! Same-device `SphereGallery` custom drawing for GPUI WGPU renderers.
 
 use super::element::SphereGalleryItem;
 use super::mesh::cell_center_3d;
@@ -128,11 +128,11 @@ impl GalleryWgpuDraw {
             .as_ref()
             .is_none_or(|renderer| !renderer.uses_device(&ctx.device));
         if needs_recreate {
-            *renderer = SphereGalleryRenderer::with_device(
+            *renderer = Some(SphereGalleryRenderer::with_device(
                 Arc::clone(&ctx.device),
                 Arc::clone(&ctx.queue),
                 self.config.clone(),
-            );
+            ));
             let renderer = renderer.as_mut()?;
             renderer.build_mesh();
             *self.images_uploaded.borrow_mut() = false;

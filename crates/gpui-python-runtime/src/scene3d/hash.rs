@@ -7,7 +7,7 @@ pub(super) fn hash_f64_slice(values: &[f64], h: &mut impl Hasher) {
     }
 }
 
-pub(super) fn hash_optional_f64_slice(values: &Option<Vec<f64>>, h: &mut impl Hasher) {
+pub(super) fn hash_optional_f64_slice(values: Option<&Vec<f64>>, h: &mut impl Hasher) {
     values.is_some().hash(h);
     if let Some(values) = values {
         hash_f64_slice(values, h);

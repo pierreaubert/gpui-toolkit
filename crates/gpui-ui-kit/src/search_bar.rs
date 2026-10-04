@@ -1,4 +1,4 @@
-//! SearchBar component
+//! `SearchBar` component
 //!
 //! A search input with icon, clear button, and optional autocomplete support.
 //!
@@ -157,7 +157,7 @@ impl SearchBar {
     /// Build the search bar with theme.
     ///
     /// This renders the visual container. The actual text editing is delegated
-    /// to the Input component — callers should compose SearchBar with Input
+    /// to the Input component — callers should compose `SearchBar` with Input
     /// or handle text input in their own way.
     pub fn build_with_theme(self, theme: &SearchBarTheme) -> Stateful<Div> {
         let clear_id = (self.id.clone(), "search-clear");

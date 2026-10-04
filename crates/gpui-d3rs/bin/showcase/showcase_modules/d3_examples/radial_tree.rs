@@ -7,16 +7,14 @@
 //!
 //! Labels follow the official placement rule for every node (offset 6px,
 //! leaves outward, internal nodes inward, baseline flipped on the left
-//! half), shaped with the bundled DejaVu Sans through the GPU-text engine
+//! half), shaped with the bundled `DejaVu` Sans through the GPU-text engine
 //! and replayed as rotated scene runs (Phase 3 of
 //! `reviews/20260906-gpu-text.md`).
 
 use super::flare_data;
 use crate::ShowcaseApp;
 use crate::showcase_modules::chart_colors;
-use d3rs::examples::radial_tree::{
-    FlareNode, RadialTreeResult, compute_with_root, labels as radial_labels,
-};
+use d3rs::examples::radial_tree::{FlareNode, compute_with_root, labels as radial_labels};
 use d3rs::gputext::{FAMILY_SANS, FontEngine, TextWeight};
 use d3rs::hierarchy::HierarchyNode as D3HierarchyNode;
 use d3rs::shape::path::{Path, PathCommand};
@@ -54,7 +52,7 @@ pub fn render_cluster(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div 
 fn render_radial(cluster: bool, ui_theme: &gpui_ui_kit::theme::Theme) -> Div {
     let flare = flare_data::flare_hierarchy();
     let root = convert(&flare);
-    let result: RadialTreeResult = compute_with_root(root, cluster);
+    let result = compute_with_root(root, cluster);
 
     let width = result.width;
     let height = result.height;
@@ -152,7 +150,7 @@ fn render_radial(cluster: bool, ui_theme: &gpui_ui_kit::theme::Theme) -> Div {
                             let spoke = label.angle - std::f64::consts::FRAC_PI_2;
                             let (ux, uy) = (spoke.cos(), spoke.sin());
                             let side = if label.outward { 1.0 } else { -1.0 };
-                            let dist = shaped_width as f64 / 2.0 + 6.0;
+                            let dist = f64::from(shaped_width) / 2.0 + 6.0;
                             let cx = label.x + side * ux * dist;
                             let cy = label.y + side * uy * dist;
                             // Anchor the run's cap-middle center on the label
@@ -160,8 +158,8 @@ fn render_radial(cluster: bool, ui_theme: &gpui_ui_kit::theme::Theme) -> Div {
                             let anchor = Affine::translate((cx, cy))
                                 * Affine::rotate(label.rotation)
                                 * Affine::translate((
-                                    -shaped_width as f64 / 2.0,
-                                    0.35 * font_size as f64,
+                                    f64::from(-shaped_width) / 2.0,
+                                    0.35 * f64::from(font_size),
                                 ));
                             scene.fill_text(
                                 &mut engine,

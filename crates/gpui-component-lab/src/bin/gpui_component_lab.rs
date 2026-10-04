@@ -391,6 +391,9 @@ fn emit_capture_report(
     Ok(())
 }
 
+// The `Result` mirrors the `visual-capture` implementation so the shared
+// call site keeps a single `?`-based shape across feature sets.
+#[allow(clippy::unnecessary_wraps)]
 #[cfg(not(feature = "visual-capture"))]
 fn emit_capture_report(
     _report: &NeverCaptureReport,
@@ -594,6 +597,6 @@ mod tests {
 
     #[test]
     fn child_command_rejects_unclosed_quote() {
-        assert!(parse_child_command("cargo run 'unterminated").is_err());
+        parse_child_command("cargo run 'unterminated").unwrap_err();
     }
 }

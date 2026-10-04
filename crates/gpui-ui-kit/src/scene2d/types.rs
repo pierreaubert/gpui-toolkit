@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::backtrace::Backtrace;
 use std::fmt::{Display, Formatter};
 
-/// Current version of the serialized Scene2D scene schema.
+/// Current version of the serialized `Scene2D` scene schema.
 pub const SCENE2D_SCHEMA_VERSION: u16 = 1;
 
 /// Maximum number of nested transform groups accepted by one scene.
@@ -455,8 +455,7 @@ impl Scene2DNodeKind {
                 content,
                 size,
                 color,
-                font: _,
-                align: _,
+                ..
             } => {
                 if !origin.is_finite() || !size.is_finite() || *size <= 0.0 {
                     return Err(Scene2DValidationError::new(
@@ -1482,7 +1481,7 @@ mod tests {
             },
         });
 
-        assert!(scene.validate().is_ok());
+        scene.validate().unwrap();
         let wire = serde_json::to_value(&scene).unwrap();
         assert!(wire["nodes"][0]["kind"]["fill"].is_null());
         let round_trip: Scene2DScene = serde_json::from_value(wire).unwrap();

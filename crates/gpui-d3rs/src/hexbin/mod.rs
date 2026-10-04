@@ -401,7 +401,7 @@ mod tests {
         let bins = hexbin.bin(data);
 
         assert!(!bins.is_empty());
-        let total: usize = bins.iter().map(|b| b.len()).sum();
+        let total: usize = bins.iter().map(super::HexbinBin::len).sum();
         assert_eq!(total, 3);
     }
 
@@ -411,7 +411,7 @@ mod tests {
         let data = vec![(0.0, 0.0), (f64::NAN, 1.0), (1.0, f64::NAN)];
         let bins = hexbin.bin(data);
 
-        let total: usize = bins.iter().map(|b| b.len()).sum();
+        let total: usize = bins.iter().map(super::HexbinBin::len).sum();
         assert_eq!(total, 1);
     }
 
@@ -422,9 +422,13 @@ mod tests {
             .extent(0.0, 0.0, 10.0, 10.0);
         let data = vec![(0.0, 0.0), (0.1, 0.1), (2.0, 2.0), (4.0, 1.0)];
 
-        let permissive_total: usize = hexbin.bin(data.clone()).iter().map(|b| b.len()).sum();
+        let permissive_total: usize = hexbin
+            .bin(data.clone())
+            .iter()
+            .map(super::HexbinBin::len)
+            .sum();
         let checked = hexbin.try_bin(data).unwrap();
-        let checked_total: usize = checked.iter().map(|b| b.len()).sum();
+        let checked_total: usize = checked.iter().map(super::HexbinBin::len).sum();
 
         assert_eq!(permissive_total, checked_total);
         assert_eq!(checked_total, 4);
@@ -562,7 +566,7 @@ mod tests {
         let permissive_total: usize = hexbin
             .bin(vec![vec![0.0, 0.0], vec![1.0]])
             .iter()
-            .map(|b| b.len())
+            .map(super::HexbinBin::len)
             .sum();
         assert_eq!(permissive_total, 1);
 

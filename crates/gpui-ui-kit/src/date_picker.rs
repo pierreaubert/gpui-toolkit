@@ -1,4 +1,4 @@
-//! DatePicker component
+//! `DatePicker` component
 //!
 //! A calendar popup primitive (Radix Calendar parity): month grid, month
 //! navigation, single-date selection, and optional min/max bounds. State is
@@ -102,7 +102,7 @@ impl CalendarDate {
     /// Step a visible `(year, month)` pair by `delta` months, clamping the
     /// year to a sane proleptic range.
     pub fn step_month(year: i32, month: u8, delta: i32) -> (i32, u8) {
-        let total = year.saturating_mul(12) + month as i32 - 1 + delta;
+        let total = year.saturating_mul(12) + i32::from(month) - 1 + delta;
         let stepped_year = total.div_euclid(12).clamp(1, 9999);
         let stepped_month = (total.rem_euclid(12) + 1) as u8;
         (stepped_year, stepped_month)

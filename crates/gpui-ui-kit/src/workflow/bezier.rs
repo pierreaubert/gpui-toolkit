@@ -69,9 +69,9 @@ fn distance_to_line(point: &Position, line_start: &Position, line_end: &Position
 /// Generate a horizontal bezier curve for connecting nodes
 ///
 /// Creates a smooth S-curve that starts horizontal from the source
-/// and ends horizontal at the target (like ReactFlow).
+/// and ends horizontal at the target (like `ReactFlow`).
 pub fn horizontal_bezier(from: Position, to: Position) -> (Position, Position, Position, Position) {
-    let mid_x = (from.x + to.x) / 2.0;
+    let mid_x = f32::midpoint(from.x, to.x);
 
     // Control points create a horizontal S-curve
     let p0 = from;
@@ -171,7 +171,7 @@ pub fn connection_path_avoiding(
     let obs_right = blocking.iter().map(|o| o.right()).fold(f32::MIN, f32::max);
 
     // Pick the closer side (above or below)
-    let avg_y = (from.y + to.y) * 0.5;
+    let avg_y = f32::midpoint(from.y, to.y);
     let above_y = obs_top - margin;
     let below_y = obs_bottom + margin;
     let route_y = if (avg_y - above_y).abs() <= (avg_y - below_y).abs() {

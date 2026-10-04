@@ -283,7 +283,7 @@ impl WizardDebug {
         let label = step.label.clone();
 
         div()
-            .id(ElementId::Name(format!("step-{}", index).into()))
+            .id(ElementId::Name(format!("step-{index}").into()))
             .flex()
             .flex_col()
             .items_center()

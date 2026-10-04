@@ -9,7 +9,7 @@ use super::path::GeoJsonGeometry;
 
 /// A D3-style geometry stream.
 ///
-/// Coordinates are passed in degrees (matching GeoJSON), the same convention
+/// Coordinates are passed in degrees (matching `GeoJSON`), the same convention
 /// used by `d3-geo/src/stream.js` before `transformRadians` converts them.
 pub trait Stream {
     /// Emit a point.
@@ -34,7 +34,7 @@ pub trait Stream {
     fn sphere(&mut self);
 }
 
-/// Stream a GeoJSON geometry into the given sink.
+/// Stream a `GeoJSON` geometry into the given sink.
 pub fn stream_geojson(geometry: &GeoJsonGeometry, stream: &mut dyn Stream) {
     match geometry {
         GeoJsonGeometry::Point(lon, lat) => {
@@ -215,15 +215,18 @@ mod tests {
             ]),
             &mut stream,
         );
-        assert!(
+        assert_eq!(
             stream
                 .events
                 .iter()
                 .filter(|e| e == &"polygon_start")
-                .count()
-                == 2
+                .count(),
+            2
         );
-        assert!(stream.events.iter().filter(|e| e == &"polygon_end").count() == 2);
+        assert_eq!(
+            stream.events.iter().filter(|e| e == &"polygon_end").count(),
+            2
+        );
     }
 
     #[test]

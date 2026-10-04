@@ -1,6 +1,6 @@
-//! GeoPath - Rendering GeoJSON to paths
+//! `GeoPath` - Rendering `GeoJSON` to paths
 //!
-//! This module provides functionality for rendering GeoJSON features
+//! This module provides functionality for rendering `GeoJSON` features
 //! to SVG path strings or other path representations.
 
 #![allow(dead_code, unused_imports)]

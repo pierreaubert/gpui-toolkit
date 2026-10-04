@@ -20,7 +20,7 @@ impl gpui_pretext::TextMeasure for CountingMeasure {
 
     fn cache_key(&self) -> u64 {
         self.semantic_cache_key
-            .unwrap_or((self as *const Self as *const () as usize) as u64)
+            .unwrap_or((std::ptr::from_ref::<Self>(self).cast::<()>() as usize) as u64)
     }
 
     fn cache_key_is_stable(&self) -> bool {
@@ -97,12 +97,12 @@ fn retained_layout_solver_reuses_flat_tree_storage() {
     let first_ptr = {
         let solved = solver.solve(&root, 100.0, 80.0, &prefs);
         assert_eq!(solved.len(), 3);
-        solved as *const _
+        std::ptr::from_ref(solved)
     };
     let second_ptr = {
         let solved = solver.solve(&root, 120.0, 90.0, &prefs);
         assert_eq!(solved.find("header").unwrap().height(), 20.0);
-        solved as *const _
+        std::ptr::from_ref(solved)
     };
 
     assert_eq!(first_ptr, second_ptr);

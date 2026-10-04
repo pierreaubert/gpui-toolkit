@@ -63,7 +63,7 @@ pub enum ForceError {
     NegativeCollideNodeRadius { node_index: usize, value: f64 },
     /// Checked per-node force-collide radii must match the node count.
     CollideRadiiLengthMismatch { radii_len: usize, node_count: usize },
-    /// Many-body scalar configuration must be finite, except theta/distance_max allow infinity.
+    /// Many-body scalar configuration must be finite, except `theta/distance_max` allow infinity.
     NonFiniteManyBodyParameter { parameter: &'static str, value: f64 },
     /// Many-body distances and theta cannot be negative.
     NegativeManyBodyParameter { parameter: &'static str, value: f64 },
@@ -1184,7 +1184,7 @@ impl Force for ForceLink {
                     let mut target = nodes[target_idx].borrow_mut();
                     target.vx -= fx * bias;
                     target.vy -= fy * bias;
-                }
+                };
                 {
                     let mut source = nodes[source_idx].borrow_mut();
                     source.vx += fx * (1.0 - bias);

@@ -86,7 +86,7 @@ fn test_potentiometer_handlers() {
 fn test_scale_variants() {
     let scales = [Scale::Linear, Scale::Logarithmic];
     for scale in &scales {
-        let _copy = *scale;
+        let _ = *scale;
     }
 }
 

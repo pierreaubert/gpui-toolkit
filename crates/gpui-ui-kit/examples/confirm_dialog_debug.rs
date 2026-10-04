@@ -1,6 +1,6 @@
-//! ConfirmDialog Debug Example
+//! `ConfirmDialog` Debug Example
 //!
-//! Demonstrates the ConfirmDialog component:
+//! Demonstrates the `ConfirmDialog` component:
 //! - Default, Destructive, Warning variants
 //! - Custom labels
 

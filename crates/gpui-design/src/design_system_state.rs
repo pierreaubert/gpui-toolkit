@@ -36,15 +36,16 @@ impl Default for DesignSystemState {
 #[cfg(feature = "gpui")]
 impl DesignExt for gpui::App {
     fn design(&self) -> std::sync::Arc<DesignSystem> {
-        self.try_global::<DesignSystemState>()
-            .map(|s| std::sync::Arc::clone(&s.system))
-            .unwrap_or_else(|| {
+        self.try_global::<DesignSystemState>().map_or_else(
+            || {
                 static DEFAULT_DESIGN_SYSTEM: std::sync::OnceLock<std::sync::Arc<DesignSystem>> =
                     std::sync::OnceLock::new();
                 std::sync::Arc::clone(
                     DEFAULT_DESIGN_SYSTEM
                         .get_or_init(|| std::sync::Arc::new(DesignSystem::platform_default())),
                 )
-            })
+            },
+            |s| std::sync::Arc::clone(&s.system),
+        )
     }
 }

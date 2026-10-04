@@ -117,7 +117,7 @@ fn parse_date_to_epoch(s: &str) -> i64 {
 pub fn default_data() -> (Vec<String>, Vec<DateRow>) {
     let categories: Vec<String> = ["Electronics", "Clothing", "Food", "Transport"]
         .iter()
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .collect();
 
     // Monthly dates: 2024-01-01 through 2024-12-01 as epoch seconds (UTC)
@@ -126,13 +126,13 @@ pub fn default_data() -> (Vec<String>, Vec<DateRow>) {
 
     let rows: Vec<DateRow> = (0..12)
         .map(|m| {
-            let date = base_epoch + m as i64 * month_seconds;
+            let date = base_epoch + i64::from(m) * month_seconds;
             let values: Vec<f64> = (0..categories.len())
                 .map(|ci| {
                     let base = 50.0 + ci as f64 * 20.0;
                     let val = base
-                        + 15.0 * (m as f64 * 0.5 + ci as f64 * 1.2).sin()
-                        + 5.0 * (m as f64 * 0.8 + ci as f64 * 0.5).cos();
+                        + 15.0 * (f64::from(m) * 0.5 + ci as f64 * 1.2).sin()
+                        + 5.0 * (f64::from(m) * 0.8 + ci as f64 * 0.5).cos();
                     (val * 100.0).round() / 100.0
                 })
                 .collect();
@@ -143,7 +143,7 @@ pub fn default_data() -> (Vec<String>, Vec<DateRow>) {
     (categories, rows)
 }
 
-/// Compute stacked area chart with TimeScale x-axis.
+/// Compute stacked area chart with `TimeScale` x-axis.
 pub fn compute(categories: &[String], rows: &[DateRow]) -> StackedAreaResult {
     let width = 928.0;
     let height = 500.0;

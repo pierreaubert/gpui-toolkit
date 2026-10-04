@@ -26,9 +26,7 @@ use super::number::Interpolate;
 pub fn piecewise<T: Interpolate>(values: &[T]) -> impl Fn(f64) -> T + '_ {
     let n = values.len();
     move |t| {
-        if n == 0 {
-            panic!("piecewise requires at least one value");
-        }
+        assert!(n != 0, "piecewise requires at least one value");
         if n == 1 {
             return values[0].clone();
         }
@@ -66,9 +64,7 @@ where
 {
     let n = values.len();
     move |t| {
-        if n == 0 {
-            panic!("piecewise requires at least one value");
-        }
+        assert!(n != 0, "piecewise requires at least one value");
         if n == 1 {
             return values[0].clone();
         }
@@ -108,9 +104,7 @@ pub fn piecewise_domain<'a, T: Interpolate>(
 ) -> impl Fn(f64) -> T + 'a {
     let n = positions.len().min(values.len());
     move |t| {
-        if n == 0 {
-            panic!("piecewise_domain requires at least one value");
-        }
+        assert!(n != 0, "piecewise_domain requires at least one value");
         if n == 1 {
             return values[0].clone();
         }
@@ -159,9 +153,7 @@ pub fn piecewise_domain<'a, T: Interpolate>(
 pub fn quantize<T: Clone>(values: &[T]) -> impl Fn(f64) -> T + '_ {
     let n = values.len();
     move |t| {
-        if n == 0 {
-            panic!("quantize requires at least one value");
-        }
+        assert!(n != 0, "quantize requires at least one value");
 
         let t = t.clamp(0.0, 1.0);
         let i = ((t * n as f64).floor() as usize).min(n - 1);
@@ -305,7 +297,7 @@ impl EaseFunction {
                 if t < 0.5 {
                     (1.0 - (1.0 - 4.0 * t * t).sqrt()) / 2.0
                 } else {
-                    ((1.0 - (2.0 * t - 2.0).powi(2)).sqrt() + 1.0) / 2.0
+                    f64::midpoint((1.0 - (2.0 * t - 2.0).powi(2)).sqrt(), 1.0)
                 }
             }
             EaseFunction::ElasticIn => {
@@ -355,7 +347,7 @@ impl EaseFunction {
                     (t * t * ((s + 1.0) * t - s)) / 2.0
                 } else {
                     let t = t * 2.0 - 2.0;
-                    (t * t * ((s + 1.0) * t + s) + 2.0) / 2.0
+                    f64::midpoint(t * t * ((s + 1.0) * t + s), 2.0)
                 }
             }
         }
@@ -421,15 +413,10 @@ mod tests {
         ];
 
         for ease in functions {
-            assert!(
-                (ease.apply(0.0)).abs() < 0.01,
-                "Ease {:?} failed at 0",
-                ease
-            );
+            assert!((ease.apply(0.0)).abs() < 0.01, "Ease {ease:?} failed at 0");
             assert!(
                 (ease.apply(1.0) - 1.0).abs() < 0.01,
-                "Ease {:?} failed at 1",
-                ease
+                "Ease {ease:?} failed at 1"
             );
         }
     }
@@ -454,7 +441,7 @@ mod tests {
 
         let values = [0_i32, 10, 20];
         let custom = piecewise_with(&values, |a, b, t| {
-            (*a as f64 + (*b - *a) as f64 * t).round() as i32
+            (f64::from(*a) + f64::from(*b - *a) * t).round() as i32
         });
         assert_eq!(custom(0.25), 5);
         assert_eq!(custom(0.75), 15);

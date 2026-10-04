@@ -1,6 +1,6 @@
 //! GPU-accelerated shape rendering demo
 //!
-//! Run with: cargo run --example gpu2d_shapes_demo --features gpu-2d
+//! Run with: cargo run --example `gpu2d_shapes_demo` --features gpu-2d
 
 use d3rs::color::D3Color;
 use d3rs::gpu2d::{
@@ -22,8 +22,8 @@ impl Render for DemoView {
         // Create scatter data
         let scatter_data: Vec<ScatterPoint> = (0..30)
             .map(|i| {
-                let x = (i as f64 * 3.5) + 5.0;
-                let y = 50.0 + (i as f64 * 0.2).sin() * 30.0 + (i as f64 % 7.0) * 3.0;
+                let x = (f64::from(i) * 3.5) + 5.0;
+                let y = 50.0 + (f64::from(i) * 0.2).sin() * 30.0 + (f64::from(i) % 7.0) * 3.0;
                 ScatterPoint::new(x, y)
             })
             .collect();
@@ -157,8 +157,8 @@ impl Render for DemoView {
                             .child({
                                 let line_data: Vec<LinePoint> = (0..25)
                                     .map(|i| {
-                                        let x = i as f64 * 4.0;
-                                        let y = 50.0 + (i as f64 * 0.3).sin() * 35.0;
+                                        let x = f64::from(i) * 4.0;
+                                        let y = 50.0 + (f64::from(i) * 0.3).sin() * 35.0;
                                         LinePoint::new(x, y)
                                     })
                                     .collect();
@@ -207,8 +207,8 @@ impl Render for DemoView {
                                 let step_data: Vec<LinePoint> = (0..12)
                                     .map(|i| {
                                         LinePoint::new(
-                                            i as f64 * 9.0,
-                                            20.0 + (i as f64 * 7.0) % 60.0,
+                                            f64::from(i) * 9.0,
+                                            20.0 + (f64::from(i) * 7.0) % 60.0,
                                         )
                                     })
                                     .collect();

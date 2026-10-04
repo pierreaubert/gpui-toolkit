@@ -1,11 +1,11 @@
 //! Example: Audio plugin layout using the compatibility bridge.
 //!
 //! Demonstrates:
-//! - Converting ColumnConstraint arrays to LayoutNode trees
+//! - Converting `ColumnConstraint` arrays to `LayoutNode` trees
 //! - Plugin-specific adaptations (knob size, slider height, etc.)
 //! - Priority-based column collapse at various widths
 //!
-//! Run: cargo run -p gpui-builder --example plugin_layout
+//! Run: cargo run -p gpui-builder --example `plugin_layout`
 
 use gpui_builder::{
     PluginColumnConstraint, PluginLayoutThresholds, PluginLayoutTree, plugin_adaptations, solve,

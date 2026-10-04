@@ -1,4 +1,4 @@
-//! RadioGroup component tests
+//! `RadioGroup` component tests
 
 use gpui_ui_kit::ComponentSize;
 use gpui_ui_kit::radio_group::{RadioGroup, RadioGroupOrientation, RadioGroupSize, RadioOption};

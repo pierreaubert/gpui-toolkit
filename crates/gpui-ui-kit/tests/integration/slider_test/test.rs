@@ -115,8 +115,7 @@ async fn test_slider_scroll_wheel_up_increases_value(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             new_val > 50.0,
-            "Value should increase after scroll up, got {}",
-            new_val
+            "Value should increase after scroll up, got {new_val}"
         );
         assert_eq!(
             change_count.load(Ordering::SeqCst),
@@ -157,8 +156,7 @@ async fn test_slider_scroll_wheel_down_decreases_value(cx: &mut TestAppContext) 
         let new_val = *value.borrow();
         assert!(
             new_val < 50.0,
-            "Value should decrease after scroll down, got {}",
-            new_val
+            "Value should decrease after scroll down, got {new_val}"
         );
     }
 }
@@ -197,8 +195,7 @@ async fn test_slider_scroll_wheel_shift_fine_control(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             new_val > 50.0 && new_val < 51.0,
-            "Shift+scroll should give fine control, got {}",
-            new_val
+            "Shift+scroll should give fine control, got {new_val}"
         );
     }
 }
@@ -236,8 +233,7 @@ async fn test_slider_scroll_wheel_respects_max_bound(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             new_val <= 100.0,
-            "Value should be clamped at max (100), got {}",
-            new_val
+            "Value should be clamped at max (100), got {new_val}"
         );
     }
 }
@@ -275,8 +271,7 @@ async fn test_slider_scroll_wheel_respects_min_bound(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             new_val >= 0.0,
-            "Value should be clamped at min (0), got {}",
-            new_val
+            "Value should be clamped at min (0), got {new_val}"
         );
     }
 }
@@ -367,8 +362,7 @@ async fn test_slider_click_changes_value(cx: &mut TestAppContext) {
         // Value should be near maximum since we clicked near the right
         assert!(
             new_val > 80.0,
-            "Clicking right side should set high value, got {}",
-            new_val
+            "Clicking right side should set high value, got {new_val}"
         );
     }
 }
@@ -407,8 +401,7 @@ async fn test_slider_drag_changes_value(cx: &mut TestAppContext) {
     let new_val = *value.borrow();
     assert!(
         new_val > 50.0,
-        "Dragging right should increase value from 50, got {}",
-        new_val
+        "Dragging right should increase value from 50, got {new_val}"
     );
     assert!(
         change_count.load(Ordering::SeqCst) > 0,
@@ -449,8 +442,7 @@ async fn test_slider_percentage_clamped_at_max(cx: &mut TestAppContext) {
         let final_val = *value.borrow();
         assert!(
             final_val <= 100.0,
-            "Percentage should not exceed 100%, got {}",
-            final_val
+            "Percentage should not exceed 100%, got {final_val}"
         );
     }
 }
@@ -488,8 +480,7 @@ async fn test_slider_percentage_clamped_at_min(cx: &mut TestAppContext) {
         let final_val = *value.borrow();
         assert!(
             final_val >= 0.0,
-            "Percentage should not go below 0%, got {}",
-            final_val
+            "Percentage should not go below 0%, got {final_val}"
         );
     }
 }
@@ -528,8 +519,7 @@ async fn test_slider_multiple_scroll_events(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             new_val > 60.0,
-            "Value should increase significantly after 3 scrolls, got {}",
-            new_val
+            "Value should increase significantly after 3 scrolls, got {new_val}"
         );
         assert!(
             change_count.load(Ordering::SeqCst) >= 3,

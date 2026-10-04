@@ -14,7 +14,7 @@ pub(super) fn write_solved_node(
         "{pad}- {path} {width}x{height} {status} axis={axis} tier={tier} collapse_label={label} children={children}\n",
         width = format_number(node.width),
         height = format_number(node.height),
-        axis = node.resolved_axis.map(axis_name).unwrap_or("-"),
+        axis = node.resolved_axis.map_or("-", axis_name),
         tier = option_text(node.active_tier),
         label = option_text(node.collapse_label),
         children = node.children.len()

@@ -437,7 +437,7 @@ impl SankeyLayout {
                     // Pull toward source positions
                     for &li in &target_links[ni] {
                         let si = resolved_links[li].0;
-                        let center = (node_y0[si] + node_y1[si]) / 2.0;
+                        let center = f64::midpoint(node_y0[si], node_y1[si]);
                         let w = resolved_links[li].2;
                         weighted_y += center * w;
                         total_weight += w;
@@ -445,7 +445,7 @@ impl SankeyLayout {
                     // Pull toward target positions
                     for &li in &source_links[ni] {
                         let ti = resolved_links[li].1;
-                        let center = (node_y0[ti] + node_y1[ti]) / 2.0;
+                        let center = f64::midpoint(node_y0[ti], node_y1[ti]);
                         let w = resolved_links[li].2;
                         weighted_y += center * w;
                         total_weight += w;
@@ -453,7 +453,7 @@ impl SankeyLayout {
 
                     if total_weight > 0.0 {
                         let target_center = weighted_y / total_weight;
-                        let current_center = (node_y0[ni] + node_y1[ni]) / 2.0;
+                        let current_center = f64::midpoint(node_y0[ni], node_y1[ni]);
                         let h = node_y1[ni] - node_y0[ni];
                         let dy = (target_center - current_center) * 0.5; // damped
                         node_y0[ni] = (node_y0[ni] + dy).max(y0).min(y1 - h);
@@ -555,15 +555,8 @@ impl SankeyLayout {
             // D3 sankey link path: horizontal cubic Bézier
             let sx = source_node.x1;
             let tx = target_node.x0;
-            let cx = (sx + tx) / 2.0;
-            let path = format!(
-                "M{sx},{y0}C{cx},{y0},{cx},{y1},{tx},{y1}",
-                sx = sx,
-                y0 = link_y0,
-                cx = cx,
-                y1 = link_y1,
-                tx = tx
-            );
+            let cx = f64::midpoint(sx, tx);
+            let path = format!("M{sx},{link_y0}C{cx},{link_y0},{cx},{link_y1},{tx},{link_y1}");
 
             sankey_links[li] = SankeyLink {
                 source: si,

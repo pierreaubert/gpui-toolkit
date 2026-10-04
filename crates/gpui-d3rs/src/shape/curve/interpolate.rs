@@ -293,10 +293,10 @@ pub(super) fn interpolate_bump(points: &[Point], horizontal: bool) -> Vec<Point>
     for pair in points.windows(2) {
         let (p0, p1) = (pair[0], pair[1]);
         let (c0, c1) = if horizontal {
-            let mx = (p0.x + p1.x) / 2.0;
+            let mx = f64::midpoint(p0.x, p1.x);
             (Point::new(mx, p0.y), Point::new(mx, p1.y))
         } else {
-            let my = (p0.y + p1.y) / 2.0;
+            let my = f64::midpoint(p0.y, p1.y);
             (Point::new(p0.x, my), Point::new(p1.x, my))
         };
         for j in 1..=subdivisions {

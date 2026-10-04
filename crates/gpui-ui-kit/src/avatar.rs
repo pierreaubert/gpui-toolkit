@@ -352,7 +352,7 @@ impl AvatarGroup {
                     .text_color(theme.text_secondary)
                     .text_xs()
                     .font_weight(FontWeight::MEDIUM)
-                    .child(format!("+{}", remaining)),
+                    .child(format!("+{remaining}")),
             );
         }
 

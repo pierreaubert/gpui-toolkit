@@ -1,7 +1,7 @@
 //! gpui-keybinding — Reusable keybinding framework for GPUI applications.
 //!
 //! Provides:
-//! - [`KeymapPreset`] — preset identifiers (Default, Vim, Emacs, VSCode)
+//! - [`KeymapPreset`] — preset identifiers (Default, Vim, Emacs, `VSCode`)
 //! - [`KeybindingCategory`] — categories for organizing bindings in help UI
 //! - [`DocumentedKeybinding`] — human-readable binding descriptions with an
 //!   optional VSCode-style `when`-clause [`DocumentedKeybinding::context`]

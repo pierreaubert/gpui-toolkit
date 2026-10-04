@@ -1,4 +1,4 @@
-//! Force-Directed Graph -- Observable example using d3rs::examples::force_directed
+//! Force-Directed Graph -- Observable example using `d3rs::examples::force_directed`
 //!
 //! Loads the full Les Miserables dataset from miserables.json (77 nodes, 254 links).
 //! Demonstrates: `Simulation`, `ForceLink`, `ForceManyBody`, `ForceCenter`,
@@ -106,7 +106,7 @@ fn build_cache() -> Rc<ForceDirectedCache> {
     for (px_val, py_val, group) in &node_positions {
         let mut builder = D3PathBuilder::new();
         for v in 0..n_sides {
-            let angle = std::f64::consts::TAU * v as f64 / n_sides as f64;
+            let angle = std::f64::consts::TAU * f64::from(v) / f64::from(n_sides);
             let x = px_val + node_radius * angle.cos();
             let y = py_val + node_radius * angle.sin();
             if v == 0 {

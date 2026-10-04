@@ -247,33 +247,27 @@ impl<T> Area<T> {
                 seg_builder = seg_builder.move_to(first.x, first.y);
 
                 // Apply curve interpolation
-                match self.curve {
-                    Curve::Linear => {
-                        for p in top_points.iter().skip(1) {
-                            seg_builder = seg_builder.line_to(p.x, p.y);
-                        }
+                if self.curve == Curve::Linear {
+                    for p in top_points.iter().skip(1) {
+                        seg_builder = seg_builder.line_to(p.x, p.y);
                     }
-                    _ => {
-                        // For other curves, use the curve's interpolation
-                        let curved = self.curve.interpolate(&top_points);
-                        for p in curved.iter().skip(1) {
-                            seg_builder = seg_builder.line_to(p.x, p.y);
-                        }
+                } else {
+                    // For other curves, use the curve's interpolation
+                    let curved = self.curve.interpolate(&top_points);
+                    for p in curved.iter().skip(1) {
+                        seg_builder = seg_builder.line_to(p.x, p.y);
                     }
                 }
 
                 // Connect to bottom line and draw it
-                match self.curve {
-                    Curve::Linear => {
-                        for p in &bottom_points {
-                            seg_builder = seg_builder.line_to(p.x, p.y);
-                        }
+                if self.curve == Curve::Linear {
+                    for p in &bottom_points {
+                        seg_builder = seg_builder.line_to(p.x, p.y);
                     }
-                    _ => {
-                        let curved = self.curve.interpolate(&bottom_points);
-                        for p in &curved {
-                            seg_builder = seg_builder.line_to(p.x, p.y);
-                        }
+                } else {
+                    let curved = self.curve.interpolate(&bottom_points);
+                    for p in &curved {
+                        seg_builder = seg_builder.line_to(p.x, p.y);
                     }
                 }
 
@@ -296,21 +290,9 @@ impl<T> Area<T> {
 
         for (index, d) in data.iter().enumerate() {
             if (self.defined)(d) {
-                let top_x = self
-                    .x1
-                    .as_ref()
-                    .map(|f| f(d))
-                    .unwrap_or_else(|| (self.x)(d));
-                let top_y = self
-                    .y1
-                    .as_ref()
-                    .map(|f| f(d))
-                    .unwrap_or_else(|| (self.y)(d));
-                let bottom_x = self
-                    .x0
-                    .as_ref()
-                    .map(|f| f(d))
-                    .unwrap_or_else(|| (self.x)(d));
+                let top_x = self.x1.as_ref().map_or_else(|| (self.x)(d), |f| f(d));
+                let top_y = self.y1.as_ref().map_or_else(|| (self.y)(d), |f| f(d));
+                let bottom_x = self.x0.as_ref().map_or_else(|| (self.x)(d), |f| f(d));
                 let bottom_y = (self.y0)(d);
 
                 if checked {
@@ -506,7 +488,7 @@ impl SimpleArea {
 
     /// Generate path for rendering after validating coordinates and lengths.
     pub fn try_path(&self) -> Result<Path, AreaGenerationError> {
-        simple_area_path_from_points(&self.try_points()?)
+        Ok(simple_area_path_from_points(&self.try_points()?))
     }
 }
 
@@ -522,9 +504,9 @@ fn validate_simple_area_lengths(area: &SimpleArea) -> Result<(), AreaGenerationE
     }
 }
 
-fn simple_area_path_from_points(points: &[Point]) -> Result<Path, AreaGenerationError> {
+fn simple_area_path_from_points(points: &[Point]) -> Path {
     if points.is_empty() {
-        return Ok(Path::new());
+        return Path::new();
     }
 
     let mut builder = PathBuilder::new();
@@ -535,7 +517,7 @@ fn simple_area_path_from_points(points: &[Point]) -> Result<Path, AreaGeneration
         builder = builder.line_to(point.x, point.y);
     }
 
-    Ok(builder.build())
+    builder.build()
 }
 
 #[cfg(test)]
@@ -596,7 +578,9 @@ mod tests {
                 assert_eq!(coordinate, "y1");
                 assert!(value.is_nan());
             }
-            error => panic!("unexpected error: {error:?}"),
+            other @ AreaGenerationError::CoordinateLengthMismatch { .. } => {
+                panic!("unexpected error: {other:?}")
+            }
         }
 
         assert_eq!(
@@ -669,7 +653,9 @@ mod tests {
                 assert_eq!(coordinate, "y1");
                 assert!(value.is_nan());
             }
-            error => panic!("unexpected error: {error:?}"),
+            other @ AreaGenerationError::CoordinateLengthMismatch { .. } => {
+                panic!("unexpected error: {other:?}")
+            }
         }
     }
 
@@ -734,7 +720,9 @@ mod tests {
                 assert_eq!(coordinate, "y1");
                 assert!(value.is_nan());
             }
-            error => panic!("unexpected error: {error:?}"),
+            other @ AreaGenerationError::CoordinateLengthMismatch { .. } => {
+                panic!("unexpected error: {other:?}")
+            }
         }
     }
 
@@ -776,7 +764,9 @@ mod tests {
                 assert_eq!(coordinate, "y1");
                 assert!(value.is_infinite());
             }
-            error => panic!("unexpected error: {error:?}"),
+            other @ AreaGenerationError::CoordinateLengthMismatch { .. } => {
+                panic!("unexpected error: {other:?}")
+            }
         }
     }
 }

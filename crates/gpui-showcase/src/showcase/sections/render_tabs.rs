@@ -69,7 +69,7 @@ impl Showcase {
                             };
 
                             let tab = div()
-                                .id(SharedString::from(format!("custom-tab-{}", idx)))
+                                .id(SharedString::from(format!("custom-tab-{idx}")))
                                 .flex()
                                 .flex_col()
                                 .cursor_pointer()

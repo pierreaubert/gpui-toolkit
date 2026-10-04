@@ -5,7 +5,7 @@
 //! - All placements
 //! - With content
 //! - With width
-//! - With on_close handler
+//! - With `on_close` handler
 
 use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div, px};
 use gpui_ui_kit::popover::{Popover, PopoverPlacement};

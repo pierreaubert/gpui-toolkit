@@ -66,23 +66,17 @@ fn all_easing_variants_at_boundaries() {
         let at_end = ease(easing, 1.0);
         assert!(
             at_start.abs() < 0.001 || (at_start - 1.0).abs() < 0.001,
-            "{:?} should start at 0 or 1, got {}",
-            easing,
-            at_start
+            "{easing:?} should start at 0 or 1, got {at_start}"
         );
         assert!(
             (at_end - 1.0).abs() < 0.001 || at_end.abs() < 0.001,
-            "{:?} should end at 0 or 1, got {}",
-            easing,
-            at_end
+            "{easing:?} should end at 0 or 1, got {at_end}"
         );
         // Smoke-test an interior point; should not panic or return NaN.
         let mid = ease(easing, 0.5);
         assert!(
             mid.is_finite(),
-            "{:?} at 0.5 should be finite, got {}",
-            easing,
-            mid
+            "{easing:?} at 0.5 should be finite, got {mid}"
         );
     }
 }
@@ -192,7 +186,7 @@ fn color_all_constructors_and_conversions() {
 
     let (h, s, l) = c2.to_hsl();
     let rebuilt = Color::from_hsl(h, s, l);
-    assert!((c2.r as i16 - rebuilt.r as i16).abs() <= 1);
+    assert!((i16::from(c2.r) - i16::from(rebuilt.r)).abs() <= 1);
 }
 
 #[test]
@@ -303,7 +297,7 @@ fn mobile_primitives() {
         preferred_width: 100.0,
         preferred_height: 100.0,
     };
-    assert!(ok.validate().is_ok());
+    ok.validate().unwrap();
 
     let bad_title = ContextPreview {
         title: "   ".into(),
@@ -598,15 +592,15 @@ fn workflow_graph_operations() {
     assert_eq!(graph.connections_to(id2).len(), 1);
 
     // Duplicate connection
-    assert!(graph.add_connection(id1, 0, id2, 0).is_err());
+    graph.add_connection(id1, 0, id2, 0).unwrap_err();
     // Self-loop
-    assert!(graph.add_connection(id1, 0, id1, 0).is_err());
+    graph.add_connection(id1, 0, id1, 0).unwrap_err();
     // Missing node
     let missing = NodeId::new_v4();
-    assert!(graph.add_connection(missing, 0, id2, 0).is_err());
-    assert!(graph.add_connection(id1, 0, missing, 0).is_err());
+    graph.add_connection(missing, 0, id2, 0).unwrap_err();
+    graph.add_connection(id1, 0, missing, 0).unwrap_err();
     // Port out of bounds
-    assert!(graph.add_connection(id1, 99, id2, 0).is_err());
+    graph.add_connection(id1, 99, id2, 0).unwrap_err();
 
     // Cycle detection
     assert!(graph.would_create_cycle(id2, id1));
@@ -715,16 +709,14 @@ fn workflow_hit_testing() {
     let result = tester.hit_test(Position::new(178.0, 64.0), &graph);
     assert!(
         matches!(result, HitTestResult::OutputPort(_, 0)),
-        "expected output port, got {:?}",
-        result
+        "expected output port, got {result:?}"
     );
 
     // Hit an input port of node B (left content edge)
     let result = tester.hit_test(Position::new(302.0, 64.0), &graph);
     assert!(
         matches!(result, HitTestResult::InputPort(_, 0)),
-        "expected input port, got {:?}",
-        result
+        "expected input port, got {result:?}"
     );
 
     // Hit node body
@@ -735,8 +727,7 @@ fn workflow_hit_testing() {
     let result = tester.hit_test(Position::new(240.0, 64.0), &graph);
     assert!(
         matches!(result, HitTestResult::Connection(_)),
-        "got {:?}",
-        result
+        "got {result:?}"
     );
 
     // Hit canvas

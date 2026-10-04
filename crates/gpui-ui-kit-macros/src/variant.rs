@@ -6,7 +6,7 @@
 //!
 //! - `Enum::all()` — every variant, in declaration order (powers docs tables,
 //!   showcase matrices, and prop-controls).
-//! - `variant.as_str()` — stable snake_case identifier, overridable per variant
+//! - `variant.as_str()` — stable `snake_case` identifier, overridable per variant
 //!   with `#[variant(name = "...")]`.
 //! - `variant.is_default_variant()` — whether the variant carries `#[default]`.
 //! - `Display` / `FromStr` — round-trip through the same identifiers.
@@ -262,12 +262,12 @@ mod tests {
     #[test]
     fn rejects_variants_with_fields() {
         let out = variant_derive(
-            r#"
+            r"
             pub enum WithFields {
                 Unit,
                 Tuple(u8),
             }
-            "#,
+            ",
         );
         assert!(out.contains("compile_error !"));
         assert!(out.contains("only supports unit variants"));
@@ -280,12 +280,12 @@ mod tests {
         assert!(empty.contains("at least one variant"));
 
         let generic = variant_derive(
-            r#"
+            r"
             pub enum Generic<T> {
                 A,
                 B,
             }
-            "#,
+            ",
         );
         assert!(generic.contains("compile_error !"));
         assert!(generic.contains("does not support generic enums"));
@@ -313,12 +313,12 @@ mod tests {
     #[test]
     fn rejects_non_string_name() {
         let out = variant_derive(
-            r#"
+            r"
             pub enum Bad {
                 #[variant(name = 1)]
                 A,
             }
-            "#,
+            ",
         );
         assert!(out.contains("compile_error !"));
         assert!(out.contains("must be a string literal"));

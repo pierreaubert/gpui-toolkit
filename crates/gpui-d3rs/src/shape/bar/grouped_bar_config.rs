@@ -6,7 +6,7 @@ use crate::render2d::{Renderer2D, VelloBackend};
 pub struct GroupedBarConfig {
     /// Color scheme for series (cycles through colors)
     pub color_scheme: ColorScheme,
-    /// Optional explicit colors per series (overrides color_scheme)
+    /// Optional explicit colors per series (overrides `color_scheme`)
     pub series_colors: Option<Vec<D3Color>>,
     /// Opacity of bars (0.0 - 1.0)
     pub opacity: f32,

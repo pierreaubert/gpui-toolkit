@@ -79,9 +79,8 @@ impl Port {
         if let Some(valid) = self.valid_target {
             if valid {
                 return theme.port_valid;
-            } else {
-                return theme.port_invalid;
             }
+            return theme.port_invalid;
         }
 
         match self.direction {

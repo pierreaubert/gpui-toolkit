@@ -29,7 +29,7 @@ impl Command for AddNodeCommand {
         graph.remove_node(self.node.id);
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Add node"
     }
 }
@@ -57,7 +57,7 @@ impl Command for RemoveNodeCommand {
         }
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Remove node"
     }
 }
@@ -65,7 +65,7 @@ impl Command for RemoveNodeCommand {
 /// Command to move nodes
 #[derive(Debug, Clone)]
 pub struct MoveNodesCommand {
-    /// (node_id, old_position, new_position)
+    /// (`node_id`, `old_position`, `new_position`)
     pub moves: Vec<(NodeId, Position, Position)>,
 }
 
@@ -86,7 +86,7 @@ impl Command for MoveNodesCommand {
         }
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Move nodes"
     }
 }
@@ -106,7 +106,7 @@ impl Command for AddConnectionCommand {
         graph.remove_connection(self.connection.id);
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Add connection"
     }
 }
@@ -126,7 +126,7 @@ impl Command for RemoveConnectionCommand {
         graph.connections.push(self.connection.clone());
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Remove connection"
     }
 }
@@ -160,7 +160,7 @@ impl Command for ChangePortCountsCommand {
         }
     }
 
-    fn description(&self) -> &str {
+    fn description(&self) -> &'static str {
         "Change port counts"
     }
 }

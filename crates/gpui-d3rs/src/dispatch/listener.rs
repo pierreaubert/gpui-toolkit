@@ -15,6 +15,7 @@ impl std::fmt::Debug for Listener {
         f.debug_struct("Listener")
             .field("id", &self.id)
             .field("type_", &self.type_)
+            .field("callback", &std::any::type_name::<ListenerFn>())
             .field("once", &self.once)
             .finish()
     }

@@ -41,7 +41,7 @@ impl Showcase {
             let entity_clone = entity.clone();
 
             let trigger = div()
-                .id(SharedString::from(format!("tooltip-trigger-{}", id)))
+                .id(SharedString::from(format!("tooltip-trigger-{id}")))
                 .px_4()
                 .py_2()
                 .bg(if is_shown {

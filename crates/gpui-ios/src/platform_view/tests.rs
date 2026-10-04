@@ -19,7 +19,7 @@ impl PlatformView for TestView {
         self.id
     }
 
-    fn view_type(&self) -> &str {
+    fn view_type(&self) -> &'static str {
         "test"
     }
 
@@ -48,7 +48,7 @@ impl PlatformViewFactory for TestFactory {
         }))
     }
 
-    fn view_type(&self) -> &str {
+    fn view_type(&self) -> &'static str {
         "test"
     }
 
@@ -95,7 +95,7 @@ fn platform_view_kind_parses_common_spellings() {
         Ok(PlatformViewKind::SwiftUi)
     );
     assert_eq!(PlatformViewKind::WebView.as_str(), "webview");
-    assert!("unknown".parse::<PlatformViewKind>().is_err());
+    "unknown".parse::<PlatformViewKind>().unwrap_err();
 }
 
 #[test]

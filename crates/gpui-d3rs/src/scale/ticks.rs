@@ -96,7 +96,7 @@ pub fn generate_log_ticks(min: f64, max: f64, base: f64, subdivisions: bool) -> 
         // Add subdivisions (e.g., 20, 30, ..., 90 for base 10)
         if subdivisions && exp < log_max {
             for i in 2..base.ceil() as i32 {
-                let sub_tick = tick * i as f64;
+                let sub_tick = tick * f64::from(i);
                 if sub_tick >= min && sub_tick <= max {
                     ticks.push(sub_tick);
                 }
@@ -106,7 +106,7 @@ pub fn generate_log_ticks(min: f64, max: f64, base: f64, subdivisions: bool) -> 
         exp += 1.0;
     }
 
-    ticks.sort_by(|a, b| a.total_cmp(b));
+    ticks.sort_by(f64::total_cmp);
     ticks
 }
 
@@ -175,8 +175,8 @@ mod tests {
 
         // Verify we don't get -200 or 200
         for &tick in &ticks {
-            assert!(tick >= -180.0 - 1e-10, "Tick {} is below -180", tick);
-            assert!(tick <= 180.0 + 1e-10, "Tick {} is above 180", tick);
+            assert!(tick >= -180.0 - 1e-10, "Tick {tick} is below -180");
+            assert!(tick <= 180.0 + 1e-10, "Tick {tick} is above 180");
         }
     }
 

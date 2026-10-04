@@ -7,7 +7,7 @@
 //! - Keyboard navigation (arrows)
 //! - Disabled state
 //! - Value clamping at bounds
-//! - Callbacks: on_change
+//! - Callbacks: `on_change`
 
 mod slider_disabled_view;
 mod slider_percentage_view;

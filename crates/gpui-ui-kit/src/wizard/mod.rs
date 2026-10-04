@@ -605,8 +605,8 @@ mod tests {
     fn fully_configured_wizard_passes_schema_validation() {
         let wizard = two_step_wizard().current_step(1).progress(0.5);
 
-        assert!(wizard.validate().is_ok());
-        assert!(wizard.validate_first().is_ok());
+        wizard.validate().unwrap();
+        wizard.validate_first().unwrap();
         assert!(wizard.is_valid());
     }
 

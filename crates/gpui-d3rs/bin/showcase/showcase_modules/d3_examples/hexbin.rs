@@ -1,4 +1,4 @@
-//! Hexbin Chart -- Observable example using d3rs::examples::hexbin
+//! Hexbin Chart -- Observable example using `d3rs::examples::hexbin`
 //!
 //! Demonstrates idiomatic d3rs usage: `LogScale` for axes, `Hexbin` for binning,
 //! `PathBuilder` for hex polygons, `d3rs_path_to_gpui_simple` for rendering.
@@ -30,7 +30,7 @@ fn log_axis_ticks(min: f64, max: f64) -> (Vec<f64>, Vec<f64>) {
     for k in lo..=hi {
         let decade = 10_f64.powi(k);
         for m in 1..=9 {
-            let value = m as f64 * decade;
+            let value = f64::from(m) * decade;
             if value >= min && value <= max {
                 if m == 1 || m == 2 || m == 5 {
                     majors.push(value);
@@ -68,11 +68,7 @@ fn load_points() -> Rc<[[f64; 2]]> {
         .filter_map(|row| {
             let carat: f64 = row.get("carat")?.parse().ok()?;
             let price: f64 = row.get("price")?.parse().ok()?;
-            if carat > 0.0 && price > 0.0 {
-                Some([carat, price])
-            } else {
-                None
-            }
+            (carat > 0.0 && price > 0.0).then_some([carat, price])
         })
         .collect::<Vec<_>>()
         .into()
@@ -113,7 +109,11 @@ fn build_cache(data: &[[f64; 2]], hex_radius: f32) -> Rc<HexbinCache> {
         .extent(0.0, 0.0, plot_w, plot_h);
     let bins = hexbin.bin(mapped_data);
 
-    let max_count = bins.iter().map(|b| b.len()).max().unwrap_or(1);
+    let max_count = bins
+        .iter()
+        .map(d3rs::hexbin::HexbinBin::len)
+        .max()
+        .unwrap_or(1);
     let data_count = data.len();
     let bin_count = bins.len();
 
@@ -126,7 +126,7 @@ fn build_cache(data: &[[f64; 2]], hex_radius: f32) -> Rc<HexbinCache> {
         let cy = bin.y;
         let mut builder = D3PathBuilder::new();
         for v in 0..6 {
-            let angle = std::f64::consts::PI / 3.0 * v as f64 - std::f64::consts::FRAC_PI_2;
+            let angle = std::f64::consts::PI / 3.0 * f64::from(v) - std::f64::consts::FRAC_PI_2;
             let px_val = cx + hex_radius * angle.cos();
             let py_val = cy + hex_radius * angle.sin();
             if v == 0 {
@@ -273,7 +273,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .child(
                     div()
                         .text_xs()
-                        .child(format!("{} points -> {} bins", data_count, bin_count)),
+                        .child(format!("{data_count} points -> {bin_count} bins")),
                 )
                 .child({
                     let entity = entity.clone();
@@ -371,7 +371,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .justify_end()
                         .pr_2()
-                        .child(div().text_xs().child(format!("{:.0}", val)))
+                        .child(div().text_xs().child(format!("{val:.0}")))
                 }))
                 // Fine Y grid lines
                 .children(y_minor_ticks.iter().map(|&val| {
@@ -417,9 +417,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .justify_center()
                         .child(div().text_xs().child(if val < 1.0 {
-                            format!("{:.1}", val)
+                            format!("{val:.1}")
                         } else {
-                            format!("{:.0}", val)
+                            format!("{val:.0}")
                         }))
                 }))
                 // Fine X grid lines

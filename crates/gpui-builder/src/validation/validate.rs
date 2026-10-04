@@ -311,20 +311,7 @@ fn validate_display_tiers(
             );
         }
 
-        if !is_non_negative(tier.min_size) {
-            push_issue(
-                state,
-                LayoutIssueSeverity::Error,
-                node_id,
-                path,
-                LayoutIssueKind::InvalidDisplayTier,
-                format!(
-                    "display tier {:?} min_size must be finite and >= 0, got {}",
-                    tier.name,
-                    format_number(tier.min_size)
-                ),
-            );
-        } else {
+        if is_non_negative(tier.min_size) {
             let threshold_key = tier.min_size.to_bits();
             if !thresholds.insert(threshold_key) {
                 push_issue(
@@ -357,6 +344,19 @@ fn validate_display_tiers(
                 );
             }
             previous_min_size = Some(tier.min_size);
+        } else {
+            push_issue(
+                state,
+                LayoutIssueSeverity::Error,
+                node_id,
+                path,
+                LayoutIssueKind::InvalidDisplayTier,
+                format!(
+                    "display tier {:?} min_size must be finite and >= 0, got {}",
+                    tier.name,
+                    format_number(tier.min_size)
+                ),
+            );
         }
     }
 }

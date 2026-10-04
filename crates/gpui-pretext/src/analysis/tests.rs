@@ -129,7 +129,10 @@ fn test_ends_with_myanmar_medial_glue() {
 fn seg(texts: Vec<&str>, kinds: Vec<SegmentBreakKind>) -> MergedSegmentation {
     let len = texts.len();
     MergedSegmentation {
-        texts: texts.into_iter().map(|s| s.to_string()).collect(),
+        texts: texts
+            .into_iter()
+            .map(std::string::ToString::to_string)
+            .collect(),
         is_word_like: vec![true; len],
         kinds,
         starts: (0..len).collect(),

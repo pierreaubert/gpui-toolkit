@@ -1,4 +1,4 @@
-//! Allocation and retained-state contracts for MeshPlot hot paths.
+//! Allocation and retained-state contracts for `MeshPlot` hot paths.
 
 use d3rs::mesh::{
     CoordinateAxis, ScalarAssociation, ScalarField, TriGridIndex, TriangleMesh, project_2d,
@@ -64,7 +64,7 @@ fn navigation_after_warmup_does_not_grow_zoom_history_or_allocate() {
     let mut probe = AllocProbe::new();
     probe.reset();
     for index in 0..1_000 {
-        let offset = (index % 10) as f64 * 0.001;
+        let offset = f64::from(index % 10) * 0.001;
         state.set_viewport_without_history(0.1 + offset, 0.9 + offset, 0.1, 0.9);
         black_box(state.interaction.x_domain());
     }

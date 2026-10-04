@@ -1,4 +1,12 @@
-//! C-compatible FFI functions for embedding GPUI in macOS Audio Unit ViewControllers.
+//! C-compatible FFI functions for embedding GPUI in macOS Audio Unit `ViewControllers`.
+//!
+//! Note: `redundant_closure_for_method_calls` is expected below because the
+//! `|window| window.method()` closures cannot use method paths: `AuWindow`
+//! lives in the private `au_window` module and is unnameable from here.
+#![expect(
+    clippy::redundant_closure_for_method_calls,
+    reason = "AuWindow is unnameable here: module au_window is private, so window closures cannot be replaced by method paths"
+)]
 
 use crate::helpers::{nslog, nslog_verbose};
 use crate::window::{PENDING_VIEW, PendingViewInfo, with_au_window};
@@ -83,12 +91,12 @@ impl Render for AuRootView {
 /// Opaque context handle passed to/from Swift.
 pub struct AuContext {
     _plugin_type: String,
-    /// Prevents GPUI's AppCell from being deallocated after Application::run() returns.
+    /// Prevents GPUI's `AppCell` from being deallocated after `Application::run()` returns.
     ///
-    /// Application::run(self, callback) consumes self and the callback's captured Rc<AppCell>
-    /// is dropped after the callback completes. Since AuPlatform::run() calls the callback
+    /// `Application::run(self`, callback) consumes self and the callback's captured Rc<AppCell>
+    /// is dropped after the callback completes. Since `AuPlatform::run()` calls the callback
     /// immediately (unlike macOS/iOS platforms which block or defer), all Rc references would
-    /// reach zero and AppCell would be deallocated. This clone keeps the refcount positive
+    /// reach zero and `AppCell` would be deallocated. This clone keeps the refcount positive
     /// for the lifetime of the AU plugin view.
     _app_cell: Rc<AppCell>,
 }
@@ -111,10 +119,10 @@ fn clone_application_cell(app: &gpui::Application) -> Rc<AppCell> {
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
-/// Create a GPUI context embedded in an NSView.
+/// Create a GPUI context embedded in an `NSView`.
 ///
-/// # Safety
-/// `ns_view` must be a valid NSView pointer. `plugin_type` must be a valid C string.
+/// Null pointers are rejected; otherwise `ns_view` must be a valid `NSView`
+/// pointer and `plugin_type` must be a valid C string.
 #[unsafe(no_mangle)]
 pub extern "C" fn gpui_au_create(
     ns_view: *mut Object,
@@ -131,19 +139,19 @@ pub extern "C" fn gpui_au_create(
         return std::ptr::null_mut();
     }
 
+    // SAFETY: `plugin_type` is null-checked above and documented as a
+    // valid C string; invalid UTF-8 is rejected without dereferencing it.
     let plugin_type_str = unsafe {
-        match CStr::from_ptr(plugin_type).to_str() {
-            Ok(s) => s.to_string(),
-            Err(_) => {
-                nslog(b"SOTF gpui_au_create: invalid UTF-8");
-                return std::ptr::null_mut();
-            }
+        if let Ok(s) = CStr::from_ptr(plugin_type).to_str() {
+            s.to_string()
+        } else {
+            nslog(b"SOTF gpui_au_create: invalid UTF-8");
+            return std::ptr::null_mut();
         }
     };
 
     let msg = format!(
-        "SOTF gpui_au_create: plugin={}, size={}x{} @{:.1}x, view={:p}",
-        plugin_type_str, width, height, scale, ns_view
+        "SOTF gpui_au_create: plugin={plugin_type_str}, size={width}x{height} @{scale:.1}x, view={ns_view:p}"
     );
     nslog_verbose(msg.as_bytes());
 
@@ -208,9 +216,11 @@ pub extern "C" fn gpui_au_destroy(context: *mut AuContext) {
     if !context.is_null() {
         nslog_verbose(b"SOTF gpui_au_destroy: cleaning up");
         crate::window::unregister_au_window();
+        // SAFETY: `context` came from `Box::into_raw` in `gpui_au_create`
+        // and the host destroys each context at most once.
         unsafe {
             drop(Box::from_raw(context));
-        }
+        };
         nslog_verbose(b"SOTF gpui_au_destroy: done");
     }
 }
@@ -408,6 +418,8 @@ fn optional_c_string(value: *const c_char) -> Option<String> {
     if value.is_null() {
         None
     } else {
+        // SAFETY: non-null by the check above; callers pass valid C
+        // strings, and the bytes are copied out immediately.
         unsafe { CStr::from_ptr(value).to_str().ok().map(str::to_owned) }
     }
 }
@@ -447,7 +459,7 @@ fn key_event(
     }
 }
 
-/// Forward an NSEvent keyDown event from the host NSView.
+/// Forward an `NSEvent` keyDown event from the host `NSView`.
 #[unsafe(no_mangle)]
 pub extern "C" fn gpui_au_key_down(
     context: *mut AuContext,
@@ -472,7 +484,7 @@ pub extern "C" fn gpui_au_key_down(
     }));
 }
 
-/// Forward an NSEvent keyUp event from the host NSView.
+/// Forward an `NSEvent` keyUp event from the host `NSView`.
 #[unsafe(no_mangle)]
 pub extern "C" fn gpui_au_key_up(
     context: *mut AuContext,
@@ -505,7 +517,7 @@ pub extern "C" fn gpui_au_insert_text(context: *mut AuContext, text: *const c_ch
     }
 }
 
-/// Forward an in-progress marked-text composition from AppKit.
+/// Forward an in-progress marked-text composition from `AppKit`.
 #[unsafe(no_mangle)]
 pub extern "C" fn gpui_au_set_marked_text(
     context: *mut AuContext,
@@ -562,6 +574,7 @@ pub extern "C" fn gpui_au_parameter_value(context: *mut AuContext, id: u32, ok: 
         with_au_window(|window| window.parameter_value(id)).flatten()
     };
     if !ok.is_null() {
+        // SAFETY: `ok` is null-checked; the host passes a writable out flag.
         unsafe {
             *ok = value.is_some();
         }
@@ -620,6 +633,8 @@ pub extern "C" fn gpui_au_save_state(
     };
     let required = bytes.len();
     if !written.is_null() {
+        // SAFETY: `written` is null-checked; the host passes a writable
+        // out count.
         unsafe {
             *written = 0;
         }
@@ -628,6 +643,8 @@ pub extern "C" fn gpui_au_save_state(
         return required;
     }
     let count = required.min(capacity);
+    // SAFETY: `out` is non-null with room for `count <= capacity` bytes;
+    // source and destination are disjoint allocations.
     unsafe {
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), out, count);
         if !written.is_null() {
@@ -653,11 +670,15 @@ pub extern "C" fn gpui_au_frame_stats(
         with_au_window(|window| (window.dropped_frames(), window.coalesced_frames()))
             .unwrap_or((0, 0));
     if !dropped.is_null() {
+        // SAFETY: `dropped` is null-checked; the host passes a writable
+        // out counter.
         unsafe {
             *dropped = dropped_frames;
         }
     }
     if !coalesced.is_null() {
+        // SAFETY: `coalesced` is null-checked; the host passes a writable
+        // out counter.
         unsafe {
             *coalesced = coalesced_frames;
         }
@@ -667,13 +688,14 @@ pub extern "C" fn gpui_au_frame_stats(
 /// Restore plugin state previously produced by `gpui_au_save_state`.
 /// Returns false for a null context, null data, or a corrupt payload.
 ///
-/// # Safety
 /// `data` must point to `len` readable bytes when non-null.
 #[unsafe(no_mangle)]
 pub extern "C" fn gpui_au_load_state(context: *mut AuContext, data: *const u8, len: usize) -> bool {
     if context.is_null() || data.is_null() {
         return false;
     }
+    // SAFETY: `data` is null-checked and documented as `len` readable
+    // bytes; the slice is only read during validation below.
     let bytes = unsafe { std::slice::from_raw_parts(data, len) };
     with_au_window(|window| window.restore_plugin_state(bytes)).unwrap_or(false)
 }
@@ -744,7 +766,7 @@ mod tests {
         gpui_au_delete_backward(context);
         assert_eq!(gpui_au_parameter_count(context), 0);
         let mut ok = true;
-        assert_eq!(gpui_au_parameter_value(context, 0, &mut ok), 0.0);
+        assert_eq!(gpui_au_parameter_value(context, 0, &raw mut ok), 0.0);
         assert!(!ok);
         assert_eq!(
             gpui_au_parameter_value(context, 0, std::ptr::null_mut()),
@@ -761,13 +783,13 @@ mod tests {
         ));
         let mut written = 0usize;
         assert_eq!(
-            gpui_au_save_state(context, std::ptr::null_mut(), 0, &mut written),
+            gpui_au_save_state(context, std::ptr::null_mut(), 0, &raw mut written),
             0
         );
         assert_eq!(written, 0);
         assert!(!gpui_au_load_state(context, std::ptr::null(), 0));
         let (mut dropped, mut coalesced) = (usize::MAX, usize::MAX);
-        gpui_au_frame_stats(context, &mut dropped, &mut coalesced);
+        gpui_au_frame_stats(context, &raw mut dropped, &raw mut coalesced);
         assert_eq!((dropped, coalesced), (usize::MAX, usize::MAX));
         gpui_au_frame_stats(context, std::ptr::null_mut(), std::ptr::null_mut());
     }

@@ -40,13 +40,11 @@ where
     let x_ticks: Cow<[f64]> = config
         .vertical_line_values
         .as_deref()
-        .map(Cow::Borrowed)
-        .unwrap_or_else(|| Cow::Owned(x_scale.ticks(10)));
+        .map_or_else(|| Cow::Owned(x_scale.ticks(10)), Cow::Borrowed);
     let y_ticks: Cow<[f64]> = config
         .horizontal_line_values
         .as_deref()
-        .map(Cow::Borrowed)
-        .unwrap_or_else(|| Cow::Owned(y_scale.ticks(10)));
+        .map_or_else(|| Cow::Owned(y_scale.ticks(10)), Cow::Borrowed);
 
     let (x_range_min, x_range_max) = x_scale.range();
     let (y_range_min, y_range_max) = y_scale.range();

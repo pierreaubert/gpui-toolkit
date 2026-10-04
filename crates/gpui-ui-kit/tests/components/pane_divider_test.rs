@@ -1,4 +1,4 @@
-//! PaneDivider component tests
+//! `PaneDivider` component tests
 
 use gpui_ui_kit::pane_divider::{CollapseDirection, PaneDivider};
 
@@ -9,10 +9,10 @@ fn test_pane_divider_vertical() {
         .collapsed(false)
         .thickness(gpui::px(8.0))
         .on_toggle(|collapsed, _window, _cx| {
-            println!("Collapsed: {}", collapsed);
+            println!("Collapsed: {collapsed}");
         })
         .on_drag_start(|pos, _window, _cx| {
-            println!("Drag start x: {}", pos);
+            println!("Drag start x: {pos}");
         });
 
     drop(divider);

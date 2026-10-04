@@ -22,7 +22,7 @@ pub struct LineVertex {
     /// Half segment length in pixels
     pub half_length: f32,
     /// Padding for 16-byte vertex alignment
-    pub _padding: [f32; 2],
+    pub padding: [f32; 2],
 }
 
 impl LineVertex {
@@ -39,7 +39,7 @@ impl LineVertex {
             color,
             half_width,
             half_length,
-            _padding: [0.0; 2],
+            padding: [0.0; 2],
         }
     }
 }
@@ -93,8 +93,8 @@ impl LineBatch {
         let coverage_half_length = half_length + 1.0;
         let tx = dx / len;
         let ty = dy / len;
-        let cx = (x0 + x1) * 0.5;
-        let cy = (y0 + y1) * 0.5;
+        let cx = f32::midpoint(x0, x1);
+        let cy = f32::midpoint(y0, y1);
 
         let corner = |local_x: f32, local_y: f32| {
             [

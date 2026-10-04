@@ -1,4 +1,4 @@
-//! Four small, playable native games built on the retained Scene2D surface.
+//! Four small, playable native games built on the retained `Scene2D` surface.
 
 // Rust guideline compliant 2026-02-21
 
@@ -302,7 +302,7 @@ impl GamesShowcase {
             .aria_label("Tetris touch controls. Hold left, right, or soft drop; tap rotate.")
             .on_input(move |event, _window, app| {
                 let _ = handle.update(app, |this, cx| {
-                    this.handle_input(GameKind::Tetris, event, cx)
+                    this.handle_input(GameKind::Tetris, event, cx);
                 });
             })
     }
@@ -314,7 +314,7 @@ impl GamesShowcase {
         self.tetris.release_all();
         self.active_game = game;
         self.help_open = false;
-        self.status = "Ready when you are.".to_owned();
+        "Ready when you are.".clone_into(&mut self.status);
         self.sync_ticker(cx);
         cx.notify();
     }
@@ -689,8 +689,7 @@ impl GamesShowcase {
     fn sudoku_selected_cell_preview(&self) -> impl IntoElement {
         let (label, value) = self
             .sudoku
-            .selected
-            .map(|(row, col)| {
+            .selected.map_or_else(|| ("Select a cell on the board".to_owned(), "·".to_owned()), |(row, col)| {
                 let value = self.sudoku.values[row][col];
                 (
                     format!("Selected cell · Row {}, column {}", row + 1, col + 1),
@@ -700,8 +699,7 @@ impl GamesShowcase {
                         value.to_string()
                     },
                 )
-            })
-            .unwrap_or_else(|| ("Select a cell on the board".to_owned(), "·".to_owned()));
+            });
         let preview_fill = if self.light_palette {
             rgba(0xe4edf4ff)
         } else {
@@ -987,7 +985,7 @@ impl Render for GamesShowcase {
         if self.activation_subscription.is_none() {
             self.activation_subscription =
                 Some(cx.observe_window_activation(window, |games, window, cx| {
-                    games.set_window_active(window.is_window_active(), cx)
+                    games.set_window_active(window.is_window_active(), cx);
                 }));
         }
         let handle = cx.entity().downgrade();
@@ -1024,8 +1022,7 @@ impl ZipGame {
             .enumerate()
             .skip(1)
             .find(|(_, point)| !self.path.contains(point))
-            .map(|(index, _)| index + 1)
-            .unwrap_or(ZIP_CHECKPOINTS.len())
+            .map_or(ZIP_CHECKPOINTS.len(), |(index, _)| index + 1)
     }
 
     fn record(&mut self) {
@@ -1099,18 +1096,13 @@ impl ZipGame {
     fn handle(&mut self, event: Scene2DInput) -> bool {
         match event {
             Scene2DInput::Pointer {
-                phase,
+                phase:
+                    gpui_ui_kit::scene2d::Scene2DPointerPhase::Down
+                    | gpui_ui_kit::scene2d::Scene2DPointerPhase::Move
+                    | gpui_ui_kit::scene2d::Scene2DPointerPhase::Up,
                 cell: Some(cell),
                 ..
-            } if matches!(
-                phase,
-                gpui_ui_kit::scene2d::Scene2DPointerPhase::Down
-                    | gpui_ui_kit::scene2d::Scene2DPointerPhase::Move
-                    | gpui_ui_kit::scene2d::Scene2DPointerPhase::Up
-            ) =>
-            {
-                self.step((cell.row as usize, cell.column as usize))
-            }
+            } => self.step((cell.row as usize, cell.column as usize)),
             Scene2DInput::Key {
                 phase: Scene2DKeyPhase::Down,
                 key,
@@ -1402,9 +1394,9 @@ impl QueensGame {
     }
 
     fn hint(&mut self) -> bool {
-        for row in 0..QUEENS_SIZE {
+        for (row, solution_col) in QUEENS_SOLUTION.iter().enumerate() {
             if !self.queens().iter().any(|(queen_row, _)| *queen_row == row) {
-                return self.place(row, QUEENS_SOLUTION[row]);
+                return self.place(row, *solution_col);
             }
         }
         false
@@ -1464,8 +1456,7 @@ impl QueensGame {
             .count();
         if conflicts > 0 {
             format!(
-                "{} crowns are in conflict. Move or remove a crown.",
-                conflicts
+                "{conflicts} crowns are in conflict. Move or remove a crown."
             )
         } else {
             format!("{} of {} crowns placed.", self.count(), QUEENS_SIZE)
@@ -1505,12 +1496,14 @@ impl QueensGame {
             None,
             None,
         ));
-        for row in 0..size {
-            for col in 0..size {
+        for (row, (marks_row, conflicts_row)) in self.marks.iter().zip(conflicts.iter()).enumerate()
+        {
+            for (col, (&mark, &conflict)) in marks_row.iter().zip(conflicts_row.iter()).enumerate()
+            {
                 let x = pad + col as f32 * (cell + gap);
                 let y = pad + row as f32 * (cell + gap);
                 let rect = SceneRect::new(x, y, cell, cell);
-                let value = match self.marks[row][col] {
+                let value = match mark {
                     1 => "crown",
                     2 => "excluded",
                     _ => "open",
@@ -1534,16 +1527,12 @@ impl QueensGame {
                     Some(semantic(
                         Scene2DSemanticRole::GridCell,
                         format!("Row {}, column {}, region {}", row + 1, col + 1, region + 1),
-                        if conflicts[row][col] {
-                            "conflict"
-                        } else {
-                            value
-                        },
+                        if conflict { "conflict" } else { value },
                         selected,
                     )),
                 ));
                 let (cx, cy) = (x + cell * 0.5, y + cell * 0.5);
-                if self.marks[row][col] == 1 {
+                if mark == 1 {
                     let points = [
                         ScenePoint::new(cx - 14.0, cy + 12.0),
                         ScenePoint::new(cx - 10.0, cy - 6.0),
@@ -1577,7 +1566,7 @@ impl QueensGame {
                         },
                         None,
                     ));
-                } else if self.marks[row][col] == 2 {
+                } else if mark == 2 {
                     scene.nodes.push(line_node(
                         &format!("queens-mark-{row}-{col}"),
                         ScenePoint::new(cx - 8.0, cy - 8.0),
@@ -1591,7 +1580,7 @@ impl QueensGame {
                         stroke(2.5, color(0.28, 0.37, 0.46)),
                     ));
                 }
-                if conflicts[row][col] {
+                if conflict {
                     scene.nodes.push(rounded_node(
                         &format!("queens-conflict-{row}-{col}"),
                         None,
@@ -1713,11 +1702,11 @@ impl SudokuGame {
             return false;
         }
         let Some((row, col)) = self.selected.or_else(|| self.first_empty()) else {
-            self.message = "The board is full.".to_owned();
+            "The board is full.".clone_into(&mut self.message);
             return true;
         };
         if self.givens[row][col] {
-            self.message = "Clues cannot be changed.".to_owned();
+            "Clues cannot be changed.".clone_into(&mut self.message);
             return true;
         }
         self.record();
@@ -1810,8 +1799,7 @@ impl SudokuGame {
     }
 
     fn preview(&self) -> String {
-        self.selected
-            .map(|(row, col)| {
+        self.selected.map_or_else(|| "Select a cell to preview its candidates.".to_owned(), |(row, col)| {
                 let value = self.values[row][col];
                 let candidates = self
                     .candidates(row, col)
@@ -1844,7 +1832,6 @@ impl SudokuGame {
                     )
                 }
             })
-            .unwrap_or_else(|| "Select a cell to preview its candidates.".to_owned())
     }
 
     fn status(&self) -> String {
@@ -1873,9 +1860,7 @@ impl SudokuGame {
                 "ArrowDown" => self.move_selection(1, 0),
                 "Backspace" | "Delete" => self.erase(),
                 value if value.len() == 1 && value.as_bytes()[0].is_ascii_digit() => value
-                    .parse::<u8>()
-                    .ok()
-                    .is_some_and(|digit| self.enter(digit)),
+                    .parse::<u8>().is_ok_and(|digit| self.enter(digit)),
                 _ => false,
             },
             Scene2DInput::Activate {
@@ -2199,11 +2184,11 @@ impl TetrisGame {
         if self.over {
             return false;
         }
-        if !self.running {
+        if self.running {
+            self.paused = !self.paused;
+        } else {
             self.running = true;
             self.paused = false;
-        } else {
-            self.paused = !self.paused;
         }
         self.reset_clock();
         true
@@ -2419,15 +2404,18 @@ impl TetrisGame {
                 gpui_ui_kit::scene2d::Scene2DPointerPhase::Down => match hit_id.as_deref() {
                     Some("hold-left") => {
                         self.contacts.insert(contact_id, HoldAction::Left);
-                        self.move_piece(0, -1) || true
+                        self.move_piece(0, -1);
+                        true
                     }
                     Some("hold-right") => {
                         self.contacts.insert(contact_id, HoldAction::Right);
-                        self.move_piece(0, 1) || true
+                        self.move_piece(0, 1);
+                        true
                     }
                     Some("hold-down") => {
                         self.contacts.insert(contact_id, HoldAction::Down);
-                        self.soft_step() || true
+                        self.soft_step();
+                        true
                     }
                     Some("hold-rotate") => self.rotate(),
                     _ => false,
@@ -2464,9 +2452,18 @@ impl TetrisGame {
                         return false;
                     }
                     return match action {
-                        HoldAction::Left => self.move_piece(0, -1) || true,
-                        HoldAction::Right => self.move_piece(0, 1) || true,
-                        HoldAction::Down => self.soft_step() || true,
+                        HoldAction::Left => {
+                            self.move_piece(0, -1);
+                            true
+                        }
+                        HoldAction::Right => {
+                            self.move_piece(0, 1);
+                            true
+                        }
+                        HoldAction::Down => {
+                            self.soft_step();
+                            true
+                        }
                     };
                 }
                 false
@@ -3164,7 +3161,7 @@ mod tests {
 
     #[test]
     fn queens_regions_are_connected_and_solution_uses_each_region_once() {
-        for region in 0..QUEENS_SIZE {
+        for (region, solution_col) in QUEENS_SOLUTION.iter().enumerate() {
             let cells = (0..QUEENS_SIZE)
                 .flat_map(|row| (0..QUEENS_SIZE).map(move |col| (row, col)))
                 .filter(|(row, col)| QueensGame::region(*row, *col) == region)
@@ -3190,7 +3187,7 @@ mod tests {
                 }
             }
             assert_eq!(visited, cells, "region {region} must be connected");
-            assert_eq!(QueensGame::region(region, QUEENS_SOLUTION[region]), region);
+            assert_eq!(QueensGame::region(region, *solution_col), region);
         }
     }
 
@@ -3294,11 +3291,17 @@ mod tests {
         assert_eq!(game.values[0][3], 6);
         assert!(game.undo());
         assert_eq!(game.values[0][3], 0);
-        for row in 0..9 {
-            for col in 0..9 {
-                if !game.givens[row][col] {
+        // `givens` is fixed at construction, so snapshot it to iterate without
+        // holding a borrow on `game` across the mutable `enter` calls below.
+        let givens = game.givens;
+        for (row, (givens_row, solution_row)) in
+            givens.iter().zip(SUDOKU_SOLUTION.iter()).enumerate()
+        {
+            for (col, (&given, &solution)) in givens_row.iter().zip(solution_row.iter()).enumerate()
+            {
+                if !given {
                     game.selected = Some((row, col));
-                    assert!(game.enter(SUDOKU_SOLUTION[row][col]));
+                    assert!(game.enter(solution));
                 }
             }
         }
@@ -3440,12 +3443,12 @@ mod tests {
             let game_turn = cycle / GameKind::ALL.len() as u64;
             match active_game {
                 GameKind::Zip => {
-                    if game_turn % 96 == 0 {
+                    if game_turn.is_multiple_of(96) {
                         zip.reset();
                     }
                     if zip.path.is_empty() {
                         zip.step(ZIP_START);
-                    } else if game_turn % 7 == 0 {
+                    } else if game_turn.is_multiple_of(7) {
                         zip.undo();
                     } else {
                         zip.hint();
@@ -3453,35 +3456,35 @@ mod tests {
                     replace_retained_scene(&surfaces, &mut revisions, 0, zip.scene(0));
                 }
                 GameKind::Queens => {
-                    if game_turn % 512 == 0 {
+                    if game_turn.is_multiple_of(512) {
                         queens.reset();
                     }
                     let row = game_turn as usize % QUEENS_SIZE;
                     let col = game_turn as usize / QUEENS_SIZE % QUEENS_SIZE;
                     queens.place(row, col);
-                    if game_turn % 9 == 0 {
+                    if game_turn.is_multiple_of(9) {
                         queens.undo();
                     }
                     replace_retained_scene(&surfaces, &mut revisions, 1, queens.scene(0));
                 }
                 GameKind::Sudoku => {
-                    if game_turn % 512 == 0 {
+                    if game_turn.is_multiple_of(512) {
                         sudoku.reset();
                     }
                     sudoku.select(0, 2);
                     sudoku.enter((game_turn % 9 + 1) as u8);
-                    if game_turn % 11 == 0 {
+                    if game_turn.is_multiple_of(11) {
                         sudoku.undo();
                     }
                     replace_retained_scene(&surfaces, &mut revisions, 2, sudoku.scene(0));
                 }
                 GameKind::Tetris => {
-                    if game_turn % 128 == 0 || !tetris.running || tetris.over {
+                    if game_turn.is_multiple_of(128) || !tetris.running || tetris.over {
                         tetris.new_game();
                     }
-                    if game_turn % 8 == 0 {
+                    if game_turn.is_multiple_of(8) {
                         tetris.rotate();
-                    } else if game_turn % 3 == 0 {
+                    } else if game_turn.is_multiple_of(3) {
                         tetris.move_piece(0, -1);
                     } else {
                         tetris.move_piece(0, 1);

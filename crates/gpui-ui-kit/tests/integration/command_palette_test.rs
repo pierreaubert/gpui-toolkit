@@ -1,4 +1,4 @@
-//! Integration tests for CommandPalette component
+//! Integration tests for `CommandPalette` component
 
 use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div};
 use gpui_ui_kit::command_palette::{CommandItem, CommandPalette};

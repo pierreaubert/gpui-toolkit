@@ -16,7 +16,7 @@ pub struct LineConfig {
     pub curve: CurveType,
     /// Whether to show points at data locations
     pub show_points: bool,
-    /// Point radius if show_points is true
+    /// Point radius if `show_points` is true
     pub point_radius: f32,
     /// Fill color for points
     pub point_fill_color: Option<D3Color>,

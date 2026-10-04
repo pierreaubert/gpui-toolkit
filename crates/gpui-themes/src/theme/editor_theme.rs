@@ -98,8 +98,8 @@ pub struct EditorTheme {
     // Font family
     pub font_family: String,
 
-    /// Platform design language identifier (e.g., "neutral", "apple_hig", "material3", "fluent").
-    /// Informational — the actual design system parameters live in sotf-host::DesignSystem.
+    /// Platform design language identifier (e.g., "neutral", "`apple_hig`", "material3", "fluent").
+    /// Informational — the actual design system parameters live in `sotf-host::DesignSystem`.
     #[serde(default = "default_design_language")]
     pub design_language: String,
 }
@@ -169,24 +169,21 @@ impl EditorTheme {
         let text_background = contrast_ratio(self.text_primary, self.background);
         if text_background < 4.5 {
             return Err(format!(
-                "text_primary/background contrast {:.2}:1 is below WCAG AA",
-                text_background
+                "text_primary/background contrast {text_background:.2}:1 is below WCAG AA"
             ));
         }
 
         let text_surface = contrast_ratio(self.text_primary, self.surface);
         if text_surface < 4.5 {
             return Err(format!(
-                "text_primary/surface contrast {:.2}:1 is below WCAG AA",
-                text_surface
+                "text_primary/surface contrast {text_surface:.2}:1 is below WCAG AA"
             ));
         }
 
         let accent_text = contrast_ratio(self.text_on_accent, self.accent);
         if accent_text < 4.5 {
             return Err(format!(
-                "text_on_accent/accent contrast {:.2}:1 is below WCAG AA",
-                accent_text
+                "text_on_accent/accent contrast {accent_text:.2}:1 is below WCAG AA"
             ));
         }
 
@@ -989,7 +986,7 @@ impl EditorTheme {
         }
 
         let code = format!(
-            r#"/// Generated theme.
+            r"/// Generated theme.
 pub fn {}() -> EditorTheme {{
     EditorTheme {{
         name: {:?}.to_string(),
@@ -1115,7 +1112,7 @@ pub fn {}() -> EditorTheme {{
         }},
     }}
 }}
-"#,
+",
             rust_identifier(&self.name),
             self.name,
             color_to_rust(&self.background),

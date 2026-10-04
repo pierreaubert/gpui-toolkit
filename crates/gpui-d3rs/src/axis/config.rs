@@ -21,11 +21,11 @@ pub struct AxisConfig {
     pub orientation: AxisOrientation,
     /// Approximate number of ticks
     pub tick_count: usize,
-    /// Explicit tick values (overrides tick_count if provided)
+    /// Explicit tick values (overrides `tick_count` if provided)
     pub tick_values: Option<Vec<f64>>,
     /// Minor tick values (smaller ticks without labels)
     pub minor_tick_values: Option<Vec<f64>>,
-    /// Minor tick size in pixels (usually smaller than main tick_size)
+    /// Minor tick size in pixels (usually smaller than main `tick_size`)
     pub minor_tick_size: f32,
     /// Tick size in pixels (length of tick mark)
     pub tick_size: f32,
@@ -151,7 +151,7 @@ impl AxisConfig {
         self
     }
 
-    /// Set explicit tick values (overrides tick_count)
+    /// Set explicit tick values (overrides `tick_count`)
     ///
     /// # Example
     ///
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn test_custom_formatter() {
-        let config = AxisConfig::bottom().with_formatter(|v| format!("{:.2}", v));
+        let config = AxisConfig::bottom().with_formatter(|v| format!("{v:.2}"));
 
         assert!(config.tick_format.is_some());
         let formatted = (config.tick_format.unwrap())(42.123);

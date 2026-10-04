@@ -246,12 +246,11 @@ fn next_selection(
                     .nodes
                     .iter()
                     .find(|node| node.id == "selection-marker")
-                    .map(|node| {
+                    .map_or(0, |node| {
                         let column = ((node.transform.translate_x - 35.0) / BOARD_STEP).round();
                         let row = ((node.transform.translate_y - 35.0) / BOARD_STEP).round();
                         row.max(0.0) as usize * BOARD_SIZE as usize + column.max(0.0) as usize
                     })
-                    .unwrap_or(0)
             });
             let mut row = current / BOARD_SIZE as usize;
             let mut column = current % BOARD_SIZE as usize;

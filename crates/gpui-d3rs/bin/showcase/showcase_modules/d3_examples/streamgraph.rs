@@ -1,4 +1,4 @@
-//! Streamgraph -- Observable example using d3rs::examples::streamgraph
+//! Streamgraph -- Observable example using `d3rs::examples::streamgraph`
 //!
 //! Demonstrates idiomatic d3rs usage: `Stack` with `InsideOut` order + `Wiggle` offset,
 //! `LinearScale` for axes, `PathBuilder` for area paths, `d3rs_path_to_gpui_simple` for rendering.

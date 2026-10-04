@@ -88,10 +88,10 @@ impl Color {
     /// Convert to GPUI Rgba
     pub fn to_rgba(&self) -> Rgba {
         Rgba {
-            r: self.r as f32 / 255.0,
-            g: self.g as f32 / 255.0,
-            b: self.b as f32 / 255.0,
-            a: self.a as f32 / 255.0,
+            r: f32::from(self.r) / 255.0,
+            g: f32::from(self.g) / 255.0,
+            b: f32::from(self.b) / 255.0,
+            a: f32::from(self.a) / 255.0,
         }
     }
 
@@ -117,13 +117,13 @@ impl Color {
 
     /// Get HSL components
     pub fn to_hsl(&self) -> (f32, f32, f32) {
-        let r = self.r as f32 / 255.0;
-        let g = self.g as f32 / 255.0;
-        let b = self.b as f32 / 255.0;
+        let r = f32::from(self.r) / 255.0;
+        let g = f32::from(self.g) / 255.0;
+        let b = f32::from(self.b) / 255.0;
 
         let max = r.max(g).max(b);
         let min = r.min(g).min(b);
-        let l = (max + min) / 2.0;
+        let l = f32::midpoint(max, min);
 
         if (max - min).abs() < f32::EPSILON {
             return (0.0, 0.0, l);
@@ -231,9 +231,9 @@ mod tests {
         let (h, s, l) = color.to_hsl();
         let back = Color::from_hsl(h, s, l);
         // Allow small rounding errors
-        assert!((color.r as i16 - back.r as i16).abs() <= 1);
-        assert!((color.g as i16 - back.g as i16).abs() <= 1);
-        assert!((color.b as i16 - back.b as i16).abs() <= 1);
+        assert!((i16::from(color.r) - i16::from(back.r)).abs() <= 1);
+        assert!((i16::from(color.g) - i16::from(back.g)).abs() <= 1);
+        assert!((i16::from(color.b) - i16::from(back.b)).abs() <= 1);
     }
 
     #[test]

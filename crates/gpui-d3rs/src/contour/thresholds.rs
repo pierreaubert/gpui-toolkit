@@ -44,7 +44,7 @@ pub fn threshold_scott(values: &[f64], min: f64, max: f64) -> Vec<f64> {
     let std = standard_deviation(values);
 
     if std <= 0.0 {
-        return vec![(min + max) / 2.0];
+        return vec![f64::midpoint(min, max)];
     }
 
     let h = 3.5 * std / n.powf(1.0 / 3.0);
@@ -74,7 +74,7 @@ pub fn threshold_freedman_diaconis(values: &[f64], min: f64, max: f64) -> Vec<f6
     let iqr = interquartile_range(values);
 
     if iqr <= 0.0 {
-        return vec![(min + max) / 2.0];
+        return vec![f64::midpoint(min, max)];
     }
 
     let h = 2.0 * iqr / n.powf(1.0 / 3.0);
@@ -89,7 +89,7 @@ fn linspace(min: f64, max: f64, n: usize) -> Vec<f64> {
         return vec![];
     }
     if n == 1 {
-        return vec![(min + max) / 2.0];
+        return vec![f64::midpoint(min, max)];
     }
 
     (0..n)
@@ -159,14 +159,14 @@ mod tests {
 
     #[test]
     fn test_threshold_scott() {
-        let values: Vec<f64> = (0..100).map(|i| i as f64).collect();
+        let values: Vec<f64> = (0..100).map(f64::from).collect();
         let thresholds = threshold_scott(&values, 0.0, 100.0);
         assert!(!thresholds.is_empty());
     }
 
     #[test]
     fn test_threshold_freedman_diaconis() {
-        let values: Vec<f64> = (0..100).map(|i| i as f64).collect();
+        let values: Vec<f64> = (0..100).map(f64::from).collect();
         let thresholds = threshold_freedman_diaconis(&values, 0.0, 100.0);
         assert!(!thresholds.is_empty());
     }
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn test_interquartile_range() {
-        let values: Vec<f64> = (1..=10).map(|i| i as f64).collect();
+        let values: Vec<f64> = (1..=10).map(f64::from).collect();
         let iqr = interquartile_range(&values);
         assert!(iqr > 0.0);
     }

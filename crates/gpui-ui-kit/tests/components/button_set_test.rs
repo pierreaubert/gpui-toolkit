@@ -1,4 +1,4 @@
-//! ButtonSet component tests
+//! `ButtonSet` component tests
 
 use gpui_ui_kit::button_set::{ButtonSet, ButtonSetOption, ButtonSetSize};
 
@@ -15,7 +15,7 @@ fn test_button_set_creation() {
         .size(ButtonSetSize::Sm)
         .disabled(false)
         .on_change(|val, _window, _cx| {
-            println!("Selected: {}", val);
+            println!("Selected: {val}");
         });
 
     drop(button_set);

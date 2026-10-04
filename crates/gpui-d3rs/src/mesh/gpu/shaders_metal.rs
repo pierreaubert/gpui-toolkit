@@ -3,7 +3,7 @@
 //! The scalar map and isoline AA mirror `shaders.rs`; values are already
 //! expanded per triangle when a cell-associated field is uploaded.
 
-pub const MESH_MSL: &str = r#"
+pub const MESH_MSL: &str = r"
 #include <metal_stdlib>
 using namespace metal;
 
@@ -92,4 +92,4 @@ fragment float4 mesh_fragment(Out input [[stage_in]], constant Uniforms& uniform
 fragment float4 mesh_line_fragment(Out _input [[stage_in]], constant Uniforms& uniforms [[buffer(1)]]) {
     return float4(0.08, 0.10, 0.14, 0.9);
 }
-"#;
+";

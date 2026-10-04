@@ -154,7 +154,7 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let y = vec![2.0, 4.0, 3.0, 5.0, 4.5];
         let result = line(&x, &y).title("Test Line").color(0xff7f0e).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -168,7 +168,7 @@ mod tests {
             .show_points(true)
             .size(800.0, 600.0)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -176,7 +176,7 @@ mod tests {
         let x = vec![10.0, 100.0, 1000.0, 10000.0];
         let y = vec![1.0, 2.0, 3.0, 4.0];
         let result = line(&x, &y).x_scale(ScaleType::Log).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -184,7 +184,7 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0, 4.0];
         let y = vec![10.0, 100.0, 1000.0, 10000.0];
         let result = line(&x, &y).y_scale(ScaleType::Log).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -195,7 +195,7 @@ mod tests {
             .x_scale(ScaleType::Log)
             .y_scale(ScaleType::Log)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -236,7 +236,7 @@ mod tests {
             .curve(CurveType::Linear)
             .show_points(true)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     // ============================================================================
@@ -248,7 +248,7 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let y = vec![10.0, 20.0, 30.0, 40.0, 50.0];
         let result = line(&x, &y).x_range(2.0, 4.0).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -256,7 +256,7 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let y = vec![10.0, 20.0, 30.0, 40.0, 50.0];
         let result = line(&x, &y).y_range(15.0, 45.0).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -264,7 +264,7 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let y = vec![10.0, 20.0, 30.0, 40.0, 50.0];
         let result = line(&x, &y).x_range(1.5, 4.5).y_range(15.0, 45.0).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -275,7 +275,7 @@ mod tests {
             .x_scale(ScaleType::Log)
             .x_range(50.0, 5000.0)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -286,7 +286,7 @@ mod tests {
             .y_scale(ScaleType::Log)
             .y_range(50.0, 5000.0)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -300,7 +300,7 @@ mod tests {
             .x_range(1.0, 5.0)
             .y_range(10.0, 50.0)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -309,7 +309,7 @@ mod tests {
         let x = vec![2.0, 3.0, 4.0];
         let y = vec![20.0, 30.0, 40.0];
         let result = line(&x, &y).x_range(0.0, 10.0).y_range(0.0, 100.0).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -318,7 +318,7 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
         let y = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
         let result = line(&x, &y).x_range(3.0, 7.0).y_range(3.0, 7.0).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -332,7 +332,7 @@ mod tests {
             .x_range(1.5, 4.5)
             .y_range(10.0, 45.0)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -344,7 +344,7 @@ mod tests {
             .label("Series 1")
             .add_series(&y2, Some("Series 2"), 0xff7f0e, 2.0, 1.0)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -356,7 +356,7 @@ mod tests {
             .label("Primary")
             .add_series_y2(&y2, Some("Secondary"), 0xff7f0e, 2.0, 1.0)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -364,14 +364,14 @@ mod tests {
         let x = vec![-5.0, -2.0, 0.0, 2.0, 5.0];
         let y = vec![-10.0, -5.0, 0.0, 5.0, 10.0];
         let result = line(&x, &y).x_range(-3.0, 3.0).y_range(-8.0, 8.0).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
     fn test_line_range_frequency_response_use_case() {
         // Typical audio frequency response display: 20 Hz to 20 kHz on log scale
         let x: Vec<f64> = (1..=100)
-            .map(|i| 20.0 * (1000.0_f64).powf(i as f64 / 100.0))
+            .map(|i| 20.0 * (1000.0_f64).powf(f64::from(i) / 100.0))
             .collect();
         let y: Vec<f64> = x.iter().map(|_| 0.0).collect(); // flat response
         let result = line(&x, &y)
@@ -382,7 +382,7 @@ mod tests {
             .x_label("Frequency (Hz)")
             .y_label("dB")
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]

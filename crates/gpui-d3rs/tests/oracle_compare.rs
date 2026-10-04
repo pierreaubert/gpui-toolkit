@@ -71,7 +71,7 @@ fn project_all<P: Projection>(p: &P) -> (Vec<(f64, f64)>, Vec<bool>) {
 #[test]
 fn oracle_plain() {
     let o = oracle_or_skip!();
-    let get = |k: &str| o[k].as_array().unwrap().to_vec();
+    let get = |k: &str| o[k].as_array().unwrap().clone();
 
     let p = Mercator::new().scale(150.0).translate(0.0, 0.0);
     let (a, v) = project_all(&p);
@@ -124,7 +124,7 @@ fn oracle_plain() {
 #[test]
 fn oracle_center() {
     let o = oracle_or_skip!();
-    let get = |k: &str| o[k].as_array().unwrap().to_vec();
+    let get = |k: &str| o[k].as_array().unwrap().clone();
 
     let p = Mercator::new()
         .scale(200.0)
@@ -163,7 +163,7 @@ fn oracle_center() {
 #[test]
 fn oracle_rotate() {
     let o = oracle_or_skip!();
-    let get = |k: &str| o[k].as_array().unwrap().to_vec();
+    let get = |k: &str| o[k].as_array().unwrap().clone();
 
     let p = Mercator::new()
         .scale(200.0)
@@ -210,7 +210,7 @@ fn oracle_rotate() {
 #[test]
 fn oracle_transverse_center() {
     let o = oracle_or_skip!();
-    let get = |k: &str| o[k].as_array().unwrap().to_vec();
+    let get = |k: &str| o[k].as_array().unwrap().clone();
 
     let p = TransverseMercator::new()
         .scale(200.0)
@@ -223,7 +223,7 @@ fn oracle_transverse_center() {
 #[test]
 fn oracle_invert() {
     let o = oracle_or_skip!();
-    let get = |k: &str| o[k].as_array().unwrap().to_vec();
+    let get = |k: &str| o[k].as_array().unwrap().clone();
 
     let p = Mercator::new()
         .scale(200.0)

@@ -71,7 +71,7 @@ impl MenuBar {
             let label = item.label.clone();
 
             let mut button = div()
-                .id(SharedString::from(format!("menubar-{}", menu_id)))
+                .id(SharedString::from(format!("menubar-{menu_id}")))
                 .px_3()
                 .py_1()
                 .rounded(px(3.0))

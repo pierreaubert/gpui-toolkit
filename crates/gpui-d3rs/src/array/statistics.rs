@@ -183,10 +183,10 @@ pub fn median(data: &mut [f64]) -> Option<f64> {
     if valid.is_empty() {
         return None;
     }
-    valid.sort_by(|a, b| a.total_cmp(b));
+    valid.sort_by(f64::total_cmp);
     let n = valid.len();
     if n.is_multiple_of(2) {
-        Some((valid[n / 2 - 1] + valid[n / 2]) / 2.0)
+        Some(f64::midpoint(valid[n / 2 - 1], valid[n / 2]))
     } else {
         Some(valid[n / 2])
     }
@@ -242,7 +242,7 @@ pub fn quantile(data: &mut [f64], p: f64) -> Option<f64> {
     if valid.is_empty() {
         return None;
     }
-    valid.sort_by(|a, b| a.total_cmp(b));
+    valid.sort_by(f64::total_cmp);
     quantile_sorted(&valid, p)
 }
 
@@ -284,7 +284,7 @@ pub fn variance(data: &[f64]) -> Option<f64> {
 /// assert!((dev - 2.138089935299395).abs() < 1e-10);
 /// ```
 pub fn deviation(data: &[f64]) -> Option<f64> {
-    variance(data).map(|v| v.sqrt())
+    variance(data).map(f64::sqrt)
 }
 
 /// Returns the cumulative sum of values in the slice.

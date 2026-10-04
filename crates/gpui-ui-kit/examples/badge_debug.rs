@@ -1,9 +1,9 @@
 //! Badge Debug Example
 //!
-//! Demonstrates the Badge and BadgeDot components:
+//! Demonstrates the Badge and `BadgeDot` components:
 //! - All variants
 //! - Sizes
-//! - BadgeDot
+//! - `BadgeDot`
 
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};

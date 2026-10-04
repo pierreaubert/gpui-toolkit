@@ -36,8 +36,7 @@ pub(super) fn test_linear_ticks(case: &serde_json::Value) {
     // Check that ticks are reasonable (may not be exact match due to algorithm differences)
     assert!(
         !ticks.is_empty(),
-        "case '{}': ticks should not be empty",
-        name
+        "case '{name}': ticks should not be empty"
     );
 
     // Check first and last tick are within domain extent
@@ -65,11 +64,7 @@ pub(super) fn test_linear_ticks(case: &serde_json::Value) {
             let actual_step = ticks[i] - ticks[i - 1];
             assert!(
                 approx_eq(step, actual_step),
-                "case '{}': ticks not evenly spaced: step[0]={}, step[{}]={}",
-                name,
-                step,
-                i,
-                actual_step
+                "case '{name}': ticks not evenly spaced: step[0]={step}, step[{i}]={actual_step}"
             );
         }
     }

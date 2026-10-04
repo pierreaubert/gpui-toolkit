@@ -43,7 +43,7 @@ impl SolvedInspectionNode {
             path = self.path,
             width = format_number(self.width),
             height = format_number(self.height),
-            axis = self.resolved_axis.map(axis_name).unwrap_or("-"),
+            axis = self.resolved_axis.map_or("-", axis_name),
             tier = option_text(self.active_tier.as_deref()),
             label = option_text(self.collapse_label.as_deref()),
             children = self.children.len(),

@@ -43,7 +43,7 @@ impl MeshExample {
             retained.geometry_upload_count = 1;
             retained.geometry_upload_bytes = upload.geometry_byte_len();
             retained.upload = Some(upload);
-        }
+        };
         Self { state }
     }
 

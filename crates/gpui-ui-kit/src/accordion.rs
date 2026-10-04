@@ -3,16 +3,15 @@
 //! Collapsible content sections with support for both vertical and horizontal orientations.
 
 use crate::accessibility::{
-    AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState,
-    apply_native_accessibility,
+    AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState, apply_native_accessibility,
 };
 use crate::theme::{ThemeExt, glow_shadow};
 use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    AnyElement, App, Div, ElementId, FocusHandle, FontWeight, Hsla, MouseButton, SharedString, Stateful,
-    TransformationMatrix, Window, canvas, div, px,
+    AnyElement, App, Div, ElementId, FocusHandle, FontWeight, Hsla, MouseButton, SharedString,
+    Stateful, TransformationMatrix, Window, canvas, div, px,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -353,6 +352,9 @@ impl Accordion {
         clippy::too_many_arguments,
         reason = "accordion header builder carries independent render state for each item"
     )]
+    // Header display flags stay positional: a flags struct would churn
+    // the render call sites without changing behavior.
+    #[allow(clippy::fn_params_excessive_bools)]
     fn build_header_static(
         item_id: SharedString,
         title: SharedString,
@@ -367,7 +369,7 @@ impl Accordion {
     ) -> Stateful<Div> {
         let header_label = title.clone();
         let mut header = div()
-            .id(SharedString::from(format!("accordion-header-{}", item_id)))
+            .id(SharedString::from(format!("accordion-header-{item_id}")))
             .flex()
             .gap_2()
             .w_full()
@@ -593,6 +595,9 @@ impl Accordion {
         clippy::too_many_arguments,
         reason = "side-tab builder carries independent render state for each item"
     )]
+    // Tab display flags stay positional: a flags struct would churn
+    // the render call sites without changing behavior.
+    #[allow(clippy::fn_params_excessive_bools)]
     fn build_side_tab_static(
         item_id: SharedString,
         title: SharedString,
@@ -607,8 +612,7 @@ impl Accordion {
         let tab_label = title.clone();
         let mut header = div()
             .id(SharedString::from(format!(
-                "accordion-header-side-{}",
-                item_id
+                "accordion-header-side-{item_id}"
             )))
             .debug_selector(|| format!("accordion-header-side-{item_id}"))
             .relative()
@@ -734,11 +738,7 @@ impl RenderOnce for Accordion {
         // Resolve stable per-header focus handles so headers are Tab-reachable
         // and Enter/Space can toggle them across re-renders.
         let mut this = self;
-        let ids: Vec<String> = this
-            .items
-            .iter()
-            .map(|item| item.id.to_string())
-            .collect();
+        let ids: Vec<String> = this.items.iter().map(|item| item.id.to_string()).collect();
         for id in ids {
             this.header_focus
                 .entry(id.clone())

@@ -27,7 +27,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     // Graticule as a true stroke (not ribbon fills).
     let graticule_path = result.graticule_path.clone();
-    let graticule_color: Hsla = chart_colors::grid(&ui_theme);
+    let graticule_color = chart_colors::grid(&ui_theme);
 
     // Stars as circles sized by magnitude
     let n_sides = 12;
@@ -37,7 +37,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         }
         let mut builder = D3PathBuilder::new();
         for v in 0..n_sides {
-            let angle = std::f64::consts::TAU * v as f64 / n_sides as f64;
+            let angle = std::f64::consts::TAU * f64::from(v) / f64::from(n_sides);
             let x = star.px + star.radius * angle.cos();
             let y = star.py + star.radius * angle.sin();
             if v == 0 {

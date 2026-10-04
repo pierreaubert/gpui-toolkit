@@ -28,10 +28,10 @@ struct SvgLayout {
 
 impl SvgLayout {
     fn new(options: StaticSvgOptions) -> Result<Self, ChartError> {
-        let left = options.margin_left as f64;
-        let top = options.margin_top as f64;
-        let right = options.width as f64 - options.margin_right as f64;
-        let bottom = options.height as f64 - options.margin_bottom as f64;
+        let left = f64::from(options.margin_left);
+        let top = f64::from(options.margin_top);
+        let right = f64::from(options.width) - f64::from(options.margin_right);
+        let bottom = f64::from(options.height) - f64::from(options.margin_bottom);
         if right <= left || bottom <= top {
             return Err(ChartError::InvalidDimension {
                 field: "width",
@@ -237,8 +237,7 @@ impl MeshPlot {
                 "<metadata class=\"gpui-px-mesh-value-range\" min=\"{min:.6}\" max=\"{max:.6}\" association=\"{}\"/>",
                 self.field
                     .as_ref()
-                    .map(|field| association_name(field.association))
-                    .unwrap_or("none")
+                    .map_or("none", |field| association_name(field.association))
             );
         }
 
@@ -388,8 +387,7 @@ impl MeshPlot {
             let origin = scene_state
                 .upload
                 .as_ref()
-                .map(|upload| upload.origin)
-                .unwrap_or([0.0; 3]);
+                .map_or([0.0; 3], |upload| upload.origin);
             // The CPU fallback consumes already-rebased upload positions, so
             // compose the same model-origin translation used by GPU backends.
             scene_state.view_transform = (camera.view_projection_matrix()
@@ -399,7 +397,7 @@ impl MeshPlot {
                     origin[2] as f32,
                 )))
             .to_cols_array_2d();
-        }
+        };
         let plot_image = {
             let scene = scene.borrow();
             d3rs::mesh::gpu::render_offscreen(
@@ -1009,7 +1007,7 @@ fn draw_mesh_axes(
     let grid_color = "#e6e6e6";
     let axis_color = "#666";
     for step in 0..=4 {
-        let t = step as f64 / 4.0;
+        let t = f64::from(step) / 4.0;
         let x = layout.left + layout.width() * t;
         let y = layout.bottom - layout.height() * t;
         let x_value = x_domain[0] + (x_domain[1] - x_domain[0]) * t;
@@ -1051,7 +1049,7 @@ fn draw_mesh_axes(
     let _ = writeln!(
         svg,
         "<text class=\"gpui-px-mesh-axis-title\" x=\"{:.2}\" y=\"{:.2}\" text-anchor=\"middle\">{}</text>",
-        (layout.left + layout.right) * 0.5,
+        f64::midpoint(layout.left, layout.right),
         layout.bottom + 34.0,
         horizontal_title
     );
@@ -1059,9 +1057,9 @@ fn draw_mesh_axes(
         svg,
         "<text class=\"gpui-px-mesh-axis-title\" x=\"{:.2}\" y=\"{:.2}\" text-anchor=\"middle\" transform=\"rotate(-90 {:.2} {:.2})\">{}</text>",
         layout.left - 38.0,
-        (layout.top + layout.bottom) * 0.5,
+        f64::midpoint(layout.top, layout.bottom),
         layout.left - 38.0,
-        (layout.top + layout.bottom) * 0.5,
+        f64::midpoint(layout.top, layout.bottom),
         vertical_title
     );
 }
@@ -1194,7 +1192,7 @@ fn render_bands(
         let lower = band.lower.unwrap_or(range[0]);
         let upper = band.upper.unwrap_or(range[1]);
         let color = color_scale
-            .map(normalize((lower + upper) * 0.5, range))
+            .map(normalize(f64::midpoint(lower, upper), range))
             .to_hex();
         let _ = writeln!(
             svg,
@@ -1240,9 +1238,9 @@ fn project_clip_to_svg(clip: Vec4, layout: SvgLayout) -> Option<[f64; 3]> {
     (clip.w > 1e-6).then(|| {
         let ndc = clip.truncate() / clip.w;
         [
-            layout.left + (ndc.x as f64 + 1.0) * 0.5 * layout.width(),
-            layout.top + (1.0 - (ndc.y as f64 + 1.0) * 0.5) * layout.height(),
-            ndc.z as f64,
+            layout.left + f64::midpoint(f64::from(ndc.x), 1.0) * layout.width(),
+            layout.top + (1.0 - f64::midpoint(f64::from(ndc.y), 1.0)) * layout.height(),
+            f64::from(ndc.z),
         ]
     })
 }
@@ -1374,8 +1372,7 @@ fn contour_band_midpoint(value: f64, levels: Option<&[f64]>) -> f64 {
     levels
         .windows(2)
         .find(|band| value >= band[0] && value <= band[1])
-        .map(|band| 0.5 * (band[0] + band[1]))
-        .unwrap_or(value)
+        .map_or(value, |band| f64::midpoint(band[0], band[1]))
 }
 
 fn render_isolines(
@@ -1507,7 +1504,7 @@ fn with_range_bounds(levels: &[f64], range: [f64; 2]) -> Vec<f64> {
     let mut boundaries = levels.to_vec();
     boundaries.push(range[0]);
     boundaries.push(range[1]);
-    boundaries.sort_by(|a, b| a.total_cmp(b));
+    boundaries.sort_by(f64::total_cmp);
     boundaries.dedup_by(|a, b| *a == *b);
     boundaries
 }
@@ -1727,7 +1724,7 @@ mod tests {
                 displayed_value: Some(2.0),
                 field_id: Some("pressure".into()),
             }));
-        }
+        };
         let before = {
             let state = state.borrow();
             (
@@ -1928,7 +1925,7 @@ mod tests {
             })
             .missing_value_policy(d3rs::mesh::MissingValuePolicy::MaskNaN)
             .to_svg();
-        assert!(svg.is_ok());
+        svg.unwrap();
     }
 
     #[cfg(feature = "gpu-3d")]
@@ -1944,7 +1941,7 @@ mod tests {
             })
             .missing_value_policy(d3rs::mesh::MissingValuePolicy::MaskNaN)
             .to_png(1.0);
-        assert!(png.is_ok());
+        png.unwrap();
     }
 
     #[test]

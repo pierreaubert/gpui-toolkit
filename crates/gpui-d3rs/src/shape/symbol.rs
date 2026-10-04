@@ -278,7 +278,7 @@ impl Symbol {
 
         let mut builder = PathBuilder::new();
         for i in 0..10 {
-            let angle = (i as f64) * PI / 5.0 - PI / 2.0;
+            let angle = f64::from(i) * PI / 5.0 - PI / 2.0;
             let radius = if i % 2 == 0 { r } else { r_inner };
             let x = radius * angle.cos();
             let y = radius * angle.sin();
@@ -406,7 +406,7 @@ impl Symbol {
 
         let mut points = Vec::with_capacity(11);
         for i in 0..10 {
-            let angle = (i as f64) * PI / 5.0 - PI / 2.0;
+            let angle = f64::from(i) * PI / 5.0 - PI / 2.0;
             let radius = if i % 2 == 0 { r } else { r_inner };
             points.push(Point::new(radius * angle.cos(), radius * angle.sin()));
         }

@@ -22,9 +22,10 @@ fn headless_context() -> Option<WgpuContext> {
     match WgpuContext::headless() {
         Ok(context) => Some(context),
         Err(error) => {
-            if std::env::var_os("QA_WGPU_REQUIRED").is_some_and(|value| value == "1") {
-                panic!("required WGPU adapter is unavailable: {error:#}");
-            }
+            assert!(
+                std::env::var_os("QA_WGPU_REQUIRED").is_none_or(|value| value != "1"),
+                "required WGPU adapter is unavailable: {error:#}"
+            );
             eprintln!("SKIP WGPU adapter-backed MeshPlot test: {error:#}");
             None
         }
@@ -38,7 +39,7 @@ fn dropping_retained_renderer_unregisters_its_custom_draw() {
         let renderer = WgpuMesh3DRenderer::new(Rc::new(RefCell::new(MeshSceneState::default())));
         id = renderer.custom_id();
         assert!(lookup_custom_draw(id).is_some());
-    }
+    };
     assert!(lookup_custom_draw(id).is_none());
 }
 
@@ -49,7 +50,7 @@ fn dropping_retained_2d_renderer_unregisters_its_custom_draw() {
         let renderer = WgpuMeshRenderer::new(Rc::new(RefCell::new(MeshSceneState::default())));
         id = renderer.custom_id();
         assert!(lookup_custom_draw(id).is_some());
-    }
+    };
     assert!(lookup_custom_draw(id).is_none());
 }
 
@@ -712,7 +713,7 @@ fn adapter_3d_renderer_drop_releases_current_memory_but_keeps_peak_evidence() {
             .downcast_ref::<WgpuCustomDrawAdapter>()
             .expect("MeshPlot 3D custom draw must use the WGPU adapter");
         draw_adapter_frame(&ctx, draw, &view, size);
-    }
+    };
 
     let before_drop = state.borrow().clone();
     assert!(before_drop.gpu_resident_bytes > 0);
@@ -863,7 +864,7 @@ fn read_pixel(
     let padded_row_bytes = row_bytes.div_ceil(256) * 256;
     let staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("mesh_embedded_viewport_readback"),
-        size: (padded_row_bytes * size[1]) as u64,
+        size: u64::from(padded_row_bytes * size[1]),
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });

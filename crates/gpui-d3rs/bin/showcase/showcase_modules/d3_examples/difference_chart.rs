@@ -1,4 +1,4 @@
-//! Difference Chart — Observable example using d3rs::examples::difference_chart
+//! Difference Chart — Observable example using `d3rs::examples::difference_chart`
 //!
 //! Shows the difference between two temperature series (daily high vs normal)
 //! from sfo-temperature.csv. Areas are colored by which series is higher.
@@ -48,10 +48,13 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     let y_range = result.y_domain[1] - result.y_domain[0];
     let y_tick_step = (y_range / 6.0).ceil().max(1.0);
+    // Terminates: `y_tick_step` is clamped positive above, so the
+    // `take_while` bound is reached after finitely many steps.
+    #[allow(clippy::maybe_infinite_iter)]
     let y_ticks: Vec<f64> = {
         let start = (result.y_domain[0] / y_tick_step).ceil() * y_tick_step;
         (0..)
-            .map(|i| start + i as f64 * y_tick_step)
+            .map(|i| start + f64::from(i) * y_tick_step)
             .take_while(|&v| v <= result.y_domain[1] + 0.01)
             .collect()
     };

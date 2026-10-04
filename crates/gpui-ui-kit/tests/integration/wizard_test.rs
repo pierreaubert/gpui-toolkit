@@ -5,7 +5,7 @@
 //! - Step status display (Active, Completed, Error, Skipped)
 //! - Navigation callbacks (back, next, finish, cancel)
 //! - Busy/disabled states
-//! - WizardHeader and WizardNavigation sub-components
+//! - `WizardHeader` and `WizardNavigation` sub-components
 
 use gpui::{
     Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,
@@ -274,7 +274,7 @@ async fn test_wizard_header_renders(cx: &mut TestAppContext) {
 // WizardNavigation Tests
 // ============================================================================
 
-/// Test WizardNavigation with callbacks
+/// Test `WizardNavigation` with callbacks
 struct WizardNavigationTestView {
     back_clicked: Arc<AtomicBool>,
     next_clicked: Arc<AtomicBool>,
@@ -342,7 +342,7 @@ async fn test_wizard_navigation_buttons(cx: &mut TestAppContext) {
     }
 }
 
-/// Test WizardNavigation on first step (shows "Close" for back)
+/// Test `WizardNavigation` on first step (shows "Close" for back)
 #[gpui::test]
 async fn test_wizard_navigation_first_step(cx: &mut TestAppContext) {
     struct FirstStepView;
@@ -356,7 +356,7 @@ async fn test_wizard_navigation_first_step(cx: &mut TestAppContext) {
     let _window = cx.add_window(|_window, _cx| FirstStepView);
 }
 
-/// Test WizardNavigation on last step (shows "Finish" for next)
+/// Test `WizardNavigation` on last step (shows "Finish" for next)
 struct LastStepView {
     finish_clicked: Arc<AtomicBool>,
 }
@@ -400,7 +400,7 @@ async fn test_wizard_navigation_last_step_finish(cx: &mut TestAppContext) {
     }
 }
 
-/// Test WizardNavigation with busy state (buttons disabled)
+/// Test `WizardNavigation` with busy state (buttons disabled)
 #[gpui::test]
 async fn test_wizard_navigation_busy_state(cx: &mut TestAppContext) {
     struct BusyStateView;
@@ -441,7 +441,7 @@ async fn test_wizard_step_with_icons(cx: &mut TestAppContext) {
     let _window = cx.add_window(|_window, _cx| IconStepView);
 }
 
-/// Test wizard step with description and can_skip
+/// Test wizard step with description and `can_skip`
 #[gpui::test]
 async fn test_wizard_step_options(cx: &mut TestAppContext) {
     struct StepOptionsView;

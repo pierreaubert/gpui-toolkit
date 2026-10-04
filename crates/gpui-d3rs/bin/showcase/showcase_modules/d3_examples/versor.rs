@@ -147,8 +147,8 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         let delta_y: f32 = (event.position.y - last_pos.y).into();
 
                         // Tuned sensitivity
-                        this.geo_rotation_lon += delta_x as f64 * 0.5;
-                        this.geo_rotation_lat -= delta_y as f64 * 0.5;
+                        this.geo_rotation_lon += f64::from(delta_x) * 0.5;
+                        this.geo_rotation_lat -= f64::from(delta_y) * 0.5;
                         this.geo_rotation_lat = this.geo_rotation_lat.clamp(-90.0, 90.0);
 
                         this.last_mouse_pos = Some(event.position);
@@ -170,8 +170,8 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     canvas(
                         move |bounds, _, _| bounds,
                         move |bounds, _, window, _| {
-                            let width = f32::from(bounds.size.width) as f64;
-                            let height = f32::from(bounds.size.height) as f64;
+                            let width = f64::from(f32::from(bounds.size.width));
+                            let height = f64::from(f32::from(bounds.size.height));
                             let min_dim = width.min(height);
 
                             macro_rules! draw_geo {
@@ -257,7 +257,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .rotate(rotation[0], rotation[1], 0.0);
                                     draw_geo!(p);
                                 }
-                            };
+                            }
                         },
                     )
                     .size_full(),

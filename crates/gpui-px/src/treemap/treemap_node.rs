@@ -53,7 +53,12 @@ impl TreemapNode {
         let total = if self.children.is_empty() {
             self.value
         } else {
-            self.value + self.children.iter().map(|c| c.total_value()).sum::<f64>()
+            self.value
+                + self
+                    .children
+                    .iter()
+                    .map(TreemapNode::total_value)
+                    .sum::<f64>()
         };
 
         *self.cached_total.borrow_mut() = Some(total);

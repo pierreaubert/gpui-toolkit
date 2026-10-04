@@ -170,7 +170,7 @@ impl Delaunay {
         let found = self.find(x, y, None)?;
         let (px, py) = self.points_tuples[found];
         let dist = ((px - x).powi(2) + (py - y).powi(2)).sqrt();
-        if dist <= radius { Some(found) } else { None }
+        (dist <= radius).then_some(found)
     }
 
     /// Find the nearest point within a radius after validating query inputs.
@@ -256,18 +256,16 @@ impl Delaunay {
         let triangles = self.inner.triangles();
         (0..halfedges.len()).filter_map(move |e| {
             let j = halfedges[e];
-            if j == delaunator::EMPTY || e < j {
-                Some((
+            (j == delaunator::EMPTY || e < j).then(|| {
+                (
                     triangles[e],
                     triangles[if j == delaunator::EMPTY {
                         if e % 3 == 2 { e - 2 } else { e + 1 }
                     } else {
                         j
                     }],
-                ))
-            } else {
-                None
-            }
+                )
+            })
         })
     }
 

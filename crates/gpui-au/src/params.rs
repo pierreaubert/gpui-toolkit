@@ -486,7 +486,7 @@ mod tests {
         let entries = vec![(0u32, 0.8f32), (1, 0.0), (42, -3.25)];
         let bytes = AuFullState::encode(&entries);
         assert_eq!(AuFullState::decode(&bytes), Ok(entries));
-        assert!(AuFullState::decode(&[]).is_err());
+        AuFullState::decode(&[]).unwrap_err();
     }
 
     #[test]

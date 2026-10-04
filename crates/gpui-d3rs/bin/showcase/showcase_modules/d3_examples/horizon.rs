@@ -1,7 +1,7 @@
 //! Horizon Chart — Observable example (Realtime)
 //!
 //! Renders multi-band horizon chart from realtime data using
-//! d3rs LinearScale, PathBuilder, SequentialScheme, and d3rs_path_to_gpui_simple.
+//! d3rs `LinearScale`, `PathBuilder`, `SequentialScheme`, and `d3rs_path_to_gpui_simple`.
 //!
 //! Source: <https://observablehq.com/@d3/horizon-chart>
 
@@ -18,7 +18,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     app.ensure_horizon_animation(cx);
 
     let ui_theme = cx.theme();
-    let width = app.content_width as f64;
+    let width = f64::from(app.content_width);
     let height = 100.0;
     let bands = 4;
 

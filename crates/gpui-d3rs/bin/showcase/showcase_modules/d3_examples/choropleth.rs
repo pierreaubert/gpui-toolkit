@@ -29,7 +29,7 @@ struct CountyCache {
     features: Vec<(String, CountyRings)>,
     /// State polygons for the border overlay.
     states: Vec<CountyRings>,
-    /// (min_x, min_y, max_x, max_y) over all county rings.
+    /// (`min_x`, `min_y`, `max_x`, `max_y`) over all county rings.
     bbox: (f64, f64, f64, f64),
     /// FIPS id -> unemployment rate.
     rates: HashMap<String, f64>,
@@ -70,7 +70,7 @@ fn county_cache() -> &'static CountyCache {
                 if let (Some(id), Some(rate)) = (row.get("id"), row.get("rate")) {
                     // CSV ids are bare numbers ("1001"); geometry ids are
                     // zero-padded FIPS ("01001").
-                    let digits: String = id.chars().filter(|c| c.is_ascii_digit()).collect();
+                    let digits: String = id.chars().filter(char::is_ascii_digit).collect();
                     if let Ok(rate) = rate.parse::<f64>() {
                         rates.insert(format!("{digits:0>5}"), rate);
                     }
@@ -94,12 +94,12 @@ fn format_rate(v: f64) -> String {
 pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let ui_theme = cx.theme();
     let cache = county_cache();
-    let width = app.content_width as f64;
-    let height = (width * 0.625).min(app.content_height as f64 * 0.8);
+    let width = f64::from(app.content_width);
+    let height = (width * 0.625).min(f64::from(app.content_height) * 0.8);
 
     // Official color scale: quantize [1, 10] into 9 Blues.
     let blues = SequentialScheme::blues().sample(9);
-    let fill_colors: Vec<Rgba> = blues.iter().map(|c| c.to_rgba()).collect();
+    let fill_colors: Vec<Rgba> = blues.iter().map(d3rs::color::D3Color::to_rgba).collect();
     let quantize: QuantizeScale<usize> = QuantizeScale::new()
         .domain(1.0, 10.0)
         .range((0..9).collect());
@@ -132,15 +132,12 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             builder = builder.close_path();
         }
         feature_paths.push(builder.build().to_svg_string());
-        match cache.rates.get(id) {
-            Some(&rate) => {
-                let ci = quantize.scale(rate).min(fill_colors.len() - 1);
-                feature_colors.push(fill_colors[ci]);
-            }
-            None => {
-                missing += 1;
-                feature_colors.push(missing_color);
-            }
+        if let Some(&rate) = cache.rates.get(id) {
+            let ci = quantize.scale(rate).min(fill_colors.len() - 1);
+            feature_colors.push(fill_colors[ci]);
+        } else {
+            missing += 1;
+            feature_colors.push(missing_color);
         }
     }
 
@@ -162,8 +159,8 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         state_paths.push(builder.build().to_svg_string());
     }
 
-    let county_border: Hsla = chart_colors::ink(&ui_theme, hsla(0.0, 0.0, 1.0, 0.9));
-    let state_border: Hsla = chart_colors::ink(&ui_theme, hsla(0.0, 0.0, 1.0, 1.0));
+    let county_border = chart_colors::ink(&ui_theme, hsla(0.0, 0.0, 1.0, 0.9));
+    let state_border = chart_colors::ink(&ui_theme, hsla(0.0, 0.0, 1.0, 1.0));
 
     div()
         .flex()

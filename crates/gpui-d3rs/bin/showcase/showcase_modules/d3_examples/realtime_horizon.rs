@@ -1,8 +1,8 @@
 //! Realtime Horizon Chart — Observable example
 //!
-//! Uses app.horizon_data (streaming values) to render a multi-band
+//! Uses `app.horizon_data` (streaming values) to render a multi-band
 //! horizon chart that updates in realtime.
-//! Uses d3rs LinearScale, PathBuilder, SequentialScheme.
+//! Uses d3rs `LinearScale`, `PathBuilder`, `SequentialScheme`.
 //!
 //! Source: <https://observablehq.com/@d3/realtime-horizon-chart>
 
@@ -19,7 +19,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     app.ensure_horizon_animation(cx);
 
     let ui_theme = cx.theme();
-    let width = app.content_width as f64;
+    let width = f64::from(app.content_width);
     let height = 80.0;
     let bands = 4;
 
@@ -29,7 +29,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     }
 
     let max_abs = data.iter().map(|v| v.abs()).fold(0.0f64, f64::max);
-    let step = max_abs / bands as f64;
+    let step = max_abs / f64::from(bands);
 
     let x_scale = LinearScale::new()
         .domain(0.0, data.len() as f64 - 1.0)
@@ -51,14 +51,14 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     for b in 0..bands {
         let mut builder = D3PathBuilder::new().move_to(x_scale.scale(0.0), y0);
         for (i, &v) in data.iter().enumerate() {
-            let remainder = v.max(0.0) - (b as f64 * step);
+            let remainder = v.max(0.0) - (f64::from(b) * step);
             let y = remainder.clamp(0.0, step);
             builder = builder.line_to(x_scale.scale(i as f64), y_scale.scale(y));
         }
         builder = builder.line_to(x_scale.scale((data.len() - 1) as f64), y0);
         builder = builder.close_path();
         d3_paths.push(builder.build());
-        let t = 0.3 + (b as f64 + 1.0) / bands as f64 * 0.6;
+        let t = 0.3 + (f64::from(b) + 1.0) / f64::from(bands) * 0.6;
         all_colors.push(chart_colors::ink_rgba(
             &ui_theme,
             pos_scheme.get(t).to_rgba(),
@@ -69,14 +69,14 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     for b in 0..bands {
         let mut builder = D3PathBuilder::new().move_to(x_scale.scale(0.0), y0);
         for (i, &v) in data.iter().enumerate() {
-            let remainder = (-v).max(0.0) - (b as f64 * step);
+            let remainder = (-v).max(0.0) - (f64::from(b) * step);
             let y = remainder.clamp(0.0, step);
             builder = builder.line_to(x_scale.scale(i as f64), y_scale.scale(y));
         }
         builder = builder.line_to(x_scale.scale((data.len() - 1) as f64), y0);
         builder = builder.close_path();
         d3_paths.push(builder.build());
-        let t = 0.3 + (b as f64 + 1.0) / bands as f64 * 0.6;
+        let t = 0.3 + (f64::from(b) + 1.0) / f64::from(bands) * 0.6;
         all_colors.push(chart_colors::ink_rgba(
             &ui_theme,
             neg_scheme.get(t).to_rgba(),

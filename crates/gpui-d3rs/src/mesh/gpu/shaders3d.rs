@@ -4,7 +4,7 @@
 //! isoline behavior aligned with the 2D retained mesh shader.
 
 /// WGSL surface, wireframe, and orientation-triad shader.
-pub const MESH_3D_WGSL: &str = r#"
+pub const MESH_3D_WGSL: &str = r"
 struct Uniforms {
     view_proj: mat4x4<f32>,
     model: mat4x4<f32>,
@@ -190,7 +190,7 @@ fn fs_wireframe(input: VertexOut) -> @location(0) vec4<f32> {
 fn fs_triad(input: VertexOut) -> @location(0) vec4<f32> {
     return vec4<f32>(input.normal, 1.0);
 }
-"#;
+";
 
 /// MSL twin kept beside the WGSL source for Metal-backed hosts.
 pub const MESH_3D_MSL: &str = r#"

@@ -1,4 +1,4 @@
-//! EmptyState component
+//! `EmptyState` component
 //!
 //! A placeholder displayed when a list or container has no content.
 //!

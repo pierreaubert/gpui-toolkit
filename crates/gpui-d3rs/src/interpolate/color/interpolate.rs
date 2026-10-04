@@ -22,10 +22,10 @@ use crate::color::D3Color;
 /// ```
 pub fn interpolate_rgb(a: D3Color, b: D3Color) -> impl Fn(f64) -> D3Color {
     move |t| D3Color {
-        r: (a.r as f64 + (b.r as f64 - a.r as f64) * t) as f32,
-        g: (a.g as f64 + (b.g as f64 - a.g as f64) * t) as f32,
-        b: (a.b as f64 + (b.b as f64 - a.b as f64) * t) as f32,
-        a: (a.a as f64 + (b.a as f64 - a.a as f64) * t) as f32,
+        r: (f64::from(a.r) + (f64::from(b.r) - f64::from(a.r)) * t) as f32,
+        g: (f64::from(a.g) + (f64::from(b.g) - f64::from(a.g)) * t) as f32,
+        b: (f64::from(a.b) + (f64::from(b.b) - f64::from(a.b)) * t) as f32,
+        a: (f64::from(a.a) + (f64::from(b.a) - f64::from(a.a)) * t) as f32,
     }
 }
 

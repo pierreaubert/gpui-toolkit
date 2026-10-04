@@ -36,7 +36,7 @@ fn test_step_status_variants() {
         StepStatus::Skipped,
     ];
     for status in &statuses {
-        let _copy = *status;
+        let _ = *status;
     }
 }
 
@@ -50,7 +50,7 @@ fn test_step_status_default() {
 fn test_wizard_variant_variants() {
     let variants = [WizardVariant::Horizontal, WizardVariant::Vertical];
     for variant in &variants {
-        let _copy = *variant;
+        let _ = *variant;
     }
 }
 

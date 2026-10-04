@@ -182,7 +182,7 @@ impl<'a> BuilderField<'a> {
                             ));
                         }
                     }
-                    _ => {
+                    Meta::List(_) => {
                         return Err(syn::Error::new(
                             meta.span(),
                             "expected path or name = value in builder field attribute",
@@ -342,16 +342,15 @@ mod tests {
 
     #[test]
     fn parse_unknown_attribute_errors() {
-        let src = r#"
+        let src = r"
             #[field(unknown)]
             pub id: String
-        "#;
+        ";
         let wrapped = format!("struct __TestStruct {{ {src} }}");
         let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
         let field = extract_field(&input);
-        let err = match BuilderField::parse(field) {
-            Ok(_) => panic!("expected an error"),
-            Err(e) => e,
+        let Err(err) = BuilderField::parse(field) else {
+            panic!("expected an error");
         };
         assert!(err.to_string().contains("unknown builder field attribute"));
     }
@@ -365,9 +364,8 @@ mod tests {
         let wrapped = format!("struct __TestStruct {{ {src} }}");
         let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
         let field = extract_field(&input);
-        let err = match BuilderField::parse(field) {
-            Ok(_) => panic!("expected an error"),
-            Err(e) => e,
+        let Err(err) = BuilderField::parse(field) else {
+            panic!("expected an error");
         };
         assert!(
             err.to_string()
@@ -384,9 +382,8 @@ mod tests {
         let wrapped = format!("struct __TestStruct {{ {src} }}");
         let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
         let field = extract_field(&input);
-        let err = match BuilderField::parse(field) {
-            Ok(_) => panic!("expected an error"),
-            Err(e) => e,
+        let Err(err) = BuilderField::parse(field) else {
+            panic!("expected an error");
         };
         assert!(
             err.to_string()
@@ -402,9 +399,8 @@ mod tests {
         "#;
         let wrapped = format!("struct __TestStruct {{ {src} }}");
         let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
-        let err = match BuilderField::parse(extract_field(&input)) {
-            Ok(_) => panic!("expected an error"),
-            Err(error) => error,
+        let Err(err) = BuilderField::parse(extract_field(&input)) else {
+            panic!("expected an error");
         };
         assert!(err.to_string().contains("must not be a Rust keyword"));
 
@@ -425,16 +421,15 @@ mod tests {
 
     #[test]
     fn parse_required_optional_reports_both_conflicting_attributes() {
-        let src = r#"
+        let src = r"
             #[field(required, optional)]
             pub id: String
-        "#;
+        ";
         let wrapped = format!("struct __TestStruct {{ {src} }}");
         let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
         let field = extract_field(&input);
-        let err = match BuilderField::parse(field) {
-            Ok(_) => panic!("expected an error"),
-            Err(e) => e,
+        let Err(err) = BuilderField::parse(field) else {
+            panic!("expected an error");
         };
         let out = err.to_compile_error().to_string();
         assert!(out.contains("remove `required` or `optional`"));
@@ -443,15 +438,14 @@ mod tests {
 
     #[test]
     fn parse_optional_requires_a_standard_option_type() {
-        let src = r#"
+        let src = r"
             #[field(optional)]
             pub label: String
-        "#;
+        ";
         let wrapped = format!("struct __TestStruct {{ {src} }}");
         let input: syn::DeriveInput = syn::parse_str(&wrapped).unwrap();
-        let err = match BuilderField::parse(extract_field(&input)) {
-            Ok(_) => panic!("expected an error"),
-            Err(error) => error,
+        let Err(err) = BuilderField::parse(extract_field(&input)) else {
+            panic!("expected an error");
         };
         assert!(
             err.to_string()

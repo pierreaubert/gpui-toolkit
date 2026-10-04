@@ -1,7 +1,7 @@
-//! Integration tests for PaneDivider drag-to-resize behavior
+//! Integration tests for `PaneDivider` drag-to-resize behavior
 //!
 //! Tests the full drag flow:
-//! - Mouse down on divider triggers on_drag_start
+//! - Mouse down on divider triggers `on_drag_start`
 //! - Mouse move on parent element updates panel size
 //! - Mouse up ends drag
 //! - Clamping at min/max bounds
@@ -205,9 +205,7 @@ async fn test_drag_clamps_at_min_size(cx: &mut TestAppContext) {
         let new_width = *state_check.left_width.borrow();
         assert!(
             (new_width - MIN_SIZE).abs() < 0.01,
-            "Width should clamp at min={}, got {}",
-            MIN_SIZE,
-            new_width
+            "Width should clamp at min={MIN_SIZE}, got {new_width}"
         );
     }
 }
@@ -235,9 +233,7 @@ async fn test_drag_clamps_at_max_size(cx: &mut TestAppContext) {
         let new_width = *state_check.left_width.borrow();
         assert!(
             (new_width - MAX_SIZE).abs() < 0.01,
-            "Width should clamp at max={}, got {}",
-            MAX_SIZE,
-            new_width
+            "Width should clamp at max={MAX_SIZE}, got {new_width}"
         );
     }
 }
@@ -303,7 +299,6 @@ async fn test_mouse_move_without_drag_start_does_nothing(cx: &mut TestAppContext
     let width = *state_check.left_width.borrow();
     assert!(
         (width - INITIAL_WIDTH).abs() < 0.01,
-        "Width should not change without drag, got {}",
-        width
+        "Width should not change without drag, got {width}"
     );
 }

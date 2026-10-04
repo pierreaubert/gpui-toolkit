@@ -9,6 +9,9 @@ readme.workspace = true
 description = "macOS Audio Unit platform backend for GPUI — embeds GPUI rendering inside AUv3 ViewControllers"
 license.workspace = true
 
+[lints]
+workspace = true
+
 [lib]
 crate-type = ["rlib"]
 

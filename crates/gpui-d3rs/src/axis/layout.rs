@@ -233,7 +233,7 @@ where
     let position = position as f32;
     let line = tick_line(config.orientation, position, tick_size);
     let label_position = (!is_minor).then(|| label_position(config, position));
-    let label = (!is_minor).then(|| format_tick(value, &config.tick_format));
+    let label = (!is_minor).then(|| format_tick(value, config.tick_format.as_ref()));
 
     Ok(AxisTick {
         value,
@@ -292,7 +292,7 @@ fn label_position(config: &AxisConfig, position: f32) -> AxisPoint {
 
 fn axis_title(config: &AxisConfig, range_min: f64, range_max: f64) -> Option<AxisTitle> {
     let text = config.title.clone()?;
-    let center = ((range_min + range_max) / 2.0) as f32;
+    let center = f64::midpoint(range_min, range_max) as f32;
     let title_offset =
         config.tick_size + config.tick_padding + config.label_font_size + config.title_padding;
     let (position, angle_degrees) = match config.orientation {
@@ -309,7 +309,7 @@ fn axis_title(config: &AxisConfig, range_min: f64, range_max: f64) -> Option<Axi
     })
 }
 
-fn format_tick(value: f64, formatter: &Option<fn(f64) -> String>) -> String {
+fn format_tick(value: f64, formatter: Option<&fn(f64) -> String>) -> String {
     match formatter {
         Some(formatter) => formatter(value),
         None if value.abs() < 1e-10 => "0".to_string(),

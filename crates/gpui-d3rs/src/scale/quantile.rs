@@ -64,7 +64,7 @@ impl<R: Clone> QuantileScale<R> {
     pub fn domain(mut self, mut samples: Vec<f64>) -> Self {
         // Remove NaN values and sort
         samples.retain(|x| !x.is_nan());
-        samples.sort_by(|a, b| a.total_cmp(b));
+        samples.sort_by(f64::total_cmp);
         self.domain_samples = samples;
         self.recompute_thresholds();
         self
@@ -163,9 +163,7 @@ impl<R: Clone> QuantileScale<R> {
 impl<R: Clone> Scale<f64, R> for QuantileScale<R> {
     fn scale(&self, value: f64) -> R {
         let n = self.range_values.len();
-        if n == 0 {
-            panic!("QuantileScale requires at least one range value");
-        }
+        assert!(n != 0, "QuantileScale requires at least one range value");
 
         if value.is_nan() {
             return self.range_values[0].clone();
@@ -199,9 +197,10 @@ impl<R: Clone> Scale<f64, R> for QuantileScale<R> {
     }
 
     fn range(&self) -> (R, R) {
-        if self.range_values.is_empty() {
-            panic!("QuantileScale requires at least one range value");
-        }
+        assert!(
+            !self.range_values.is_empty(),
+            "QuantileScale requires at least one range value"
+        );
         (
             self.range_values.first().unwrap().clone(),
             self.range_values.last().unwrap().clone(),

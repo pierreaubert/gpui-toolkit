@@ -211,28 +211,28 @@ fn test_logx_frequency_response() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Logarithmic X range must contain only positive values")]
 #[cfg(debug_assertions)]
 fn test_logx_negative_range_panics() {
     SurfaceData::from_function_logx((-10.0, 10.0), (0.0, 1.0), 5, |x, y| (x, y));
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Logarithmic Y range must contain only positive values")]
 #[cfg(debug_assertions)]
 fn test_logy_negative_range_panics() {
     SurfaceData::from_function_logy((0.0, 1.0), (-10.0, 10.0), 5, |x, y| (x, y));
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Logarithmic X range must contain only positive values")]
 #[cfg(debug_assertions)]
 fn test_logxy_negative_x_range_panics() {
     SurfaceData::from_function_logxy((-10.0, 10.0), (10.0, 100.0), 5, |x, y| (x, y));
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "Logarithmic Y range must contain only positive values")]
 #[cfg(debug_assertions)]
 fn test_logxy_negative_y_range_panics() {
     SurfaceData::from_function_logxy((10.0, 100.0), (-10.0, 10.0), 5, |x, y| (x, y));

@@ -1,7 +1,7 @@
 //! iOS showcase staticlib — bridges gpui-showcase into the iOS app.
 //!
 //! This crate compiles to a static library (.a) that the Xcode project links.
-//! The Swift AppDelegate calls `showcase_ios_start()` to launch the GPUI app.
+//! The Swift `AppDelegate` calls `showcase_ios_start()` to launch the GPUI app.
 
 #[cfg(any(target_os = "ios", target_os = "tvos"))]
 mod imp {

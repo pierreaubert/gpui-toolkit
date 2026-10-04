@@ -18,10 +18,10 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let height = (width * 0.5).min(app.content_height * 0.4);
     let x_scale = LinearScale::new()
         .domain(0.0, 100.0)
-        .range(0.0, width as f64);
+        .range(0.0, f64::from(width));
     let y_scale = LinearScale::new()
         .domain(0.0, 100.0)
-        .range(0.0, height as f64);
+        .range(0.0, f64::from(height));
     let scheme = ColorScheme::category10();
 
     let data1 = vec![
@@ -37,14 +37,14 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     let cluster1: Vec<_> = (0..15)
         .map(|i| {
-            let angle = i as f64 * 0.4;
+            let angle = f64::from(i) * 0.4;
             ScatterPoint::new(30.0 + angle.cos() * 15.0, 30.0 + angle.sin() * 15.0)
         })
         .collect();
 
     let cluster2: Vec<_> = (0..15)
         .map(|i| {
-            let angle = i as f64 * 0.5;
+            let angle = f64::from(i) * 0.5;
             ScatterPoint::new(70.0 + angle.cos() * 12.0, 70.0 + angle.sin() * 12.0)
         })
         .collect();
@@ -269,10 +269,10 @@ pub fn render_lod(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let viewport = LodBounds::new(x0, x1, y0, y1).expect("showcase zoom stays valid");
     let x_scale = LinearScale::new()
         .domain(x0 * 100.0, x1 * 100.0)
-        .range(0.0, width as f64);
+        .range(0.0, f64::from(width));
     let y_scale = LinearScale::new()
         .domain(y0 * 100.0, y1 * 100.0)
-        .range(0.0, height as f64);
+        .range(0.0, f64::from(height));
 
     div()
         .flex()

@@ -231,7 +231,7 @@ fn test_component_variant_matchers_round_trip() {
         SampleVariant::from_str("danger"),
         Ok(SampleVariant::Destructive)
     );
-    assert!(SampleVariant::from_str("unknown").is_err());
+    SampleVariant::from_str("unknown").unwrap_err();
 }
 
 #[test]

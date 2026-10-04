@@ -1,4 +1,4 @@
-//! DragList component tests
+//! `DragList` component tests
 
 use gpui::div;
 use gpui::prelude::ParentElement;

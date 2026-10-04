@@ -83,10 +83,8 @@ impl WorkflowDebug {
             canvas.add_node_notify(node, cx);
         });
 
-        self.status_message = format!(
-            "Added node '{}' with {} inputs, {} outputs",
-            name, inputs, outputs
-        );
+        self.status_message =
+            format!("Added node '{name}' with {inputs} inputs, {outputs} outputs");
         cx.notify();
     }
 
@@ -99,7 +97,7 @@ impl WorkflowDebug {
     }
 
     fn undo(&mut self, cx: &mut Context<Self>) {
-        let result = self.canvas.update(cx, |canvas, cx| canvas.undo(cx));
+        let result = self.canvas.update(cx, gpui_ui_kit::WorkflowCanvas::undo);
         self.status_message = if result {
             "Undo".into()
         } else {
@@ -109,7 +107,7 @@ impl WorkflowDebug {
     }
 
     fn redo(&mut self, cx: &mut Context<Self>) {
-        let result = self.canvas.update(cx, |canvas, cx| canvas.redo(cx));
+        let result = self.canvas.update(cx, gpui_ui_kit::WorkflowCanvas::redo);
         self.status_message = if result {
             "Redo".into()
         } else {
@@ -174,8 +172,7 @@ impl Render for WorkflowDebug {
                             .gap_4()
                             .child(Heading::h2("Workflow Canvas Debug"))
                             .child(div().text_sm().text_color(theme.text_muted).child(format!(
-                                "Nodes: {} | Connections: {} | Selected: {}",
-                                node_count, connection_count, selected_count
+                                "Nodes: {node_count} | Connections: {connection_count} | Selected: {selected_count}"
                             ))),
                     )
                     .child(
@@ -243,7 +240,7 @@ impl Render for WorkflowDebug {
                                     .on_click({
                                         let entity = entity.clone();
                                         move |_, cx| {
-                                            entity.update(cx, |this, cx| this.delete_selected(cx));
+                                            entity.update(cx, WorkflowDebug::delete_selected);
                                         }
                                     }),
                             )
@@ -254,7 +251,7 @@ impl Render for WorkflowDebug {
                                     .on_click({
                                         let entity = entity.clone();
                                         move |_, cx| {
-                                            entity.update(cx, |this, cx| this.undo(cx));
+                                            entity.update(cx, WorkflowDebug::undo);
                                         }
                                     }),
                             )
@@ -265,7 +262,7 @@ impl Render for WorkflowDebug {
                                     .on_click({
                                         let entity = entity.clone();
                                         move |_, cx| {
-                                            entity.update(cx, |this, cx| this.redo(cx));
+                                            entity.update(cx, WorkflowDebug::redo);
                                         }
                                     }),
                             )
@@ -276,7 +273,7 @@ impl Render for WorkflowDebug {
                                     .on_click({
                                         let entity = entity.clone();
                                         move |_, cx| {
-                                            entity.update(cx, |this, cx| this.reset_viewport(cx));
+                                            entity.update(cx, WorkflowDebug::reset_viewport);
                                         }
                                     }),
                             )
@@ -287,7 +284,7 @@ impl Render for WorkflowDebug {
                                     .on_click({
                                         let entity = entity.clone();
                                         move |_, cx| {
-                                            entity.update(cx, |this, cx| this.clear_all(cx));
+                                            entity.update(cx, WorkflowDebug::clear_all);
                                         }
                                     }),
                             ),

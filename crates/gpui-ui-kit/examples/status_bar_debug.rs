@@ -1,6 +1,6 @@
 //! Status Bar Debug Example
 //!
-//! Demonstrates the StatusBar component:
+//! Demonstrates the `StatusBar` component:
 //! - Bottom and top positions
 //! - Left, center, and right slots
 

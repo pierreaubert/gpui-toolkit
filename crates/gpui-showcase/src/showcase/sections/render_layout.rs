@@ -463,7 +463,7 @@ impl Showcase {
                             .align(StackAlign::Center)
                             .child(Text::new("Left Panel").weight(TextWeight::Medium))
                             .child(
-                                Text::new(format!("Width: {:.0}px", left_width))
+                                Text::new(format!("Width: {left_width:.0}px"))
                                     .size(TextSize::Sm)
                                     .color(theme.text_muted),
                             ),

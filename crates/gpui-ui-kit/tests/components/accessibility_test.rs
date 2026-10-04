@@ -25,7 +25,7 @@ fn test_aria_props_builder_chain() {
 
     assert_eq!(props.role, AriaRole::Slider);
     assert_eq!(
-        props.description.as_ref().map(|s| s.as_ref()),
+        props.description.as_ref().map(std::convert::AsRef::as_ref),
         Some("Adjust volume level")
     );
     assert_eq!(props.value_now, Some(50.0));
@@ -62,7 +62,10 @@ fn test_aria_props_value_text() {
     let props = AriaProps::with_role(AriaRole::Slider)
         .value_range(50.0, 0.0, 100.0)
         .value_text("50%");
-    assert_eq!(props.value_text.as_ref().map(|s| s.as_ref()), Some("50%"));
+    assert_eq!(
+        props.value_text.as_ref().map(std::convert::AsRef::as_ref),
+        Some("50%")
+    );
 }
 
 #[test]

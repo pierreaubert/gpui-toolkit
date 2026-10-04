@@ -9,9 +9,9 @@ use gpui::*;
 /// `PathBuilder`, sitting just outside the knob circle.
 pub(super) struct KnobArcElement {
     pub(super) id: ElementId,
-    /// Width of the container (matches knob_container)
+    /// Width of the container (matches `knob_container`)
     pub(super) container_width: f32,
-    /// Height of the container (matches knob_container)
+    /// Height of the container (matches `knob_container`)
     pub(super) container_height: f32,
     /// Horizontal offset of the knob within the container
     pub(super) knob_offset_x: f32,
@@ -176,12 +176,15 @@ impl Element for KnobArcElement {
                     halo_outer,
                     halo_inner,
                     Brush::Gradient(
-                        Gradient::new_radial((center_x as f64, center_y as f64), halo_outer)
-                            .with_stops([
-                                stop(halo_inner, 0.0),
-                                stop(outer, base * 0.55),
-                                stop(halo_outer, 0.0),
-                            ]),
+                        Gradient::new_radial(
+                            (f64::from(center_x), f64::from(center_y)),
+                            halo_outer,
+                        )
+                        .with_stops([
+                            stop(halo_inner, 0.0),
+                            stop(outer, base * 0.55),
+                            stop(halo_outer, 0.0),
+                        ]),
                     ),
                 );
             }

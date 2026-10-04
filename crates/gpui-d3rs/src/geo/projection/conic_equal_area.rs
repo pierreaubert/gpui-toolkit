@@ -41,7 +41,7 @@ impl ConicEqualArea {
         let phi1_rad = radians(phi1);
 
         let sy0 = phi0_rad.sin();
-        let n = (sy0 + phi1_rad.sin()) / 2.0;
+        let n = f64::midpoint(sy0, phi1_rad.sin());
 
         let c = 1.0 + sy0 * (2.0 * n - sy0);
         let r0 = c.sqrt() / n;
@@ -69,7 +69,7 @@ impl ConicEqualArea {
         let phi1_rad = radians(phi1);
 
         let sy0 = phi0_rad.sin();
-        self.n = (sy0 + phi1_rad.sin()) / 2.0;
+        self.n = f64::midpoint(sy0, phi1_rad.sin());
         self.c = 1.0 + sy0 * (2.0 * self.n - sy0);
         self.r0 = self.c.sqrt() / self.n;
 
@@ -126,9 +126,8 @@ impl Projection for ConicEqualArea {
     }
 
     fn project_rotated(&self, lambda: f64, phi: f64) -> (f64, f64) {
-        let (x, y) = match self.project_raw_conic(lambda, phi) {
-            Some(v) => v,
-            None => return (f64::NAN, f64::NAN),
+        let Some((x, y)) = self.project_raw_conic(lambda, phi) else {
+            return (f64::NAN, f64::NAN);
         };
 
         // D3 recenter: offset output so that the configured geographic center

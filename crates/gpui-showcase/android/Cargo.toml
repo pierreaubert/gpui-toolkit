@@ -8,6 +8,9 @@ repository.workspace = true
 description = "Android native library and Gradle host for the GPUI showcase"
 publish = false
 
+[lints]
+workspace = true
+
 [lib]
 name = "showcase_android"
 crate-type = ["cdylib"]

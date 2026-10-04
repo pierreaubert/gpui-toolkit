@@ -8,7 +8,7 @@
 //! - Simulating a window resize sequence
 //! - Snapshot matrix output across a resize sequence
 //!
-//! Run: cargo run -p gpui-builder --example responsive_dashboard
+//! Run: cargo run -p gpui-builder --example `responsive_dashboard`
 
 use gpui_builder::{
     Axis, ContainerNode, DisplayTier, LayoutNode, LayoutPreferences, LayoutViewport, Sizing,

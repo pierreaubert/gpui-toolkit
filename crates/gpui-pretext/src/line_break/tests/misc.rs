@@ -41,7 +41,7 @@ fn simple_prepared(
     kinds: Vec<SegmentBreakKind>,
 ) -> PreparedLineBreakData<'static> {
     let len = widths.len();
-    let fit = widths.to_vec();
+    let fit = widths.clone();
     let paint = fit.clone();
     PreparedLineBreakData {
         widths: Cow::Owned(widths),
@@ -294,7 +294,7 @@ fn test_kp_soft_hyphen_penalty() {
         SegmentBreakKind::SoftHyphen,
         SegmentBreakKind::Text,
     ];
-    let fit = widths.to_vec();
+    let fit = widths.clone();
     let paint = fit.clone();
     let prepared = PreparedLineBreakData {
         widths: Cow::Owned(widths),

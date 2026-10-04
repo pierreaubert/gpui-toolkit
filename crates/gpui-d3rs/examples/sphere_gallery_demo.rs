@@ -20,7 +20,7 @@ use d3rs::sphere_gallery::{Projection, SphereGalleryConfig, SphereGalleryItem, S
 use gpui::*;
 use gpui_ui_kit::{ButtonSet, ButtonSetOption, ButtonSetSize, NumberInput, NumberInputSize};
 
-/// Generate a colored placeholder image (RGBA, cell_size x cell_size)
+/// Generate a colored placeholder image (RGBA, `cell_size` x `cell_size`)
 fn generate_placeholder(index: u32, cell_size: u32) -> Vec<u8> {
     let hue = (index as f32 * 37.0) % 360.0;
     let (r, g, b) = hsl_to_rgb(hue, 0.6, 0.5);
@@ -72,12 +72,12 @@ const COLS: u32 = 5;
 const ROWS: u32 = 4;
 const CELL_SIZE: u32 = 256;
 
-/// Map projection index to a string key for ButtonSet
+/// Map projection index to a string key for `ButtonSet`
 fn projection_key(proj: Projection) -> SharedString {
     SharedString::from(proj.name())
 }
 
-/// Map a ButtonSet key back to a projection index
+/// Map a `ButtonSet` key back to a projection index
 fn key_to_projection_index(key: &str) -> Option<usize> {
     Projection::ALL.iter().position(|p| p.name() == key)
 }
@@ -96,7 +96,7 @@ impl DemoView {
         let items: Vec<SphereGalleryItem> = (0..item_count)
             .map(|i| SphereGalleryItem {
                 pixels: generate_placeholder(i, CELL_SIZE),
-                label: Some(format!("Album {}", i).into()),
+                label: Some(format!("Album {i}").into()),
             })
             .collect();
 
@@ -109,7 +109,7 @@ impl DemoView {
 
         let gallery = cx.new(|_cx| {
             SphereGalleryView::new(items.clone(), config).on_select(|index, _window, _cx| {
-                eprintln!("Selected cell: {}", index);
+                eprintln!("Selected cell: {index}");
             })
         });
 
@@ -132,7 +132,7 @@ impl DemoView {
         let items = self.items.clone();
         self.gallery = cx.new(|_cx| {
             SphereGalleryView::new(items, config).on_select(|index, _window, _cx| {
-                eprintln!("Selected cell: {}", index);
+                eprintln!("Selected cell: {index}");
             })
         });
         cx.notify();

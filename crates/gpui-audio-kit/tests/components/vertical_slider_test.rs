@@ -1,4 +1,4 @@
-//! VerticalSlider component tests
+//! `VerticalSlider` component tests
 
 use gpui_audio_kit::AudioScale as Scale;
 use gpui_audio_kit::audio::vertical_slider::{VerticalSlider, VerticalSliderSize};

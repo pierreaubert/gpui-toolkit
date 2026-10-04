@@ -29,10 +29,6 @@ impl HeatmapData {
 
     /// Get value at grid position
     pub fn get(&self, x: usize, y: usize) -> Option<f64> {
-        if x < self.width && y < self.height {
-            Some(self.values[y * self.width + x])
-        } else {
-            None
-        }
+        (x < self.width && y < self.height).then(|| self.values[y * self.width + x])
     }
 }

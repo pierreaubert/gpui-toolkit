@@ -145,11 +145,9 @@ mod streaming_cache_tests {
             .replace_primary_data_shared(Arc::from([2.0, 3.0]), Arc::from([4.0, 5.0]))
             .unwrap();
         assert_eq!(chart.prepare_primary_data(), 2);
-        assert!(
-            chart
-                .replace_primary_data_shared(Arc::from([1.0]), Arc::from([2.0, 3.0]))
-                .is_err()
-        );
+        chart
+            .replace_primary_data_shared(Arc::from([1.0]), Arc::from([2.0, 3.0]))
+            .unwrap_err();
     }
 
     #[test]
@@ -374,12 +372,12 @@ impl ScatterChart {
                     .flat_map(|series| series.y.iter().copied()),
             ),
         );
-        let mut series_labels = vec![indexed_label(&self.label, "Series", 0)];
+        let mut series_labels = vec![indexed_label(self.label.as_ref(), "Series", 0)];
         series_labels.extend(
             self.series
                 .iter()
                 .enumerate()
-                .map(|(index, series)| indexed_label(&series.label, "Series", index + 1)),
+                .map(|(index, series)| indexed_label(series.label.as_ref(), "Series", index + 1)),
         );
         let title = self.title.clone();
         let name = title.as_deref().unwrap_or("Scatter chart");
@@ -567,7 +565,7 @@ impl ScatterChart {
         self.series.push(ScatterSeries {
             x: Arc::from(x),
             y: Arc::from(y),
-            label: label.map(|l| l.into()),
+            label: label.map(std::convert::Into::into),
             color,
             point_radius,
             opacity,
@@ -698,13 +696,13 @@ impl ScatterChart {
         let horizontal_legend_height = single_item_height + 8.0;
 
         // Base available dimensions (without legend)
-        let base_available_width = layout_width as f64 - margin_left - margin_right;
+        let base_available_width = f64::from(layout_width) - margin_left - margin_right;
         let base_available_height =
-            layout_height as f64 - title_height as f64 - margin_top - margin_bottom;
+            f64::from(layout_height) - f64::from(title_height) - margin_top - margin_bottom;
 
         // Determine legend position (auto-select if not explicit)
         let legend_position = if has_legend_items && !self.legend_position_explicit {
-            let target_ratio = self.graph_ratio as f64;
+            let target_ratio = f64::from(self.graph_ratio);
 
             let ratio_distance = |plot_w: f64, plot_h: f64| -> f64 {
                 if plot_w <= 0.0 || plot_h <= 0.0 {
@@ -714,13 +712,14 @@ impl ScatterChart {
                 (ratio - target_ratio).abs()
             };
 
-            let lr_plot_width = base_available_width - (vertical_legend_width + legend_gap) as f64;
+            let lr_plot_width =
+                base_available_width - f64::from(vertical_legend_width + legend_gap);
             let lr_plot_height = base_available_height;
             let lr_distance = ratio_distance(lr_plot_width, lr_plot_height);
 
             let tb_plot_width = base_available_width;
             let tb_plot_height =
-                base_available_height - (horizontal_legend_height + legend_gap) as f64;
+                base_available_height - f64::from(horizontal_legend_height + legend_gap);
             let tb_distance = ratio_distance(tb_plot_width, tb_plot_height);
 
             if lr_distance <= tb_distance {
@@ -762,13 +761,14 @@ impl ScatterChart {
         };
 
         let plot_width =
-            (layout_width as f64 - margin_left - margin_right - width_for_legend as f64).max(0.0);
-        let plot_height = (layout_height as f64
-            - title_height as f64
+            (f64::from(layout_width) - margin_left - margin_right - f64::from(width_for_legend))
+                .max(0.0);
+        let plot_height = (f64::from(layout_height)
+            - f64::from(title_height)
             - margin_top
             - margin_bottom
-            - height_for_legend as f64)
-            .max(0.0);
+            - f64::from(height_for_legend))
+        .max(0.0);
 
         // Validate explicit ranges
         if let Some([min, max]) = self.x_range {
@@ -1051,7 +1051,9 @@ impl ScatterChart {
         }
 
         // Add chart content and legend based on position
-        if !legend_items.is_empty() {
+        if legend_items.is_empty() {
+            container = container.child(div().relative().child(chart_content));
+        } else {
             // Build legend element (individual item for each series)
             // Use circle indicator for scatter plots
             let legend_item = |color: u32, label: String| {
@@ -1151,8 +1153,6 @@ impl ScatterChart {
                     container = container.child(div().relative().child(chart_content));
                 }
             }
-        } else {
-            container = container.child(div().relative().child(chart_content));
         }
 
         Ok(container)
@@ -1292,7 +1292,7 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let y = vec![2.0, 4.0, 3.0, 5.0, 4.5];
         let result = scatter(&x, &y).title("Test Chart").color(0x1f77b4).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1304,7 +1304,7 @@ mod tests {
             .opacity(0.5)
             .size(800.0, 600.0)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1312,7 +1312,7 @@ mod tests {
         let x = vec![10.0, 100.0, 1000.0, 10000.0];
         let y = vec![1.0, 2.0, 3.0, 4.0];
         let result = scatter(&x, &y).x_scale(ScaleType::Log).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1320,7 +1320,7 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0, 4.0];
         let y = vec![10.0, 100.0, 1000.0, 10000.0];
         let result = scatter(&x, &y).y_scale(ScaleType::Log).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1331,7 +1331,7 @@ mod tests {
             .x_scale(ScaleType::Log)
             .y_scale(ScaleType::Log)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1371,7 +1371,7 @@ mod tests {
             .x_scale(ScaleType::Log)
             .color(0x1f77b4)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1383,7 +1383,7 @@ mod tests {
         let result = scatter(&x1, &y1)
             .add_series(&x2, &y2, Some("Series 2"), 0xff7f0e, 4.0, 1.0)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1521,7 +1521,7 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0];
         let y = vec![1.0, 2.0, 3.0];
         let result = scatter(&x, &y).theme(ScatterTheme::default()).build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]

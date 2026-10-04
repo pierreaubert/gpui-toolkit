@@ -44,8 +44,8 @@ fn parse_topojson(json_str: &str) -> Option<GeoJsonGeometry> {
                     x += point[0];
                     y += point[1];
                     (
-                        x as f64 * scale[0] + translate[0],
-                        y as f64 * scale[1] + translate[1],
+                        f64::from(x) * scale[0] + translate[0],
+                        f64::from(y) * scale[1] + translate[1],
                     )
                 })
                 .collect()
@@ -130,7 +130,7 @@ fn parse_topojson(json_str: &str) -> Option<GeoJsonGeometry> {
             }
             Some(GeoJsonGeometry::Polygon(polygon))
         }
-        _ => None,
+        GeometryObject::GeometryCollection { .. } => None,
     }
 }
 
@@ -150,10 +150,9 @@ fn main() {
             .translate(400.0, 300.0)
             .rotate(lon, lat, 0.0);
         let path = GeoPath::new(proj).render(&geom);
-        let out = format!("debug_path_{}.svg", label);
+        let out = format!("debug_path_{label}.svg");
         let svg = format!(
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"600\"><path d=\"{}\" fill=\"#ccddff\" stroke=\"#888\" stroke-width=\"0.5\"/></svg>",
-            path
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"600\"><path d=\"{path}\" fill=\"#ccddff\" stroke=\"#888\" stroke-width=\"0.5\"/></svg>"
         );
         fs::write(&out, &svg).unwrap();
         println!("{} -> {} ({} bytes)", label, out, svg.len());
@@ -231,10 +230,7 @@ fn main() {
                 }
             }
         }
-        println!(
-            "  max straight segment: {:.1} from {:?} to {:?}",
-            max_diag, max_from, max_to
-        );
+        println!("  max straight segment: {max_diag:.1} from {max_from:?} to {max_to:?}");
     }
 }
 

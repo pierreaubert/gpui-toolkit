@@ -1,4 +1,4 @@
-//! SettingsForm component
+//! `SettingsForm` component
 //!
 //! A structured form layout for settings screens with labeled rows,
 //! section headers, and consistent spacing.
@@ -145,10 +145,10 @@ impl SettingsForm {
                     );
                 }
                 SettingsEntry::Row(row) => {
-                    let label_w = if row.label_width != px(200.0) {
-                        row.label_width
-                    } else {
+                    let label_w = if row.label_width == px(200.0) {
                         self.label_width
+                    } else {
+                        row.label_width
                     };
 
                     let mut label_col = div()

@@ -67,8 +67,8 @@ pub fn interpolate_round(a: i64, b: i64) -> impl Fn(f64) -> i64 {
 /// assert_eq!(lerp(0.5), 50);
 /// ```
 pub fn interpolate_round_i32(a: i32, b: i32) -> impl Fn(f64) -> i32 {
-    let a_f = a as f64;
-    let b_f = b as f64;
+    let a_f = f64::from(a);
+    let b_f = f64::from(b);
     move |t| (a_f + (b_f - a_f) * t).round() as i32
 }
 
@@ -98,7 +98,7 @@ impl Interpolate for i64 {
 
 impl Interpolate for i32 {
     fn interpolate(&self, other: &Self, t: f64) -> Self {
-        ((*self as f64) + ((*other - *self) as f64) * t).round() as i32
+        (f64::from(*self) + f64::from(*other - *self) * t).round() as i32
     }
 }
 
@@ -300,9 +300,7 @@ pub fn interpolate_exp(a: f64, b: f64) -> impl Fn(f64) -> f64 {
 pub fn interpolate_discrete<T: Clone>(values: &[T]) -> impl Fn(f64) -> T + '_ {
     let n = values.len();
     move |t| {
-        if n == 0 {
-            panic!("interpolate_discrete requires at least one value");
-        }
+        assert!(n != 0, "interpolate_discrete requires at least one value");
         let t = t.clamp(0.0, 1.0);
         let i = ((t * n as f64).floor() as usize).min(n - 1);
         values[i].clone()

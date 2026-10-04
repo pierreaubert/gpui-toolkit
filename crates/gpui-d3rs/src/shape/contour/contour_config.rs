@@ -17,9 +17,9 @@ pub struct ContourConfig {
     pub stroke_opacity: f32,
     /// Color scale function (maps threshold value 0.0-1.0 to color)
     pub color_scale: Option<Arc<dyn Fn(f64) -> D3Color + Send + Sync>>,
-    /// Fixed stroke color (used if color_scale is None)
+    /// Fixed stroke color (used if `color_scale` is None)
     pub stroke_color: D3Color,
-    /// Fixed fill color (used if color_scale is None)
+    /// Fixed fill color (used if `color_scale` is None)
     pub fill_color: D3Color,
     /// Whether to smooth contour stroke paths before painting
     pub smooth_strokes: bool,

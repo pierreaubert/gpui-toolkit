@@ -207,11 +207,11 @@ impl LegendConfig {
     #[cfg(feature = "gpui")]
     pub fn from_design(design: &gpui_design::DesignSystem) -> Self {
         Self {
-            symbol_size: design.interaction.min_touch_target.min(16.0) as f64,
-            item_spacing: design.spacing.control_gap as f64,
-            padding: design.spacing.control_padding_x as f64,
-            border_width: design.interaction.border_width as f64,
-            font_size: design.typography.small_size as f64,
+            symbol_size: f64::from(design.interaction.min_touch_target.min(16.0)),
+            item_spacing: f64::from(design.spacing.control_gap),
+            padding: f64::from(design.spacing.control_padding_x),
+            border_width: f64::from(design.interaction.border_width),
+            font_size: f64::from(design.typography.small_size),
             ..Self::new()
         }
     }
@@ -219,11 +219,11 @@ impl LegendConfig {
     /// Apply design-system spacing and typography defaults.
     #[cfg(feature = "gpui")]
     pub fn with_design(mut self, design: &gpui_design::DesignSystem) -> Self {
-        self.symbol_size = design.interaction.min_touch_target.min(16.0) as f64;
-        self.item_spacing = design.spacing.control_gap as f64;
-        self.padding = design.spacing.control_padding_x as f64;
-        self.border_width = design.interaction.border_width as f64;
-        self.font_size = design.typography.small_size as f64;
+        self.symbol_size = f64::from(design.interaction.min_touch_target.min(16.0));
+        self.item_spacing = f64::from(design.spacing.control_gap);
+        self.padding = f64::from(design.spacing.control_padding_x);
+        self.border_width = f64::from(design.interaction.border_width);
+        self.font_size = f64::from(design.typography.small_size);
         self
     }
 

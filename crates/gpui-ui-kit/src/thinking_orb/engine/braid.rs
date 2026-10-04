@@ -19,7 +19,7 @@ pub fn frame_braid(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
     for i in 0..ghost_n {
         let d = fib_dir(i as f64, ghost_n as f64);
         let (px, py, z) = pt.project(d.0 * r_max, d.1 * r_max, d.2 * r_max);
-        let depth = (z / r_max + 1.0) / 2.0;
+        let depth = f64::midpoint(z / r_max, 1.0);
         dots.push(Dot {
             x: px,
             y: py,
@@ -33,7 +33,7 @@ pub fn frame_braid(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
     let strand_n = o.get("strandN", 52.0) as usize;
     let turns = o.get("turns", 3.0);
     for s in 0..3 {
-        let phase = (s as f64 / 3.0) * 2.0 * std::f64::consts::PI;
+        let phase = (f64::from(s) / 3.0) * 2.0 * std::f64::consts::PI;
         for i in 0..strand_n {
             // u walks pole to pole; the frac() drift slides the whole strand along
             let u = (frac(i as f64 / strand_n as f64 + t * 0.045) * 2.0 - 1.0) * 0.96;
@@ -45,7 +45,7 @@ pub fn frame_braid(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
                 + 0.075 * (u * std::f64::consts::PI * turns * 2.0 + phase * 2.0 + t * 0.8).sin();
             let rr = surf * r_max * weave;
             let (px, py, zr) = pt.project(a.cos() * rr, u * r_max * weave, a.sin() * rr);
-            let depth = (zr / r_max + 1.0) / 2.0;
+            let depth = f64::midpoint(zr / r_max, 1.0);
             dots.push(Dot {
                 x: px,
                 y: py,

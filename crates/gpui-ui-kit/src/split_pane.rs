@@ -1,4 +1,4 @@
-//! SplitPane component
+//! `SplitPane` component
 //!
 //! A resizable split view with a draggable divider between two panes.
 //!

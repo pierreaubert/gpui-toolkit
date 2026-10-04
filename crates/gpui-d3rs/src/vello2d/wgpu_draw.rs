@@ -140,12 +140,12 @@ pub fn physical_size(width: f32, height: f32, scale_factor: f32) -> [u32; 2] {
 pub fn scene_scale(logical_w: f32, logical_h: f32, physical_w: f32, physical_h: f32) -> [f64; 2] {
     [
         if logical_w > 0.0 {
-            (physical_w / logical_w) as f64
+            f64::from(physical_w / logical_w)
         } else {
             1.0
         },
         if logical_h > 0.0 {
-            (physical_h / logical_h) as f64
+            f64::from(physical_h / logical_h)
         } else {
             1.0
         },
@@ -434,7 +434,7 @@ pub(crate) struct CompositeResources {
     sampler: wgpu::Sampler,
 }
 
-const COMPOSITE_WGSL: &str = r#"
+const COMPOSITE_WGSL: &str = r"
 struct Uniforms {
     dst_origin: vec2<f32>,
     dst_size: vec2<f32>,
@@ -476,7 +476,7 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
     // convert here. Without this, translucent content composites over-bright.
     return vec4(sample.rgb * sample.a, sample.a);
 }
-"#;
+";
 
 impl CompositeResources {
     pub(crate) fn new(ctx: &WgpuContext, target_format: wgpu::TextureFormat) -> Self {

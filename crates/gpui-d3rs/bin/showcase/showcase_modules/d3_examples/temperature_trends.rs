@@ -50,7 +50,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     for pt in &result.points {
         let mut builder = D3PathBuilder::new();
         for v in 0..n_sides {
-            let angle = std::f64::consts::TAU * v as f64 / n_sides as f64;
+            let angle = std::f64::consts::TAU * f64::from(v) / f64::from(n_sides);
             let x = pt.x + result.radius * angle.cos();
             let y = pt.y + result.radius * angle.sin();
             if v == 0 {

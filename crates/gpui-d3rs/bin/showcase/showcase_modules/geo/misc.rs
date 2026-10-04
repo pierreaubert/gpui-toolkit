@@ -195,7 +195,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                          // In production, use a real SVG path parser or d3rs should output Path events directly
                                          // Use PathBuilder::fill() for filled shapes
                                          let mut builder = PathBuilder::fill();
-                                         let tokens = continents_svg.replace("M", " M ").replace("L", " L ").replace("Z", " Z ").replace("z", " Z ");
+                                         let tokens = continents_svg.replace('M', " M ").replace('L', " L ").replace(['Z', 'z'], " Z ");
                                          let parts: Vec<&str> = tokens.split_whitespace().collect();
                                          let mut i = 0;
                                          while i < parts.len() {
@@ -254,7 +254,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
                                         // Use PathBuilder::stroke() for lines
                                         let mut builder = PathBuilder::stroke(px(1.0));
-                                         let tokens = grid_svg.replace("M", " M ").replace("L", " L ");
+                                         let tokens = grid_svg.replace('M', " M ").replace('L', " L ");
                                          let parts: Vec<&str> = tokens.split_whitespace().collect();
                                          let mut i = 0;
                                          while i < parts.len() {
@@ -349,7 +349,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .text_sm()
                                         .w(px(60.0))
                                         .text_center()
-                                        .child(format!("{:.0}°", rotation_lon)),
+                                        .child(format!("{rotation_lon:.0}°")),
                                 )
                                 .child(
                                     div()
@@ -391,7 +391,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .text_sm()
                                         .w(px(60.0))
                                         .text_center()
-                                        .child(format!("{:.0}°", rotation_lat)),
+                                        .child(format!("{rotation_lat:.0}°")),
                                 )
                                 .child(
                                     div()
@@ -562,12 +562,7 @@ fn project_point(
     };
 
     // Check bounds
-    if x.is_finite() && y.is_finite() {
-        // Relax strict bounds check to allow points slightly off-canvas (clipping handles it)
-        Some((x, y))
-    } else {
-        None
-    }
+    (x.is_finite() && y.is_finite()).then_some((x, y))
 }
 
 fn projection_scale(proj_type: GeoProjectionType, map_height: f64) -> f64 {

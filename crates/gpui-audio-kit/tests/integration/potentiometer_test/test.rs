@@ -553,8 +553,7 @@ async fn test_potentiometer_scroll_wheel_up_increases_value(cx: &mut TestAppCont
         let new_val = *value.borrow();
         assert!(
             new_val > 50.0,
-            "Value should increase after scroll up, got {}",
-            new_val
+            "Value should increase after scroll up, got {new_val}"
         );
         assert_eq!(
             change_count.load(Ordering::SeqCst),
@@ -595,8 +594,7 @@ async fn test_potentiometer_scroll_wheel_down_decreases_value(cx: &mut TestAppCo
         let new_val = *value.borrow();
         assert!(
             new_val < 50.0,
-            "Value should decrease after scroll down, got {}",
-            new_val
+            "Value should decrease after scroll down, got {new_val}"
         );
     }
 }
@@ -635,8 +633,7 @@ async fn test_potentiometer_scroll_wheel_shift_fine_control(cx: &mut TestAppCont
         let new_val = *value.borrow();
         assert!(
             new_val > 50.0 && new_val < 51.0,
-            "Shift+scroll should give fine control, got {}",
-            new_val
+            "Shift+scroll should give fine control, got {new_val}"
         );
     }
 }
@@ -674,8 +671,7 @@ async fn test_potentiometer_scroll_wheel_respects_bounds(cx: &mut TestAppContext
         let new_val = *value.borrow();
         assert!(
             new_val <= 100.0,
-            "Value should be clamped at max (100), got {}",
-            new_val
+            "Value should be clamped at max (100), got {new_val}"
         );
     }
 }
@@ -766,8 +762,7 @@ async fn test_potentiometer_arrow_up_increases_value(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             new_val > 50.0,
-            "Value should increase after Arrow Up, got {}",
-            new_val
+            "Value should increase after Arrow Up, got {new_val}"
         );
     }
 }
@@ -804,8 +799,7 @@ async fn test_potentiometer_arrow_down_decreases_value(cx: &mut TestAppContext) 
         let new_val = *value.borrow();
         assert!(
             new_val < 50.0,
-            "Value should decrease after Arrow Down, got {}",
-            new_val
+            "Value should decrease after Arrow Down, got {new_val}"
         );
     }
 }
@@ -842,8 +836,7 @@ async fn test_potentiometer_home_sets_minimum(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             new_val.abs() < 0.01,
-            "Home should set value to min (0), got {}",
-            new_val
+            "Home should set value to min (0), got {new_val}"
         );
     }
 }
@@ -880,8 +873,7 @@ async fn test_potentiometer_end_sets_maximum(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             (new_val - 100.0).abs() < 0.01,
-            "End should set value to max (100), got {}",
-            new_val
+            "End should set value to max (100), got {new_val}"
         );
     }
 }
@@ -928,8 +920,7 @@ async fn test_potentiometer_escape_resets_value(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             (new_val - 50.0).abs() < 0.01,
-            "Value should be reset to default (50.0), got {}",
-            new_val
+            "Value should be reset to default (50.0), got {new_val}"
         );
     }
 }
@@ -967,8 +958,7 @@ async fn test_potentiometer_percentage_clamped_at_max(cx: &mut TestAppContext) {
         let final_val = *value.borrow();
         assert!(
             final_val <= 100.0,
-            "Percentage should not exceed 100%, got {}",
-            final_val
+            "Percentage should not exceed 100%, got {final_val}"
         );
     }
 }
@@ -1006,8 +996,7 @@ async fn test_potentiometer_percentage_clamped_at_min(cx: &mut TestAppContext) {
         let final_val = *value.borrow();
         assert!(
             final_val >= 0.0,
-            "Percentage should not go below 0%, got {}",
-            final_val
+            "Percentage should not go below 0%, got {final_val}"
         );
     }
 }
@@ -1043,8 +1032,7 @@ async fn test_potentiometer_click_increments_by_10_percent(cx: &mut TestAppConte
         // Value should increment by 10% (10 units on 0-100 range)
         assert!(
             (new_val - 60.0).abs() < 0.01,
-            "Value should be 60 after click (50 + 10%), got {}",
-            new_val
+            "Value should be 60 after click (50 + 10%), got {new_val}"
         );
     }
 }
@@ -1115,9 +1103,7 @@ async fn test_potentiometer_log_scale_scroll(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             new_val > initial_value,
-            "Log scale: value should increase, initial={}, new={}",
-            initial_value,
-            new_val
+            "Log scale: value should increase, initial={initial_value}, new={new_val}"
         );
     }
 }
@@ -1151,8 +1137,7 @@ async fn test_potentiometer_log_scale_home_sets_min(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             (new_val - 20.0).abs() < 0.01,
-            "Home should set to min (20Hz), got {}",
-            new_val
+            "Home should set to min (20Hz), got {new_val}"
         );
     }
 }
@@ -1186,8 +1171,7 @@ async fn test_potentiometer_log_scale_end_sets_max(cx: &mut TestAppContext) {
         let new_val = *value.borrow();
         assert!(
             (new_val - 20000.0).abs() < 0.01,
-            "End should set to max (20kHz), got {}",
-            new_val
+            "End should set to max (20kHz), got {new_val}"
         );
     }
 }

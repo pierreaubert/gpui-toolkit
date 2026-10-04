@@ -1,4 +1,4 @@
-/// Configuration for GeoPath rendering.
+/// Configuration for `GeoPath` rendering.
 #[derive(Clone, Debug)]
 pub struct GeoPathConfig {
     /// Number of decimal places for path coordinates

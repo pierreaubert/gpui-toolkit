@@ -42,6 +42,9 @@ pub fn frame_poll_timeout(
 /// `force_frame` (first frame after poll), `event_woke` (an OS event arrived),
 /// `main_wake` (a main-thread task was dispatched), or `needs_pump`
 /// (momentum scroll / fling animation in progress).
+// The flags are independent wake conditions with no natural grouping;
+// bundling them would churn the platform event-loop call sites.
+#[allow(clippy::fn_params_excessive_bools)]
 pub fn should_pump_frame(
     init_done: bool,
     active: bool,
@@ -91,8 +94,8 @@ pub enum ContactPhase {
 
 /// Updates adapter-side gesture ownership and reports whether compatibility
 /// mouse/scroll/pinch synthesis must be suppressed for this sample.
-pub fn route_direct_contact(
-    claimed: &mut HashSet<i32>,
+pub fn route_direct_contact<S: std::hash::BuildHasher>(
+    claimed: &mut HashSet<i32, S>,
     id: i32,
     phase: ContactPhase,
     captured_on_down: bool,

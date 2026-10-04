@@ -33,7 +33,7 @@ where
     Ok(render_line(x_scale, y_scale, data, config))
 }
 
-/// Render a line chart using GPUI's PathBuilder for proper vector line rendering
+/// Render a line chart using GPUI's `PathBuilder` for proper vector line rendering
 ///
 /// # Example
 ///
@@ -357,15 +357,15 @@ pub fn line_chart_scene(
         let mut path = BezPath::new();
         for &(x0, y0, x1, y1) in geometry.segments.iter() {
             path.push(PathEl::MoveTo(
-                ((x0 * width) as f64, (y0 * height) as f64).into(),
+                (f64::from(x0 * width), f64::from(y0 * height)).into(),
             ));
             path.push(PathEl::LineTo(
-                ((x1 * width) as f64, (y1 * height) as f64).into(),
+                (f64::from(x1 * width), f64::from(y1 * height)).into(),
             ));
         }
         scene.stroke_path(
             path,
-            Stroke::new(config.stroke_width as f64),
+            Stroke::new(f64::from(config.stroke_width)),
             Brush::Solid(Color::new([
                 stroke.r,
                 stroke.g,
@@ -379,8 +379,11 @@ pub fn line_chart_scene(
         for &(x, y) in geometry.points.iter() {
             path.extend(
                 Circle::new(
-                    (x as f64 * width as f64, y as f64 * height as f64),
-                    config.point_radius as f64,
+                    (
+                        f64::from(x) * f64::from(width),
+                        f64::from(y) * f64::from(height),
+                    ),
+                    f64::from(config.point_radius),
                 )
                 .to_path(0.1),
             );

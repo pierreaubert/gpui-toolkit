@@ -155,7 +155,7 @@ impl Element for MeshSceneElement {
         _: Option<&GlobalElementId>,
         _: Option<&InspectorElementId>,
         _: Bounds<Pixels>,
-        _: &mut (),
+        (): &mut (),
         _: &mut Window,
         _: &mut App,
     ) {
@@ -165,8 +165,8 @@ impl Element for MeshSceneElement {
         _: Option<&GlobalElementId>,
         _: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
-        _: &mut (),
-        _: &mut (),
+        (): &mut (),
+        (): &mut (),
         window: &mut Window,
         _: &mut App,
     ) {

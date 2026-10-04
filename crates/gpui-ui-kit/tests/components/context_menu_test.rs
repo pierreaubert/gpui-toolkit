@@ -1,4 +1,4 @@
-//! ContextMenu component tests
+//! `ContextMenu` component tests
 
 use gpui_ui_kit::context_menu::ContextMenu;
 use gpui_ui_kit::menu::MenuItem;

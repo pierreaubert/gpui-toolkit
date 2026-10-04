@@ -481,11 +481,7 @@ impl<T> ClusterLayout<T> {
         // Degenerate (non-positive or non-finite) spans only arise from
         // custom zero/negative separations; center the breadth instead of
         // emitting NaN. d3 itself produces NaN there.
-        let breadth_scale = if span.is_finite() && span > 0.0 {
-            Some(self.size.1 / span)
-        } else {
-            None
-        };
+        let breadth_scale = (span.is_finite() && span > 0.0).then(|| self.size.1 / span);
 
         HierarchyNode::each(root, |node| {
             let (breadth, height) = {
@@ -545,11 +541,11 @@ impl<T> ClusterLayout<T> {
 fn default_separation<T>(a: &HierarchyNode<T>, b: &HierarchyNode<T>) -> f64 {
     if a.parent
         .as_ref()
-        .and_then(|p| p.upgrade())
+        .and_then(std::rc::Weak::upgrade)
         .map(|p| p.as_ptr())
         == b.parent
             .as_ref()
-            .and_then(|p| p.upgrade())
+            .and_then(std::rc::Weak::upgrade)
             .map(|p| p.as_ptr())
     {
         1.0

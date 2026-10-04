@@ -162,8 +162,10 @@ impl TileLayout {
         self.validate()?;
 
         let continuous_zoom = (self.scale / self.tile_size).log2();
-        let rounded_zoom = (continuous_zoom + self.zoom_delta as f64).round().max(0.0);
-        if !rounded_zoom.is_finite() || rounded_zoom > MAX_TILE_ZOOM as f64 {
+        let rounded_zoom = (continuous_zoom + f64::from(self.zoom_delta))
+            .round()
+            .max(0.0);
+        if !rounded_zoom.is_finite() || rounded_zoom > f64::from(MAX_TILE_ZOOM) {
             return Err(TileError::ZoomOutOfRange);
         }
 

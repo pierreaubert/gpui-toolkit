@@ -41,35 +41,34 @@ pub(super) fn clip_line_segment(
         } else if (outcode0 & outcode1) != 0 {
             // Both points share an outside zone
             return None;
+        }
+        // Calculate intersection
+        let outcode_out = if outcode0 != 0 { outcode0 } else { outcode1 };
+        let (x, y);
+
+        if (outcode_out & TOP) != 0 {
+            x = x0 + (x1 - x0) * (0.0 - y0) / (y1 - y0);
+            y = 0.0;
+        } else if (outcode_out & BOTTOM) != 0 {
+            x = x0 + (x1 - x0) * (1.0 - y0) / (y1 - y0);
+            y = 1.0;
+        } else if (outcode_out & RIGHT) != 0 {
+            y = y0 + (y1 - y0) * (1.0 - x0) / (x1 - x0);
+            x = 1.0;
         } else {
-            // Calculate intersection
-            let outcode_out = if outcode0 != 0 { outcode0 } else { outcode1 };
-            let (x, y);
+            // LEFT
+            y = y0 + (y1 - y0) * (0.0 - x0) / (x1 - x0);
+            x = 0.0;
+        }
 
-            if (outcode_out & TOP) != 0 {
-                x = x0 + (x1 - x0) * (0.0 - y0) / (y1 - y0);
-                y = 0.0;
-            } else if (outcode_out & BOTTOM) != 0 {
-                x = x0 + (x1 - x0) * (1.0 - y0) / (y1 - y0);
-                y = 1.0;
-            } else if (outcode_out & RIGHT) != 0 {
-                y = y0 + (y1 - y0) * (1.0 - x0) / (x1 - x0);
-                x = 1.0;
-            } else {
-                // LEFT
-                y = y0 + (y1 - y0) * (0.0 - x0) / (x1 - x0);
-                x = 0.0;
-            }
-
-            if outcode_out == outcode0 {
-                x0 = x;
-                y0 = y;
-                outcode0 = compute_outcode(x0, y0);
-            } else {
-                x1 = x;
-                y1 = y;
-                outcode1 = compute_outcode(x1, y1);
-            }
+        if outcode_out == outcode0 {
+            x0 = x;
+            y0 = y;
+            outcode0 = compute_outcode(x0, y0);
+        } else {
+            x1 = x;
+            y1 = y;
+            outcode1 = compute_outcode(x1, y1);
         }
     }
 }

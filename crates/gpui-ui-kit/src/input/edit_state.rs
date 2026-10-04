@@ -48,7 +48,7 @@ impl EditState {
         // Preserve uncommitted edits when the parent value did not change.
         // A changed parent value can come from external undo, import, or reset.
         if previous != current && self.editing && self.text != current {
-            self.text = current.to_owned();
+            current.clone_into(&mut self.text);
             self.cursor = self.cursor.min(self.text.chars().count());
             self.clear_selection();
         }
@@ -149,8 +149,7 @@ impl EditState {
         self.text
             .char_indices()
             .nth(char_idx)
-            .map(|(i, _)| i)
-            .unwrap_or(self.text.len())
+            .map_or(self.text.len(), |(i, _)| i)
     }
 
     /// Return the character immediately before `byte_pos`, along with its starting byte index.
@@ -426,14 +425,12 @@ impl EditState {
                 .text
                 .char_indices()
                 .nth(self.cursor - 1)
-                .map(|(i, _)| i)
-                .unwrap_or(0);
+                .map_or(0, |(i, _)| i);
             let next_byte = self
                 .text
                 .char_indices()
                 .nth(self.cursor)
-                .map(|(i, _)| i)
-                .unwrap_or(self.text.len());
+                .map_or(self.text.len(), |(i, _)| i);
             self.text.replace_range(byte_pos..next_byte, "");
             self.cursor -= 1;
         }
@@ -456,14 +453,12 @@ impl EditState {
                 .text
                 .char_indices()
                 .nth(self.cursor)
-                .map(|(i, _)| i)
-                .unwrap_or(self.text.len());
+                .map_or(self.text.len(), |(i, _)| i);
             let next_byte = self
                 .text
                 .char_indices()
                 .nth(self.cursor + 1)
-                .map(|(i, _)| i)
-                .unwrap_or(self.text.len());
+                .map_or(self.text.len(), |(i, _)| i);
             self.text.replace_range(byte_pos..next_byte, "");
         }
     }
@@ -476,8 +471,7 @@ impl EditState {
             .text
             .char_indices()
             .nth(self.cursor)
-            .map(|(i, _)| i)
-            .unwrap_or(self.text.len());
+            .map_or(self.text.len(), |(i, _)| i);
         self.text.insert_str(byte_pos, char_text);
         self.cursor += char_text.chars().count();
     }
@@ -491,8 +485,7 @@ impl EditState {
             .text
             .char_indices()
             .nth(self.cursor)
-            .map(|(i, _)| i)
-            .unwrap_or(self.text.len());
+            .map_or(self.text.len(), |(i, _)| i);
         self.text.insert(byte_pos, ch);
         self.cursor += 1;
     }

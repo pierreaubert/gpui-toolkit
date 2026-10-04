@@ -1,6 +1,6 @@
-//! ContextMenu Debug Example
+//! `ContextMenu` Debug Example
 //!
-//! Demonstrates the ContextMenu component:
+//! Demonstrates the `ContextMenu` component:
 //! - Menu items with labels
 //! - Items with shortcuts and icons
 //! - Separators and disabled items

@@ -82,8 +82,8 @@ impl VelocityTracker {
         if dt < 1e-6 {
             return (0.0, 0.0);
         }
-        let vx = ((last.x - first.x) as f64 / dt) as f32;
-        let vy = ((last.y - first.y) as f64 / dt) as f32;
+        let vx = (f64::from(last.x - first.x) / dt) as f32;
+        let vy = (f64::from(last.y - first.y) / dt) as f32;
         (clamp_velocity(vx), clamp_velocity(vy))
     }
 
@@ -128,8 +128,8 @@ fn weighted_velocity(samples: &[&Sample]) -> (f32, f32) {
             return (0.0, 0.0);
         }
         return (
-            ((last.x - first.x) as f64 / dt) as f32,
-            ((last.y - first.y) as f64 / dt) as f32,
+            (f64::from(last.x - first.x) / dt) as f32,
+            (f64::from(last.y - first.y) / dt) as f32,
         );
     }
     let vx = (sum_w * sum_wtx - sum_wt * sum_wx) / denom;
@@ -280,7 +280,7 @@ mod tests {
 
         // Exhaust the fling
         while scroller.is_active() {
-            scroller.last_time = Instant::now() - Duration::from_millis(33);
+            scroller.last_time = Instant::now().checked_sub(Duration::from_millis(33)).unwrap();
             let _ = scroller.step();
         }
         assert!(scroller.is_finished());
@@ -291,7 +291,7 @@ mod tests {
         let mut scroller = MomentumScroller::new();
         scroller.fling(100.0, 0.0, 0.0, 0.0);
 
-        scroller.last_time = Instant::now() - Duration::from_millis(16);
+        scroller.last_time = Instant::now().checked_sub(Duration::from_millis(16)).unwrap();
         assert!(scroller.step().is_some());
 
         scroller.last_time = Instant::now();
@@ -305,7 +305,7 @@ mod tests {
     fn step_advances_reported_position() {
         let mut scroller = MomentumScroller::new();
         scroller.fling(100.0, 50.0, 10.0, 20.0);
-        scroller.last_time = Instant::now() - Duration::from_millis(16);
+        scroller.last_time = Instant::now().checked_sub(Duration::from_millis(16)).unwrap();
 
         let delta = scroller.step().expect("fling should produce a delta");
 

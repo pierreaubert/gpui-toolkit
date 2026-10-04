@@ -34,7 +34,7 @@ fn apply_churn(root: &mut IosAccessibilityNode, churn_percent: usize) {
     for i in 0..churn_count {
         let idx = i % total;
         let child = &mut root.children[idx];
-        child.label = Some(format!("Button {} updated", idx));
+        child.label = Some(format!("Button {idx} updated"));
     }
 }
 

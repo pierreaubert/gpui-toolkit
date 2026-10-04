@@ -1,4 +1,4 @@
-//! Menu components - MenuItem, Menu, MenuBar, and ContextMenu
+//! Menu components - `MenuItem`, Menu, `MenuBar`, and `ContextMenu`
 //!
 //! Provides a complete menu system for application navigation and context menus.
 
@@ -46,7 +46,7 @@ fn menu_item_accessibility(item: &menu_item::MenuItem) -> (SharedString, AriaPro
 /// - **Arrow Up/Down**: Move through items (skips separators and disabled items)
 /// - **Home/End**: Jump to first/last selectable item
 /// - **Enter/Space**: Select the focused item
-/// - **Escape**: Close the menu (triggers on_close callback)
+/// - **Escape**: Close the menu (triggers `on_close` callback)
 pub struct Menu {
     id: ElementId,
     items: Vec<menu_item::MenuItem>,
@@ -139,7 +139,7 @@ impl Menu {
     /// Set the focus change handler (triggered by arrow keys, home/end)
     ///
     /// The handler receives the new focused index (or None if no item is focused).
-    /// Use this to update your state and re-render the menu with the new focused_index.
+    /// Use this to update your state and re-render the menu with the new `focused_index`.
     pub fn on_focus_change(
         mut self,
         handler: impl Fn(Option<usize>, &mut Window, &mut App) + 'static,

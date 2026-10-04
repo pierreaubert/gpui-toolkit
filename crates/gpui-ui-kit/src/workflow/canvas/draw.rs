@@ -144,7 +144,7 @@ fn cached_connection_path(
     Arc::clone(cached_connection_path_with_bounds(from, to, obstacles, margin, tolerance).path())
 }
 
-/// Draw a connection line between two ports, shortened at both ends by port_radius.
+/// Draw a connection line between two ports, shortened at both ends by `port_radius`.
 /// Routes around `obstacles` (other node bounding rects) when necessary.
 #[allow(
     clippy::too_many_arguments,

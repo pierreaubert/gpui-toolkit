@@ -10,6 +10,9 @@ keywords = ["gpui", "plotting", "visualization", "d3", "charts"]
 categories = ["visualization", "gui"]
 exclude = ["bin/"]
 
+[lints]
+workspace = true
+
 [lib]
 name = "d3rs"
 

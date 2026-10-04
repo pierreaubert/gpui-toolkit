@@ -20,7 +20,7 @@ fn decode_density(jpeg_bytes: &[u8]) -> (Vec<f64>, usize, usize) {
     // For white dots on black: density = luma (light areas get more dots)
     let density: Vec<f64> = gray
         .pixels()
-        .map(|p| (p.0[0] as f64 / 255.0).max(0.0))
+        .map(|p| (f64::from(p.0[0]) / 255.0).max(0.0))
         .collect();
     (density, width, height)
 }
@@ -92,8 +92,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .child("Voronoi Stippling"),
         )
         .child(div().text_xs().mb_1().child(format!(
-            "Source: observablehq.com/@mbostock/voronoi-stippling — {} dots, wood.jpeg {}×{}",
-            n_points, img_w, img_h
+            "Source: observablehq.com/@mbostock/voronoi-stippling — {n_points} dots, wood.jpeg {img_w}×{img_h}"
         )))
         .child(
             div()

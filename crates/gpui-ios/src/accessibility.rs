@@ -1,6 +1,6 @@
 //! iOS accessibility snapshot model.
 //!
-//! GPUI does not expose UIKit accessibility objects directly, so app and
+//! GPUI does not expose `UIKit` accessibility objects directly, so app and
 //! component code publish a compact snapshot here. The iOS window bridge mirrors
 //! that snapshot into `UIAccessibilityElement`s attached to the Metal view.
 
@@ -257,7 +257,7 @@ impl IosAccessibilitySnapshot {
 
 /// Which accessibility properties changed for a single node.
 ///
-/// This mirrors the UIKit setters that `IosWindow::refresh_accessibility`
+/// This mirrors the `UIKit` setters that `IosWindow::refresh_accessibility`
 /// applies, so only the flagged properties need to be pushed to the platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct NodeChanges {
@@ -281,7 +281,7 @@ impl NodeChanges {
 /// The result of diffing two accessibility snapshots.
 ///
 /// All ids are borrowed from the `next` snapshot, so the structure is usable on
-/// the host for benchmarking and unit testing without UIKit.
+/// the host for benchmarking and unit testing without `UIKit`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AccessibilityDiff<'a> {
     pub unchanged: Vec<&'a IosAccessibilityNode>,
@@ -366,7 +366,7 @@ fn traits_inputs_changed(prev: &IosAccessibilityNode, next: &IosAccessibilityNod
 /// `prev`).
 ///
 /// This is the policy that `IosWindow::refresh_accessibility` uses to decide
-/// which UIKit setters to call and whether the `accessibilityElements` array
+/// which `UIKit` setters to call and whether the `accessibilityElements` array
 /// must be rebuilt.
 pub fn compute_accessibility_diff<'a>(
     prev: Option<&'a IosAccessibilitySnapshot>,

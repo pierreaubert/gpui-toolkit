@@ -1,4 +1,4 @@
-//! Stacked Area Chart -- Observable example using d3rs::examples::stacked_area
+//! Stacked Area Chart -- Observable example using `d3rs::examples::stacked_area`
 //!
 //! Demonstrates idiomatic d3rs usage: `Stack` for stacking, `TimeScale` (scaleUtc) for x-axis,
 //! `LinearScale` for y-axis, `Area` generator with `Curve::monotone_x`,
@@ -83,7 +83,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     // Y-axis ticks
     let y_step = (y_max / 5.0).ceil();
     let y_ticks: Vec<f64> = (0..=8)
-        .map(|i| i as f64 * y_step)
+        .map(|i| f64::from(i) * y_step)
         .filter(|v| *v <= y_max + 0.1)
         .collect();
 
@@ -175,7 +175,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .justify_end()
                         .pr_1()
-                        .child(div().text_xs().child(format!("{:.0}", val)))
+                        .child(div().text_xs().child(format!("{val:.0}")))
                 }))
                 // Y grid lines cloned from y ticks at low opacity
                 .children(y_ticks.iter().map(|&val| {

@@ -121,7 +121,7 @@ impl SurfaceData {
     /// * `f` - Function that takes (x, y) and returns (z, t)
     ///
     /// # Panics
-    /// Panics in debug mode if x_range contains non-positive values.
+    /// Panics in debug mode if `x_range` contains non-positive values.
     ///
     /// # Example
     ///
@@ -189,7 +189,7 @@ impl SurfaceData {
     /// * `f` - Function that takes (x, y) and returns (z, t)
     ///
     /// # Panics
-    /// Panics in debug mode if y_range contains non-positive values.
+    /// Panics in debug mode if `y_range` contains non-positive values.
     pub fn from_function_logy<F>(
         x_range: (f64, f64),
         y_range: (f64, f64),
@@ -440,7 +440,7 @@ impl SurfaceData {
 
     /// Get the number of columns in the grid
     pub fn cols(&self) -> usize {
-        self.points.first().map(|r| r.len()).unwrap_or(0)
+        self.points.first().map_or(0, std::vec::Vec::len)
     }
 
     /// Get a specific point by row and column index

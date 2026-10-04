@@ -8,7 +8,9 @@ use gpui::prelude::{
     FluentBuilder as _, InteractiveElement, IntoElement, ParentElement, RenderOnce,
     StatefulInteractiveElement, Styled,
 };
-use gpui::{AnyElement, App, ElementId, FontWeight, MouseButton, SharedString, Window, div, px, rems};
+use gpui::{
+    AnyElement, App, ElementId, FontWeight, MouseButton, SharedString, Window, div, px, rems,
+};
 
 /// Trait for custom node content rendering
 pub trait NodeContent: 'static {
@@ -167,7 +169,7 @@ impl RenderOnce for WorkflowNode {
         let input_ports: Vec<_> = (0..self.data.input_count)
             .map(|i| {
                 Port::new(
-                    SharedString::from(format!("port-in-{}-{}", node_id, i)),
+                    SharedString::from(format!("port-in-{node_id}-{i}")),
                     PortDirection::Input,
                     i,
                 )
@@ -179,7 +181,7 @@ impl RenderOnce for WorkflowNode {
         let output_ports: Vec<_> = (0..self.data.output_count)
             .map(|i| {
                 Port::new(
-                    SharedString::from(format!("port-out-{}-{}", node_id, i)),
+                    SharedString::from(format!("port-out-{node_id}-{i}")),
                     PortDirection::Output,
                     i,
                 )
@@ -282,18 +284,13 @@ impl RenderOnce for WorkflowNode {
                     })
                     // Main content (min_w_0 lets long content shrink
                     // inside the fixed node width instead of overflowing it)
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .p_2()
-                            .child(if let Some(content) = self.content {
-                                content.render(&self.data, cx)
-                            } else {
-                                DefaultNodeContent.render(&self.data, cx)
-                            }),
-                    )
+                    .child(div().flex_1().min_w_0().overflow_hidden().p_2().child(
+                        if let Some(content) = self.content {
+                            content.render(&self.data, cx)
+                        } else {
+                            DefaultNodeContent.render(&self.data, cx)
+                        },
+                    ))
                     // Output ports column - use relative positioning to match hit_test.rs
                     .child({
                         let output_count = self.data.output_count;

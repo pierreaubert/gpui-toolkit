@@ -1,6 +1,6 @@
 //! Integration tests for Progress component
 //!
-//! Tests the Progress and CircularProgress components including:
+//! Tests the Progress and `CircularProgress` components including:
 //! - All variants rendering
 //! - All sizes rendering
 //! - With label display

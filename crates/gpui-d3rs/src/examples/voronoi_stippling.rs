@@ -144,7 +144,7 @@ impl StipplingState {
                 let py = self.points[i * 2 + 1];
                 let mut builder = PathBuilder::new();
                 for v in 0..n_sides {
-                    let angle = std::f64::consts::TAU * v as f64 / n_sides as f64;
+                    let angle = std::f64::consts::TAU * f64::from(v) / f64::from(n_sides);
                     let x = px + dot_r * angle.cos();
                     let y = py + dot_r * angle.sin();
                     if v == 0 {

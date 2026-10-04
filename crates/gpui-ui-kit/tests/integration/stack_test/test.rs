@@ -301,7 +301,7 @@ async fn test_hstack_wrap(cx: &mut TestAppContext) {
             HStack::new()
                 .wrap(true)
                 .width(StackSize::Fixed(px(200.0)))
-                .children((1..=10).map(|i| div().w(px(50.0)).child(format!("{}", i))))
+                .children((1..=10).map(|i| div().w(px(50.0)).child(format!("{i}"))))
         }
     }
 

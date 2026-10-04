@@ -1,6 +1,6 @@
-//! VolumeKnob Debug Example
+//! `VolumeKnob` Debug Example
 //!
-//! Interactive showcase for the VolumeKnob component:
+//! Interactive showcase for the `VolumeKnob` component:
 //! - Different sizes
 //! - Different values and fill levels
 //! - Muted state

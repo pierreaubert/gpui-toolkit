@@ -2,7 +2,7 @@
 pub(super) fn generate_scatter_data() -> (Vec<f64>, Vec<f64>) {
     (0..100)
         .map(|i| {
-            let t = i as f64 * 0.15;
+            let t = f64::from(i) * 0.15;
             let r = 10.0 + t * 3.0;
             (50.0 + r * t.cos(), 50.0 + r * t.sin())
         })
@@ -11,7 +11,7 @@ pub(super) fn generate_scatter_data() -> (Vec<f64>, Vec<f64>) {
 
 /// Generate sine wave data
 pub(super) fn generate_line_data() -> (Vec<f64>, Vec<f64>) {
-    let x: Vec<f64> = (0..100).map(|i| i as f64 * 0.1).collect();
+    let x: Vec<f64> = (0..100).map(|i| f64::from(i) * 0.1).collect();
     let y: Vec<f64> = x.iter().map(|&xi| (xi * 2.0).sin() * 40.0 + 50.0).collect();
     (x, y)
 }

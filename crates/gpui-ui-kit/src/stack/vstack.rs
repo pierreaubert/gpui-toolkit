@@ -75,8 +75,11 @@ impl VStack {
 
     /// Add multiple children
     pub fn children(mut self, children: impl IntoIterator<Item = impl IntoElement>) -> Self {
-        self.children
-            .extend(children.into_iter().map(|c| c.into_any_element()));
+        self.children.extend(
+            children
+                .into_iter()
+                .map(gpui::IntoElement::into_any_element),
+        );
         self
     }
 
@@ -86,13 +89,13 @@ impl VStack {
         self
     }
 
-    /// Set cross-axis alignment (horizontal for VStack)
+    /// Set cross-axis alignment (horizontal for `VStack`)
     pub fn align(mut self, align: StackAlign) -> Self {
         self.align = align;
         self
     }
 
-    /// Set main-axis alignment (vertical for VStack)
+    /// Set main-axis alignment (vertical for `VStack`)
     pub fn justify(mut self, justify: StackJustify) -> Self {
         self.justify = justify;
         self

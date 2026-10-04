@@ -153,12 +153,11 @@ fn gpu_snapshot_agrees_with_cpu_per_shape() {
     ];
     let mut stats = Vec::new();
     for (name, scene) in &scenes {
-        match compare_shape(name, scene) {
-            Some(stat) => stats.push(stat),
-            None => {
-                eprintln!("SKIP: no wgpu adapter for GPU snapshot agreement test");
-                return;
-            }
+        if let Some(stat) = compare_shape(name, scene) {
+            stats.push(stat);
+        } else {
+            eprintln!("SKIP: no wgpu adapter for GPU snapshot agreement test");
+            return;
         }
     }
     let [bars, band, wedge, strokes] = stats.as_slice() else {

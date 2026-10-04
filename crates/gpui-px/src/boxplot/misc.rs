@@ -40,13 +40,13 @@ pub(super) fn percentile_unsorted(values: &[f64], p: f64) -> f64 {
     let mut scratch = values.to_vec();
 
     if lower == upper || upper >= n {
-        let (_, kth, _) = scratch.select_nth_unstable_by(lower.min(n - 1), |a, b| a.total_cmp(b));
+        let (_, kth, _) = scratch.select_nth_unstable_by(lower.min(n - 1), f64::total_cmp);
         *kth
     } else {
-        let (_, kth_lower, right) = scratch.select_nth_unstable_by(lower, |a, b| a.total_cmp(b));
+        let (_, kth_lower, right) = scratch.select_nth_unstable_by(lower, f64::total_cmp);
         // `upper` is `lower + 1` when `index` is non-integer, so the upper
         // statistic is the smallest element of the right partition.
-        let (_, kth_upper, _) = right.select_nth_unstable_by(0, |a, b| a.total_cmp(b));
+        let (_, kth_upper, _) = right.select_nth_unstable_by(0, f64::total_cmp);
         let frac = index - lower as f64;
         *kth_lower * (1.0 - frac) + *kth_upper * frac
     }
@@ -65,8 +65,7 @@ mod tests {
         for p in [0.0, 0.25, 0.5, 0.75, 1.0] {
             assert!(
                 (percentile(&sorted, p) - percentile_unsorted(&values, p)).abs() < 1e-10,
-                "mismatch at p={}",
-                p
+                "mismatch at p={p}"
             );
         }
     }
@@ -118,8 +117,7 @@ mod tests {
         for p in [0.0, 0.25, 0.5, 0.75, 1.0] {
             assert!(
                 (percentile(&sorted, p) - percentile_unsorted(&values, p)).abs() < 1e-10,
-                "mismatch at p={}",
-                p
+                "mismatch at p={p}"
             );
         }
     }

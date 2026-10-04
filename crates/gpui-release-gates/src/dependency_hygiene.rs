@@ -95,7 +95,7 @@ pub struct DependencyHygieneCheck {
 /// One dependency advisory triage row from the latest local audit run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DependencyAdvisoryTriage {
-    /// Stable RustSec advisory id.
+    /// Stable `RustSec` advisory id.
     pub advisory_id: &'static str,
     /// Affected crate name.
     pub crate_name: &'static str,

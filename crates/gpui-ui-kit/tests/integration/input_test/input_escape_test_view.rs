@@ -3,7 +3,7 @@ use gpui_ui_kit::input::Input;
 use std::cell::RefCell;
 use std::sync::Arc;
 
-/// Test that Escape cancels editing without calling on_change
+/// Test that Escape cancels editing without calling `on_change`
 pub(super) struct InputEscapeTestView {
     pub(super) confirmed_value: Arc<RefCell<Option<String>>>,
     pub(super) cancelled: Arc<RefCell<bool>>,

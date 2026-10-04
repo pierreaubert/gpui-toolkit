@@ -3,7 +3,7 @@
 //! Demonstrates the Toast component:
 //! - All variants (Info, Success, Warning, Error)
 //! - With title
-//! - ToastContainer with positioning
+//! - `ToastContainer` with positioning
 
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};

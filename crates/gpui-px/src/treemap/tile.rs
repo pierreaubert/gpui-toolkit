@@ -80,7 +80,10 @@ pub(super) fn tile_binary(
     }
 
     // Find partition point that balances the two halves
-    let total: f64 = children.iter().map(|c| c.total_value()).sum();
+    let total: f64 = children
+        .iter()
+        .map(super::treemap_node::TreemapNode::total_value)
+        .sum();
     let mut cumsum = 0.0;
     let mut split_idx = 0;
     let half = total / 2.0;
@@ -95,8 +98,14 @@ pub(super) fn tile_binary(
 
     split_idx = split_idx.max(1).min(children.len() - 1);
 
-    let left: f64 = children[..split_idx].iter().map(|c| c.total_value()).sum();
-    let right: f64 = children[split_idx..].iter().map(|c| c.total_value()).sum();
+    let left: f64 = children[..split_idx]
+        .iter()
+        .map(super::treemap_node::TreemapNode::total_value)
+        .sum();
+    let right: f64 = children[split_idx..]
+        .iter()
+        .map(super::treemap_node::TreemapNode::total_value)
+        .sum();
     let left_ratio = left / (left + right);
 
     let width = x1 - x0;

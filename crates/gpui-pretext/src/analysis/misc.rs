@@ -7,6 +7,5 @@ pub(super) fn contains_arabic_script(text: &str) -> bool {
 pub(super) fn has_trailing_punctuation_joiners(text: &str) -> bool {
     text.chars()
         .next_back()
-        .map(|ch| matches!(ch, ',' | ':' | ';'))
-        .unwrap_or(false)
+        .is_some_and(|ch| matches!(ch, ',' | ':' | ';'))
 }

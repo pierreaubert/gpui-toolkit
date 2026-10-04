@@ -2,10 +2,10 @@
 //! macOS Audio Unit extensions (embedded in a host DAW's process).
 //!
 //! Key differences from a standalone macOS app platform:
-//! - `run()` does NOT call [NSApp run] — the host DAW owns the event loop
-//! - No NSApplication access (EXTENSION_SAFE_API_ONLY)
+//! - `run()` does NOT call [`NSApp` run] — the host DAW owns the event loop
+//! - No `NSApplication` access (`EXTENSION_SAFE_API_ONLY`)
 //! - No menus, dock menu, file dialogs, or other app-level features
-//! - Clipboard uses NSPasteboard (macOS) instead of UIPasteboard
+//! - Clipboard uses `NSPasteboard` (macOS) instead of `UIPasteboard`
 
 use super::AuDisplay;
 use super::{AuDispatcher, AuTextSystem};
@@ -71,11 +71,11 @@ impl AuPlatform {
 struct AuKeyboardLayout;
 
 impl PlatformKeyboardLayout for AuKeyboardLayout {
-    fn id(&self) -> &str {
+    fn id(&self) -> &'static str {
         "au-default"
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "AU Default"
     }
 }
@@ -134,7 +134,7 @@ impl Platform for AuPlatform {
     ) -> anyhow::Result<Box<dyn PlatformWindow>> {
         use crate::helpers::nslog_verbose;
         nslog_verbose(b"SOTF AuPlatform::open_window: entry");
-        let window = Box::new(AuWindow::new(handle, options)?);
+        let window = Box::new(AuWindow::new(handle, options));
         AuWindow::register_global(&window);
         nslog_verbose(b"SOTF AuPlatform::open_window: done");
         Ok(window)
@@ -142,6 +142,8 @@ impl Platform for AuPlatform {
 
     fn window_appearance(&self) -> WindowAppearance {
         // Query the effective appearance from NSApp (if available in extension context)
+        // SAFETY: `NSAppearance` messaging is null-checked at each step, so
+        // only live objects are messaged; unknown states fall back to Light.
         unsafe {
             let appearance_name: *mut objc::runtime::Object = {
                 let app: *mut objc::runtime::Object =
@@ -206,6 +208,8 @@ impl Platform for AuPlatform {
     fn on_validate_app_menu_command(&self, _callback: Box<dyn FnMut(&dyn Action) -> bool>) {}
 
     fn app_path(&self) -> Result<PathBuf> {
+        // SAFETY: `mainBundle`/`bundlePath` always exist; the `UTF8String`
+        // pointer is null-checked and stays valid while `path` is alive.
         unsafe {
             let bundle: *mut objc::runtime::Object = msg_send![class!(NSBundle), mainBundle];
             let path: *mut objc::runtime::Object = msg_send![bundle, bundlePath];
@@ -229,7 +233,7 @@ impl Platform for AuPlatform {
             let mut state = self.state.lock();
             state.cursor_style = style;
             state.cursor_visible = action != AuCursorAction::HideUntilMouseMoves;
-        }
+        };
 
         apply_au_cursor_action(action);
     }
@@ -248,6 +252,8 @@ impl Platform for AuPlatform {
     }
 
     fn write_to_clipboard(&self, item: ClipboardItem) {
+        // SAFETY: `NSPasteboard`/`NSArray` classes and selectors always
+        // exist; the array holds the freshly created string for the call.
         unsafe {
             let pasteboard: *mut objc::runtime::Object =
                 msg_send![class!(NSPasteboard), generalPasteboard];
@@ -262,6 +268,8 @@ impl Platform for AuPlatform {
     }
 
     fn read_from_clipboard(&self) -> Option<ClipboardItem> {
+        // SAFETY: pasteboard and string pointers are null-checked; the
+        // `UTF8String` bytes are copied out before anything is released.
         unsafe {
             let pasteboard: *mut objc::runtime::Object =
                 msg_send![class!(NSPasteboard), generalPasteboard];
@@ -362,6 +370,8 @@ fn au_cursor_action(style: CursorStyle) -> AuCursorAction {
 }
 
 fn apply_au_cursor_action(action: AuCursorAction) {
+    // SAFETY: `NSCursor` class methods always exist; the cursor from
+    // `performSelector:` is null-checked before it is messaged or set.
     unsafe {
         match action {
             AuCursorAction::HideUntilMouseMoves => {

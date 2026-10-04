@@ -19,8 +19,7 @@ pub(super) fn default_preview_min_height() -> f32 {
 
 pub(super) fn default_story_metadata(story_id: &str, crate_name: &str) -> Vec<StoryMetadataItem> {
     let renderer = builtin_story_renderer(story_id)
-        .map(|renderer| renderer.label)
-        .unwrap_or_else(|| "Metadata-only".into());
+        .map_or_else(|| "Metadata-only".into(), |renderer| renderer.label);
     vec![
         StoryMetadataItem::new("crate", "Crate", crate_name),
         StoryMetadataItem::new("story", "Story", story_id),

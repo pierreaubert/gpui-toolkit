@@ -6,7 +6,7 @@
 //! - Expand/collapse via click
 //! - Different orientations (Vertical, Horizontal, Side)
 //! - Disabled items
-//! - on_change callback
+//! - `on_change` callback
 
 use gpui::{
     Context, InteractiveElement, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled,

@@ -408,8 +408,7 @@ fn diff_visual_case(
             total_pixels: u64::from(width) * u64::from(height),
             max_channel_delta: 0,
             message: format!(
-                "capture is {}x{}, manifest requires {}x{}",
-                width, height, expected_width, expected_height
+                "capture is {width}x{height}, manifest requires {expected_width}x{expected_height}"
             ),
         };
     }

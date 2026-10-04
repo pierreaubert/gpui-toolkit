@@ -112,8 +112,8 @@ mod tests {
     fn valid_config_passes_both_result_shapes() {
         let config = StubConfig { failures: vec![] };
 
-        assert!(config.validate().is_ok());
-        assert!(config.validate_first().is_ok());
+        config.validate().unwrap();
+        config.validate_first().unwrap();
         assert!(config.is_valid());
     }
 }

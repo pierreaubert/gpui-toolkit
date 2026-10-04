@@ -259,7 +259,7 @@ pub enum PatchOp {
         plot_id: String,
         generation: u64,
     },
-    /// Replace a surface's complete Scene2D snapshot inside this UI transaction.
+    /// Replace a surface's complete `Scene2D` snapshot inside this UI transaction.
     #[serde(rename = "scene2d_replace")]
     Scene2DReplace {
         id: String,
@@ -796,7 +796,7 @@ impl SessionState {
         Ok(())
     }
 
-    /// Reset revision and MeshPlot generation history when a new Python
+    /// Reset revision and `MeshPlot` generation history when a new Python
     /// producer is installed. The negotiated capability set belongs to the
     /// host and remains valid across child-process restarts.
     pub fn reset_for_new_session(&mut self) {

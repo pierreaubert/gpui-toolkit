@@ -3,7 +3,7 @@ use gpui_ui_kit::input::Input;
 use std::cell::RefCell;
 use std::sync::Arc;
 
-/// Test that the on_change callback is called when pressing Enter
+/// Test that the `on_change` callback is called when pressing Enter
 pub(super) struct InputOnChangeTestView {
     pub(super) confirmed_value: Arc<RefCell<Option<String>>>,
 }

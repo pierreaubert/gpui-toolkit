@@ -201,7 +201,7 @@ pub fn horizontal_meter_accessibility_summary(
         value_max: None,
         value_text: Some(value_text),
         unit: None,
-        normalized: Some(ratio as f64),
+        normalized: Some(f64::from(ratio)),
         scale: None,
         selected: false,
         disabled: false,
@@ -308,9 +308,9 @@ impl Element for GradientMeterFillElement {
             // Peniko interpolates this one brush on the GPU. The old Vello
             // path emitted one rect per strip for this same vertical fade.
             scene.fill_rect(
-                Rect::new(0.0, 0.0, width as f64, height as f64),
+                Rect::new(0.0, 0.0, f64::from(width), f64::from(height)),
                 Brush::Gradient(
-                    Gradient::new_linear((0.0, 0.0), (0.0, height as f64))
+                    Gradient::new_linear((0.0, 0.0), (0.0, f64::from(height)))
                         .with_stops([(0.0, color(1.0)), (1.0, color(0.35))]),
                 ),
             );
@@ -569,7 +569,7 @@ impl LevelMeterElement {
         let clipping = if self.is_clipping { " Clipping." } else { "" };
         let peak = self
             .peak_db
-            .map(|peak| format!(" Peak {:.1} dB.", peak))
+            .map(|peak| format!(" Peak {peak:.1} dB."))
             .unwrap_or_default();
         let description = SharedString::new(format!(
             "{}: level meter at {value_text}.{peak}{clipping}",
@@ -585,7 +585,7 @@ impl LevelMeterElement {
             value_max: Some(0.0),
             value_text: Some(value_text),
             unit: Some("dB".into()),
-            normalized: Some(self.fill_ratio() as f64),
+            normalized: Some(f64::from(self.fill_ratio())),
             scale: None,
             selected: false,
             disabled: false,
@@ -685,7 +685,7 @@ impl Element for LevelMeterElement {
                 Brush::Solid(Color::new([color.r, color.g, color.b, color.a * alpha]))
             };
             scene.fill_rect(
-                Rect::new(0.0, 0.0, meter_w_f as f64, meter_height_f as f64),
+                Rect::new(0.0, 0.0, f64::from(meter_w_f), f64::from(meter_height_f)),
                 brush(self.colors.background, 1.0),
             );
             let segments = [
@@ -708,17 +708,18 @@ impl Element for LevelMeterElement {
                     // A single GPU gradient replaces the twelve solid fill
                     // strips previously used to approximate this fade.
                     scene.fill_rect(
-                        Rect::new(0.0, y0 as f64, meter_w_f as f64, y1 as f64),
+                        Rect::new(0.0, f64::from(y0), f64::from(meter_w_f), f64::from(y1)),
                         Brush::Gradient(
-                            Gradient::new_linear((0.0, y0 as f64), (0.0, y1 as f64)).with_stops([
-                                (0.0, Color::new([color.r, color.g, color.b, color.a])),
-                                (1.0, Color::new([color.r, color.g, color.b, color.a * 0.4])),
-                            ]),
+                            Gradient::new_linear((0.0, f64::from(y0)), (0.0, f64::from(y1)))
+                                .with_stops([
+                                    (0.0, Color::new([color.r, color.g, color.b, color.a])),
+                                    (1.0, Color::new([color.r, color.g, color.b, color.a * 0.4])),
+                                ]),
                         ),
                     );
                 } else {
                     scene.fill_rect(
-                        Rect::new(0.0, y0 as f64, meter_w_f as f64, y1 as f64),
+                        Rect::new(0.0, f64::from(y0), f64::from(meter_w_f), f64::from(y1)),
                         brush(color, 1.0),
                     );
                 }
@@ -734,9 +735,9 @@ impl Element for LevelMeterElement {
                 scene.fill_rect(
                     Rect::new(
                         0.0,
-                        (y - 1.0).max(0.0) as f64,
-                        meter_w_f as f64,
-                        (y + 1.0) as f64,
+                        f64::from((y - 1.0).max(0.0)),
+                        f64::from(meter_w_f),
+                        f64::from(y + 1.0),
                     ),
                     brush(color, 1.0),
                 );
@@ -792,7 +793,7 @@ impl Element for LevelMeterElement {
                     let t1 = (i + 1) as f32 / strips as f32;
                     let strip_top = y_top + total_h * t0;
                     let strip_bot = y_top + total_h * t1;
-                    let mid = (strip_top + strip_bot) * 0.5;
+                    let mid = f32::midpoint(strip_top, strip_bot);
                     let local_pos = if meter_height_f > 0.0 {
                         ((meter_origin_y_f + meter_height_f - mid) / meter_height_f).clamp(0.0, 1.0)
                     } else {

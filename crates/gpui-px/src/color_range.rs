@@ -86,11 +86,9 @@ mod tests {
 
     #[test]
     fn fixed_range_validated() {
-        assert!(
-            ColorRange::Fixed { min: 5.0, max: 5.0 }
-                .resolve(0.0, 1.0)
-                .is_err()
-        );
+        ColorRange::Fixed { min: 5.0, max: 5.0 }
+            .resolve(0.0, 1.0)
+            .unwrap_err();
     }
 
     #[test]

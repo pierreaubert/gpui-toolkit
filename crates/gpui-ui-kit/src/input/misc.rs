@@ -65,10 +65,10 @@ pub fn is_input_editing() -> bool {
 /// Get the current count of stored input states.
 ///
 /// Useful for debugging memory leaks. If this number grows beyond
-/// MAX_THREAD_LOCAL_INPUT_STATES, older entries will be automatically evicted.
+/// `MAX_THREAD_LOCAL_INPUT_STATES`, older entries will be automatically evicted.
 ///
 /// # Returns
-/// A tuple of (focus_handle_count, edit_state_count)
+/// A tuple of (`focus_handle_count`, `edit_state_count`)
 pub fn input_state_count() -> (usize, usize, usize) {
     let _ = trim_thread_local_storage();
     let focus_count = FOCUS_HANDLES.with(|handles| handles.borrow().len());
@@ -118,7 +118,7 @@ mod tests {
             origins.clear();
             for i in 0..=MAX_THREAD_LOCAL_INPUT_STATES {
                 origins.insert(
-                    ElementId::Name(SharedString::from(format!("origin-{}", i))),
+                    ElementId::Name(SharedString::from(format!("origin-{i}"))),
                     i as f32,
                 );
             }
@@ -130,9 +130,7 @@ mod tests {
         let count = TEXT_ORIGINS.with(|origins| origins.borrow().len());
         assert!(
             count <= MAX_THREAD_LOCAL_INPUT_STATES,
-            "TEXT_ORIGINS count {} should be <= {}",
-            count,
-            MAX_THREAD_LOCAL_INPUT_STATES
+            "TEXT_ORIGINS count {count} should be <= {MAX_THREAD_LOCAL_INPUT_STATES}"
         );
     }
 

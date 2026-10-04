@@ -152,7 +152,7 @@ pub fn frame_globe(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
         for lj in 0..lon_count {
             let lon = (lj as f64 / lon_count as f64) * 2.0 * std::f64::consts::PI;
             let (px, py, z) = pt.project(cos_lat * lon.cos(), sin_lat, cos_lat * lon.sin());
-            let depth = (z + 1.0) / 2.0;
+            let depth = f64::midpoint(z, 1.0);
             // the scan: a moving meridian read as a size ripple, not a shine
             let d = angle_delta(lon + t * spin, scan);
             let boost = (-(d * d) / 0.18).exp() * z.max(0.0);
@@ -207,7 +207,7 @@ pub fn frame_rubik(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
                 &sc,
             );
             let (px, py, zr) = pt.project(x, y, z);
-            let depth = (zr + 1.0) / 2.0;
+            let depth = f64::midpoint(zr, 1.0);
             // the band being turned inks a touch darker — the "hand"
             dots.push(Dot {
                 x: px,
@@ -262,7 +262,7 @@ pub fn frame_wave(size: f64, t: f64, o: &ModeOpts) -> OrbFrame {
                 sin_lat * rr,
                 cos_lat * lon.sin() * rr,
             );
-            let depth = (z / r_max + 1.0) / 2.0;
+            let depth = f64::midpoint(z / r_max, 1.0);
             let crest = w.max(0.0);
             dots.push(Dot {
                 x: px,

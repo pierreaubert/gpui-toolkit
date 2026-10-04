@@ -1,6 +1,6 @@
 //! Delaunay triangulation and Voronoi diagram demo
 //!
-//! Run with: cargo run --example delaunay_demo
+//! Run with: cargo run --example `delaunay_demo`
 
 use d3rs::delaunay::Delaunay;
 
@@ -20,7 +20,7 @@ fn main() {
 
     println!("Input points:");
     for (i, &(x, y)) in points.iter().enumerate() {
-        println!("  Point {}: ({:.2}, {:.2})", i, x, y);
+        println!("  Point {i}: ({x:.2}, {y:.2})");
     }
 
     // Create Delaunay triangulation
@@ -56,7 +56,7 @@ fn main() {
     println!("\nConvex Hull:");
     println!("  Indices: {:?}", delaunay.hull());
     let hull_polygon = delaunay.hull_polygon();
-    println!("  Polygon: {:?}", hull_polygon);
+    println!("  Polygon: {hull_polygon:?}");
 
     // Find nearest neighbor
     println!("\n--- Nearest Neighbor Queries ---");
@@ -64,25 +64,22 @@ fn main() {
     for (x, y) in queries {
         if let Some(nearest) = delaunay.find(x, y, None) {
             let (px, py) = delaunay.point(nearest).unwrap();
-            println!(
-                "  Nearest to ({:.1}, {:.1}): point {} at ({:.2}, {:.2})",
-                x, y, nearest, px, py
-            );
+            println!("  Nearest to ({x:.1}, {y:.1}): point {nearest} at ({px:.2}, {py:.2})");
         }
     }
 
     // Find with radius
     println!("\n--- Radius Search ---");
     let nearest = delaunay.find_within_radius(0.5, 0.5, 0.1);
-    println!("  Find within 0.1 of (0.5, 0.5): {:?}", nearest);
+    println!("  Find within 0.1 of (0.5, 0.5): {nearest:?}");
     let nearest = delaunay.find_within_radius(0.5, 0.5, 0.01);
-    println!("  Find within 0.01 of (0.5, 0.5): {:?}", nearest);
+    println!("  Find within 0.01 of (0.5, 0.5): {nearest:?}");
 
     // Neighbors
     println!("\n--- Point Neighbors ---");
     let center_point = 4; // (0.5, 0.5)
     let neighbors: Vec<_> = delaunay.neighbors(center_point).collect();
-    println!("  Point {} neighbors: {:?}", center_point, neighbors);
+    println!("  Point {center_point} neighbors: {neighbors:?}");
 
     // SVG path rendering
     println!("\n--- SVG Path Data ---");
@@ -92,7 +89,7 @@ fn main() {
         &triangulation_path[..triangulation_path.len().min(100)]
     );
     let hull_path = delaunay.render_hull_to_path();
-    println!("  Hull path: {}", hull_path);
+    println!("  Hull path: {hull_path}");
 
     // Voronoi diagram
     println!("\n--- Voronoi Diagram ---");
@@ -107,7 +104,7 @@ fn main() {
             println!("    Vertices: {} points", cell.len());
             if cell.len() <= 6 {
                 for (j, &(x, y)) in cell.iter().enumerate() {
-                    println!("      {}: ({:.3}, {:.3})", j, x, y);
+                    println!("      {j}: ({x:.3}, {y:.3})");
                 }
             }
         }
@@ -153,8 +150,8 @@ fn main() {
     let n = 100;
     let large_points: Vec<(f64, f64)> = (0..n)
         .map(|i| {
-            let angle = 2.0 * std::f64::consts::PI * (i as f64) / (n as f64);
-            let r = 0.3 + 0.2 * ((i * 7) % 10) as f64 / 10.0;
+            let angle = 2.0 * std::f64::consts::PI * f64::from(i) / f64::from(n);
+            let r = 0.3 + 0.2 * f64::from((i * 7) % 10) / 10.0;
             (0.5 + r * angle.cos(), 0.5 + r * angle.sin())
         })
         .collect();

@@ -185,7 +185,7 @@ impl Scale<f64, f64> for LinearScale {
         };
         let domain_span = self.domain_max - self.domain_min;
         if domain_span == 0.0 {
-            return (self.range_min + self.range_max) / 2.0;
+            return f64::midpoint(self.range_min, self.range_max);
         }
         let t = (value - self.domain_min) / domain_span;
         self.range_min + t * (self.range_max - self.range_min)
@@ -202,7 +202,7 @@ impl Scale<f64, f64> for LinearScale {
         };
         let range_span = self.range_max - self.range_min;
         if range_span == 0.0 {
-            return Some((self.domain_min + self.domain_max) / 2.0);
+            return Some(f64::midpoint(self.domain_min, self.domain_max));
         }
         let t = (value - self.range_min) / range_span;
         Some(self.domain_min + t * (self.domain_max - self.domain_min))

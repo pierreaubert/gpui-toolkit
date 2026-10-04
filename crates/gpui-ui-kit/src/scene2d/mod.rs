@@ -1,6 +1,6 @@
 //! Retained 2D drawing surfaces rendered with native GPUI primitives.
 //!
-//! Scene2D accepts a validated, ordered display list with stable object IDs.
+//! `Scene2D` accepts a validated, ordered display list with stable object IDs.
 //! It paints quads, tessellated paths, and GPUI-shaped text directly into the
 //! current frame; it does not use a Vello readback path. One contain-fit
 //! transform maps view-box coordinates for both paint and hit testing.

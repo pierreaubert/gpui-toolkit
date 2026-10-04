@@ -3,7 +3,7 @@ use super::error::DsvParseError;
 use super::parse::parse_dsv;
 use std::collections::HashMap;
 
-/// A row from a DSV file, stored as a HashMap of column name to value.
+/// A row from a DSV file, stored as a `HashMap` of column name to value.
 pub type DsvRow = HashMap<String, String>;
 
 /// Result type for DSV parser operations.

@@ -1,4 +1,4 @@
-//! VolumeKnob component tests
+//! `VolumeKnob` component tests
 
 use gpui_audio_kit::audio::volume_knob::VolumeKnob;
 

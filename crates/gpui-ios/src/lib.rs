@@ -1,10 +1,10 @@
 //! iOS platform backend for GPUI.
 //!
-//! Vendored from gpui-mobile (https://github.com/itsbalamurali/gpui-mobile)
+//! Vendored from gpui-mobile (<https://github.com/itsbalamurali/gpui-mobile>)
 //! and adapted to work with our pinned GPUI revision (dd9efd9).
 //!
 //! This crate provides the `IosPlatform` implementation of GPUI's `Platform`
-//! trait, enabling GPUI apps to run on iOS with Metal rendering via gpui_wgpu.
+//! trait, enabling GPUI apps to run on iOS with Metal rendering via `gpui_wgpu`.
 
 pub use gpui;
 

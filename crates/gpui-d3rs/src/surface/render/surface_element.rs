@@ -121,19 +121,19 @@ impl SurfaceElement {
         let center_y = origin_y + height / 2.0;
 
         // Scale based on the smaller dimension to fit
-        let base_scale = width.min(height) as f64 * 0.35 * self.config.scale;
+        let base_scale = f64::from(width.min(height)) * 0.35 * self.config.scale;
 
         match self.config.projection_type {
             ProjectionType::Isometric => ProjectionImpl::Isometric(
                 IsometricProjection::new()
                     .scale(base_scale)
-                    .origin(center_x as f64, center_y as f64)
+                    .origin(f64::from(center_x), f64::from(center_y))
                     .camera(self.config.camera.clone()),
             ),
             ProjectionType::Oblique => ProjectionImpl::Oblique(
                 ObliqueProjection::cabinet()
                     .scale(base_scale)
-                    .origin(center_x as f64, center_y as f64),
+                    .origin(f64::from(center_x), f64::from(center_y)),
             ),
             ProjectionType::Orthographic => ProjectionImpl::Orthographic(
                 OrthographicProjection::new()
@@ -143,7 +143,7 @@ impl SurfaceElement {
                         0.0,
                         self.config.camera.rotation_z,
                     )
-                    .origin(center_x as f64, center_y as f64),
+                    .origin(f64::from(center_x), f64::from(center_y)),
             ),
             ProjectionType::Perspective => ProjectionImpl::Perspective(
                 PerspectiveProjection::new()
@@ -154,7 +154,7 @@ impl SurfaceElement {
                         0.0,
                         self.config.camera.rotation_z,
                     )
-                    .origin(center_x as f64, center_y as f64),
+                    .origin(f64::from(center_x), f64::from(center_y)),
             ),
         }
     }
@@ -584,12 +584,19 @@ impl Element for SurfaceElement {
             }
 
             // Draw axis labels if configured
-            if let Some(labels) = &cache.axis_labels {
+            if let Some(
+                [
+                    (x_label_pos, x_label),
+                    (y_label_pos, y_label),
+                    (z_label_pos, z_label),
+                    ..,
+                ],
+            ) = &cache.axis_labels
+            {
                 let font_size = 11.0;
                 let horizontal_text = GlyphTextConfig::horizontal(font_size, axis_color);
                 let vertical_text = GlyphTextConfig::rotated(font_size, axis_color, -PI / 2.0);
 
-                let (x_label_pos, x_label) = &labels[0];
                 paint_chart_text_at(
                     window,
                     cx,
@@ -601,7 +608,6 @@ impl Element for SurfaceElement {
                     VerticalTextAnchor::Top,
                 );
 
-                let (y_label_pos, y_label) = &labels[1];
                 paint_chart_text_at(
                     window,
                     cx,
@@ -613,7 +619,6 @@ impl Element for SurfaceElement {
                     VerticalTextAnchor::Middle,
                 );
 
-                let (z_label_pos, z_label) = &labels[2];
                 paint_chart_text_at(
                     window,
                     cx,

@@ -1,6 +1,6 @@
-//! Integration tests for EmptyState component
+//! Integration tests for `EmptyState` component
 //!
-//! Tests the EmptyState component including:
+//! Tests the `EmptyState` component including:
 //! - Basic rendering
 //! - With description
 //! - With icon

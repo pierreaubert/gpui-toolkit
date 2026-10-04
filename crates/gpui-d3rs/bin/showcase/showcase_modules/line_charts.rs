@@ -16,10 +16,10 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let height = (width * 0.5).min(app.content_height * 0.4);
     let x_scale = LinearScale::new()
         .domain(0.0, 100.0)
-        .range(0.0, width as f64);
+        .range(0.0, f64::from(width));
     let y_scale = LinearScale::new()
         .domain(0.0, 100.0)
-        .range(0.0, height as f64);
+        .range(0.0, f64::from(height));
     let scheme = ColorScheme::category10();
 
     let data = vec![

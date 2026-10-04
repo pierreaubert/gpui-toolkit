@@ -73,8 +73,7 @@ pub fn spectrum_frequency_axis_labels(min_freq: f32, max_freq: f32) -> Arc<[Spec
             if filtered.is_empty()
                 || filtered
                     .last()
-                    .map(|last: &SpectrumAxisLabel| label.position - last.position > 0.08)
-                    .unwrap_or(true)
+                    .is_none_or(|last: &SpectrumAxisLabel| label.position - last.position > 0.08)
             {
                 filtered.push(label);
             }

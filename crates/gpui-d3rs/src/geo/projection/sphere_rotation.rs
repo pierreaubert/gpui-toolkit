@@ -45,7 +45,7 @@ impl SphereRotation {
     /// Apply the forward rotation to spherical coordinates (in radians).
     ///
     /// Input: (lambda, phi) in radians
-    /// Output: (rotated_lambda, rotated_phi) in radians
+    /// Output: (`rotated_lambda`, `rotated_phi`) in radians
     pub fn rotate(&self, lambda: f64, phi: f64) -> (f64, f64) {
         self.forward.rotate_spherical(lambda, phi)
     }

@@ -242,7 +242,7 @@ pub(super) fn render_underline_tab(
         .child(underline)
 }
 
-/// VerticalCard variant: icon on the left, title plus badge on the right.
+/// `VerticalCard` variant: icon on the left, title plus badge on the right.
 pub(super) fn render_card_tab(
     tab: TabItem,
     state: &TabRenderState,

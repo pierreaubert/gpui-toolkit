@@ -549,7 +549,7 @@ mod tests {
         ];
         let config = RadialLineConfig::new(200.0, 200.0);
         let path = radial_line(&points, &config);
-        assert!(path.starts_with("M"));
+        assert!(path.starts_with('M'));
         assert_eq!(path.matches('L').count(), 2);
     }
 
@@ -562,7 +562,7 @@ mod tests {
         ];
         let config = RadialLineConfig::new(200.0, 200.0).closed(true);
         let path = radial_line(&points, &config);
-        assert!(path.ends_with("Z"));
+        assert!(path.ends_with('Z'));
     }
 
     #[test]
@@ -593,8 +593,8 @@ mod tests {
         ];
         let config = RadialAreaConfig::new(200.0, 200.0).inner_radius(50.0);
         let path = radial_area(&points, &config);
-        assert!(path.starts_with("M"));
-        assert!(path.ends_with("Z"));
+        assert!(path.starts_with('M'));
+        assert!(path.ends_with('Z'));
     }
 
     #[test]
@@ -620,7 +620,7 @@ mod tests {
         let circles = polar_grid_circles(200.0, 200.0, &[50.0, 100.0, 150.0]);
         assert_eq!(circles.len(), 3);
         for circle in &circles {
-            assert!(circle.contains("A")); // Arc command
+            assert!(circle.contains('A')); // Arc command
         }
     }
 
@@ -629,8 +629,8 @@ mod tests {
         let rays = polar_grid_rays(200.0, 200.0, 100.0, &[0.0, PI / 2.0, PI], 0.0);
         assert_eq!(rays.len(), 3);
         for ray in &rays {
-            assert!(ray.starts_with("M"));
-            assert!(ray.contains("L"));
+            assert!(ray.starts_with('M'));
+            assert!(ray.contains('L'));
         }
     }
 

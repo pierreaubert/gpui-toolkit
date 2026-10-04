@@ -72,11 +72,7 @@ impl<'a> LayoutNode<'a> {
         match self {
             LayoutNode::Slot(_) => 1,
             LayoutNode::Container(c) => {
-                1 + c
-                    .children
-                    .iter()
-                    .map(|child| child.node_count())
-                    .sum::<usize>()
+                1 + c.children.iter().map(LayoutNode::node_count).sum::<usize>()
             }
         }
     }

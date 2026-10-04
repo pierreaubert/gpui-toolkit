@@ -3,7 +3,7 @@ use gpui_ui_kit::input::Input;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// Test that Input component properly tracks value changes via on_text_change callback
+/// Test that Input component properly tracks value changes via `on_text_change` callback
 pub(super) struct InputWithCallbackView {
     pub(super) value: Rc<RefCell<String>>,
 }

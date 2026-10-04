@@ -8,6 +8,9 @@ repository.workspace = true
 description = "Showcase application for gpui-ui-kit components"
 publish = false
 
+[lints]
+workspace = true
+
 [features]
 profiler = ["gpui-profiler/global-allocator"]
 profiler-tests = ["profiler", "gpui/test-support"]

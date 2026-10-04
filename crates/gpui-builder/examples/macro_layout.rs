@@ -5,7 +5,7 @@
 //! - Slot and container options in the macro DSL
 //! - Solving directly to a `SolvedNode`
 //!
-//! Run: cargo run -p gpui-builder --example macro_layout
+//! Run: cargo run -p gpui-builder --example `macro_layout`
 
 use gpui_builder::{Axis, DisplayTier, LayoutPreferences, Sizing, solve_layout};
 

@@ -3,7 +3,7 @@ use gpui_ui_kit::i18n::Language;
 use gpui_ui_kit::theme::ThemeVariant;
 use std::path::PathBuf;
 
-/// Configuration for a MiniApp instance
+/// Configuration for a `MiniApp` instance
 #[derive(Clone, PartialEq)]
 pub struct MiniAppConfig {
     /// Window title

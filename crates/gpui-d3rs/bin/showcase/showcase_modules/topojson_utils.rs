@@ -44,8 +44,8 @@ pub fn parse_topojson(json_str: &str) -> Option<GeoJsonGeometry> {
             for point in arc {
                 x += point[0];
                 y += point[1];
-                let px = x as f64 * scale[0] + translate[0];
-                let py = y as f64 * scale[1] + translate[1];
+                let px = f64::from(x) * scale[0] + translate[0];
+                let py = f64::from(y) * scale[1] + translate[1];
                 points.push((px, py));
             }
             points
@@ -94,8 +94,7 @@ pub fn parse_topojson(json_str: &str) -> Option<GeoJsonGeometry> {
                             }
                         } else {
                             eprintln!(
-                                "Warning: Invalid arc index {} in MultiPolygon topology",
-                                arc_idx
+                                "Warning: Invalid arc index {arc_idx} in MultiPolygon topology"
                             );
                         }
                     }
@@ -134,7 +133,7 @@ pub fn parse_topojson(json_str: &str) -> Option<GeoJsonGeometry> {
                             }
                         }
                     } else {
-                        eprintln!("Warning: Invalid arc index {} in topology", arc_idx);
+                        eprintln!("Warning: Invalid arc index {arc_idx} in topology");
                     }
                 }
                 polygon.push(stitched_ring);

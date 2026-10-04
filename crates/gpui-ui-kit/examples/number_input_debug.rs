@@ -1,6 +1,6 @@
-//! NumberInput Debug Example
+//! `NumberInput` Debug Example
 //!
-//! Demonstrates the NumberInput component:
+//! Demonstrates the `NumberInput` component:
 //! - Basic with range and step
 //! - With units (Hz, dB, ms)
 //! - Different sizes

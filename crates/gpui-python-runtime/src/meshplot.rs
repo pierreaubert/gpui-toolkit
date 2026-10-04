@@ -126,8 +126,8 @@ fn check_schema_version(value: &Value) -> Result<(), String> {
     let version = value
         .get("schema_version")
         .and_then(Value::as_u64)
-        .unwrap_or(MESHPLOT_SPEC_SCHEMA_VERSION as u64);
-    if version != MESHPLOT_SPEC_SCHEMA_VERSION as u64 {
+        .unwrap_or(u64::from(MESHPLOT_SPEC_SCHEMA_VERSION));
+    if version != u64::from(MESHPLOT_SPEC_SCHEMA_VERSION) {
         return Err(format!(
             "unsupported mesh_plot schema version {version}; supported version is {MESHPLOT_SPEC_SCHEMA_VERSION}"
         ));
@@ -805,7 +805,7 @@ fn validate_revolve(value: &Value) -> Result<(), String> {
             .as_u64()
             .ok_or("mesh_plot revolve segments must be an integer of at least 3")
     })?;
-    if segments < 3 || segments > u32::MAX as u64 {
+    if segments < 3 || segments > u64::from(u32::MAX) {
         return Err("mesh_plot revolve segments must be an integer of at least 3".into());
     }
     if let Some(value) = object.get("end_caps")
@@ -837,7 +837,7 @@ mod tests {
     #[test]
     fn validate_value_matches_from_value_without_taking_ownership() {
         let valid = valid_spec();
-        assert!(MeshPlotSpec::validate_value(&valid).is_ok());
+        MeshPlotSpec::validate_value(&valid).unwrap();
         // Borrowed gates reject before any clone/deserialization.
         let mut versioned = valid.clone();
         versioned["schema_version"] =
@@ -868,11 +868,11 @@ mod tests {
 
         let mut invalid = valid_spec();
         invalid["geometry"]["triangles"] = serde_json::json!([[0, 1, 3]]);
-        assert!(MeshPlotSpec::from_value(invalid).is_err());
+        MeshPlotSpec::from_value(invalid).unwrap_err();
 
         let mut invalid = valid_spec();
         invalid["field"]["values"] = serde_json::json!([1.0]);
-        assert!(MeshPlotSpec::from_value(invalid).is_err());
+        MeshPlotSpec::from_value(invalid).unwrap_err();
     }
 
     #[test]
@@ -886,7 +886,7 @@ mod tests {
         value["field"] = serde_json::json!({
             "resource_id": "field", "generation": 4, "association": "vertex"
         });
-        assert!(MeshPlotSpec::from_value(value).is_ok());
+        MeshPlotSpec::from_value(value).unwrap();
 
         let mut unsupported = valid_spec();
         unsupported["geometry"] = serde_json::json!({
@@ -900,7 +900,7 @@ mod tests {
 
         let mut invalid = valid_spec();
         invalid["color_range"] = serde_json::json!([1.0, 1.0]);
-        assert!(MeshPlotSpec::from_value(invalid).is_err());
+        MeshPlotSpec::from_value(invalid).unwrap_err();
     }
 
     #[test]
@@ -909,19 +909,19 @@ mod tests {
         automatic["color_range"] = serde_json::json!({
             "symmetric": {"center": 0.0, "extent": "auto"}
         });
-        assert!(MeshPlotSpec::from_value(automatic).is_ok());
+        MeshPlotSpec::from_value(automatic).unwrap();
 
         let mut fixed = valid_spec();
         fixed["color_range"] = serde_json::json!({
             "symmetric": {"center": 1.0, "extent": 3.5}
         });
-        assert!(MeshPlotSpec::from_value(fixed).is_ok());
+        MeshPlotSpec::from_value(fixed).unwrap();
 
         let mut invalid = valid_spec();
         invalid["color_range"] = serde_json::json!({
             "symmetric": {"center": 0.0, "extent": 0.0}
         });
-        assert!(MeshPlotSpec::from_value(invalid).is_err());
+        MeshPlotSpec::from_value(invalid).unwrap_err();
     }
 
     #[test]
@@ -937,7 +937,7 @@ mod tests {
 
         let mut invalid = valid_spec();
         invalid["missing_value_policy"] = serde_json::json!("interpolate");
-        assert!(MeshPlotSpec::from_value(invalid).is_err());
+        MeshPlotSpec::from_value(invalid).unwrap_err();
     }
 
     #[test]
@@ -952,19 +952,19 @@ mod tests {
             "segments": 32,
             "end_caps": true
         });
-        assert!(MeshPlotSpec::from_value(valid.clone()).is_ok());
+        MeshPlotSpec::from_value(valid.clone()).unwrap();
 
         let mut same_axes = valid.clone();
         same_axes["revolve"]["axial"] = serde_json::json!("y");
-        assert!(MeshPlotSpec::from_value(same_axes).is_err());
+        MeshPlotSpec::from_value(same_axes).unwrap_err();
 
         let mut invalid_sweep = valid.clone();
         invalid_sweep["revolve"]["sweep_angle"] = serde_json::json!(0.0);
-        assert!(MeshPlotSpec::from_value(invalid_sweep).is_err());
+        MeshPlotSpec::from_value(invalid_sweep).unwrap_err();
 
         let mut wrong_view = valid;
         wrong_view["view"] = serde_json::json!("planar");
-        assert!(MeshPlotSpec::from_value(wrong_view).is_err());
+        MeshPlotSpec::from_value(wrong_view).unwrap_err();
     }
 
     #[test]
@@ -982,11 +982,11 @@ mod tests {
             "association": "vertex",
             "valid": {"resource_id": "mask", "generation": 1}
         });
-        assert!(MeshPlotSpec::from_value(value).is_ok());
+        MeshPlotSpec::from_value(value).unwrap();
 
         let mut invalid = valid_spec();
         invalid["field"]["valid"] = serde_json::json!({"resource_id": "mask"});
-        assert!(MeshPlotSpec::from_value(invalid).is_err());
+        MeshPlotSpec::from_value(invalid).unwrap_err();
     }
 
     #[test]
@@ -1015,11 +1015,11 @@ mod tests {
         value["contour_levels"] = serde_json::json!({"count": 12});
         value["equal_aspect"] = serde_json::json!(true);
         value["interactions"] = serde_json::json!(["pan", "zoom", "select"]);
-        assert!(MeshPlotSpec::from_value(value).is_ok());
+        MeshPlotSpec::from_value(value).unwrap();
 
         let mut invalid = valid_spec();
         invalid["contour_levels"] = serde_json::json!({"values": [1.0, 1.0]});
-        assert!(MeshPlotSpec::from_value(invalid).is_err());
+        MeshPlotSpec::from_value(invalid).unwrap_err();
 
         let mut future = valid_spec();
         future["schema_version"] = serde_json::json!(2);
@@ -1042,7 +1042,7 @@ mod tests {
 
         let mut invalid = valid_spec();
         invalid["hidden_toolbar_actions"] = serde_json::json!(["unknown"]);
-        assert!(MeshPlotSpec::from_value(invalid).is_err());
+        MeshPlotSpec::from_value(invalid).unwrap_err();
     }
 
     #[test]
@@ -1054,7 +1054,7 @@ mod tests {
 
         let mut invalid = valid_spec();
         invalid["renderer_backend"] = serde_json::json!("metal");
-        assert!(MeshPlotSpec::from_value(invalid).is_err());
+        MeshPlotSpec::from_value(invalid).unwrap_err();
     }
 
     #[test]
@@ -1076,7 +1076,7 @@ mod tests {
             "label": "Amplitude",
             "ticks": [1.0, 0.0]
         });
-        assert!(MeshPlotSpec::from_value(invalid).is_err());
+        MeshPlotSpec::from_value(invalid).unwrap_err();
     }
 
     #[test]
@@ -1086,13 +1086,13 @@ mod tests {
         value["min_width"] = serde_json::json!(320.0);
         value["min_height"] = serde_json::json!(240.0);
         value["aspect_ratio"] = serde_json::json!(1.5);
-        assert!(MeshPlotSpec::from_value(value).is_ok());
+        MeshPlotSpec::from_value(value).unwrap();
 
         let mut invalid = valid_spec();
         invalid["width"] = serde_json::json!(320.0);
         invalid["height"] = serde_json::json!(240.0);
         invalid["fill"] = serde_json::json!(true);
-        assert!(MeshPlotSpec::from_value(invalid).is_err());
+        MeshPlotSpec::from_value(invalid).unwrap_err();
     }
 
     #[test]

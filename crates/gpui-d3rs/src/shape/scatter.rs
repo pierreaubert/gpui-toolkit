@@ -484,7 +484,7 @@ fn scatter_points_scene(
     use crate::vello2d::kurbo::{BezPath, Circle, Shape, Stroke};
     use crate::vello2d::peniko::{Brush, Color};
 
-    let radius = config.point_radius as f64;
+    let radius = f64::from(config.point_radius);
     let mut scene = crate::vello2d::ChartScene::new();
     if radius <= 0.0 || points.is_empty() {
         return scene;
@@ -496,16 +496,16 @@ fn scatter_points_scene(
             stroke_color.b,
             stroke_color.a,
         ]));
-        let stroke_radius = radius + config.stroke_width as f64 / 2.0;
+        let stroke_radius = radius + f64::from(config.stroke_width) / 2.0;
         let mut stroke_path = BezPath::new();
         for p in points {
-            let cx = (p.x_rel * width) as f64;
-            let cy = (p.y_rel * height) as f64;
+            let cx = f64::from(p.x_rel * width);
+            let cy = f64::from(p.y_rel * height);
             stroke_path.extend(Circle::new((cx, cy), stroke_radius).to_path(0.1));
         }
         scene.stroke_path(
             stroke_path,
-            Stroke::new(config.stroke_width as f64),
+            Stroke::new(f64::from(config.stroke_width)),
             stroke_brush,
         );
     }
@@ -517,8 +517,8 @@ fn scatter_points_scene(
     ]));
     let mut fill_path = BezPath::new();
     for p in points {
-        let cx = (p.x_rel * width) as f64;
-        let cy = (p.y_rel * height) as f64;
+        let cx = f64::from(p.x_rel * width);
+        let cy = f64::from(p.y_rel * height);
         fill_path.extend(Circle::new((cx, cy), radius).to_path(0.1));
     }
     scene.fill_path(fill_path, fill_brush);
@@ -545,7 +545,7 @@ where
 }
 
 /// Render a scatter series through the vello backend (GPU zero-copy where
-/// the wgpu renderer is active, vello_cpu otherwise). The scene is rebuilt
+/// the wgpu renderer is active, `vello_cpu` otherwise). The scene is rebuilt
 /// from the actual paint bounds on resize.
 #[cfg(feature = "vello-gpui")]
 pub fn render_scatter_vello<XS, YS>(

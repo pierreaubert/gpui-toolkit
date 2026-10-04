@@ -1,4 +1,4 @@
-//! Sunburst — Observable example using d3rs::examples::sunburst
+//! Sunburst — Observable example using `d3rs::examples::sunburst`
 //!
 //! Source: <https://observablehq.com/@d3/sunburst/2>
 
@@ -18,7 +18,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     // inherited by all descendants.
     let rainbow = SequentialScheme::rainbow();
     let mut groups: Vec<&str> = result.slices.iter().map(|s| s.group.as_str()).collect();
-    groups.sort();
+    groups.sort_unstable();
     groups.dedup();
     let n_groups = groups.len().max(1);
     let width = result.width;
@@ -40,8 +40,8 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .iter()
         .filter(|s| s.x1 - s.x0 > 0.1) // only show label if wide enough
         .map(|s| {
-            let mid_angle = (s.x0 + s.x1) / 2.0 - std::f64::consts::FRAC_PI_2;
-            let mid_r = (s.y0 + s.y1) / 2.0;
+            let mid_angle = f64::midpoint(s.x0, s.x1) - std::f64::consts::FRAC_PI_2;
+            let mid_r = f64::midpoint(s.y0, s.y1);
             let x = width / 2.0 + mid_r * mid_angle.cos();
             let y = height / 2.0 + mid_r * mid_angle.sin();
             (s.name.clone(), x, y)

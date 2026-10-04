@@ -256,26 +256,20 @@ pub(crate) fn render_bar_svg(
 
     let group_count = categories.len() as f32;
     let series_count = series.len() as f32;
-    let group_gap = 8.0_f32.min(layout.plot_width / group_count.max(1.0) * 0.25);
-    let group_width = (layout.plot_width - group_gap * (group_count - 1.0).max(0.0)) / group_count;
+    let group_gap = 8.0_f32.min(layout.width / group_count.max(1.0) * 0.25);
+    let group_width = (layout.width - group_gap * (group_count - 1.0).max(0.0)) / group_count;
     let bar_gap = 3.0_f32.min(group_width * 0.15);
     let bar_width =
         ((group_width - bar_gap * (series_count - 1.0).max(0.0)) / series_count).max(1.0);
     let baseline = if y_scale_type == ScaleType::Linear && domain.0 < 0.0 && domain.1 > 0.0 {
-        map_linear(0.0, domain.0, domain.1, layout.plot_bottom, layout.plot_top)
+        map_linear(0.0, domain.0, domain.1, layout.bottom, layout.top)
     } else {
-        map_scaled(
-            domain.0,
-            domain,
-            y_scale_type,
-            layout.plot_bottom,
-            layout.plot_top,
-        )
+        map_scaled(domain.0, domain, y_scale_type, layout.bottom, layout.top)
     };
 
     svg.push_str("<g class=\"gpui-px-bars\">\n");
     for category_index in 0..categories.len() {
-        let group_x = layout.plot_left
+        let group_x = layout.left
             + category_index as f32 * (group_width + group_gap)
             + ((group_width
                 - (bar_width * series_count + bar_gap * (series_count - 1.0).max(0.0)))
@@ -284,13 +278,7 @@ pub(crate) fn render_bar_svg(
         for (series_index, bar_series) in series.iter().enumerate() {
             let value = bar_series.values[category_index];
             let x = group_x + series_index as f32 * (bar_width + bar_gap);
-            let y = map_scaled(
-                value,
-                domain,
-                y_scale_type,
-                layout.plot_bottom,
-                layout.plot_top,
-            );
+            let y = map_scaled(value, domain, y_scale_type, layout.bottom, layout.top);
             let top = y.min(baseline);
             let height = (baseline - y).abs().max(1.0);
             let _ = writeln!(
@@ -368,20 +356,8 @@ pub(crate) fn render_area_svg(
 
     let mut path = String::new();
     for (index, (&x, &y)) in series.x.iter().zip(series.y.iter()).enumerate() {
-        let sx = map_scaled(
-            x,
-            x_domain,
-            x_scale_type,
-            layout.plot_left,
-            layout.plot_right,
-        );
-        let sy = map_scaled(
-            y,
-            y_domain,
-            y_scale_type,
-            layout.plot_bottom,
-            layout.plot_top,
-        );
+        let sx = map_scaled(x, x_domain, x_scale_type, layout.left, layout.right);
+        let sy = map_scaled(y, y_domain, y_scale_type, layout.bottom, layout.top);
         let command = if index == 0 { 'M' } else { 'L' };
         let _ = write!(path, "{command}{sx:.2},{sy:.2}");
     }
@@ -392,20 +368,8 @@ pub(crate) fn render_area_svg(
             EitherBaseline::Explicit(y0) => y0[index],
             EitherBaseline::Constant(y0) => y0,
         };
-        let sx = map_scaled(
-            x,
-            x_domain,
-            x_scale_type,
-            layout.plot_left,
-            layout.plot_right,
-        );
-        let sy = map_scaled(
-            y0,
-            y_domain,
-            y_scale_type,
-            layout.plot_bottom,
-            layout.plot_top,
-        );
+        let sx = map_scaled(x, x_domain, x_scale_type, layout.left, layout.right);
+        let sy = map_scaled(y0, y_domain, y_scale_type, layout.bottom, layout.top);
         let _ = write!(path, "L{sx:.2},{sy:.2}");
     }
 
@@ -451,10 +415,10 @@ pub(crate) fn render_pie_svg(
     }
 
     let layout = StaticLayout::new(options)?;
-    let radius = (layout.plot_width.min(layout.plot_bottom - layout.plot_top) as f64 / 2.0) * 0.9;
+    let radius = (f64::from(layout.width.min(layout.bottom - layout.top)) / 2.0) * 0.9;
     let inner_radius = radius * series.inner_radius_fraction.clamp(0.0, 0.99);
-    let center_x = (layout.plot_left + layout.plot_right) as f64 / 2.0;
-    let center_y = (layout.plot_top + layout.plot_bottom) as f64 / 2.0;
+    let center_x = f64::from(layout.left + layout.right) / 2.0;
+    let center_y = f64::from(layout.top + layout.bottom) / 2.0;
     let pie = Pie::new()
         .pad_angle(series.pad_angle)
         .corner_radius(series.corner_radius)
@@ -480,12 +444,11 @@ pub(crate) fn render_pie_svg(
             .and_then(|labels| labels.get(slice.index))
             .map(String::as_str);
         let fallback_label;
-        let label = match label {
-            Some(label) => label,
-            None => {
-                fallback_label = format!("Slice {}", slice.index + 1);
-                &fallback_label
-            }
+        let label = if let Some(label) = label {
+            label
+        } else {
+            fallback_label = format!("Slice {}", slice.index + 1);
+            &fallback_label
         };
         let percent = (slice.value / total) * 100.0;
         let path = arc
@@ -569,12 +532,10 @@ pub(crate) fn render_heatmap_svg(
 
     let x_domain = series
         .x_range
-        .map(|[min, max]| (min, max))
-        .unwrap_or_else(|| extent_padded(&x_values, 0.0));
+        .map_or_else(|| extent_padded(&x_values, 0.0), |[min, max]| (min, max));
     let y_domain = series
         .y_range
-        .map(|[min, max]| (min, max))
-        .unwrap_or_else(|| extent_padded(&y_values, 0.0));
+        .map_or_else(|| extent_padded(&y_values, 0.0), |[min, max]| (min, max));
     let z_domain = extent_padded(series.z, 0.0);
 
     let layout = StaticLayout::new(options)?;
@@ -582,8 +543,8 @@ pub(crate) fn render_heatmap_svg(
     draw_title(&mut svg, title, options.width);
     draw_heatmap_axes(&mut svg, options, &layout, x_domain, y_domain);
 
-    let cell_width = layout.plot_width / series.grid_width as f32;
-    let plot_height = layout.plot_bottom - layout.plot_top;
+    let cell_width = layout.width / series.grid_width as f32;
+    let plot_height = layout.bottom - layout.top;
     let cell_height = plot_height / series.grid_height as f32;
     let opacity = clamp_opacity(series.opacity);
     svg.push_str("<g class=\"gpui-px-heatmap\">\n");
@@ -592,8 +553,8 @@ pub(crate) fn render_heatmap_svg(
             let value = series.z[row * series.grid_width + col];
             let normalized = normalize_value(value, z_domain);
             let color = series.color_scale.map(normalized).to_hex();
-            let x = layout.plot_left + col as f32 * cell_width;
-            let y = layout.plot_top + (series.grid_height - row - 1) as f32 * cell_height;
+            let x = layout.left + col as f32 * cell_width;
+            let y = layout.top + (series.grid_height - row - 1) as f32 * cell_height;
             let _ = writeln!(
                 svg,
                 "<rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{cell_width:.2}\" height=\"{cell_height:.2}\" fill=\"{color}\" opacity=\"{opacity:.3}\"><title>row {row}, column {col}: {value:.3}</title></rect>",
@@ -626,7 +587,7 @@ pub(crate) fn render_boxplot_svg(
     let plot_width = (options.width - options.margin_left - options.margin_right).max(0.0);
     let num_bins = series
         .num_bins
-        .unwrap_or_else(|| ((plot_width as f64 / 40.0).max(3.0)) as usize);
+        .unwrap_or_else(|| ((f64::from(plot_width) / 40.0).max(3.0)) as usize);
     if num_bins == 0 {
         return Err(ChartError::InvalidData {
             field: "bins",
@@ -664,44 +625,44 @@ pub(crate) fn render_boxplot_svg(
             stats.x,
             x_domain,
             series.x_scale_type,
-            layout.plot_left,
-            layout.plot_right,
+            layout.left,
+            layout.right,
         );
         let half_width = series.box_width.max(1.0) / 2.0;
         let q1 = map_scaled(
             stats.q1,
             y_domain,
             series.y_scale_type,
-            layout.plot_bottom,
-            layout.plot_top,
+            layout.bottom,
+            layout.top,
         );
         let q2 = map_scaled(
             stats.q2,
             y_domain,
             series.y_scale_type,
-            layout.plot_bottom,
-            layout.plot_top,
+            layout.bottom,
+            layout.top,
         );
         let q3 = map_scaled(
             stats.q3,
             y_domain,
             series.y_scale_type,
-            layout.plot_bottom,
-            layout.plot_top,
+            layout.bottom,
+            layout.top,
         );
         let whisker_low = map_scaled(
             stats.whisker_low,
             y_domain,
             series.y_scale_type,
-            layout.plot_bottom,
-            layout.plot_top,
+            layout.bottom,
+            layout.top,
         );
         let whisker_high = map_scaled(
             stats.whisker_high,
             y_domain,
             series.y_scale_type,
-            layout.plot_bottom,
-            layout.plot_top,
+            layout.bottom,
+            layout.top,
         );
         let box_top = q3.min(q1);
         let box_height = (q3.max(q1) - box_top).max(1.0);
@@ -754,8 +715,8 @@ pub(crate) fn render_boxplot_svg(
                 outlier,
                 y_domain,
                 series.y_scale_type,
-                layout.plot_bottom,
-                layout.plot_top,
+                layout.bottom,
+                layout.top,
             );
             let radius = series.outlier_radius.max(1.0);
             let _ = writeln!(
@@ -804,7 +765,7 @@ fn calculate_boxplot_bins(
             if bin.is_empty() {
                 return None;
             }
-            bin.sort_by(|a, b| a.total_cmp(b));
+            bin.sort_by(f64::total_cmp);
             let x = x_domain.0 + (index as f64 + 0.5) * bin_width;
             static_box_stats_from_sorted(x, &bin)
         })
@@ -883,32 +844,29 @@ fn resolve_heatmap_axis(
     expected_field: &'static str,
     log_auto_axis_reason: &'static str,
 ) -> Result<Vec<f64>, ChartError> {
-    match values {
-        Some(values) => {
-            if values.len() != expected_len {
-                return Err(ChartError::DataLengthMismatch {
-                    x_field: field,
-                    y_field: expected_field,
-                    x_len: values.len(),
-                    y_len: expected_len,
-                });
-            }
-            validate_data_array(values, field)?;
-            validate_monotonic(values, field)?;
-            if scale_type == ScaleType::Log {
-                validate_positive(values, field)?;
-            }
-            Ok(values.to_vec())
+    if let Some(values) = values {
+        if values.len() != expected_len {
+            return Err(ChartError::DataLengthMismatch {
+                x_field: field,
+                y_field: expected_field,
+                x_len: values.len(),
+                y_len: expected_len,
+            });
         }
-        None => {
-            if scale_type == ScaleType::Log {
-                return Err(ChartError::InvalidData {
-                    field,
-                    reason: log_auto_axis_reason,
-                });
-            }
-            Ok((0..expected_len).map(|index| index as f64).collect())
+        validate_data_array(values, field)?;
+        validate_monotonic(values, field)?;
+        if scale_type == ScaleType::Log {
+            validate_positive(values, field)?;
         }
+        Ok(values.to_vec())
+    } else {
+        if scale_type == ScaleType::Log {
+            return Err(ChartError::InvalidData {
+                field,
+                reason: log_auto_axis_reason,
+            });
+        }
+        Ok((0..expected_len).map(|index| index as f64).collect())
     }
 }
 
@@ -997,19 +955,13 @@ fn render_xy_svg(
                 .iter()
                 .zip(chart_series.y.iter())
                 .map(|(&x, &y)| {
-                    let sx = map_scaled(
-                        x,
-                        x_domain,
-                        x_scale_type,
-                        layout.plot_left,
-                        layout.plot_right,
-                    );
+                    let sx = map_scaled(x, x_domain, x_scale_type, layout.left, layout.right);
                     let sy = map_scaled(
                         y,
                         y_domain_for_series,
                         y_scale_type,
-                        layout.plot_bottom,
-                        layout.plot_top,
+                        layout.bottom,
+                        layout.top,
                     );
                     format!("{sx:.2},{sy:.2}")
                 })
@@ -1027,19 +979,13 @@ fn render_xy_svg(
 
         if class_name == "scatter" || chart_series.point_radius > 0.0 {
             for (&x, &y) in chart_series.x.iter().zip(chart_series.y.iter()) {
-                let sx = map_scaled(
-                    x,
-                    x_domain,
-                    x_scale_type,
-                    layout.plot_left,
-                    layout.plot_right,
-                );
+                let sx = map_scaled(x, x_domain, x_scale_type, layout.left, layout.right);
                 let sy = map_scaled(
                     y,
                     y_domain_for_series,
                     y_scale_type,
-                    layout.plot_bottom,
-                    layout.plot_top,
+                    layout.bottom,
+                    layout.top,
                 );
                 let radius = chart_series.point_radius.max(1.0);
                 let _ = writeln!(
@@ -1117,20 +1063,20 @@ fn auto_xy_domain(scale_type: ScaleType, values: impl Iterator<Item = f64>) -> (
 
 #[derive(Debug, Clone, Copy)]
 struct StaticLayout {
-    plot_left: f32,
-    plot_top: f32,
-    plot_right: f32,
-    plot_bottom: f32,
-    plot_width: f32,
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+    width: f32,
 }
 
 impl StaticLayout {
     fn new(options: StaticSvgOptions) -> Result<Self, ChartError> {
-        let plot_left = options.margin_left;
-        let plot_top = options.margin_top;
-        let plot_right = options.width - options.margin_right;
-        let plot_bottom = options.height - options.margin_bottom;
-        if plot_right <= plot_left || plot_bottom <= plot_top {
+        let left = options.margin_left;
+        let top = options.margin_top;
+        let right = options.width - options.margin_right;
+        let bottom = options.height - options.margin_bottom;
+        if right <= left || bottom <= top {
             return Err(ChartError::InvalidDimension {
                 field: "width",
                 value: options.width,
@@ -1138,11 +1084,11 @@ impl StaticLayout {
         }
 
         Ok(Self {
-            plot_left,
-            plot_top,
-            plot_right,
-            plot_bottom,
-            plot_width: plot_right - plot_left,
+            left,
+            top,
+            right,
+            bottom,
+            width: right - left,
         })
     }
 }
@@ -1206,23 +1152,23 @@ fn draw_axes(
     let grid_color = "#e6e6e6";
     for step in 0..=4 {
         let t = step as f32 / 4.0;
-        let y = layout.plot_bottom + (layout.plot_top - layout.plot_bottom) * t;
+        let y = layout.bottom + (layout.top - layout.bottom) * t;
         let value = if y_scale_type == ScaleType::Log {
             let min = y_domain.0.log10();
             let max = y_domain.1.log10();
-            10_f64.powf(min + (max - min) * t as f64)
+            10_f64.powf(min + (max - min) * f64::from(t))
         } else {
-            y_domain.0 + (y_domain.1 - y_domain.0) * t as f64
+            y_domain.0 + (y_domain.1 - y_domain.0) * f64::from(t)
         };
         let _ = writeln!(
             svg,
             "<line x1=\"{:.2}\" y1=\"{y:.2}\" x2=\"{:.2}\" y2=\"{y:.2}\" stroke=\"{grid_color}\" stroke-width=\"1\"/>",
-            layout.plot_left, layout.plot_right
+            layout.left, layout.right
         );
         let _ = writeln!(
             svg,
             "<text x=\"{:.2}\" y=\"{:.2}\" text-anchor=\"end\" font-family=\"system-ui, sans-serif\" font-size=\"10\" fill=\"{axis_color}\">{:.3}</text>",
-            layout.plot_left - 6.0,
+            layout.left - 6.0,
             y + 3.0,
             value
         );
@@ -1231,22 +1177,22 @@ fn draw_axes(
     let _ = writeln!(
         svg,
         "<line x1=\"{:.2}\" y1=\"{:.2}\" x2=\"{:.2}\" y2=\"{:.2}\" stroke=\"{axis_color}\" stroke-width=\"1\"/>",
-        layout.plot_left, layout.plot_bottom, layout.plot_right, layout.plot_bottom
+        layout.left, layout.bottom, layout.right, layout.bottom
     );
     let _ = writeln!(
         svg,
         "<line x1=\"{:.2}\" y1=\"{:.2}\" x2=\"{:.2}\" y2=\"{:.2}\" stroke=\"{axis_color}\" stroke-width=\"1\"/>",
-        layout.plot_left, layout.plot_top, layout.plot_left, layout.plot_bottom
+        layout.left, layout.top, layout.left, layout.bottom
     );
 
     if let Some(categories) = categories {
-        let slot = layout.plot_width / categories.len().max(1) as f32;
+        let slot = layout.width / categories.len().max(1) as f32;
         for (index, category) in categories.iter().enumerate() {
-            let x = layout.plot_left + slot * (index as f32 + 0.5);
+            let x = layout.left + slot * (index as f32 + 0.5);
             let _ = writeln!(
                 svg,
                 "<text x=\"{x:.2}\" y=\"{:.2}\" text-anchor=\"middle\" font-family=\"system-ui, sans-serif\" font-size=\"10\" fill=\"{axis_color}\">{}</text>",
-                layout.plot_bottom + 18.0,
+                layout.bottom + 18.0,
                 escape_xml(category)
             );
         }
@@ -1268,39 +1214,39 @@ fn draw_heatmap_axes(
     let grid_color = "#e6e6e6";
     for step in 0..=4 {
         let t = step as f32 / 4.0;
-        let x = layout.plot_left + (layout.plot_right - layout.plot_left) * t;
-        let y = layout.plot_bottom + (layout.plot_top - layout.plot_bottom) * t;
-        let x_value = x_domain.0 + (x_domain.1 - x_domain.0) * t as f64;
-        let y_value = y_domain.0 + (y_domain.1 - y_domain.0) * t as f64;
+        let x = layout.left + (layout.right - layout.left) * t;
+        let y = layout.bottom + (layout.top - layout.bottom) * t;
+        let x_value = x_domain.0 + (x_domain.1 - x_domain.0) * f64::from(t);
+        let y_value = y_domain.0 + (y_domain.1 - y_domain.0) * f64::from(t);
         let _ = writeln!(
             svg,
             "<line x1=\"{x:.2}\" y1=\"{:.2}\" x2=\"{x:.2}\" y2=\"{:.2}\" stroke=\"{grid_color}\" stroke-width=\"1\"/>",
-            layout.plot_top, layout.plot_bottom
+            layout.top, layout.bottom
         );
         let _ = writeln!(
             svg,
             "<line x1=\"{:.2}\" y1=\"{y:.2}\" x2=\"{:.2}\" y2=\"{y:.2}\" stroke=\"{grid_color}\" stroke-width=\"1\"/>",
-            layout.plot_left, layout.plot_right
+            layout.left, layout.right
         );
         let _ = writeln!(
             svg,
             "<text x=\"{x:.2}\" y=\"{:.2}\" text-anchor=\"middle\" font-family=\"system-ui, sans-serif\" font-size=\"10\" fill=\"{axis_color}\">{x_value:.3}</text>",
-            layout.plot_bottom + 18.0
+            layout.bottom + 18.0
         );
         let _ = writeln!(
             svg,
             "<text x=\"{:.2}\" y=\"{y:.2}\" text-anchor=\"end\" font-family=\"system-ui, sans-serif\" font-size=\"10\" fill=\"{axis_color}\">{y_value:.3}</text>",
-            layout.plot_left - 6.0
+            layout.left - 6.0
         );
     }
 
     let _ = writeln!(
         svg,
         "<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" fill=\"none\" stroke=\"{axis_color}\" stroke-width=\"1\"/>",
-        layout.plot_left,
-        layout.plot_top,
-        layout.plot_right - layout.plot_left,
-        layout.plot_bottom - layout.plot_top
+        layout.left,
+        layout.top,
+        layout.right - layout.left,
+        layout.bottom - layout.top
     );
 }
 
@@ -1309,8 +1255,8 @@ fn draw_legend<'a>(
     items: impl Iterator<Item = (&'a str, u32, &'a str)>,
     layout: &StaticLayout,
 ) {
-    let mut y = layout.plot_top + 12.0;
-    let x = layout.plot_right + 8.0;
+    let mut y = layout.top + 12.0;
+    let x = layout.right + 8.0;
     let mut wrote_group = false;
     for (label, color, marker) in items {
         if !wrote_group {
@@ -1387,7 +1333,7 @@ fn map_linear(
     range_end: f32,
 ) -> f32 {
     if domain_max == domain_min {
-        return (range_start + range_end) / 2.0;
+        return f32::midpoint(range_start, range_end);
     }
     let t = ((value - domain_min) / (domain_max - domain_min)).clamp(0.0, 1.0) as f32;
     range_start + (range_end - range_start) * t
@@ -1425,7 +1371,7 @@ mod tests {
     #[test]
     fn static_svg_options_default_has_positive_plot_area() {
         let options = StaticSvgOptions::default();
-        assert!(StaticLayout::new(options).is_ok());
+        StaticLayout::new(options).unwrap();
     }
 
     #[test]

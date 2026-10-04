@@ -73,7 +73,7 @@ pub const PUBLIC_CHART_STORY_IDS: &[&str] = &[
     "px.mesh_plot",
 ];
 
-/// Every component-lab story that exercises a MeshPlot product contract.
+/// Every component-lab story that exercises a `MeshPlot` product contract.
 ///
 /// These are intentionally separate from [`PUBLIC_CHART_STORY_IDS`]: only the
 /// parent builder is a public chart-family story, while the named variants

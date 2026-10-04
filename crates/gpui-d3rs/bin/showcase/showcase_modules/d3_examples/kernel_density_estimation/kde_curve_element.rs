@@ -35,7 +35,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     // Generate thresholds for KDE evaluation
     let num_points = 100;
     let thresholds: Vec<f64> = (0..num_points)
-        .map(|i| x_min + (x_max - x_min) * i as f64 / (num_points - 1) as f64)
+        .map(|i| x_min + (x_max - x_min) * f64::from(i) / f64::from(num_points - 1))
         .collect();
 
     // Compute KDE based on kernel type
@@ -72,10 +72,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     // Scales
     let x_scale = LinearScale::new()
         .domain(x_min, x_max)
-        .range(0.0, plot_width as f64);
+        .range(0.0, f64::from(plot_width));
     let y_scale = LinearScale::new()
         .domain(0.0, y_max)
-        .range(plot_height as f64, 0.0); // Inverted for screen coordinates
+        .range(f64::from(plot_height), 0.0); // Inverted for screen coordinates
 
     div()
         .flex()
@@ -134,7 +134,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 .bg(ui_theme.accent)
                                                 .rounded_md()
                                                 .text_xs()
-                                                .child(format!("Bandwidth: {:.1}", bandwidth)),
+                                                .child(format!("Bandwidth: {bandwidth:.1}")),
                                         ),
                                 )
                                 .child(div().text_xs().child("Time between eruptions (minutes)"))
@@ -203,9 +203,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .w(px(plot_width))
                                         .mt_1()
                                         .text_xs()
-                                        .child(format!("{:.0}", x_min))
-                                        .child(format!("{:.0}", (x_min + x_max) / 2.0))
-                                        .child(format!("{:.0}", x_max)),
+                                        .child(format!("{x_min:.0}"))
+                                        .child(format!("{:.0}", f64::midpoint(x_min, x_max)))
+                                        .child(format!("{x_max:.0}")),
                                 ),
                         ),
                 )
@@ -246,7 +246,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .width(230.0)
                                         .on_change(move |value, _window, cx| {
                                             entity.update(cx, |this, cx| {
-                                                this.kde_bandwidth = value as f64;
+                                                this.kde_bandwidth = f64::from(value);
                                                 cx.notify();
                                             });
                                         })
@@ -386,7 +386,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                         .child("KDE ALGORITHM"),
                                 )
                                 .child(div().text_xs().font_family("monospace").child(
-                                    r#"// Epanechnikov kernel
+                                    r"// Epanechnikov kernel
 fn kernel(bandwidth: f64) -> impl Fn(f64) -> f64 {
   move |x| {
     let u = x / bandwidth;
@@ -404,7 +404,7 @@ fn kde(kernel, thresholds, data) {
       .sum() / data.len();
     (t, d)
   })
-}"#,
+}",
                                 )),
                         ),
                 ),

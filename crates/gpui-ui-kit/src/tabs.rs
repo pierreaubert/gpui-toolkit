@@ -39,7 +39,7 @@ const MAX_TABS_ENTITIES: usize = 1024;
 /// A tabs component with theming support
 pub struct Tabs {
     id: ElementId,
-    tabs: Vec<TabItem>,
+    items: Vec<TabItem>,
     selected_index: usize,
     variant: TabVariant,
     theme: Option<TabsTheme>,
@@ -55,7 +55,7 @@ impl Tabs {
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
             id: id.into(),
-            tabs: Vec::new(),
+            items: Vec::new(),
             selected_index: 0,
             variant: TabVariant::default(),
             theme: None,
@@ -75,7 +75,7 @@ impl Tabs {
 
     /// Set the tab items
     pub fn tabs(mut self, tabs: Vec<TabItem>) -> Self {
-        self.tabs = tabs;
+        self.items = tabs;
         self
     }
 
@@ -151,10 +151,10 @@ impl TabsEntity {
         index: usize,
         _event: &MouseDownEvent,
         window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
         if let Some(ref handler) = self.props.on_change {
-            handler(index, window, _cx);
+            handler(index, window, cx);
         }
     }
 
@@ -163,12 +163,12 @@ impl TabsEntity {
         index: usize,
         _event: &MouseDownEvent,
         window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
         if let Some(tab_id) = self.tab_ids.get(index)
             && let Some(ref handler) = self.props.on_close
         {
-            handler(tab_id, window, _cx);
+            handler(tab_id, window, cx);
         }
     }
 
@@ -187,28 +187,10 @@ impl TabsEntity {
         let tab_count = self.tab_count;
 
         let new_index = match key {
-            "left" => {
-                if selected > 0 {
-                    Some(selected - 1)
-                } else {
-                    None
-                }
-            }
-            "right" => {
-                if selected + 1 < tab_count {
-                    Some(selected + 1)
-                } else {
-                    None
-                }
-            }
+            "left" => (selected > 0).then(|| selected - 1),
+            "right" => (selected + 1 < tab_count).then(|| selected + 1),
             "home" => Some(0),
-            "end" => {
-                if tab_count > 0 {
-                    Some(tab_count - 1)
-                } else {
-                    None
-                }
-            }
+            "end" => (tab_count > 0).then(|| tab_count - 1),
             _ => None,
         };
 
@@ -221,7 +203,7 @@ impl TabsEntity {
     }
 
     fn set_hovered(&mut self, index: usize, hovered: bool, cx: &mut Context<Self>) {
-        let new = if hovered { Some(index) } else { None };
+        let new = hovered.then_some(index);
         if self.hovered_tab != new {
             // Only clear if the currently hovered tab matches this one, to
             // avoid race conditions when moving directly between tabs.
@@ -234,7 +216,7 @@ impl TabsEntity {
     }
 
     fn set_close_hovered(&mut self, index: usize, hovered: bool, cx: &mut Context<Self>) {
-        let new = if hovered { Some(index) } else { None };
+        let new = hovered.then_some(index);
         if self.hovered_close != new {
             if !hovered && self.hovered_close != Some(index) {
                 return;
@@ -276,7 +258,7 @@ impl Render for TabsEntity {
 
         // Consume the tab list for this render. The props are refreshed before
         // each render by the RenderOnce impl, so the vector will be repopulated.
-        let tabs = std::mem::take(&mut self.props.tabs);
+        let tabs = std::mem::take(&mut self.props.items);
         let variant = self.props.variant;
 
         for (index, tab) in tabs.into_iter().enumerate() {
@@ -313,7 +295,7 @@ impl RenderOnce for Tabs {
             .focus_handle
             .clone()
             .unwrap_or_else(|| cx.focus_handle());
-        let tab_count = self.tabs.len();
+        let tab_count = self.items.len();
 
         let entity: Entity<TabsEntity> = TABS_ENTITIES.with(|map| {
             let mut map = map.borrow_mut();
@@ -339,7 +321,7 @@ impl RenderOnce for Tabs {
         });
         entity.update(cx, |model, _cx| {
             model.tab_count = tab_count;
-            model.tab_ids = self.tabs.iter().map(|tab| tab.id.clone()).collect();
+            model.tab_ids = self.items.iter().map(|tab| tab.id.clone()).collect();
             model.props = self;
         });
         entity

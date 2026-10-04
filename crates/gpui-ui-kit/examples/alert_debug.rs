@@ -1,9 +1,9 @@
 //! Alert Debug Example
 //!
-//! Demonstrates the Alert and InlineAlert components:
+//! Demonstrates the Alert and `InlineAlert` components:
 //! - All variants (Info, Success, Warning, Error)
 //! - With and without title
-//! - InlineAlert
+//! - `InlineAlert`
 
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};

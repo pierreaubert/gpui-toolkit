@@ -72,7 +72,7 @@ impl BrushSelection {
     /// - For inverted Y-axis (common in charts): use `.range(height, 0.0)`
     /// - For non-inverted Y-axis: use `.range(0.0, height)`
     ///
-    /// The scale's invert() method handles the conversion correctly in both cases.
+    /// The scale's `invert()` method handles the conversion correctly in both cases.
     pub fn to_domain<X: Scale<f64, f64>, Y: Scale<f64, f64>>(
         &self,
         x_scale: &X,

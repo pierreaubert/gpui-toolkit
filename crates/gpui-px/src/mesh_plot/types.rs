@@ -1,7 +1,7 @@
 use d3rs::mesh::{ContourLevels, CoordinateAxis, RevolveSpec};
 use std::sync::Arc;
 
-/// Select the retained GPU backend used by a live MeshPlot.
+/// Select the retained GPU backend used by a live `MeshPlot`.
 ///
 /// `Auto` follows the platform's normal backend selection. `Wgpu` is useful
 /// for explicit cross-adapter capture and for applications that intentionally
@@ -369,7 +369,7 @@ mod tests {
             custom.controls_summary(),
             "Available controls: inspect, pan, and zoom."
         );
-        assert!(PlotInteractions::from_names(&["pan".into(), "pan".into()]).is_err());
+        PlotInteractions::from_names(&["pan".into(), "pan".into()]).unwrap_err();
         assert_eq!(coordinate_label(CoordinateAxis::X), "x");
         assert_eq!(coordinate_label(CoordinateAxis::Y), "y");
         assert_eq!(coordinate_label(CoordinateAxis::Z), "z");

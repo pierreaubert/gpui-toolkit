@@ -265,9 +265,9 @@ fn color_rgba_parses_and_validates() {
     let transparent = ColorRgba::from_hex("#33669980").unwrap();
     assert!((transparent.a - 0x80 as f32 / 255.0).abs() < f32::EPSILON);
 
-    assert!(ColorRgba::from_hex("336699").is_err());
-    assert!(ColorRgba::from_hex("#xyz").is_err());
-    assert!(ColorRgba::from_hex("#12345").is_err());
+    ColorRgba::from_hex("336699").unwrap_err();
+    ColorRgba::from_hex("#xyz").unwrap_err();
+    ColorRgba::from_hex("#12345").unwrap_err();
 
     let mut invalid = ColorRgba::new(2.0, 0.0, 0.0, 1.0);
     assert!(invalid.validate("c").is_err());
@@ -281,16 +281,16 @@ fn point3_scalar_range_viewport_size_validate() {
     use super::scalar_range::ScalarRange;
     use super::viewport_size::ViewportSize;
 
-    assert!(Point3::new(0.0, 0.0, 0.0).validate("p").is_ok());
+    Point3::new(0.0, 0.0, 0.0).validate("p").unwrap();
     assert!(Point3::new(f32::NAN, 0.0, 0.0).validate("p").is_err());
 
-    assert!(ScalarRange::new(0.0, 1.0).validate("r").is_ok());
+    ScalarRange::new(0.0, 1.0).validate("r").unwrap();
     assert!(ScalarRange::new(1.0, 1.0).validate("r").is_err());
     assert!(ScalarRange::new(f64::NAN, 1.0).validate("r").is_err());
     assert!(ScalarRange::new(0.0, 1.0).validate_positive("r").is_err());
-    assert!(ScalarRange::new(1.0, 2.0).validate_positive("r").is_ok());
+    ScalarRange::new(1.0, 2.0).validate_positive("r").unwrap();
 
-    assert!(ViewportSize::new(100.0, 50.0).validate().is_ok());
+    ViewportSize::new(100.0, 50.0).validate().unwrap();
     assert!(ViewportSize::new(f32::NAN, 50.0).validate().is_err());
     assert!(ViewportSize::new(100.0, 0.0).validate().is_err());
 }
@@ -312,7 +312,7 @@ fn interaction_and_colormap_parse() {
         InteractionMode::parse("  HitTest  ").unwrap(),
         InteractionMode::HitTest
     );
-    assert!(InteractionMode::parse("unknown").is_err());
+    InteractionMode::parse("unknown").unwrap_err();
 
     assert_eq!(
         ColormapSpec::parse("viridis").unwrap(),
@@ -326,7 +326,7 @@ fn interaction_and_colormap_parse() {
         ColormapSpec::parse("cool_warm").unwrap(),
         ColormapSpec::CoolWarm
     );
-    assert!(ColormapSpec::parse("magma").is_err());
+    ColormapSpec::parse("magma").unwrap_err();
 }
 
 #[test]
@@ -341,10 +341,10 @@ fn light_spec_validates() {
         intensity: 1.0,
         color: ColorRgba::default(),
     };
-    assert!(valid.validate().is_ok());
+    valid.validate().unwrap();
 
     let mut invalid = valid.clone();
-    invalid.id = "".to_string();
+    invalid.id = String::new();
     assert!(invalid.validate().is_err());
 
     invalid = valid.clone();
@@ -372,7 +372,7 @@ fn line_specs_validate_and_flatten() {
         color: ColorRgba::default(),
         width: 1.0,
     };
-    assert!(segment.validate().is_ok());
+    segment.validate().unwrap();
 
     let mut bad_segment = segment.clone();
     bad_segment.width = -1.0;
@@ -384,7 +384,7 @@ fn line_specs_validate_and_flatten() {
         color: ColorRgba::default(),
         width: 1.0,
     };
-    assert!(strip.validate().is_ok());
+    strip.validate().unwrap();
     assert_eq!(strip.to_segments().count(), 1);
 
     let mut bad_strip = strip.clone();
@@ -400,7 +400,7 @@ fn line_specs_validate_and_flatten() {
         interactions: vec![],
         size: None,
     };
-    assert!(lines.validate().is_ok());
+    lines.validate().unwrap();
     assert_eq!(lines.flattened_segments().len(), 2);
 
     let empty_lines = LinesSpec {
@@ -429,7 +429,7 @@ fn mesh_spec_validates() {
         material: MaterialSpec::default(),
         scalar_field: None,
     };
-    assert!(valid.validate().is_ok());
+    valid.validate().unwrap();
     let _ = valid.fingerprints();
 
     let mut scalar_mesh = valid.clone();
@@ -440,7 +440,7 @@ fn mesh_spec_validates() {
         range: Some(super::scalar_range::ScalarRange::new(0.0, 1.0)),
         label: Some("Pressure (Pa)".into()),
     });
-    assert!(scalar_mesh.validate().is_ok());
+    scalar_mesh.validate().unwrap();
     scalar_mesh.scalar_field.as_mut().unwrap().values.pop();
     assert!(scalar_mesh.validate().is_err());
 
@@ -470,7 +470,7 @@ fn surface_spec_validates_and_reads_axes() {
     use super::viewport_size::ViewportSize;
 
     let mut spec = SurfaceSpec::from_flat("surface", vec![1.0, 2.0, 3.0, 4.0], 2, 2);
-    assert!(spec.validate().is_ok());
+    spec.validate().unwrap();
     assert_eq!(spec.x_values().as_ref(), &[0.0, 1.0]);
     assert_eq!(spec.y_values().as_ref(), &[0.0, 1.0]);
 
@@ -478,7 +478,7 @@ fn surface_spec_validates_and_reads_axes() {
     assert_eq!(spec.x_values().as_ref(), &[10.0, 20.0]);
 
     let mut bad = spec.clone();
-    bad.id = "".to_string();
+    bad.id = String::new();
     assert!(bad.validate().is_err());
 
     bad = spec.clone();
@@ -512,9 +512,9 @@ fn surface_spec_validates_and_reads_axes() {
 fn surface_from_rows_rejects_bad_shapes() {
     use super::surface_spec::SurfaceSpec;
 
-    assert!(SurfaceSpec::from_rows("bad", vec![]).is_err());
-    assert!(SurfaceSpec::from_rows("bad", vec![vec![]]).is_err());
-    assert!(SurfaceSpec::from_rows("bad", vec![vec![1.0, 2.0], vec![3.0]]).is_err());
+    SurfaceSpec::from_rows("bad", vec![]).unwrap_err();
+    SurfaceSpec::from_rows("bad", vec![vec![]]).unwrap_err();
+    SurfaceSpec::from_rows("bad", vec![vec![1.0, 2.0], vec![3.0]]).unwrap_err();
 }
 
 #[test]
@@ -535,11 +535,11 @@ fn scene_spec_validates() {
         background: None,
         size: None,
     };
-    assert!(valid.validate().is_ok());
+    valid.validate().unwrap();
     let _ = valid.fingerprints();
 
     let mut bad = valid.clone();
-    bad.id = "".to_string();
+    bad.id = String::new();
     assert!(bad.validate().is_err());
 
     bad = valid.clone();
@@ -558,7 +558,7 @@ fn scene_node_dispatches() {
         2,
     ));
     assert_eq!(surface.id(), "surface");
-    assert!(surface.validate().is_ok());
+    surface.validate().unwrap();
     let _ = surface.fingerprints();
 }
 
@@ -569,7 +569,7 @@ fn camera_specs_validate() {
     use super::perspective_camera_spec::PerspectiveCameraSpec;
 
     let orbit = OrbitCameraSpec::new(3.5, 60.0, 25.0);
-    assert!(orbit.validate().is_ok());
+    orbit.validate().unwrap();
 
     let mut bad = orbit.clone();
     bad.distance = 0.0;
@@ -581,14 +581,14 @@ fn camera_specs_validate() {
     assert!(bad.validate().is_err());
 
     let perspective = PerspectiveCameraSpec::default();
-    assert!(perspective.validate().is_ok());
+    perspective.validate().unwrap();
 
     let mut bad_perspective = perspective.clone();
     bad_perspective.fov_y_deg = -45.0;
     assert!(bad_perspective.validate().is_err());
 
     let camera = CameraSpec::Orbit(orbit.clone());
-    assert!(camera.validate().is_ok());
+    camera.validate().unwrap();
     assert!(camera.as_orbit().is_some());
 }
 
@@ -597,7 +597,7 @@ fn grid_data_validates() {
     use super::grid_data::GridData;
 
     let grid = GridData::from_flat(vec![1.0, 2.0, 3.0, 4.0], 2, 2);
-    assert!(grid.validate().is_ok());
+    grid.validate().unwrap();
     assert_eq!(grid.as_flat().0, &[1.0, 2.0, 3.0, 4.0]);
     assert_eq!(grid.rows().count(), 2);
 
@@ -605,9 +605,9 @@ fn grid_data_validates() {
     bad.values.push(5.0);
     assert!(bad.validate().is_err());
 
-    assert!(GridData::from_rows(vec![]).is_err());
-    assert!(GridData::from_rows(vec![vec![]]).is_err());
-    assert!(GridData::from_rows(vec![vec![1.0, 2.0], vec![3.0]]).is_err());
+    GridData::from_rows(vec![]).unwrap_err();
+    GridData::from_rows(vec![vec![]]).unwrap_err();
+    GridData::from_rows(vec![vec![1.0, 2.0], vec![3.0]]).unwrap_err();
 }
 
 #[test]
@@ -618,18 +618,18 @@ fn material_and_line_defaults_via_serde() {
 
     let material: MaterialSpec =
         serde_json::from_str("{\"color\":{\"r\":1.0,\"g\":1.0,\"b\":1.0,\"a\":1.0}}").unwrap();
-    assert!(material.validate().is_ok());
+    material.validate().unwrap();
     assert_eq!(material.opacity, 1.0);
 
     let segment: LineSegmentSpec =
         serde_json::from_str(r#"{"from":[0,0,0],"to":[1,0,0],"color":{"r":1,"g":1,"b":1,"a":1}}"#)
             .unwrap();
-    assert!(segment.validate().is_ok());
+    segment.validate().unwrap();
     assert!(segment.width > 0.0);
 
     let light: LightSpec = serde_json::from_str(r#"{"id":"light","direction":[0,-1,0]}"#).unwrap();
     assert_eq!(light.intensity, 1.0);
-    assert!(light.validate().is_ok());
+    light.validate().unwrap();
 }
 
 #[test]
@@ -709,7 +709,7 @@ fn scene_node_dispatches_all_kinds() {
 
     let surface = SceneNode::Surface(SurfaceSpec::from_flat("s", vec![1.0, 2.0, 3.0, 4.0], 2, 2));
     assert_eq!(surface.id(), "s");
-    assert!(surface.validate().is_ok());
+    surface.validate().unwrap();
     let _ = surface.fingerprints();
 
     let lines = SceneNode::Lines(LinesSpec {
@@ -727,7 +727,7 @@ fn scene_node_dispatches_all_kinds() {
         size: None,
     });
     assert_eq!(lines.id(), "l");
-    assert!(lines.validate().is_ok());
+    lines.validate().unwrap();
     let _ = lines.fingerprints();
 
     let mesh = SceneNode::Mesh(MeshSpec {
@@ -742,7 +742,7 @@ fn scene_node_dispatches_all_kinds() {
         scalar_field: None,
     });
     assert_eq!(mesh.id(), "m");
-    assert!(mesh.validate().is_ok());
+    mesh.validate().unwrap();
     let _ = mesh.fingerprints();
 
     let light = SceneNode::Light(LightSpec {
@@ -752,7 +752,7 @@ fn scene_node_dispatches_all_kinds() {
         color: ColorRgba::default(),
     });
     assert_eq!(light.id(), "li");
-    assert!(light.validate().is_ok());
+    light.validate().unwrap();
     let _ = light.fingerprints();
 }
 
@@ -763,7 +763,7 @@ fn perspective_camera_spec_validates() {
     use super::point3::Point3;
 
     let mut cam = PerspectiveCameraSpec::default();
-    assert!(cam.validate().is_ok());
+    cam.validate().unwrap();
 
     cam.position = Point3::new(f32::NAN, 0.0, 0.0);
     assert!(cam.validate().is_err());
@@ -782,7 +782,7 @@ fn perspective_camera_spec_validates() {
     assert!(cam.validate().is_err());
 
     let spec = CameraSpec::Perspective(PerspectiveCameraSpec::default());
-    assert!(spec.validate().is_ok());
+    spec.validate().unwrap();
     assert!(spec.as_orbit().is_none());
     let mut h = std::collections::hash_map::DefaultHasher::new();
     spec.hash_into(&mut h);
@@ -857,10 +857,10 @@ fn surface_spec_y_log_and_z_range_positive() {
 
     spec.y = Some(vec![1.0, 2.0]);
     spec.y_log = true;
-    assert!(spec.validate().is_ok());
+    spec.validate().unwrap();
 
     spec.z_range = Some(ScalarRange::new(1.0, 2.0));
-    assert!(spec.validate().is_ok());
+    spec.validate().unwrap();
 }
 
 #[test]

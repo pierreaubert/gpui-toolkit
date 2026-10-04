@@ -23,6 +23,6 @@ impl ContourBand {
 
     /// Get the midpoint value of this band (for color interpolation).
     pub fn mid_value(&self) -> f64 {
-        (self.lower + self.upper) / 2.0
+        f64::midpoint(self.lower, self.upper)
     }
 }

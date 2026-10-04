@@ -1,7 +1,7 @@
 //! Integration tests for Tabs component
 //!
-//! Tests the Tabs and TabItem components including:
-//! - All variants (Underline, Enclosed, Pills, VerticalCard)
+//! Tests the Tabs and `TabItem` components including:
+//! - All variants (Underline, Enclosed, Pills, `VerticalCard`)
 //! - Tab selection and callbacks
 //! - Disabled tabs
 //! - Closeable tabs with callback

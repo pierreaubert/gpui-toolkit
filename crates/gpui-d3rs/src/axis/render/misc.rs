@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 thread_local! {
-    static TICK_LABEL_CACHE: RefCell<HashMap<(u64, usize), SharedString>> =
+    static TICK_LABEL_CACHE: RefCell<HashMap<(u64, Option<fn(f64) -> String>), SharedString>> =
         RefCell::new(HashMap::new());
 }
 
@@ -13,8 +13,8 @@ thread_local! {
 /// renderers without repeated per-frame `String` allocations. Labels are
 /// memoised by `(value, formatter)` so repeated renders of the same axis do
 /// not re-format unchanged ticks.
-pub(super) fn format_tick(value: f64, formatter: &Option<fn(f64) -> String>) -> SharedString {
-    let key = (value.to_bits(), formatter.map(|f| f as usize).unwrap_or(0));
+pub(super) fn format_tick(value: f64, formatter: Option<&fn(f64) -> String>) -> SharedString {
+    let key = (value.to_bits(), formatter.copied());
     TICK_LABEL_CACHE.with(|cache| {
         cache
             .borrow_mut()
@@ -24,7 +24,7 @@ pub(super) fn format_tick(value: f64, formatter: &Option<fn(f64) -> String>) -> 
     })
 }
 
-fn format_tick_uncached(value: f64, formatter: &Option<fn(f64) -> String>) -> SharedString {
+fn format_tick_uncached(value: f64, formatter: Option<&fn(f64) -> String>) -> SharedString {
     match formatter {
         Some(f) => f(value).into(),
         None => {
@@ -32,11 +32,11 @@ fn format_tick_uncached(value: f64, formatter: &Option<fn(f64) -> String>) -> Sh
             if value.abs() < 1e-10 {
                 "0".into()
             } else if value.abs() >= 1000.0 || value.abs() < 0.01 {
-                format!("{:.1e}", value).into()
+                format!("{value:.1e}").into()
             } else if value.fract().abs() < 1e-10 {
-                format!("{:.0}", value).into()
+                format!("{value:.0}").into()
             } else {
-                format!("{:.1}", value).into()
+                format!("{value:.1}").into()
             }
         }
     }
@@ -49,26 +49,26 @@ mod tests {
 
     #[test]
     fn test_format_tick_default() {
-        assert_eq!(format_tick(0.0, &None), "0");
-        assert_eq!(format_tick(10.0, &None), "10");
-        assert_eq!(format_tick(10.5, &None), "10.5");
-        assert_eq!(format_tick(1000.5, &None), "1.0e3");
+        assert_eq!(format_tick(0.0, None), "0");
+        assert_eq!(format_tick(10.0, None), "10");
+        assert_eq!(format_tick(10.5, None), "10.5");
+        assert_eq!(format_tick(1000.5, None), "1.0e3");
     }
 
     #[test]
     fn test_format_tick_custom() {
         let formatter = |v: f64| format!("{:.2}Hz", v);
-        assert_eq!(format_tick(440.0, &Some(formatter)), "440.00Hz");
+        assert_eq!(format_tick(440.0, Some(&formatter)), "440.00Hz");
     }
 
     #[test]
     fn test_format_tick_cache_reuses_shared_string() {
         // Repeated calls with the same arguments must return the same value.
-        assert_eq!(format_tick(42.5, &None), "42.5");
-        assert_eq!(format_tick(42.5, &None), "42.5");
+        assert_eq!(format_tick(42.5, None), "42.5");
+        assert_eq!(format_tick(42.5, None), "42.5");
 
         let formatter = |v: f64| format!("{:.0}%", v);
-        assert_eq!(format_tick(99.0, &Some(formatter)), "99%");
-        assert_eq!(format_tick(99.0, &Some(formatter)), "99%");
+        assert_eq!(format_tick(99.0, Some(&formatter)), "99%");
+        assert_eq!(format_tick(99.0, Some(&formatter)), "99%");
     }
 }

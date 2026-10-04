@@ -1,4 +1,4 @@
-//! Integration tests for SettingsForm component
+//! Integration tests for `SettingsForm` component
 
 use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div, px};
 use gpui_ui_kit::settings_form::{SettingsForm, SettingsRow};

@@ -71,7 +71,7 @@ impl Showcase {
                                     .selected_indices(self.selected_users.clone())
                                     .on_selection_change(cx.listener(
                                         |this, indices: &HashSet<usize>, _window, cx| {
-                                            this.selected_users = indices.clone();
+                                            this.selected_users.clone_from(indices);
                                             this.notify_content(cx);
                                         },
                                     ))

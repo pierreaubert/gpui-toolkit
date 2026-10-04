@@ -22,11 +22,11 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     // Use state values
     let grid_size = app.contour_grid_size;
     let num_levels = app.contour_num_levels;
-    let peak1_x = app.contour_peak1_x as f64;
-    let peak1_y = app.contour_peak1_y as f64;
-    let peak2_x = app.contour_peak2_x as f64;
-    let peak2_y = app.contour_peak2_y as f64;
-    let bandwidth = app.density_bandwidth as f64;
+    let peak1_x = f64::from(app.contour_peak1_x);
+    let peak1_y = f64::from(app.contour_peak1_y);
+    let peak2_x = f64::from(app.contour_peak2_x);
+    let peak2_y = f64::from(app.contour_peak2_y);
+    let bandwidth = f64::from(app.density_bandwidth);
     let num_points = app.density_num_points;
 
     // Generate a 2D Gaussian surface for contour demonstration
@@ -62,10 +62,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let gaussian_height = (gaussian_width * 0.75).min(app.content_height * 0.4);
     let x_scale_gaussian = LinearScale::new()
         .domain(0.0, grid_size as f64)
-        .range(0.0, gaussian_width as f64);
+        .range(0.0, f64::from(gaussian_width));
     let y_scale_gaussian = LinearScale::new()
         .domain(0.0, grid_size as f64)
-        .range(0.0, gaussian_height as f64);
+        .range(0.0, f64::from(gaussian_height));
 
     // Config based on render mode
     let render_mode = app.contour_render_mode;
@@ -125,11 +125,13 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .bandwidth(bandwidth);
 
     let density_grid = density_estimator.estimate(&points);
-    let density_max = density_grid.iter().cloned().fold(0.0_f64, f64::max);
+    let density_max = density_grid.iter().copied().fold(0.0_f64, f64::max);
 
     let density_generator = ContourGenerator::new(density_grid_size, density_grid_size);
 
-    let density_thresholds: Vec<f64> = (1..=5).map(|i| density_max * (i as f64 / 6.0)).collect();
+    let density_thresholds: Vec<f64> = (1..=5)
+        .map(|i| density_max * (f64::from(i) / 6.0))
+        .collect();
     let density_contours = density_generator.contours(&density_grid, &density_thresholds);
     let density_bands = density_generator.contour_bands(&density_grid, &density_thresholds);
 
@@ -139,10 +141,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .min(layout::plot_width(app.content_width, SIDE_MENU_WIDTH));
     let x_scale_density = LinearScale::new()
         .domain(0.0, density_grid_size as f64)
-        .range(0.0, density_size as f64);
+        .range(0.0, f64::from(density_size));
     let y_scale_density = LinearScale::new()
         .domain(0.0, density_grid_size as f64)
-        .range(0.0, density_size as f64);
+        .range(0.0, f64::from(density_size));
 
     // Config with heat color scale
     let density_config = ContourConfig::new()
@@ -318,10 +320,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                     .children(points.iter().map(|(x, y)| {
                                         div()
                                             .absolute()
-                                            .left(px((*x * density_size as f64 - 2.0) as f32))
-                                            .top(
-                                                px(((1.0 - *y) * density_size as f64 - 2.0) as f32),
-                                            )
+                                            .left(px((*x * f64::from(density_size) - 2.0) as f32))
+                                            .top(px(
+                                                ((1.0 - *y) * f64::from(density_size) - 2.0) as f32
+                                            ))
                                             .w(px(4.0))
                                             .h(px(4.0))
                                             .rounded_full()
@@ -540,14 +542,14 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                             .child(
                                 div()
                                     .text_sm()
-                                    .child(format!("Grid: {}x{}", grid_size, grid_size)),
+                                    .child(format!("Grid: {grid_size}x{grid_size}")),
                             )
-                            .child(div().text_sm().child(format!("Levels: {}", num_levels)))
+                            .child(div().text_sm().child(format!("Levels: {num_levels}")))
                             .child(div().text_sm().child(format!(
                                 "Rings: {}",
                                 contours.iter().map(|c| c.coordinates.len()).sum::<usize>()
                             )))
-                            .child(div().text_sm().child(format!("Points: {}", num_points))),
+                            .child(div().text_sm().child(format!("Points: {num_points}"))),
                     ),
             ),
     )

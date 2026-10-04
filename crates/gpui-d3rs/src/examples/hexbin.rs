@@ -66,7 +66,11 @@ pub fn compute(data: &[(f64, f64)]) -> HexbinResult {
 
     let bins = hex.bin(projected);
 
-    let max_count = bins.iter().map(|b| b.len()).max().unwrap_or(1);
+    let max_count = bins
+        .iter()
+        .map(super::super::hexbin::HexbinBin::len)
+        .max()
+        .unwrap_or(1);
     let color_scale = SequentialScheme::bu_pu();
 
     let bin_results: Vec<BinResult> = bins

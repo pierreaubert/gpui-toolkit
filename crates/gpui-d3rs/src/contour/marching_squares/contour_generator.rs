@@ -261,7 +261,7 @@ impl ContourGenerator {
     /// Generate a contour at the given threshold value, writing into `out`.
     pub fn contour_into(&self, values: &[f64], threshold: f64, out: &mut Contour) {
         self.with_upsampled(values, |this, vals| {
-            this.contour_internal(vals, threshold, out)
+            this.contour_internal(vals, threshold, out);
         });
     }
 
@@ -442,9 +442,8 @@ impl ContourGenerator {
 
             // Find the exit edge within this cell
             let case = self.cell_case(values, i, j, threshold);
-            let exit_edge = match Self::exit_edge(entry_edge, case) {
-                Some(e) => e,
-                None => break,
+            let Some(exit_edge) = Self::exit_edge(entry_edge, case) else {
+                break;
             };
 
             // Also mark the exit edge as visited (it's the same contour segment)
@@ -478,15 +477,13 @@ impl ContourGenerator {
         }
 
         // Close the ring if we have enough points
-        if deduped.len() >= 3 {
+        (deduped.len() >= 3).then(|| {
             // Only add closing point if it's different from the last point
             if !points_equal(&deduped[deduped.len() - 1], &deduped[0]) {
                 deduped.push(deduped[0]);
             }
-            Some(ContourRing::new(deduped))
-        } else {
-            None
-        }
+            ContourRing::new(deduped)
+        })
     }
 
     /// Get the interpolated point on an edge.
@@ -668,7 +665,7 @@ impl ContourGenerator {
     }
 
     /// Move to the adjacent cell when exiting through an edge.
-    /// Returns (new_i, new_j, entry_edge_in_new_cell) or None if at boundary.
+    /// Returns (`new_i`, `new_j`, `entry_edge_in_new_cell`) or None if at boundary.
     pub(super) fn move_to_adjacent_cell(
         &self,
         i: usize,
@@ -678,27 +675,19 @@ impl ContourGenerator {
         match exit_edge {
             0 => {
                 // Exit through bottom -> enter cell below through its top
-                if j > 0 { Some((i, j - 1, 2)) } else { None }
+                (j > 0).then(|| (i, j - 1, 2))
             }
             1 => {
                 // Exit through right -> enter cell to the right through its left
-                if i + 1 < self.width - 1 {
-                    Some((i + 1, j, 3))
-                } else {
-                    None
-                }
+                (i + 1 < self.width - 1).then(|| (i + 1, j, 3))
             }
             2 => {
                 // Exit through top -> enter cell above through its bottom
-                if j + 1 < self.height - 1 {
-                    Some((i, j + 1, 0))
-                } else {
-                    None
-                }
+                (j + 1 < self.height - 1).then(|| (i, j + 1, 0))
             }
             3 => {
                 // Exit through left -> enter cell to the left through its right
-                if i > 0 { Some((i - 1, j, 1)) } else { None }
+                (i > 0).then(|| (i - 1, j, 1))
             }
             _ => None,
         }
@@ -716,7 +705,7 @@ impl ContourGenerator {
     /// * `thresholds` - Threshold values (must be sorted in ascending order)
     ///
     /// # Returns
-    /// A vector of ContourBand, one for each pair of consecutive thresholds.
+    /// A vector of `ContourBand`, one for each pair of consecutive thresholds.
     /// Generate filled contour bands between consecutive threshold values.
     pub fn contour_bands(&self, values: &[f64], thresholds: &[f64]) -> Vec<ContourBand> {
         let mut bands = Vec::new();
@@ -888,7 +877,7 @@ impl ContourGenerator {
         }
         points.truncate(write);
 
-        if write >= 3 { Some(write) } else { None }
+        (write >= 3).then_some(write)
     }
 
     /// Classify a value relative to the band thresholds.

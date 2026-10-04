@@ -53,7 +53,7 @@ pub fn interpolate_string(a: &str, b: &str) -> impl Fn(f64) -> String {
                     write!(result, "{}", val as i64).unwrap();
                 } else {
                     let start = result.len();
-                    write!(result, "{:.6}", val).unwrap();
+                    write!(result, "{val:.6}").unwrap();
                     // Trim trailing zeros and a lone trailing decimal point in place.
                     while result.ends_with('0') {
                         result.pop();
@@ -172,7 +172,7 @@ fn format_transform(name: &str, values: &[f64], units: &[String]) -> String {
             if v.fract().abs() < 1e-10 {
                 format!("{}{}", *v as i64, u)
             } else {
-                format!("{:.2}{}", v, u)
+                format!("{v:.2}{u}")
             }
         })
         .collect();

@@ -1,4 +1,4 @@
-//! ThinkingOrb API/behavior unit tests.
+//! `ThinkingOrb` API/behavior unit tests.
 //!
 //! Covers the non-entity surface of `gpui_ui_kit::thinking_orb`: the state and
 //! size enums, preset resolution, density-scaling invariants, and an engine

@@ -77,8 +77,11 @@ impl HStack {
 
     /// Add multiple children
     pub fn children(mut self, children: impl IntoIterator<Item = impl IntoElement>) -> Self {
-        self.children
-            .extend(children.into_iter().map(|c| c.into_any_element()));
+        self.children.extend(
+            children
+                .into_iter()
+                .map(gpui::IntoElement::into_any_element),
+        );
         self
     }
 
@@ -88,13 +91,13 @@ impl HStack {
         self
     }
 
-    /// Set cross-axis alignment (vertical for HStack)
+    /// Set cross-axis alignment (vertical for `HStack`)
     pub fn align(mut self, align: StackAlign) -> Self {
         self.align = align;
         self
     }
 
-    /// Set main-axis alignment (horizontal for HStack)
+    /// Set main-axis alignment (horizontal for `HStack`)
     pub fn justify(mut self, justify: StackJustify) -> Self {
         self.justify = justify;
         self

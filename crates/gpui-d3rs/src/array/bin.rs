@@ -142,8 +142,8 @@ impl<T: Clone> BinGenerator<T> {
 
         // Determine domain
         let (min, max) = self.domain.unwrap_or_else(|| {
-            let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
-            let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let min = values.iter().copied().fold(f64::INFINITY, f64::min);
+            let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
             (min, max)
         });
 
@@ -209,7 +209,7 @@ impl<T: Clone> BinGenerator<T> {
                 if sorted.is_empty() {
                     ((n as f64).log2() + 1.0).ceil() as usize
                 } else {
-                    sorted.sort_by(|a, b| a.total_cmp(b));
+                    sorted.sort_by(f64::total_cmp);
                     let m = sorted.len();
                     let q1 = sorted[m / 4];
                     let q3 = sorted[3 * m / 4];
@@ -363,7 +363,7 @@ mod tests {
             x: f64,
         }
 
-        let data: Vec<Point> = (0..100).map(|i| Point { x: i as f64 }).collect();
+        let data: Vec<Point> = (0..100).map(|i| Point { x: f64::from(i) }).collect();
 
         let bins = BinGenerator::new()
             .value(|p: &Point| p.x)
@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn test_bin_generator_default_and_debug() {
         let generator: BinGenerator<f64> = BinGenerator::default();
-        let s = format!("{:?}", generator);
+        let s = format!("{generator:?}");
         assert!(s.contains("BinGenerator"));
     }
 
@@ -457,7 +457,7 @@ mod tests {
 
     #[test]
     fn test_bin_threshold_strategies() {
-        let data: Vec<f64> = (1..=100).map(|i| i as f64).collect();
+        let data: Vec<f64> = (1..=100).map(f64::from).collect();
 
         let sturges = BinGenerator::new().thresholds_sturges().generate(&data);
         assert!(!sturges.is_empty());
@@ -480,7 +480,7 @@ mod tests {
         let generator = BinGenerator::<f64>::new()
             .domain(0.0, 10.0)
             .thresholds_count(2);
-        let _ = format!("{:?}", generator);
+        let _ = format!("{generator:?}");
     }
 
     #[test]

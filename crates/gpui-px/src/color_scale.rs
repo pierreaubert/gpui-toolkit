@@ -64,7 +64,7 @@ impl ColorScale {
         ColorScale::Custom(Arc::new(f))
     }
 
-    /// Convert to a function that maps [0, 1] → D3Color.
+    /// Convert to a function that maps [0, 1] → `D3Color`.
     pub fn to_fn(&self) -> impl Fn(f64) -> D3Color + Send + Sync + Clone + 'static {
         let scale = self.clone();
         move |t: f64| scale.map(t)
@@ -92,7 +92,7 @@ fn interpolate_palette(t: f64, colors: &[D3Color]) -> D3Color {
     if colors.len() < 2 {
         return colors
             .first()
-            .cloned()
+            .copied()
             .unwrap_or(D3Color::from_hex(0x000000));
     }
     let idx = (t * (colors.len() - 1) as f64) as usize;
@@ -286,7 +286,7 @@ mod tests {
         assert_eq!(format!("{:?}", ColorScale::Viridis), "ColorScale::Viridis");
         assert_eq!(format!("{:?}", ColorScale::Heat), "ColorScale::Heat");
         let custom = ColorScale::custom(|_| D3Color::from_hex(0x000000));
-        assert_eq!(format!("{:?}", custom), "ColorScale::Custom(...)");
+        assert_eq!(format!("{custom:?}"), "ColorScale::Custom(...)");
     }
 
     #[test]
@@ -410,7 +410,7 @@ mod tests {
     fn test_clone_preserves_behavior() {
         let scale = ColorScale::Inferno;
         let cloned = scale.clone();
-        assert_eq!(format!("{:?}", scale), format!("{:?}", cloned));
+        assert_eq!(format!("{scale:?}"), format!("{:?}", cloned));
         let c1 = scale.map(0.5);
         let c2 = cloned.map(0.5);
         assert_eq!(c1.r, c2.r);
@@ -426,7 +426,7 @@ mod tests {
     }
 
     fn simulate_cvd(color: D3Color, deficiency: ColorVisionDeficiency) -> [f64; 3] {
-        let [r, g, b] = [color.r as f64, color.g as f64, color.b as f64];
+        let [r, g, b] = [f64::from(color.r), f64::from(color.g), f64::from(color.b)];
         let transformed = match deficiency {
             // Brettel-style linear approximations in sRGB space. These are
             // intentionally used only as a regression screen, not as a

@@ -4,10 +4,10 @@
 //! a parley [`LayoutContext`] and a fontique `Collection` seeded **only**
 //! (code span, not a link: fontique is an optional dependency and this
 //! module documents the no-default-features build too).
-//! from the embedded DejaVu bytes below — system font enumeration is never
+//! from the embedded `DejaVu` bytes below — system font enumeration is never
 //! enabled, so shaping is identical on macOS, Linux, Windows, CI, and wasm.
 //! [`FontEngine::shape`] positions one line of text into owned [`ShapedRun`]s;
-//! Phase 2 encodes those runs into the vello (GPU) and vello_cpu backends,
+//! Phase 2 encodes those runs into the vello (GPU) and `vello_cpu` backends,
 //! Phase 4 bakes them into 3D SDF billboards.
 //!
 //! Font assets (`DejaVuSans.ttf`, `DejaVuSans-Bold.ttf`, `DejaVu-LICENSE`)
@@ -42,13 +42,13 @@ pub mod sdf;
 #[cfg(all(feature = "gpu-3d", not(test)))]
 pub mod billboard;
 
-/// Bundled DejaVu Sans Regular (proportional chart text, SDF source).
+/// Bundled `DejaVu` Sans Regular (proportional chart text, SDF source).
 #[cfg(any(feature = "vello", feature = "gpu-3d"))]
 pub(crate) static SANS_TTF: &[u8] = include_bytes!("../../assets/DejaVuSans.ttf");
-/// Bundled DejaVu Sans Bold (titles, emphasized ticks).
+/// Bundled `DejaVu` Sans Bold (titles, emphasized ticks).
 #[cfg(feature = "vello")]
 static SANS_BOLD_TTF: &[u8] = include_bytes!("../../assets/DejaVuSans-Bold.ttf");
-/// Bundled DejaVu Sans Mono (numeric columns, pre-existing asset).
+/// Bundled `DejaVu` Sans Mono (numeric columns, pre-existing asset).
 #[cfg(feature = "vello")]
 static MONO_TTF: &[u8] = include_bytes!("../../assets/DejaVuSansMono.ttf");
 
@@ -102,7 +102,7 @@ pub struct FontEngine {
 
 #[cfg(feature = "vello")]
 impl FontEngine {
-    /// Build an engine with DejaVu Sans Regular + Bold + Mono registered.
+    /// Build an engine with `DejaVu` Sans Regular + Bold + Mono registered.
     ///
     /// System fonts are never loaded: every run resolves to a bundled file.
     #[must_use]

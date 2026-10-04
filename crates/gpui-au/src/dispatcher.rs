@@ -41,7 +41,9 @@ unsafe extern "C" {
 }
 
 pub(crate) fn dispatch_get_main_queue() -> dispatch_queue_t {
-    std::ptr::addr_of!(_dispatch_main_q) as *const _ as dispatch_queue_t
+    std::ptr::addr_of!(_dispatch_main_q)
+        .cast::<std::ffi::c_void>()
+        .cast_mut()
 }
 
 fn priority_to_gcd(priority: Priority) -> i64 {
@@ -56,6 +58,8 @@ pub(crate) struct AuDispatcher;
 
 impl PlatformDispatcher for AuDispatcher {
     fn is_main_thread(&self) -> bool {
+        // SAFETY: `NSThread` and its `isMainThread` class method always
+        // exist; the message takes no arguments and returns a `BOOL`.
         unsafe {
             let is_main: BOOL = msg_send![class!(NSThread), isMainThread];
             is_main == YES
@@ -63,7 +67,10 @@ impl PlatformDispatcher for AuDispatcher {
     }
 
     fn dispatch(&self, runnable: RunnableVariant, priority: Priority) {
-        let context = runnable.into_raw().as_ptr() as *mut c_void;
+        let context = runnable.into_raw().as_ptr().cast::<c_void>();
+        // SAFETY: `context` is the non-null task pointer leaked by
+        // `into_raw`; ownership transfers to GCD, which passes it to
+        // `trampoline` exactly once. The global queue is always valid.
         unsafe {
             dispatch_async_f(
                 dispatch_get_global_queue(priority_to_gcd(priority), 0),
@@ -74,14 +81,20 @@ impl PlatformDispatcher for AuDispatcher {
     }
 
     fn dispatch_on_main_thread(&self, runnable: RunnableVariant, _priority: Priority) {
-        let context = runnable.into_raw().as_ptr() as *mut c_void;
+        let context = runnable.into_raw().as_ptr().cast::<c_void>();
+        // SAFETY: `context` is the non-null task pointer leaked by
+        // `into_raw`; ownership transfers to GCD, which passes it to
+        // `trampoline` exactly once. The main queue is always valid.
         unsafe {
             dispatch_async_f(dispatch_get_main_queue(), context, Some(trampoline));
         }
     }
 
     fn dispatch_after(&self, duration: Duration, runnable: RunnableVariant) {
-        let context = runnable.into_raw().as_ptr() as *mut c_void;
+        let context = runnable.into_raw().as_ptr().cast::<c_void>();
+        // SAFETY: `context` is the non-null task pointer leaked by
+        // `into_raw`; ownership transfers to GCD, which passes it to
+        // `trampoline` exactly once. Saturating the delay keeps it in range.
         unsafe {
             let queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0);
             let when = dispatch_time(
@@ -105,7 +118,9 @@ impl PlatformDispatcher for AuDispatcher {
 }
 
 unsafe extern "C" fn trampoline(runnable: *mut c_void) {
-    let task = unsafe { RunnableVariant::from_raw(NonNull::new_unchecked(runnable as *mut ())) };
+    // SAFETY: GCD passes back the non-null context pointer supplied to
+    // `dispatch_*_f`; `from_raw` reclaims ownership exactly once here.
+    let task = unsafe { RunnableVariant::from_raw(NonNull::new_unchecked(runnable.cast::<()>())) };
     task.run();
 }
 

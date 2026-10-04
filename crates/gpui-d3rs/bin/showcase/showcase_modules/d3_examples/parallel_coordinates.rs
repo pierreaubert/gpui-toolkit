@@ -16,8 +16,8 @@ const CARS_CSV: &str = include_str!("../../data/cars.csv");
 
 pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let ui_theme = cx.theme();
-    let width = app.content_width as f64;
-    let height = (width * 0.525).min(app.content_height as f64 * 0.6);
+    let width = f64::from(app.content_width);
+    let height = (width * 0.525).min(f64::from(app.content_height) * 0.6);
     let margin_top = 30.0;
     let margin_bottom = 30.0;
     let margin_left = 40.0;
@@ -56,15 +56,14 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         let mut valid = true;
         let mut vals = Vec::with_capacity(num_axes);
         for key in &axis_keys {
-            match row
+            if let Some(v) = row
                 .get(&key.to_string())
                 .and_then(|s| s.parse::<f64>().ok())
             {
-                Some(v) => vals.push(v),
-                None => {
-                    valid = false;
-                    break;
-                }
+                vals.push(v);
+            } else {
+                valid = false;
+                break;
             }
         }
         if valid {
@@ -125,7 +124,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         let (min_val, max_val) = extents[i];
         let step = (max_val - min_val) / 4.0;
         for t in 0..=4 {
-            let val = min_val + t as f64 * step;
+            let val = min_val + f64::from(t) * step;
             let y = margin_top + scales[i].scale(val);
             let path = D3PathBuilder::new()
                 .move_to(x - 4.0, y)
@@ -181,12 +180,12 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         let (min_val, max_val) = extents[i];
         let step = (max_val - min_val) / 4.0;
         for t in 0..=4 {
-            let val = min_val + t as f64 * step;
+            let val = min_val + f64::from(t) * step;
             let y = margin_top + scales[i].scale(val);
             let label = if val.fract() == 0.0 || val.abs() >= 1000.0 {
-                format!("{:.0}", val)
+                format!("{val:.0}")
             } else {
-                format!("{:.1}", val)
+                format!("{val:.1}")
             };
             tick_labels.push((x, y, label));
         }
@@ -203,8 +202,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .child("Parallel Coordinates"),
         )
         .child(div().text_sm().child(format!(
-            "Source: observablehq.com/@d3/parallel-coordinates — {} cars from cars.csv",
-            n_cars
+            "Source: observablehq.com/@d3/parallel-coordinates — {n_cars} cars from cars.csv"
         )))
         .child(
             // Legend by cylinder count

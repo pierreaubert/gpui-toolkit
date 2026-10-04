@@ -1,4 +1,4 @@
-//! ColorPicker component tests
+//! `ColorPicker` component tests
 
 use gpui_ui_kit::color::Color;
 use gpui_ui_kit::color_picker::{ColorPickerMode, ColorPickerView};
@@ -8,7 +8,7 @@ fn test_color_picker_mode_variants() {
     let modes = [ColorPickerMode::RGB, ColorPickerMode::HSL];
     for mode in &modes {
         // Verify all variants are accessible and Copy
-        let _copy = *mode;
+        let _ = *mode;
     }
 }
 

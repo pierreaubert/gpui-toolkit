@@ -58,7 +58,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         if f >= 1000.0 {
                             format!("{:.0}k", f / 1000.0)
                         } else {
-                            format!("{:.0}", f)
+                            format!("{f:.0}")
                         }
                     }),
                     400.0,
@@ -85,9 +85,9 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                             &db_scale,
                             &AxisConfig::left().with_ticks(9).with_formatter(|db| {
                                 if db > 0.0 {
-                                    format!("+{:.0}", db)
+                                    format!("+{db:.0}")
                                 } else {
-                                    format!("{:.0}", db)
+                                    format!("{db:.0}")
                                 }
                             }),
                             200.0,

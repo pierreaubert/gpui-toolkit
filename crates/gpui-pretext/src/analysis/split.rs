@@ -35,11 +35,9 @@ pub(super) fn split_leading_space_and_marks(segment: &str) -> Option<(&str, &str
         return None;
     }
     let rest = &segment[1..];
-    if rest.chars().all(is_combining_mark) {
-        Some((&segment[..1], rest))
-    } else {
-        None
-    }
+    rest.chars()
+        .all(is_combining_mark)
+        .then(|| (&segment[..1], rest))
 }
 
 pub(super) fn split_segment_by_break_kind<'a>(

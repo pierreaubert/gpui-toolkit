@@ -1,4 +1,4 @@
-//! SearchBar component tests
+//! `SearchBar` component tests
 
 use gpui_ui_kit::search_bar::{SearchBar, SearchBarSize};
 

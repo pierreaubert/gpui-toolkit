@@ -335,7 +335,7 @@ mod tests {
             "allow 2x slack, got {}",
             lod.triangles.len()
         );
-        assert!(lod.validate().is_ok());
+        lod.validate().unwrap();
     }
 
     #[test]
@@ -410,7 +410,7 @@ mod tests {
             };
             assert_eq!(mapped.values.len(), provenance.len());
             assert_eq!(
-                mapped.valid.as_deref().map(|mask| mask.len()),
+                mapped.valid.as_deref().map(<[bool]>::len),
                 Some(provenance.len())
             );
             for (output, &source) in mapped.values.iter().zip(provenance.iter()) {

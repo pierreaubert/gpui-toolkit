@@ -28,7 +28,7 @@ pub struct StarMapResult {
 }
 
 /// Parse stars.csv: columns 0,1 are pre-projected x,y; we use RA/Dec columns.
-/// Format: x,y,ID,greek_letter,constellation,RA_hour,RA_min,RA_sec,dec_deg,dec_min,dec_sec,magnitude
+/// Format: `x,y,ID,greek_letter,constellation,RA_hour,RA_min,RA_sec,dec_deg,dec_min,dec_sec,magnitude`
 pub fn load_csv(csv_str: &str) -> Vec<(f64, f64, f64)> {
     csv_str
         .lines()
@@ -103,10 +103,10 @@ pub fn compute(stars_data: &[(f64, f64, f64)]) -> StarMapResult {
     let mut grat_builder = PathBuilder::new();
     // RA lines every 2 hours (30°)
     for h in (0..24).step_by(2) {
-        let ra = h as f64 * 15.0;
+        let ra = f64::from(h) * 15.0;
         let mut first = true;
         for dec_i in (-30..=90).step_by(2) {
-            let dec = dec_i as f64;
+            let dec = f64::from(dec_i);
             let (px, py) = proj.project(ra, dec);
             if px.is_finite() && py.is_finite() {
                 if first {
@@ -122,10 +122,10 @@ pub fn compute(stars_data: &[(f64, f64, f64)]) -> StarMapResult {
     }
     // Dec circles every 30°
     for dec_i in (-30..=60).step_by(30) {
-        let dec = dec_i as f64;
+        let dec = f64::from(dec_i);
         let mut first = true;
         for ra_i in (0..=360).step_by(2) {
-            let ra = ra_i as f64;
+            let ra = f64::from(ra_i);
             let (px, py) = proj.project(ra, dec);
             if px.is_finite() && py.is_finite() {
                 if first {
@@ -145,7 +145,7 @@ pub fn compute(stars_data: &[(f64, f64, f64)]) -> StarMapResult {
     let r = width / 2.0 * 0.95;
     let mut outline_builder = PathBuilder::new();
     for v in 0..n_sides {
-        let angle = std::f64::consts::TAU * v as f64 / n_sides as f64;
+        let angle = std::f64::consts::TAU * f64::from(v) / f64::from(n_sides);
         let x = width / 2.0 + r * angle.cos();
         let y = height / 2.0 + r * angle.sin();
         if v == 0 {

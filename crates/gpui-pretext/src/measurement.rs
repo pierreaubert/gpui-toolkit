@@ -38,7 +38,7 @@ pub trait TextMeasure {
     /// change the token whenever font, scale, locale, or shaping state changes.
     /// The default distinguishes measure instances for compatibility.
     fn cache_key(&self) -> u64 {
-        (self as *const Self as *const () as usize) as u64
+        (std::ptr::from_ref::<Self>(self).cast::<()>() as usize) as u64
     }
 
     /// Whether [`Self::cache_key`] identifies this measure across independent
@@ -55,7 +55,7 @@ pub trait TextMeasure {
 
     /// Shape a run, returning per-grapheme advances plus cluster mapping.
     ///
-    /// Backends with a real shaper (HarfBuzz, rustybuzz, CoreText) override
+    /// Backends with a real shaper (`HarfBuzz`, rustybuzz, CoreText) override
     /// this to return glyph advances with ligature/kerning applied; the
     /// default returns `None`, and [`shape_run`] falls back to measuring each
     /// grapheme with [`TextMeasure::measure_width`]. Overriding this never
@@ -300,7 +300,7 @@ impl MeasureCache {
                     },
                 );
             }
-        };
+        }
         // Evict after inserting so the new entry counts toward the budgets.
         self.evict_if_needed();
         // The just-inserted key sits at the back of the LRU order and the

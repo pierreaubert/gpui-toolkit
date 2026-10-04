@@ -2,7 +2,7 @@
 //!
 //! Demonstrates the Tooltip component:
 //! - Different placements
-//! - WithTooltip wrapper
+//! - `WithTooltip` wrapper
 
 use gpui::*;
 use gpui_miniapp::{MiniApp, MiniAppConfig};

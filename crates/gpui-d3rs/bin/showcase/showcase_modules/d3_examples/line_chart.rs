@@ -44,8 +44,8 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let x_ticks = x_scale.ticks((plot_w / 80.0).round().clamp(2.0, 12.0) as usize);
     let y_ticks = y_scale.ticks((plot_h / 40.0).round().clamp(2.0, 12.0) as usize);
 
-    let line_color: Hsla = chart_colors::ink_hex(&ui_theme, 0x4682b4); // steelblue
-    let grid_color: Hsla = chart_colors::grid(&ui_theme);
+    let line_color = chart_colors::ink_hex(&ui_theme, 0x4682b4); // steelblue
+    let grid_color = chart_colors::grid(&ui_theme);
 
     div()
         .flex()
@@ -94,7 +94,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .justify_end()
                         .pr_1()
-                        .child(div().text_xs().child(format!("{:.0}", val)))
+                        .child(div().text_xs().child(format!("{val:.0}")))
                 }))
                 // Y grid lines cloned from y ticks at 0.1 opacity
                 .children(y_ticks.iter().map(|&val| {
@@ -119,7 +119,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .w(px(label_w as f32))
                         .flex()
                         .justify_center()
-                        .child(div().text_xs().child(format!("{:.0}", val)))
+                        .child(div().text_xs().child(format!("{val:.0}")))
                 }))
                 // Plot area with the single stroked line
                 .child(
@@ -132,7 +132,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .child(
                             canvas(
                                 move |_, _, _| (),
-                                move |bounds, _, window, _| {
+                                move |bounds, (), window, _| {
                                     let origin = bounds.origin;
                                     let mut builder = gpui::PathBuilder::stroke(px(1.5));
                                     for (i, &(x, y)) in line_points.iter().enumerate() {

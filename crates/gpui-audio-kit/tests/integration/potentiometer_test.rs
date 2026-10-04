@@ -8,7 +8,7 @@
 //! - Selected state
 //! - Linear vs Logarithmic scales
 //! - Disabled state
-//! - Callbacks: on_change, on_select, on_reset, on_drag_start
+//! - Callbacks: `on_change`, `on_select`, `on_reset`, `on_drag_start`
 
 #[path = "potentiometer_test/disabled_pot_test_view.rs"]
 mod disabled_pot_test_view;

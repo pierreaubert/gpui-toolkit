@@ -1,4 +1,4 @@
-//! Integration tests for VolumeKnob component
+//! Integration tests for `VolumeKnob` component
 //!
 //! Tests the volume knob component including:
 //! - Basic rendering

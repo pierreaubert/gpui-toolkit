@@ -1,4 +1,4 @@
-//! QrCode component tests
+//! `QrCode` component tests
 
 use gpui_ui_kit::qr::QrCode;
 

@@ -1,6 +1,6 @@
-//! Integration tests for QrCode component
+//! Integration tests for `QrCode` component
 //!
-//! Tests the QrCode component including:
+//! Tests the `QrCode` component including:
 //! - Basic rendering
 //! - Custom sizes
 //! - Custom colors

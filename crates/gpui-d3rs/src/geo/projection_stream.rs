@@ -2,7 +2,7 @@
 //!
 //! Mirrors the project + scale/translate stage of `d3-geo/src/projection/index.js`.
 //! This stage receives geographic coordinates in degrees (the convention used by
-//! the GeoJSON stream) and forwards projected planar coordinates to the next
+//! the `GeoJSON` stream) and forwards projected planar coordinates to the next
 //! stream stage.
 
 use crate::geo::projection::Projection;
@@ -34,9 +34,9 @@ impl<P: Projection, S: Stream> ProjectStream<P, S> {
 }
 
 impl<P: Projection, S: Stream> Stream for ProjectStream<P, S> {
-    fn point(&mut self, lon: f64, lat: f64, m: i32) {
-        let (x, y) = self.projection.project(lon, lat);
-        self.sink.point(x, y, m);
+    fn point(&mut self, x: f64, y: f64, m: i32) {
+        let (px, py) = self.projection.project(x, y);
+        self.sink.point(px, py, m);
     }
 
     fn line_start(&mut self) {
@@ -129,7 +129,11 @@ mod tests {
             stream.sink.events,
             vec![
                 "line_start".to_string(),
-                format!("point {} {} 0", 10.0f64.to_radians(), -20.0f64.to_radians()),
+                format!(
+                    "point {} {} 0",
+                    10.0f64.to_radians(),
+                    (-20.0f64).to_radians()
+                ),
                 "line_end".to_string(),
                 "polygon_start".to_string(),
                 "polygon_end".to_string(),

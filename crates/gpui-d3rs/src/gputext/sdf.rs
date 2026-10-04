@@ -315,8 +315,8 @@ mod tests {
         // and the outline column sits at the midpoint.
         assert!(sdf[4 * w] > 200, "deep inside");
         assert!(sdf[4 * w + 8] < 55, "far outside");
-        let edge = sdf[4 * w + 3] as f32;
-        let outside = sdf[4 * w + 4] as f32;
+        let edge = f32::from(sdf[4 * w + 3]);
+        let outside = f32::from(sdf[4 * w + 4]);
         assert!((edge - 128.0).abs() < 40.0, "outline near midpoint: {edge}");
         assert!(
             (outside - 128.0).abs() < 40.0,

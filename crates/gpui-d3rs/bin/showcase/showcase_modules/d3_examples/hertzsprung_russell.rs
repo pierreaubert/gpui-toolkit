@@ -47,9 +47,9 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         all_colors.push(chart_colors::ink_rgba(
             &ui_theme,
             Rgba {
-                r: star.r as f32 / 255.0,
-                g: star.g as f32 / 255.0,
-                b: star.b as f32 / 255.0,
+                r: f32::from(star.r) / 255.0,
+                g: f32::from(star.g) / 255.0,
+                b: f32::from(star.b) / 255.0,
                 a: 0.8,
             },
         ));
@@ -101,7 +101,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 )
                 // Y-axis: absolute magnitude (brighter at top, -7 to 19)
                 .children((-7..=19).step_by(2).map(|mag| {
-                    let y = 40.0 + (mag as f64 + 7.0) / 26.0 * (height - 80.0);
+                    let y = 40.0 + (f64::from(mag) + 7.0) / 26.0 * (height - 80.0);
                     div()
                         .absolute()
                         .left(px(2.0))

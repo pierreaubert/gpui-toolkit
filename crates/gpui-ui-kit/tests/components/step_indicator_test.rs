@@ -1,4 +1,4 @@
-//! StepIndicator component tests
+//! `StepIndicator` component tests
 
 use gpui_ui_kit::step_indicator::{
     StepIndicator, StepIndicatorSize, StepItem, StepItemStatus, StepOrientation,

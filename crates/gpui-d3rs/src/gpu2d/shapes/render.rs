@@ -1121,25 +1121,25 @@ where
     let (y_min, y_max) = y_scale.range();
     let x_span = x_max - x_min;
     let y_span = y_max - y_min;
-    let x_positions = if x_span != 0.0 {
+    let x_positions = if x_span == 0.0 {
+        Default::default()
+    } else {
         {
             x_ticks
                 .iter()
                 .map(|&x| ((x_scale.scale(x) - x_min) / x_span) as f32)
                 .collect::<Vec<_>>()
         }
-    } else {
-        Default::default()
     };
-    let y_positions = if y_span != 0.0 {
+    let y_positions = if y_span == 0.0 {
+        Default::default()
+    } else {
         {
             y_ticks
                 .iter()
                 .map(|&y| (1.0 - (y_scale.scale(y) - y_min) / y_span) as f32)
                 .collect::<Vec<_>>()
         }
-    } else {
-        Default::default()
     };
     let line_width = config.line_width;
     let line_color = [
@@ -1166,8 +1166,8 @@ where
             for &x in &x_positions {
                 let x = x * width;
                 scene.stroke_polyline(
-                    &[(x as f64, 0.0), (x as f64, height as f64)],
-                    Stroke::new(line_width as f64),
+                    &[(f64::from(x), 0.0), (f64::from(x), f64::from(height))],
+                    Stroke::new(f64::from(line_width)),
                     line_brush.clone(),
                 );
             }
@@ -1176,8 +1176,8 @@ where
             for &y in &y_positions {
                 let y = y * height;
                 scene.stroke_polyline(
-                    &[(0.0, y as f64), (width as f64, y as f64)],
-                    Stroke::new(line_width as f64),
+                    &[(0.0, f64::from(y)), (f64::from(width), f64::from(y))],
+                    Stroke::new(f64::from(line_width)),
                     line_brush.clone(),
                 );
             }
@@ -1187,9 +1187,9 @@ where
             for &y in &y_positions {
                 for &x in &x_positions {
                     scene.fill_circle(
-                        (x * width) as f64,
-                        (y * height) as f64,
-                        dot_radius as f64,
+                        f64::from(x * width),
+                        f64::from(y * height),
+                        f64::from(dot_radius),
                         dot_brush.clone(),
                     );
                 }

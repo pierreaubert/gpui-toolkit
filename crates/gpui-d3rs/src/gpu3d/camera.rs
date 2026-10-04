@@ -116,8 +116,8 @@ impl Camera3D {
     pub fn toggle_projection(&mut self) {
         let projection = match self.projection {
             Projection::Perspective { fov_y } => Projection::Orthographic {
-                half_height: (self.position - self.target).length() as f64
-                    * (fov_y * 0.5).tan() as f64,
+                half_height: f64::from((self.position - self.target).length())
+                    * f64::from((fov_y * 0.5).tan()),
             },
             Projection::Orthographic { .. } => Projection::Perspective { fov_y: self.fov },
         };
@@ -214,11 +214,7 @@ impl Camera3D {
         let after = self.project_to_screen(anchor + self.right(), width, height)?;
         // Hypot, not just dx: robust under camera roll.
         let px_per_unit = (after.x - before.x).hypot(after.y - before.y);
-        if px_per_unit > 1e-6 {
-            Some(1.0 / px_per_unit)
-        } else {
-            None
-        }
+        (px_per_unit > 1e-6).then(|| 1.0 / px_per_unit)
     }
 
     /// Project a world point to screen coordinates (0..width, 0..height)
@@ -235,7 +231,7 @@ impl Camera3D {
             return None;
         }
 
-        let x = (ndc.x + 1.0) * 0.5 * width;
+        let x = f32::midpoint(ndc.x, 1.0) * width;
         let y = (1.0 - ndc.y) * 0.5 * height;
         let z = ndc.z;
 

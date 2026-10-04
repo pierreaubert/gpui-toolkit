@@ -1,4 +1,4 @@
-/// A GeoJSON geometry type.
+/// A `GeoJSON` geometry type.
 #[derive(Clone, Debug)]
 pub enum GeoJsonGeometry {
     /// A single point

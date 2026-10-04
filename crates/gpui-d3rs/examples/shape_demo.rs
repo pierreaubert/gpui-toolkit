@@ -35,8 +35,8 @@ fn main() {
     let data = vec![30.0, 20.0, 15.0, 25.0, 10.0];
     let labels = vec!["A", "B", "C", "D", "E"];
 
-    println!("Data: {:?}", data);
-    println!("Labels: {:?}\n", labels);
+    println!("Data: {data:?}");
+    println!("Labels: {labels:?}\n");
 
     // Full pie using helper function
     let slices = pie(&data, 100.0);
@@ -172,7 +172,7 @@ fn main() {
     ];
 
     println!("\nCurve interpolation results:");
-    for (name, curve) in curve_types.iter() {
+    for (name, curve) in &curve_types {
         let interpolated = curve.interpolate(&control_points);
         println!("  {:20}: {} points", name, interpolated.len());
     }
@@ -194,7 +194,7 @@ fn main() {
     ];
 
     println!("Available symbol types:");
-    for symbol_type in symbol_types.iter() {
+    for symbol_type in &symbol_types {
         let symbol = Symbol::new(*symbol_type, 64.0);
         let path = symbol.generate();
         println!(
@@ -225,7 +225,7 @@ fn main() {
 
     println!("Input data (3 time points, 3 series):");
     for (i, row) in stack_data.iter().enumerate() {
-        println!("  Time {}: {:?}", i, row);
+        println!("  Time {i}: {row:?}");
     }
 
     // Standard stack (None offset)

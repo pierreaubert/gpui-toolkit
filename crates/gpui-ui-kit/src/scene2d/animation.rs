@@ -1,4 +1,4 @@
-//! Retained Scene2D state and native transform/opacity animation.
+//! Retained `Scene2D` state and native transform/opacity animation.
 
 // Rust guideline compliant 2026-02-21
 
@@ -172,13 +172,11 @@ impl Scene2DState {
             };
             let to = motion_value(target);
             let previous = old_by_id.get(&target.id);
-            let from = previous.map(motion_value).unwrap_or(MotionValue {
+            let from = previous.map_or(MotionValue {
                 transform: target.transform,
                 opacity: 0.0,
-            });
-            let from_kind = previous
-                .map(|node| node.kind.clone())
-                .unwrap_or_else(|| target.kind.clone());
+            }, motion_value);
+            let from_kind = previous.map_or_else(|| target.kind.clone(), |node| node.kind.clone());
             let changed = from != to
                 || (transition.animate_color && from_kind != target.kind)
                 || (transition.reveal_path && from_kind != target.kind);
@@ -513,7 +511,7 @@ impl std::fmt::Debug for Scene2DState {
             .field("nodes", &inner.scene.nodes.len())
             .field("active_animations", &inner.animations.len())
             .field("reduced_motion", &inner.reduced_motion)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -673,9 +671,9 @@ fn interpolate_kind(from: &Scene2DNodeKind, to: &Scene2DNodeKind, t: f32) -> Sce
     match (from, to) {
         (
             Kind::Rect {
-                rect: _,
                 fill: from_fill,
                 stroke: from_stroke,
+                ..
             },
             Kind::Rect { rect, fill, stroke },
         ) => Kind::Rect {
@@ -1108,9 +1106,9 @@ mod tests {
         state
             .replace_scene(scene(2, 20.0, transition.clone()))
             .unwrap();
-        state.inner.borrow_mut().created_at = Instant::now() - Duration::from_millis(70);
+        state.inner.borrow_mut().created_at = Instant::now().checked_sub(Duration::from_millis(70)).unwrap();
         state.replace_scene(scene(3, 20.0, transition)).unwrap();
-        state.inner.borrow_mut().created_at = Instant::now() - Duration::from_millis(120);
+        state.inner.borrow_mut().created_at = Instant::now().checked_sub(Duration::from_millis(120)).unwrap();
         let (presented, active) = state.presented_scene();
         assert!(!active);
         assert_eq!(presented.nodes[0].transform.translate_x, 20.0);
@@ -1134,7 +1132,7 @@ mod tests {
             *fill = Some(Scene2DBrush::solid(Scene2DColor::rgb(1.0, 0.0, 0.0)));
         }
         state.replace_scene(target).unwrap();
-        state.inner.borrow_mut().created_at = Instant::now() - Duration::from_millis(50);
+        state.inner.borrow_mut().created_at = Instant::now().checked_sub(Duration::from_millis(50)).unwrap();
         let (presented, active) = state.presented_scene();
         assert!(active);
         let Scene2DNodeKind::Rect {
@@ -1147,7 +1145,7 @@ mod tests {
         assert!(color.r > 0.3 && color.r < 1.0);
         assert!(color.g < 0.6 && color.g > 0.0);
 
-        state.inner.borrow_mut().created_at = Instant::now() - Duration::from_millis(110);
+        state.inner.borrow_mut().created_at = Instant::now().checked_sub(Duration::from_millis(110)).unwrap();
         let (_, active) = state.presented_scene();
         assert!(!active);
         let events = state.take_transition_completions();
@@ -1210,7 +1208,7 @@ mod tests {
             }),
         };
         state.replace_scene(target).unwrap();
-        state.inner.borrow_mut().created_at = Instant::now() - Duration::from_millis(50);
+        state.inner.borrow_mut().created_at = Instant::now().checked_sub(Duration::from_millis(50)).unwrap();
         let (presented, active) = state.presented_scene();
         assert!(active);
         let Scene2DNodeKind::Path { commands, .. } = &presented.nodes[0].kind else {
@@ -1236,9 +1234,9 @@ mod tests {
                 }),
             ))
             .unwrap();
-        state.inner.borrow_mut().created_at = Instant::now() - Duration::from_millis(40);
+        state.inner.borrow_mut().created_at = Instant::now().checked_sub(Duration::from_millis(40)).unwrap();
         state.set_suspended(true);
-        state.inner.borrow_mut().created_at = Instant::now() - Duration::from_secs(2);
+        state.inner.borrow_mut().created_at = Instant::now().checked_sub(Duration::from_secs(2)).unwrap();
         assert!(state.set_suspended(false));
         let (presented, active) = state.presented_scene();
         assert!(active);
@@ -1291,12 +1289,12 @@ mod tests {
         assert_eq!(presented.nodes.len(), 1);
         assert_eq!(presented.nodes[0].id, "piece");
 
-        state.inner.borrow_mut().created_at = Instant::now() - Duration::from_millis(250);
+        state.inner.borrow_mut().created_at = Instant::now().checked_sub(Duration::from_millis(250)).unwrap();
         let mut another_replacement = Scene2DScene::new(SceneRect::new(0.0, 0.0, 100.0, 100.0));
         another_replacement.revision = 3;
         state.replace_scene(another_replacement).unwrap();
 
-        state.inner.borrow_mut().created_at = Instant::now() - Duration::from_secs(1);
+        state.inner.borrow_mut().created_at = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
         let (presented, active) = state.presented_scene();
         assert!(!active);
         assert!(presented.nodes.is_empty());

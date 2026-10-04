@@ -1,6 +1,6 @@
-//! ButtonSet Debug Example
+//! `ButtonSet` Debug Example
 //!
-//! Demonstrates the ButtonSet component:
+//! Demonstrates the `ButtonSet` component:
 //! - Basic button set with selection
 //! - Different sizes
 //! - Disabled state
@@ -167,13 +167,13 @@ fn main() {
             .scrollable(true)
             .with_theme(true),
         |cx| {
-            cx.new(|_cx| ButtonSetDebug {
+            cx.new(|cx| ButtonSetDebug {
                 selected: "stereo".into(),
                 xs_selected: "a".into(),
                 sm_selected: "b".into(),
                 lg_selected: "c".into(),
                 toggle_selected: "on".into(),
-                entity: _cx.entity().clone(),
+                entity: cx.entity().clone(),
             })
         },
     );

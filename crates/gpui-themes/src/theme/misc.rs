@@ -81,7 +81,7 @@ pub(super) fn contrast_ratio(foreground: Color, background: Color) -> f32 {
 
 pub(super) fn relative_luminance(color: Color) -> f32 {
     fn channel(value: u8) -> f32 {
-        let value = value as f32 / 255.0;
+        let value = f32::from(value) / 255.0;
         if value <= 0.03928 {
             value / 12.92
         } else {

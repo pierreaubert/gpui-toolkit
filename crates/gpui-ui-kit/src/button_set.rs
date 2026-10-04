@@ -1,4 +1,4 @@
-//! ButtonSet component - A group of mutually exclusive buttons
+//! `ButtonSet` component - A group of mutually exclusive buttons
 //!
 //! Provides a segmented control / button group where only one button can be selected at a time.
 //! Buttons are visually connected with rounded corners only on the first and last buttons.

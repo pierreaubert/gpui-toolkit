@@ -7,7 +7,7 @@
 //! - Click to toggle state
 //! - Space key to toggle when selected
 //! - Optional label
-//! - Four visual styles: Sliding (iOS capsule), Material ThumbOnTrack,
+//! - Four visual styles: Sliding (iOS capsule), Material `ThumbOnTrack`,
 //!   Segmented ([OFF|ON]), and Fluent Pill
 
 use crate::accessibility::{
@@ -354,20 +354,20 @@ impl Toggle {
                     .text_center()
                     .min_w(px(36.0))
                     .border_2()
-                    .border_color(if !checked {
-                        theme.text_on_accent
-                    } else {
+                    .border_color(if checked {
                         transparent
-                    })
-                    .bg(if !checked {
-                        theme.accent
                     } else {
-                        theme.background
-                    })
-                    .text_color(if !checked {
                         theme.text_on_accent
+                    })
+                    .bg(if checked {
+                        theme.background
                     } else {
+                        theme.accent
+                    })
+                    .text_color(if checked {
                         theme.text_muted
+                    } else {
+                        theme.text_on_accent
                     })
                     .child("OFF"),
             )

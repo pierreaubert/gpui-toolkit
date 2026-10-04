@@ -51,8 +51,8 @@ impl ThemeTransition {
         if !self.is_animated(reduce_motion) {
             return 1.0;
         }
-        let duration = self.duration_ms.max(1) as f32;
-        let t = (elapsed_ms as f32 / duration).clamp(0.0, 1.0);
+        let duration = f32::from(self.duration_ms.max(1));
+        let t = (f32::from(elapsed_ms) / duration).clamp(0.0, 1.0);
         match self.easing {
             ThemeTransitionEasing::Linear => t,
             ThemeTransitionEasing::EaseOut => 1.0 - (1.0 - t) * (1.0 - t),

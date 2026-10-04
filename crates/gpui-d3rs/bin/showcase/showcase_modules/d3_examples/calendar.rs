@@ -2,7 +2,7 @@
 //!
 //! Loads dji.csv (daily Dow Jones data) and renders a multi-year calendar
 //! heatmap with one row per year, 52 weeks × 7 days.
-//! Uses d3rs PathBuilder, LinearScale, and SequentialScheme.
+//! Uses d3rs `PathBuilder`, `LinearScale`, and `SequentialScheme`.
 //!
 //! Source: <https://observablehq.com/@d3/calendar>
 
@@ -67,7 +67,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
 
     // Group by year
     let mut years: Vec<u32> = days.iter().map(|d| d.year).collect();
-    years.sort();
+    years.sort_unstable();
     years.dedup();
 
     // Value range for diverging color scale (negative = red, positive = green)
@@ -132,8 +132,8 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             let week = absolute_day / 7;
             let dow = absolute_day % 7;
 
-            let x = margin_left + week as f64 * (cell_size + cell_pad);
-            let y = y_base + dow as f64 * (cell_size + cell_pad);
+            let x = margin_left + f64::from(week) * (cell_size + cell_pad);
+            let y = y_base + f64::from(dow) * (cell_size + cell_pad);
 
             let path = D3PathBuilder::new()
                 .move_to(x, y)
@@ -187,7 +187,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .rounded_sm()
                         .overflow_hidden()
                         .children((0..9).map(|i| {
-                            let t = (i as f64 + 0.5) / 9.0;
+                            let t = (f64::from(i) + 0.5) / 9.0;
                             let c = scheme.get(t);
                             div()
                                 .flex_1()
@@ -239,7 +239,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .children((0..12).map(|mi| {
                     // Approximate week position for each month start
                     let week = [0, 4, 9, 13, 17, 22, 26, 31, 35, 39, 44, 48][mi];
-                    let x = margin_left + week as f64 * (cell_size + cell_pad);
+                    let x = margin_left + f64::from(week) * (cell_size + cell_pad);
                     div()
                         .absolute()
                         .left(px(x as f32))

@@ -1,6 +1,6 @@
-//! ScrollArea component
+//! `ScrollArea` component
 //!
-//! A bounded scrollable region (Radix ScrollArea parity): content larger than
+//! A bounded scrollable region (Radix `ScrollArea` parity): content larger than
 //! the configured bounds scrolls on the enabled axes with native scrollbars.
 //!
 //! # Usage

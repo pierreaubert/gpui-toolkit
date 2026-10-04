@@ -17,7 +17,7 @@ pub(crate) fn split_stroke_points(
         .map(|pair| (pair[1].x - pair[0].x).hypot(pair[1].y - pair[0].y))
         .filter(|distance| distance.is_finite() && *distance > 0.0)
         .collect();
-    distances.sort_by(|left, right| left.total_cmp(right));
+    distances.sort_by(f32::total_cmp);
     let typical_distance = distances.get(distances.len() / 2).copied().unwrap_or(0.0);
     let outlier_distance = typical_distance * 4.0;
 

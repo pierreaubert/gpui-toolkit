@@ -15,7 +15,7 @@ pub struct Spring {
 impl Spring {
     /// Create a new spring with custom parameters
     pub fn new(stiffness: f32, damping: f32, mass: f32) -> Self {
-        assert!(mass > 0.0, "spring mass must be positive, got {}", mass);
+        assert!(mass > 0.0, "spring mass must be positive, got {mass}");
         Self {
             stiffness,
             damping,

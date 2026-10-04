@@ -164,15 +164,15 @@ fn is_iso_date(s: &str) -> bool {
 /// let typed = auto_type_row(&row);
 /// assert!(matches!(typed.get("age"), Some(d3rs::fetch::AutoTyped::Integer(25))));
 /// ```
-pub fn auto_type_row(
-    row: &std::collections::HashMap<String, String>,
+pub fn auto_type_row<S: std::hash::BuildHasher>(
+    row: &std::collections::HashMap<String, String, S>,
 ) -> std::collections::HashMap<String, AutoTyped> {
     row.iter().map(|(k, v)| (k.clone(), auto_type(v))).collect()
 }
 
 /// Convert multiple rows to auto-typed values.
-pub fn auto_type_rows(
-    rows: &[std::collections::HashMap<String, String>],
+pub fn auto_type_rows<S: std::hash::BuildHasher>(
+    rows: &[std::collections::HashMap<String, String, S>],
 ) -> Vec<std::collections::HashMap<String, AutoTyped>> {
     rows.iter().map(auto_type_row).collect()
 }

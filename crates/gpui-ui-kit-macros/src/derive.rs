@@ -223,7 +223,7 @@ fn theme_refs_in_expr(expr: &str) -> Vec<String> {
             let end: usize = stripped
                 .chars()
                 .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
-                .map(|ch| ch.len_utf8())
+                .map(char::len_utf8)
                 .sum();
             if end > 0 {
                 refs.push(stripped[..end].to_string());
@@ -367,12 +367,9 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
         for meta in nested {
             match meta {
                 Meta::NameValue(nv) => {
-                    let ident = match nv.path.get_ident() {
-                        Some(i) => i,
-                        None => {
-                            errors.push(syn::Error::new(nv.path.span(), "Expected identifier"));
-                            continue;
-                        }
+                    let Some(ident) = nv.path.get_ident() else {
+                        errors.push(syn::Error::new(nv.path.span(), "Expected identifier"));
+                        continue;
                     };
                     if !seen_attribute_keys.insert(ident.to_string()) {
                         errors.push(syn::Error::new(
@@ -594,7 +591,6 @@ pub(crate) fn derive_component_theme_impl(input: TokenStream) -> TokenStream {
                 field_span,
                 format!("Field `{field_name}` needs either `from` or `from_expr` in #[theme(...)]"),
             ));
-            continue;
         }
     }
 
@@ -756,13 +752,13 @@ mod tests {
     #[test]
     fn theme_happy_path_generates_default_and_from() {
         let out = theme_derive(
-            r#"
+            r"
             #[derive(ComponentTheme)]
             pub struct MyTheme {
                 #[theme(default = 0x007acc, from = accent)]
                 pub primary: u32,
             }
-        "#,
+        ",
         );
         assert!(out.contains("impl Default for MyTheme"));
         assert!(out.contains("impl From < & crate :: theme :: Theme > for MyTheme"));
@@ -771,13 +767,13 @@ mod tests {
     #[test]
     fn theme_generates_from_arc_and_arc_ref() {
         let out = theme_derive(
-            r#"
+            r"
             #[derive(ComponentTheme)]
             pub struct MyTheme {
                 #[theme(default = 0x007acc, from = accent)]
                 pub primary: u32,
             }
-        "#,
+        ",
         );
         assert!(
             out.contains("impl From < std :: sync :: Arc < crate :: theme :: Theme >> for MyTheme")
@@ -792,24 +788,24 @@ mod tests {
     #[test]
     fn generated_impls_are_marked_automatically_derived() {
         let theme = theme_derive(
-            r#"
+            r"
             #[derive(ComponentTheme)]
             pub struct MyTheme {
                 #[theme(default = 0x007acc, from = accent)]
                 pub primary: u32,
             }
-            "#,
+            ",
         );
         assert_eq!(theme.matches("automatically_derived").count(), 5);
 
         let builder = builder_derive(
-            r#"
+            r"
             #[derive(ComponentBuilder)]
             pub struct MyBuilder {
                 #[field(required)]
                 pub id: String,
             }
-            "#,
+            ",
         );
         assert_eq!(builder.matches("automatically_derived").count(), 1);
     }
@@ -817,12 +813,12 @@ mod tests {
     #[test]
     fn theme_missing_attribute_emits_error() {
         let out = theme_derive(
-            r#"
+            r"
             #[derive(ComponentTheme)]
             pub struct MyTheme {
                 pub primary: u32,
             }
-        "#,
+        ",
         );
         assert!(out.contains("compile_error !"));
         assert!(out.contains("missing #[theme(...)] attribute"));
@@ -831,13 +827,13 @@ mod tests {
     #[test]
     fn theme_unknown_attribute_emits_error() {
         let out = theme_derive(
-            r#"
+            r"
             #[derive(ComponentTheme)]
             pub struct MyTheme {
                 #[theme(default = 0x007acc, from = accent, unknown = 1)]
                 pub primary: u32,
             }
-        "#,
+        ",
         );
         assert!(out.contains("compile_error !"));
         assert!(out.contains("Unknown theme attribute"));
@@ -846,7 +842,7 @@ mod tests {
     #[test]
     fn theme_duplicate_attributes_and_keys_emit_errors() {
         let out = theme_derive(
-            r#"
+            r"
             #[derive(ComponentTheme)]
             pub struct MyTheme {
                 #[theme(default = 0x007acc, from = accent)]
@@ -855,7 +851,7 @@ mod tests {
                 #[theme(default = 0x007acc, default = 0x00ff00, from = accent)]
                 pub secondary: u32,
             }
-            "#,
+            ",
         );
         assert!(out.contains("compile_error !"));
         assert!(out.contains("has multiple #[theme(...)] attributes"));
@@ -865,7 +861,7 @@ mod tests {
     #[test]
     fn theme_struct_path_attributes_require_string_literals() {
         let out = theme_derive(
-            r#"
+            r"
             #[derive(ComponentTheme)]
             #[theme_path = 1]
             #[gpui_path = gpui]
@@ -873,7 +869,7 @@ mod tests {
                 #[theme(default = 0x007acc, from = accent)]
                 pub primary: u32,
             }
-        "#,
+        ",
         );
         assert!(out.contains("compile_error !"));
         assert!(out.contains("`theme_path` must be a string literal"));
@@ -940,13 +936,13 @@ mod tests {
     #[test]
     fn theme_multiple_errors_are_combined() {
         let out = theme_derive(
-            r#"
+            r"
             #[derive(ComponentTheme)]
             pub struct MyTheme {
                 pub primary: u32,
                 pub secondary: u32,
             }
-        "#,
+        ",
         );
         assert!(out.contains("compile_error !"));
         // Two missing-attribute errors should be combined into one compile_error.
@@ -982,7 +978,7 @@ mod tests {
     #[test]
     fn builder_emits_prop_docs_json() {
         let out = builder_derive(
-            r#"
+            r"
             #[derive(ComponentBuilder)]
             pub struct MyBuilder {
                 /// Element id.
@@ -991,7 +987,7 @@ mod tests {
                 #[field(optional)]
                 pub label: Option<String>,
             }
-            "#,
+            ",
         );
         assert!(out.contains("__PROP_DOCS_JSON"), "{out}");
         assert!(out.contains("Element id."), "{out}");
@@ -1000,7 +996,7 @@ mod tests {
     #[test]
     fn builder_happy_path_generates_constructor_and_setters() {
         let out = builder_derive(
-            r#"
+            r"
             #[derive(ComponentBuilder)]
             pub struct MyBuilder {
                 #[field(required)]
@@ -1008,7 +1004,7 @@ mod tests {
                 #[field(optional)]
                 pub label: Option<String>,
             }
-        "#,
+        ",
         );
         assert!(out.contains("impl MyBuilder"));
         assert!(out.contains("pub fn new"));
@@ -1018,13 +1014,13 @@ mod tests {
     #[test]
     fn builder_unknown_attribute_emits_error() {
         let out = builder_derive(
-            r#"
+            r"
             #[derive(ComponentBuilder)]
             pub struct MyBuilder {
                 #[field(unknown)]
                 pub id: String,
             }
-        "#,
+        ",
         );
         assert!(out.contains("compile_error !"));
         assert!(out.contains("unknown builder field attribute"));
@@ -1033,13 +1029,13 @@ mod tests {
     #[test]
     fn builder_required_and_optional_emits_error() {
         let out = builder_derive(
-            r#"
+            r"
             #[derive(ComponentBuilder)]
             pub struct MyBuilder {
                 #[field(required, optional)]
                 pub id: String,
             }
-        "#,
+        ",
         );
         assert!(out.contains("compile_error !"));
         assert!(out.contains("cannot be both required and optional"));

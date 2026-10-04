@@ -1,4 +1,4 @@
-//! ConfirmDialog component
+//! `ConfirmDialog` component
 //!
 //! A specialized dialog for confirmation prompts with confirm/cancel actions.
 //!

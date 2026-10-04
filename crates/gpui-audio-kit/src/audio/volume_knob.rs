@@ -1,4 +1,4 @@
-//! VolumeKnob - A circular volume knob with path-painted fill indicator
+//! `VolumeKnob` - A circular volume knob with path-painted fill indicator
 //!
 //! A visual volume control with:
 //! - Path-painted circular fill that rises from bottom
@@ -215,7 +215,7 @@ impl VolumeKnob {
         if self.muted {
             0.0
         } else {
-            self.value.clamp(0.0, 1.0) as f64
+            f64::from(self.value.clamp(0.0, 1.0))
         }
     }
 
@@ -595,7 +595,7 @@ impl RenderOnce for VolumeKnob {
         let knob_size_f32 = resolved_size.to_f64() as f32;
 
         // Shared current value tracker and interaction config (with media keys enabled)
-        let current_value = value_tracker(self.value as f64);
+        let current_value = value_tracker(f64::from(self.value));
         let interaction_config =
             InteractionConfig::rotational(0.0, 1.0, Scale::Linear, knob_size_f32).with_media_keys();
 

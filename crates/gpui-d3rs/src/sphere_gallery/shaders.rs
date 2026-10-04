@@ -1,7 +1,7 @@
 //! WGSL shaders for sphere gallery rendering
 
 /// Common struct definitions shared by all shaders
-pub const COMMON_DEFINITIONS: &str = r#"
+pub const COMMON_DEFINITIONS: &str = r"
 struct Uniforms {
     view_proj: mat4x4<f32>,
     model: mat4x4<f32>,
@@ -36,10 +36,10 @@ struct VertexOutput {
     @location(2) cell_index: f32,
     @location(3) world_pos: vec3<f32>,
 }
-"#;
+";
 
 /// Vertex shader
-pub const VERTEX_SHADER: &str = r#"
+pub const VERTEX_SHADER: &str = r"
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -59,10 +59,10 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     return out;
 }
-"#;
+";
 
 /// Fragment shader - samples from texture atlas with selection highlighting
-pub const FRAGMENT_SHADER: &str = r#"
+pub const FRAGMENT_SHADER: &str = r"
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let cell = i32(in.cell_index + 0.5);
@@ -126,12 +126,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     return color;
 }
-"#;
+";
 
 /// Combined shader source
 pub fn combined_shader() -> String {
-    format!(
-        "{}\n{}\n{}",
-        COMMON_DEFINITIONS, VERTEX_SHADER, FRAGMENT_SHADER,
-    )
+    format!("{COMMON_DEFINITIONS}\n{VERTEX_SHADER}\n{FRAGMENT_SHADER}")
 }

@@ -29,7 +29,7 @@ pub struct WorkflowTheme {
     pub node_border_radius: f32,
     /// Node header height in pixels (used for port positioning)
     pub node_header_height: f32,
-    /// Node content padding in pixels (py_2 = 8px)
+    /// Node content padding in pixels (`py_2` = 8px)
     pub node_content_padding: f32,
 
     // Ports

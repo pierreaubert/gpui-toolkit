@@ -10,8 +10,8 @@ fn test_all_languages_have_app_title() {
 
     for lang in Language::all() {
         let title = translations.get(*lang, TranslationKey::AppTitle);
-        assert_ne!(title, "???", "Language {:?} missing AppTitle", lang);
-        assert!(!title.is_empty(), "Language {:?} has empty AppTitle", lang);
+        assert_ne!(title, "???", "Language {lang:?} missing AppTitle");
+        assert!(!title.is_empty(), "Language {lang:?} has empty AppTitle");
     }
 }
 
@@ -35,14 +35,11 @@ fn test_all_languages_have_menu_translations() {
             let text = translations.get(*lang, *key);
             assert_ne!(
                 text, "???",
-                "Language {:?} missing translation for {:?}",
-                lang, key
+                "Language {lang:?} missing translation for {key:?}"
             );
             assert!(
                 !text.is_empty(),
-                "Language {:?} has empty translation for {:?}",
-                lang,
-                key
+                "Language {lang:?} has empty translation for {key:?}"
             );
         }
     }
@@ -80,14 +77,11 @@ fn test_all_languages_have_section_translations() {
             let text = translations.get(*lang, *key);
             assert_ne!(
                 text, "???",
-                "Language {:?} missing translation for {:?}",
-                lang, key
+                "Language {lang:?} missing translation for {key:?}"
             );
             assert!(
                 !text.is_empty(),
-                "Language {:?} has empty translation for {:?}",
-                lang,
-                key
+                "Language {lang:?} has empty translation for {key:?}"
             );
         }
     }
@@ -113,14 +107,11 @@ fn test_all_languages_have_button_translations() {
             let text = translations.get(*lang, *key);
             assert_ne!(
                 text, "???",
-                "Language {:?} missing translation for {:?}",
-                lang, key
+                "Language {lang:?} missing translation for {key:?}"
             );
             assert!(
                 !text.is_empty(),
-                "Language {:?} has empty translation for {:?}",
-                lang,
-                key
+                "Language {lang:?} has empty translation for {key:?}"
             );
         }
     }
@@ -146,14 +137,11 @@ fn test_all_languages_have_alert_translations() {
             let text = translations.get(*lang, *key);
             assert_ne!(
                 text, "???",
-                "Language {:?} missing translation for {:?}",
-                lang, key
+                "Language {lang:?} missing translation for {key:?}"
             );
             assert!(
                 !text.is_empty(),
-                "Language {:?} has empty translation for {:?}",
-                lang,
-                key
+                "Language {lang:?} has empty translation for {key:?}"
             );
         }
     }
@@ -183,14 +171,11 @@ fn test_all_languages_have_label_translations() {
             let text = translations.get(*lang, *key);
             assert_ne!(
                 text, "???",
-                "Language {:?} missing translation for {:?}",
-                lang, key
+                "Language {lang:?} missing translation for {key:?}"
             );
             assert!(
                 !text.is_empty(),
-                "Language {:?} has empty translation for {:?}",
-                lang,
-                key
+                "Language {lang:?} has empty translation for {key:?}"
             );
         }
     }
@@ -235,8 +220,7 @@ fn test_fallback_to_english() {
         let text = translations.get(*lang, TranslationKey::AppTitle);
         assert_ne!(
             text, "???",
-            "Language {:?} should fall back to English",
-            lang
+            "Language {lang:?} should fall back to English"
         );
     }
 }
@@ -259,10 +243,7 @@ fn test_translation_consistency() {
             let text = translations.get(*lang, *key);
             assert!(
                 text.len() < 30,
-                "Button text too long for {:?} in {:?}: '{}'",
-                key,
-                lang,
-                text
+                "Button text too long for {key:?} in {lang:?}: '{text}'"
             );
         }
     }
@@ -385,9 +366,7 @@ fn test_all_translation_keys_have_entries() {
         }
         assert!(
             missing.is_empty(),
-            "Language {:?} missing translations for: {:?}",
-            lang,
-            missing
+            "Language {lang:?} missing translations for: {missing:?}"
         );
     }
 }

@@ -123,9 +123,9 @@ pub(crate) fn finite_range_owned(values: impl IntoIterator<Item = f64>) -> Optio
     seen.then_some([min, max])
 }
 
-pub(crate) fn indexed_label(label: &Option<String>, fallback: &str, index: usize) -> String {
+pub(crate) fn indexed_label(label: Option<&String>, fallback: &str, index: usize) -> String {
     label
-        .clone()
+        .cloned()
         .unwrap_or_else(|| format!("{fallback} {}", index + 1))
 }
 

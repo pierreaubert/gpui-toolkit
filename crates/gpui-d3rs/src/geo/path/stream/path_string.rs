@@ -49,12 +49,12 @@ impl PathString {
 
     fn append(&mut self, x: f64, y: f64) {
         if self.digits == 0 {
-            write!(self.buf, "{},{}", x, y).unwrap();
+            write!(self.buf, "{x},{y}").unwrap();
         } else {
             let k = 10f64.powi(self.digits as i32);
             let xr = (x * k).round() / k;
             let yr = (y * k).round() / k;
-            write!(self.buf, "{},{}", xr, yr).unwrap();
+            write!(self.buf, "{xr},{yr}").unwrap();
         }
     }
 

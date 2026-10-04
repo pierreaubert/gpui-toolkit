@@ -1,4 +1,4 @@
-//! MiniApp - A minimal application template for GPUI examples and showcases
+//! `MiniApp` - A minimal application template for GPUI examples and showcases
 //!
 //! Provides a reusable application shell with:
 //! - Standard menu bar with Quit option (Cmd+Q on macOS)

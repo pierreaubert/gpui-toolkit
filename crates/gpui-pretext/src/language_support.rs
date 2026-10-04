@@ -643,8 +643,8 @@ mod tests {
             assert!(!case.id.is_empty());
             assert!(!case.benchmark_id.is_empty());
             assert!(!case.focus.is_empty());
-            assert!(case.baseline_artifact.ends_with(".json"));
-            assert!(case.comparator_artifact.ends_with(".json"));
+            assert!(case.baseline_artifact.to_lowercase().ends_with(".json"));
+            assert!(case.comparator_artifact.to_lowercase().ends_with(".json"));
             assert!(!case.release_requirement.is_empty());
         }
 
@@ -652,7 +652,7 @@ mod tests {
             assert!(!comparator.id.is_empty());
             assert!(!comparator.platform.is_empty());
             assert!(!comparator.backend.is_empty());
-            assert!(comparator.artifact.ends_with(".json"));
+            assert!(comparator.artifact.to_lowercase().ends_with(".json"));
             assert!(!comparator.requirement.is_empty());
         }
     }

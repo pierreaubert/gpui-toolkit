@@ -1,4 +1,4 @@
-//! Integration tests for StepIndicator component
+//! Integration tests for `StepIndicator` component
 
 use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div};
 use gpui_ui_kit::step_indicator::{

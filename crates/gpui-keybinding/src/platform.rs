@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn test_minus_key_with_modifiers() {
-        assert!(gpui::Keystroke::parse("ctrl-").is_ok());
+        gpui::Keystroke::parse("ctrl-").unwrap();
         assert_eq!(format_key_label("ctrl-"), "Ctrl+-");
         assert_eq!(format_key_label("shift-"), "Shift+-");
     }

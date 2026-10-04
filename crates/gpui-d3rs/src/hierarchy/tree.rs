@@ -27,11 +27,11 @@ impl<T> Default for TreeLayout<T> {
 fn default_separation<T>(a: &HierarchyNode<T>, b: &HierarchyNode<T>) -> f64 {
     if a.parent
         .as_ref()
-        .and_then(|p| p.upgrade())
+        .and_then(std::rc::Weak::upgrade)
         .map(|p| p.as_ptr())
         == b.parent
             .as_ref()
-            .and_then(|p| p.upgrade())
+            .and_then(std::rc::Weak::upgrade)
             .map(|p| p.as_ptr())
     {
         1.0
@@ -239,8 +239,10 @@ impl<T> TreeLayout<T> {
             }
         }
 
-        let position =
-            (children.first().unwrap().borrow().y + children.last().unwrap().borrow().y) / 2.0;
+        let position = f64::midpoint(
+            children.first().unwrap().borrow().y,
+            children.last().unwrap().borrow().y,
+        );
         node.borrow_mut().y = position;
         let mut contour = Vec::with_capacity(combined.len() + 1);
         contour.push((position, node.clone(), position, node));

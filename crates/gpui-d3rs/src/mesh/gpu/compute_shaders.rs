@@ -7,7 +7,7 @@
 //! point.
 
 /// WGSL reduction and edge-intersection kernels.
-pub const MESH_COMPUTE_WGSL: &str = r#"
+pub const MESH_COMPUTE_WGSL: &str = r"
 // Naga versions supported by the workspace do not expose WGSL's isNan/isInf
 // builtins. This finite predicate has the same f32 contract without relying
 // on those newer names: NaN is the only value unequal to itself and infinity
@@ -264,10 +264,10 @@ fn triangle_bands(@builtin(global_invocation_id) id: vec3<u32>) {
     outputs[id.x].valid = 1u;
     outputs[id.x].count = polygon.count;
 }
-"#;
+";
 
 /// Metal counterpart kept alongside WGSL for shader-parity review.
-pub const MESH_COMPUTE_MSL: &str = r#"
+pub const MESH_COMPUTE_MSL: &str = r"
 #include <metal_stdlib>
 using namespace metal;
 
@@ -356,4 +356,4 @@ kernel void triangle_segments(
     }
     segments[id] = { first, second, count == 2, 0 };
 }
-"#;
+";

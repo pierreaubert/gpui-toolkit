@@ -42,7 +42,7 @@ impl ShowcaseApp {
     fn section_key(value: &str) -> String {
         value
             .chars()
-            .filter(|character| character.is_ascii_alphanumeric())
+            .filter(char::is_ascii_alphanumeric)
             .map(|character| character.to_ascii_lowercase())
             .collect()
     }
@@ -67,7 +67,7 @@ impl ShowcaseApp {
 
     /// Resolve the deterministic renderer override used by screenshot and
     /// browser captures. Use ?renderer=auto|cpu|legacy on WASM or
-    /// PX_SHOWCASE_RENDERER on native; ordinary constructors remain Vello by
+    /// `PX_SHOWCASE_RENDERER` on native; ordinary constructors remain Vello by
     /// default when no override is supplied.
     fn renderer_selection(
         &self,
@@ -105,18 +105,18 @@ impl ShowcaseApp {
             .with_top_margin(30.0);
 
         // Calculate actual data ranges for scatter chart (with padding)
-        let scatter_x_min = scatter_x.iter().cloned().fold(f64::INFINITY, f64::min);
-        let scatter_x_max = scatter_x.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let scatter_y_min = scatter_y.iter().cloned().fold(f64::INFINITY, f64::min);
-        let scatter_y_max = scatter_y.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let scatter_x_min = scatter_x.iter().copied().fold(f64::INFINITY, f64::min);
+        let scatter_x_max = scatter_x.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let scatter_y_min = scatter_y.iter().copied().fold(f64::INFINITY, f64::min);
+        let scatter_y_max = scatter_y.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         let scatter_x_pad = (scatter_x_max - scatter_x_min) * 0.05;
         let scatter_y_pad = (scatter_y_max - scatter_y_min) * 0.05;
 
         // Calculate actual data ranges for line chart (with padding)
-        let line_x_min = line_x.iter().cloned().fold(f64::INFINITY, f64::min);
-        let line_x_max = line_x.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let line_y_min = line_y.iter().cloned().fold(f64::INFINITY, f64::min);
-        let line_y_max = line_y.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let line_x_min = line_x.iter().copied().fold(f64::INFINITY, f64::min);
+        let line_x_max = line_x.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let line_y_min = line_y.iter().copied().fold(f64::INFINITY, f64::min);
+        let line_y_max = line_y.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         let line_x_pad = (line_x_max - line_x_min) * 0.05;
         let line_y_pad = (line_y_max - line_y_min) * 0.05;
 
@@ -499,8 +499,8 @@ impl ShowcaseApp {
     pub(super) fn render_scatter_vello_demo(&self, theme: &Theme, ds: &DesignSystem) -> Div {
         let (selected_renderer, selected_backend, selected_label) = self.renderer_selection();
         // 100k deterministic points (no RNG): a dense sine sweep.
-        let x: Vec<f64> = (0..100_000).map(|i| i as f64 * 0.001).collect();
-        let y: Vec<f64> = (0..100_000).map(|i| (i as f64 * 0.013).sin()).collect();
+        let x: Vec<f64> = (0..100_000).map(|i| f64::from(i) * 0.001).collect();
+        let y: Vec<f64> = (0..100_000).map(|i| (f64::from(i) * 0.013).sin()).collect();
 
         div()
             .flex()
@@ -649,7 +649,7 @@ impl ShowcaseApp {
                     .child("Lines can use dotted, dashed, dash-dot, or custom stroke patterns. Useful for reference lines, thresholds, and distinguishing series."),
             )
             .child({
-                let dash_x: Vec<f64> = (0..80).map(|i| i as f64 * 0.1).collect();
+                let dash_x: Vec<f64> = (0..80).map(|i| f64::from(i) * 0.1).collect();
                 let y_wave: Vec<f64> = dash_x.iter().map(|&x| (x * 1.5).sin() * 30.0 + 50.0).collect();
                 let small_w = 280.0;
                 let small_h = 200.0;
@@ -875,12 +875,12 @@ impl ShowcaseApp {
         // Generate logarithmic data - power law relationship y = x^0.8
         // More data points spanning 4 decades (10 to 100,000)
         let log_x: Vec<f64> = (0..50)
-            .map(|i| 10.0 * 10_f64.powf(i as f64 / 12.5)) // 10 to ~100,000
+            .map(|i| 10.0 * 10_f64.powf(f64::from(i) / 12.5)) // 10 to ~100,000
             .collect();
         let log_y: Vec<f64> = log_x.iter().map(|&x| x.powf(0.8)).collect();
 
         let freq_x: Vec<f64> = (0..50)
-            .map(|i| 20.0 * 10_f64.powf(i as f64 / 15.0))
+            .map(|i| 20.0 * 10_f64.powf(f64::from(i) / 15.0))
             .collect();
         let freq_y: Vec<f64> = freq_x
             .iter()
@@ -1151,7 +1151,7 @@ impl ShowcaseApp {
                                     let is_selected = is_color_scale_type(&current_heatmap_scale, scale_type);
 
                                     div()
-                                        .id(ElementId::Name(format!("hm-{}", label).into()))
+                                        .id(ElementId::Name(format!("hm-{label}").into()))
                                         .px(px(control_padding_x))
                                         .py(px(control_padding_y))
                                         .rounded(px(corners_md))
@@ -1275,7 +1275,7 @@ impl ShowcaseApp {
                                     let is_selected = is_color_scale_type(&current_contour_scale, scale_type);
 
                                     div()
-                                        .id(ElementId::Name(format!("ct-{}", label).into()))
+                                        .id(ElementId::Name(format!("ct-{label}").into()))
                                         .px(px(control_padding_x))
                                         .py(px(control_padding_y))
                                         .rounded(px(corners_md))
@@ -1515,7 +1515,7 @@ impl ShowcaseApp {
                     .padding(2.0)
                     .size(600.0, 400.0)
                     .on_click(|name, value| {
-                        eprintln!("Clicked: {} (value: {})", name, value);
+                        eprintln!("Clicked: {name} (value: {value})");
                     })
                     .build()
                     .unwrap()
@@ -1749,13 +1749,13 @@ fn renderer_selection_for(
         .map(str::to_ascii_lowercase)
         .as_deref()
     {
-        Some("legacy") | Some("gpu2d") => (
+        Some("legacy" | "gpu2d") => (
             d3rs::render2d::Renderer2D::Legacy,
             d3rs::render2d::VelloBackend::Auto,
             "Legacy",
         ),
         #[cfg(feature = "vello")]
-        Some("cpu") | Some("vello-cpu") => (
+        Some("cpu" | "vello-cpu") => (
             d3rs::render2d::Renderer2D::Vello,
             d3rs::render2d::VelloBackend::Cpu,
             "Vello · Cpu",

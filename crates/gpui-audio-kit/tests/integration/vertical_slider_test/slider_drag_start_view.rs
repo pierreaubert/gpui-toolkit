@@ -7,16 +7,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// View that tracks drag start events
 pub(super) struct SliderDragStartView {
-    pub(super) drag_started: Arc<AtomicBool>,
-    pub(super) drag_y: Rc<RefCell<Option<f32>>>,
-    pub(super) drag_value: Rc<RefCell<Option<f64>>>,
+    pub(super) started: Arc<AtomicBool>,
+    pub(super) y: Rc<RefCell<Option<f32>>>,
+    pub(super) value: Rc<RefCell<Option<f64>>>,
 }
 
 impl Render for SliderDragStartView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let drag_started = self.drag_started.clone();
-        let drag_y = self.drag_y.clone();
-        let drag_value = self.drag_value.clone();
+        let started = self.started.clone();
+        let y_cell = self.y.clone();
+        let value_cell = self.value.clone();
 
         div().size_full().child(
             VerticalSlider::new("drag-start-slider")
@@ -25,9 +25,9 @@ impl Render for SliderDragStartView {
                 .max(100.0)
                 .label("Drag Test")
                 .on_drag_start(move |y, value, _window, _cx| {
-                    drag_started.store(true, Ordering::SeqCst);
-                    *drag_y.borrow_mut() = Some(y);
-                    *drag_value.borrow_mut() = Some(value);
+                    started.store(true, Ordering::SeqCst);
+                    *y_cell.borrow_mut() = Some(y);
+                    *value_cell.borrow_mut() = Some(value);
                 }),
         )
     }

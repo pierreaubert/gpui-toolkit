@@ -5,9 +5,11 @@ pub(super) fn unpremultiply_rgba(pixels: &mut [u8]) {
             continue;
         }
 
-        let scale = u8::MAX as f32 / alpha as f32;
+        let scale = f32::from(u8::MAX) / f32::from(alpha);
         for channel in &mut rgba[..3] {
-            *channel = ((*channel as f32 * scale).round().clamp(0.0, u8::MAX as f32)) as u8;
+            *channel = ((f32::from(*channel) * scale)
+                .round()
+                .clamp(0.0, f32::from(u8::MAX))) as u8;
         }
     }
 }

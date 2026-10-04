@@ -1,4 +1,4 @@
-//! SwipePanel — a mobile bottom/top sheet that can be dragged up or down.
+//! `SwipePanel` — a mobile bottom/top sheet that can be dragged up or down.
 //!
 //! The panel has three states:
 //! - `Collapsed` — fully off-screen
@@ -177,9 +177,7 @@ impl SwipePanel {
     }
 
     fn panel_height(&self, viewport: f32) -> f32 {
-        self.expanded_height
-            .map(f32::from)
-            .unwrap_or(viewport * 0.85)
+        self.expanded_height.map_or(viewport * 0.85, f32::from)
     }
 
     fn target_offset_for_state(&self, state: SwipePanelState, viewport: f32) -> f32 {

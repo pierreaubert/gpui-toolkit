@@ -138,7 +138,7 @@ fn all_theme_sources() -> Vec<&'static str> {
     sources.extend(toolbar::ToolbarTheme::THEME_SOURCES);
     sources.extend(tree_view::TreeViewTheme::THEME_SOURCES);
     sources.extend(wizard::WizardTheme::THEME_SOURCES);
-    sources.sort();
+    sources.sort_unstable();
     sources.dedup();
     sources
 }

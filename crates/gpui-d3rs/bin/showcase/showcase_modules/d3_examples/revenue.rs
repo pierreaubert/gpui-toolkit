@@ -23,8 +23,8 @@ const MUSIC_CSV: &str = include_str!("../../data/music.csv");
 
 pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let ui_theme = cx.theme();
-    let width = app.content_width as f64;
-    let height = (width * 0.56).min(app.content_height as f64 * 0.6);
+    let width = f64::from(app.content_width);
+    let height = (width * 0.56).min(f64::from(app.content_height) * 0.6);
     let margin_left = 70.0;
     let margin_right = 20.0;
     let margin_top = 20.0;
@@ -121,8 +121,9 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
             color_map
                 .iter()
                 .find(|(name, _)| *name == cat.as_str())
-                .map(|(_, hex)| chart_colors::ink_hex(&ui_theme, *hex))
-                .unwrap_or(chart_colors::missing(&ui_theme))
+                .map_or(chart_colors::missing(&ui_theme), |(_, hex)| {
+                    chart_colors::ink_hex(&ui_theme, *hex)
+                })
         })
         .collect();
 
@@ -174,7 +175,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         y_tick_step
     };
     let y_ticks: Vec<f64> = (0..=8)
-        .map(|i| i as f64 * y_tick_step)
+        .map(|i| f64::from(i) * y_tick_step)
         .filter(|v| *v <= max_y * 1.05)
         .collect();
 
@@ -267,7 +268,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                     } else if val >= 1e6 {
                         format!("{:.0}M", val / 1e6)
                     } else {
-                        format!("{:.0}", val)
+                        format!("{val:.0}")
                     };
                     let label_config = GlyphTextConfig::horizontal(9.0, theme.text_secondary);
                     div()
@@ -292,7 +293,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 }))
                 // Vertical year-tick lines (every year, thin)
                 .children((1973..=2018).map(|year| {
-                    let x = x_scale.scale(year as f64);
+                    let x = x_scale.scale(f64::from(year));
                     div()
                         .absolute()
                         .left(px((margin_left + x) as f32))
@@ -303,7 +304,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 }))
                 // X-axis ticks and labels
                 .children(x_ticks.iter().map(|&year| {
-                    let x = x_scale.scale(year as f64);
+                    let x = x_scale.scale(f64::from(year));
                     let label_config = GlyphTextConfig::horizontal(9.0, theme.text_primary);
                     div()
                         .absolute()
@@ -314,7 +315,7 @@ pub fn render(app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex_col()
                         .items_center()
                         .child(div().w(px(1.0)).h(px(5.0)).bg(theme.border))
-                        .child(render_glyph_text(&format!("{}", year), &label_config))
+                        .child(render_glyph_text(&format!("{year}"), &label_config))
                 }))
                 // X-axis label
                 .child(

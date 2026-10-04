@@ -36,7 +36,7 @@ pub struct MenuTheme {
 }
 
 /// Helper to build a single menu bar button without handlers
-/// Use this when you need to add cx.listener() handlers
+/// Use this when you need to add `cx.listener()` handlers
 pub fn menu_bar_button(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
@@ -47,7 +47,7 @@ pub fn menu_bar_button(
     let label = label.into();
 
     let mut button = div()
-        .id(SharedString::from(format!("menubar-{}", id)))
+        .id(SharedString::from(format!("menubar-{id}")))
         .px_3()
         .py_1()
         .rounded(px(3.0))

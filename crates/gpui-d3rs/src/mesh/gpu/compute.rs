@@ -418,7 +418,7 @@ impl AdapterCompute {
             pass.set_pipeline(&self.field_pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
             pass.dispatch_workgroups(workgroups as u32, 1, 1);
-        }
+        };
         encoder.copy_buffer_to_buffer(&partials, 0, &staging, 0, (workgroups * 16) as u64);
         self.timing.finish(&mut encoder, timing_active);
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -716,7 +716,7 @@ impl AdapterCompute {
                 pass.set_pipeline(&self.edge_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
                 pass.dispatch_workgroups(edge_count.div_ceil(256) as u32, 1, 1);
-            }
+            };
             {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some("mesh_compute_triangle_pass"),
@@ -727,7 +727,7 @@ impl AdapterCompute {
                 pass.set_pipeline(&self.triangle_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
                 pass.dispatch_workgroups(triangle_count.div_ceil(256) as u32, 1, 1);
-            }
+            };
             let output_offset = u64::try_from(level_index)
                 .map_err(|_| ())?
                 .checked_mul(segments_size)
@@ -767,16 +767,18 @@ impl AdapterCompute {
                         continue;
                     }
                     let start = [
-                        f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as f64
+                        f64::from(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
                             + origin[0],
-                        f32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]) as f64
+                        f64::from(f32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]))
                             + origin[1],
                     ];
                     let end = [
-                        f32::from_le_bytes([chunk[16], chunk[17], chunk[18], chunk[19]]) as f64
-                            + origin[0],
-                        f32::from_le_bytes([chunk[20], chunk[21], chunk[22], chunk[23]]) as f64
-                            + origin[1],
+                        f64::from(f32::from_le_bytes([
+                            chunk[16], chunk[17], chunk[18], chunk[19],
+                        ])) + origin[0],
+                        f64::from(f32::from_le_bytes([
+                            chunk[20], chunk[21], chunk[22], chunk[23],
+                        ])) + origin[1],
                     ];
                     if !start
                         .iter()
@@ -788,7 +790,7 @@ impl AdapterCompute {
                     output.push((
                         level_index,
                         IsolineSegment {
-                            level: level as f64,
+                            level: f64::from(level),
                             start,
                             end,
                         },
@@ -816,7 +818,7 @@ impl AdapterCompute {
 
     /// Dispatch one deterministic, fixed-size clipped-polygon slot per input
     /// triangle for each closed scalar band. This is intentionally read back
-    /// rather than rendered directly: MeshPlot's retained contour cache and
+    /// rather than rendered directly: `MeshPlot`'s retained contour cache and
     /// SVG path both consume the same `ContourBand` representation.
     fn band_triangles(
         &self,
@@ -1064,7 +1066,7 @@ impl AdapterCompute {
                 pass.set_pipeline(&self.band_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
                 pass.dispatch_workgroups(triangle_count.div_ceil(256) as u32, 1, 1);
-            }
+            };
             let output_offset = u64::try_from(band_index)
                 .map_err(|_| ())?
                 .checked_mul(output_size)
@@ -1100,8 +1102,8 @@ impl AdapterCompute {
                 let byte_end = byte_start.checked_add(bytes_per_band).ok_or(())?;
                 let band_data = data.get(byte_start..byte_end).ok_or(())?;
                 let mut band = ContourBand {
-                    lower: Some(lower as f64),
-                    upper: Some(upper as f64),
+                    lower: Some(f64::from(lower)),
+                    upper: Some(f64::from(upper)),
                     positions: Vec::new(),
                     triangles: Vec::new(),
                 };
@@ -1115,14 +1117,12 @@ impl AdapterCompute {
                     for point in 0..count as usize {
                         let offset = point * 16;
                         let position = [
-                            f32::from_le_bytes(
+                            f64::from(f32::from_le_bytes(
                                 chunk[offset..offset + 4].try_into().map_err(|_| ())?,
-                            ) as f64
-                                + origin[0],
-                            f32::from_le_bytes(
+                            )) + origin[0],
+                            f64::from(f32::from_le_bytes(
                                 chunk[offset + 4..offset + 8].try_into().map_err(|_| ())?,
-                            ) as f64
-                                + origin[1],
+                            )) + origin[1],
                         ];
                         if !position.iter().all(|value| value.is_finite()) {
                             return Err(());
@@ -1324,7 +1324,10 @@ impl MeshCompute {
             return Ok(segments);
         }
         self.last_backend.set(MeshComputeBackend::CpuReference);
-        let levels = levels.iter().map(|&level| level as f64).collect::<Vec<_>>();
+        let levels = levels
+            .iter()
+            .map(|&level| f64::from(level))
+            .collect::<Vec<_>>();
         Ok(marching.isolines(&levels))
     }
 
@@ -1401,7 +1404,10 @@ impl MeshCompute {
         levels: &[f32],
     ) -> Result<Vec<ContourBand>, MeshValidationError> {
         validate_contour_inputs(mesh, field, levels)?;
-        let levels_f64 = levels.iter().map(|&level| level as f64).collect::<Vec<_>>();
+        let levels_f64 = levels
+            .iter()
+            .map(|&level| f64::from(level))
+            .collect::<Vec<_>>();
         if let Some(adapter) = &self.adapter
             && let Ok(bands) = adapter.band_triangles(mesh, field, topology, levels)
         {

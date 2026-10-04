@@ -141,9 +141,7 @@ impl Slider {
     pub fn range(mut self, min: f32, max: f32) -> Self {
         assert!(
             min <= max,
-            "Slider range invalid: min ({}) > max ({})",
-            min,
-            max
+            "Slider range invalid: min ({min}) > max ({max})"
         );
         self.min = min;
         self.max = max;
@@ -210,7 +208,7 @@ impl Slider {
     /// Set drag start handler (called on mouse down with x position and current value)
     ///
     /// Use this to track dragging state in your app. When dragging, you should
-    /// calculate the new value based on mouse position and call the on_change handler.
+    /// calculate the new value based on mouse position and call the `on_change` handler.
     pub fn on_drag_start(
         mut self,
         handler: impl Fn(f32, f32, &mut Window, &mut App) + 'static,
@@ -248,7 +246,12 @@ impl Slider {
     }
 
     fn interaction_config(&self) -> InteractionConfig {
-        InteractionConfig::horizontal(self.min as f64, self.max as f64, Scale::Linear, self.width)
+        InteractionConfig::horizontal(
+            f64::from(self.min),
+            f64::from(self.max),
+            Scale::Linear,
+            self.width,
+        )
     }
 
     fn clone_for_calculation(&self) -> Self {
@@ -319,7 +322,11 @@ impl RenderOnce for Slider {
             .unwrap_or_default();
         let native_props = AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Slider))
             .maybe_state(self.disabled, AriaState::Disabled)
-            .value_range(self.value as f64, self.min as f64, self.max as f64);
+            .value_range(
+                f64::from(self.value),
+                f64::from(self.min),
+                f64::from(self.max),
+            );
         cx.register_accessible(AccessibilityNode {
             element_id: self.id.clone(),
             label: native_label.clone(),
@@ -481,7 +488,7 @@ impl RenderOnce for Slider {
                     }
 
                     if on_change_down.is_some() || on_drag_end_down.is_some() {
-                        store_drag_state(id_down.clone(), click_x, value_at_press as f64);
+                        store_drag_state(id_down.clone(), click_x, f64::from(value_at_press));
                     }
                 })
                 .on_mouse_move(move |event: &MouseMoveEvent, window: &mut Window, cx| {
@@ -524,7 +531,7 @@ impl RenderOnce for Slider {
                     if let Some(value) = handle_scroll(
                         &event.delta,
                         &event.modifiers,
-                        value_at_press as f64,
+                        f64::from(value_at_press),
                         &config_scroll,
                     ) && let Some(ref handler) = on_change_scroll
                     {
@@ -535,7 +542,7 @@ impl RenderOnce for Slider {
                     if let Some(value) = handle_keyboard(
                         event.keystroke.key.as_str(),
                         &event.keystroke.modifiers,
-                        value_at_press as f64,
+                        f64::from(value_at_press),
                         &config_key,
                     ) && let Some(ref handler) = on_change_key
                     {
@@ -557,7 +564,7 @@ impl RenderOnce for Slider {
             let a11y_decrement_handler = self.on_change.clone();
             let a11y_increment_snap = self.clone_for_calculation();
             let a11y_decrement_snap = self.clone_for_calculation();
-            let a11y_value = self.value as f64;
+            let a11y_value = f64::from(self.value);
             let a11y_increment_config = a11y_config.clone();
             track = track.on_a11y_action(
                 gpui::AccessibleAction::Increment,
@@ -659,8 +666,8 @@ mod tests {
     fn valid_slider_config_passes_schema_validation() {
         let slider = Slider::new("volume").range(0.0, 100.0).value(75.0);
 
-        assert!(slider.validate().is_ok());
-        assert!(slider.validate_first().is_ok());
+        slider.validate().unwrap();
+        slider.validate_first().unwrap();
         assert!(slider.is_valid());
     }
 

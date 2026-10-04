@@ -129,7 +129,7 @@ fn main() {
     let rgb_interp = interpolate_rgb(from, to);
     print!("  RGB:   ");
     for i in 0..=8 {
-        let t = i as f64 / 8.0;
+        let t = f64::from(i) / 8.0;
         print!("{} ", rgb_interp(t).to_hex());
     }
     println!();
@@ -138,7 +138,7 @@ fn main() {
     let hsl_interp = interpolate_hsl(from, to);
     print!("  HSL:   ");
     for i in 0..=8 {
-        let t = i as f64 / 8.0;
+        let t = f64::from(i) / 8.0;
         print!("{} ", hsl_interp(t).to_hex());
     }
     println!();
@@ -147,7 +147,7 @@ fn main() {
     let lab_interp = interpolate_lab(from, to);
     print!("  LAB:   ");
     for i in 0..=8 {
-        let t = i as f64 / 8.0;
+        let t = f64::from(i) / 8.0;
         print!("{} ", lab_interp(t).to_hex());
     }
     println!();
@@ -198,7 +198,7 @@ fn main() {
 
     for (name, scheme) in &schemes {
         let colors = scheme.colors();
-        print!("  {:12}: ", name);
+        print!("  {name:12}: ");
         for color in colors.iter().take(8) {
             print!("{} ", color.to_hex());
         }

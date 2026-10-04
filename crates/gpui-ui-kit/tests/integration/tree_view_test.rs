@@ -1,4 +1,4 @@
-//! Integration tests for TreeView component
+//! Integration tests for `TreeView` component
 
 use gpui::{Context, IntoElement, ParentElement, Render, TestAppContext, Window, div};
 use gpui_ui_kit::tree_view::{TreeNode, TreeView};

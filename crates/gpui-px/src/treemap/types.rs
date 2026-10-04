@@ -5,7 +5,7 @@
 /// - **Binary**: Recursive binary subdivision (balanced tree structure)
 /// - **Slice**: Horizontal strips (simple, can create thin rectangles)
 /// - **Dice**: Vertical strips (simple, can create thin rectangles)
-/// - **SliceDice**: Alternates slice/dice by depth (clear hierarchy)
+/// - **`SliceDice`**: Alternates slice/dice by depth (clear hierarchy)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TilingMethod {
     /// Create rectangles with aspect ratios close to 1 (most readable)

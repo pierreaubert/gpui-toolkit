@@ -1,6 +1,6 @@
-//! SettingsForm Debug Example
+//! `SettingsForm` Debug Example
 //!
-//! Demonstrates the SettingsForm and SettingsRow components:
+//! Demonstrates the `SettingsForm` and `SettingsRow` components:
 //! - Rows with various controls
 //! - Section headers
 

@@ -1,6 +1,6 @@
 //! Search Bar Debug Example
 //!
-//! Demonstrates the SearchBar component:
+//! Demonstrates the `SearchBar` component:
 //! - Different sizes
 //! - Placeholder text
 //! - Pre-filled value

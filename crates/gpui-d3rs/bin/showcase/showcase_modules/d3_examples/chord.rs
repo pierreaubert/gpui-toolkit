@@ -1,4 +1,4 @@
-//! Chord Diagram -- Observable example using d3rs::examples::chord
+//! Chord Diagram -- Observable example using `d3rs::examples::chord`
 //!
 //! Demonstrates idiomatic d3rs usage: `ChordLayout` for computing chords,
 //! `Arc` for group arcs, `RibbonGenerator` for chord ribbons,
@@ -123,7 +123,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .groups
         .iter()
         .map(|g| {
-            let d3_mid = (g.start_angle + g.end_angle) / 2.0;
+            let d3_mid = f64::midpoint(g.start_angle, g.end_angle);
             let std_mid = d3_mid - half_pi;
             let lx = cx_center + label_radius * std_mid.cos();
             let ly = cy_center + label_radius * std_mid.sin();

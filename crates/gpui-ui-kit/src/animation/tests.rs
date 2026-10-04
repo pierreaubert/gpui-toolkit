@@ -28,15 +28,11 @@ fn test_ease_in_out_bounds() {
         let end = ease(easing, 1.0);
         assert!(
             (start - 0.0).abs() < 0.001,
-            "{:?} at t=0 should be ~0, got {}",
-            easing,
-            start
+            "{easing:?} at t=0 should be ~0, got {start}"
         );
         assert!(
             (end - 1.0).abs() < 0.001,
-            "{:?} at t=1 should be ~1, got {}",
-            easing,
-            end
+            "{easing:?} at t=1 should be ~1, got {end}"
         );
     }
 }

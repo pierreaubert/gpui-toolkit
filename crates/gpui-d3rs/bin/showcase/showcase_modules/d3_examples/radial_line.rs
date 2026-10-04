@@ -79,7 +79,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let last_tick = ((temp_max / temp_step).floor() * temp_step) as i32;
     let temp_ticks: Vec<f64> = (first_tick..=last_tick)
         .step_by(temp_step as usize)
-        .map(|t| t as f64)
+        .map(f64::from)
         .collect();
 
     // --- Month spoke angles (12 months) ---
@@ -110,7 +110,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         }
         builder = builder.close_path();
         d3_paths.push(builder.build());
-    }
+    };
 
     // --- Mean range area (min to max) — darker fill ---
     {
@@ -135,7 +135,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         }
         builder = builder.close_path();
         d3_paths.push(builder.build());
-    }
+    };
 
     // --- Average line (as ribbon) ---
     {
@@ -198,7 +198,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         }
         builder = builder.close_path();
         d3_paths.push(builder.build());
-    }
+    };
 
     // --- Month spokes (official xAxis: 1px radial lines, painted as strokes) ---
     // Path order is extreme, mean, average ribbon, then spokes and rings.
@@ -220,7 +220,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         let mut builder = D3PathBuilder::new();
         let steps = 72;
         for j in 0..=steps {
-            let angle = (j as f64 / steps as f64) * 2.0 * PI;
+            let angle = (f64::from(j) / f64::from(steps)) * 2.0 * PI;
             let x = center + r * angle.cos();
             let y = center + r * angle.sin();
             if j == 0 {
@@ -234,11 +234,11 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     }
 
     // Colors for layers (official: areas at 0.2 fill opacity, grid on top).
-    let grid_color: Hsla = chart_colors::grid(&ui_theme);
-    let spoke_color: Hsla = chart_colors::grid(&ui_theme);
-    let extreme_color: Hsla = chart_colors::ink_hex(&ui_theme, 0xb0c4de).opacity(0.2); // lightsteelblue
-    let mean_color: Hsla = chart_colors::ink_hex(&ui_theme, 0x4682b4).opacity(0.2); // steelblue
-    let avg_line_color: Hsla = chart_colors::ink_hex(&ui_theme, 0x2c5f8a); // darker steelblue
+    let grid_color = chart_colors::grid(&ui_theme);
+    let spoke_color = chart_colors::grid(&ui_theme);
+    let extreme_color = chart_colors::ink_hex(&ui_theme, 0xb0c4de).opacity(0.2); // lightsteelblue
+    let mean_color = chart_colors::ink_hex(&ui_theme, 0x4682b4).opacity(0.2); // steelblue
+    let avg_line_color = chart_colors::ink_hex(&ui_theme, 0x2c5f8a); // darker steelblue
 
     let num_layers = d3_paths.len();
     let layer_colors: Vec<Hsla> = (0..num_layers)
@@ -293,8 +293,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .child("Radial Area Chart — SFO Temperature"),
         )
         .child(div().text_sm().child(format!(
-            "Source: observablehq.com/@d3/radial-area-chart — {} days, {:.0}°F to {:.0}°F",
-            n, temp_min, temp_max
+            "Source: observablehq.com/@d3/radial-area-chart — {n} days, {temp_min:.0}°F to {temp_max:.0}°F"
         )))
         .child(
             div()

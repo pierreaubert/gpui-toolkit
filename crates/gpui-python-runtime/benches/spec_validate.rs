@@ -57,7 +57,7 @@ fn bench_validate(criterion: &mut Criterion) {
             &spec,
             |bencher, spec| {
                 bencher.iter(|| {
-                    MeshPlotSpec::validate_value(black_box(spec)).expect("bench spec is valid")
+                    MeshPlotSpec::validate_value(black_box(spec)).expect("bench spec is valid");
                 });
             },
         );

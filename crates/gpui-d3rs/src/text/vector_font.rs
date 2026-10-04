@@ -69,8 +69,8 @@ struct HersheyChar {
 }
 
 /// Static lookup table for Hershey Simplex font data
-/// Using LazyLock + HashMap instead of large match statement to avoid
-/// stack overflow in gpui_macros proc macro during debug compilation.
+/// Using `LazyLock` + `HashMap` instead of large match statement to avoid
+/// stack overflow in `gpui_macros` proc macro during debug compilation.
 static HERSHEY_FONT: LazyLock<HashMap<char, (i32, &'static [i32])>> = LazyLock::new(|| {
     let mut map = HashMap::new();
     map.insert(' ', (16, &[] as &[i32]));
@@ -805,7 +805,7 @@ pub fn render_vector_text(text: &str, config: &VectorFontConfig) -> impl IntoEle
 
     canvas(
         move |_bounds, _, _cx| {},
-        move |bounds, _, window, _cx| {
+        move |bounds, (), window, _cx| {
             let center_x: f32 = bounds.center().x.into();
             let center_y: f32 = bounds.center().y.into();
 
@@ -858,12 +858,12 @@ pub fn render_vector_text(text: &str, config: &VectorFontConfig) -> impl IntoEle
                             let final_x = center_x + rx;
                             let final_y = center_y + ry;
 
-                            if !pen_down {
+                            if pen_down {
+                                builder.line_to(point(px(final_x), px(final_y)));
+                            } else {
                                 builder.move_to(point(px(final_x), px(final_y)));
                                 pen_down = true;
                                 has_path = true;
-                            } else {
-                                builder.line_to(point(px(final_x), px(final_y)));
                             }
                         }
                     }
@@ -945,12 +945,12 @@ pub fn paint_vector_text_at(
                     let final_x = x + rx;
                     let final_y = y + ry;
 
-                    if !pen_down {
+                    if pen_down {
+                        builder.line_to(point(px(final_x), px(final_y)));
+                    } else {
                         builder.move_to(point(px(final_x), px(final_y)));
                         pen_down = true;
                         has_path = true;
-                    } else {
-                        builder.line_to(point(px(final_x), px(final_y)));
                     }
                 }
             }

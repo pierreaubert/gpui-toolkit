@@ -1,4 +1,4 @@
-//! ConfirmDialog component tests
+//! `ConfirmDialog` component tests
 
 use gpui_ui_kit::confirm_dialog::{ConfirmDialog, ConfirmDialogVariant};
 

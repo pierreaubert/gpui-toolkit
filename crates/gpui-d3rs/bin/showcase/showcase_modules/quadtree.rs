@@ -16,8 +16,8 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     // Generate random points for demonstration
     let points: Vec<(f64, f64)> = (0..50)
         .map(|i| {
-            let angle = i as f64 * 0.15;
-            let r = 20.0 + 30.0 * (i as f64 * 0.07).sin();
+            let angle = f64::from(i) * 0.15;
+            let r = 20.0 + 30.0 * (f64::from(i) * 0.07).sin();
             (50.0 + r * angle.cos(), 50.0 + r * angle.sin())
         })
         .collect();
@@ -29,9 +29,9 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     }
 
     // Query parameters from state
-    let query_x = app.quadtree_query_x as f64;
-    let query_y = app.quadtree_query_y as f64;
-    let search_radius = app.quadtree_search_radius as f64;
+    let query_x = f64::from(app.quadtree_query_x);
+    let query_y = f64::from(app.quadtree_query_y);
+    let search_radius = f64::from(app.quadtree_search_radius);
 
     // Find nearest point
     let nearest = quadtree.find(query_x, query_y, None);
@@ -46,10 +46,10 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
         .min(layout::plot_width(app.content_width, SIDE_MENU_WIDTH));
     let x_scale = LinearScale::new()
         .domain(0.0, 100.0)
-        .range(0.0, size as f64);
+        .range(0.0, f64::from(size));
     let y_scale = LinearScale::new()
         .domain(0.0, 100.0)
-        .range(0.0, size as f64);
+        .range(0.0, f64::from(size));
 
     // Collect quadtree bounds for visualization
     let mut bounds_list: Vec<(f64, f64, f64, f64)> = Vec::new();
@@ -141,7 +141,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                             // Draw quadtree partitions
                                             .children(bounds_list.iter().map(|&(bx0, by0, bx1, by1)| {
                                                 let px_x = x_scale.scale(bx0) as f32;
-                                                let px_y = (size as f64 - y_scale.scale(by1)) as f32;
+                                                let px_y = (f64::from(size) - y_scale.scale(by1)) as f32;
                                                 let px_w = (x_scale.scale(bx1) - x_scale.scale(bx0)) as f32;
                                                 let px_h = (y_scale.scale(by1) - y_scale.scale(by0)) as f32;
                                                 div()
@@ -158,7 +158,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 div()
                                                     .absolute()
                                                     .left(px((x_scale.scale(query_x) - x_scale.scale(search_radius) + x_scale.scale(0.0)) as f32))
-                                                    .top(px((size as f64 - y_scale.scale(query_y) - y_scale.scale(search_radius) + y_scale.scale(0.0)) as f32))
+                                                    .top(px((f64::from(size) - y_scale.scale(query_y) - y_scale.scale(search_radius) + y_scale.scale(0.0)) as f32))
                                                     .w(px((2.0 * (x_scale.scale(search_radius) - x_scale.scale(0.0))) as f32))
                                                     .h(px((2.0 * (y_scale.scale(search_radius) - y_scale.scale(0.0))) as f32))
                                                     .rounded_full()
@@ -178,7 +178,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 div()
                                                     .absolute()
                                                     .left(gpui::px((x_scale.scale(pt_x) - 4.0) as f32))
-                                                    .top(gpui::px((size as f64 - y_scale.scale(pt_y) - 4.0) as f32))
+                                                    .top(gpui::px((f64::from(size) - y_scale.scale(pt_y) - 4.0) as f32))
                                                     .w(gpui::px(8.0))
                                                     .h(gpui::px(8.0))
                                                     .rounded_full()
@@ -189,7 +189,7 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                 div()
                                                     .absolute()
                                                     .left(px((x_scale.scale(query_x) - 6.0) as f32))
-                                                    .top(px((size as f64 - y_scale.scale(query_y) - 6.0) as f32))
+                                                    .top(px((f64::from(size) - y_scale.scale(query_y) - 6.0) as f32))
                                                     .w(px(12.0))
                                                     .h(px(12.0))
                                                     .rounded_full()
@@ -198,12 +198,12 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                                     .border_color(chart_colors::ink_hex(&ui_theme, 0xffffff))
                                             )
                                             // Draw nearest point highlight
-                                            .when_some(nearest.cloned(), |this, (nx, ny)| {
+                                            .when_some(nearest.copied(), |this, (nx, ny)| {
                                                 this.child(
                                                     div()
                                                         .absolute()
                                                         .left(px((x_scale.scale(nx) - 8.0) as f32))
-                                                        .top(px((size as f64 - y_scale.scale(ny) - 8.0) as f32))
+                                                        .top(px((f64::from(size) - y_scale.scale(ny) - 8.0) as f32))
                                                         .w(px(16.0))
                                                         .h(px(16.0))
                                                         .rounded_full()
@@ -377,11 +377,11 @@ pub fn render(app: &mut ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                                     .text_sm()
                                     .child(format!("Within Radius: {}", within_radius.len())),
                             )
-                            .when_some(nearest.cloned(), |this, (nx, ny)| {
+                            .when_some(nearest.copied(), |this, (nx, ny)| {
                                 this.child(
                                     div()
                                         .text_sm()
-                                        .child(format!("Nearest: ({:.1}, {:.1})", nx, ny)),
+                                        .child(format!("Nearest: ({nx:.1}, {ny:.1})")),
                                 )
                                 .child(
                                     div()

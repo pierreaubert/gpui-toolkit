@@ -1,6 +1,6 @@
 //! Keyboard Shortcut Label Debug Example
 //!
-//! Demonstrates the KeyboardShortcutLabel component:
+//! Demonstrates the `KeyboardShortcutLabel` component:
 //! - Default and large sizes
 //! - Various key combinations
 

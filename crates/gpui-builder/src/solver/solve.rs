@@ -199,7 +199,7 @@ impl<'a> RetainedLayoutSolver<'a> {
     }
 }
 
-impl<'a> Default for RetainedLayoutSolver<'a> {
+impl Default for RetainedLayoutSolver<'_> {
     fn default() -> Self {
         Self::new()
     }
@@ -245,7 +245,7 @@ fn return_child_info_scratch(mut vec: Vec<ChildInfo>) {
         if pool.len() < CHILD_INFO_POOL_CAP {
             pool.push(vec);
         }
-    })
+    });
 }
 
 fn solve_tree_node<'a>(
@@ -351,30 +351,28 @@ fn collect_child_infos<'a>(
             .enumerate()
             .map(|(node_index, child)| {
                 let user_collapsed = child.collapsible() && prefs.is_collapsed(child.id());
-                let computed_text_size = if !user_collapsed {
-                    if let Sizing::Text {
-                        text,
-                        measure,
-                        line_height,
-                        min,
-                    } = child.sizing()
-                    {
-                        Some(compute_text_size(
-                            TextSizeInput {
-                                text,
-                                measure,
-                                line_height,
-                                min,
-                                axis,
-                                cross_size,
-                                profile: &profile,
-                                options: &options,
-                            },
-                            cache,
-                        ))
-                    } else {
-                        None
-                    }
+                let computed_text_size = if user_collapsed {
+                    None
+                } else if let Sizing::Text {
+                    text,
+                    measure,
+                    line_height,
+                    min,
+                } = child.sizing()
+                {
+                    Some(compute_text_size(
+                        TextSizeInput {
+                            text,
+                            measure,
+                            line_height,
+                            min,
+                            axis,
+                            cross_size,
+                            profile: &profile,
+                            options: &options,
+                        },
+                        cache,
+                    ))
                 } else {
                     None
                 };

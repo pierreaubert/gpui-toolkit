@@ -231,13 +231,13 @@ impl WgpuResources {
                 range[0],
                 range[1],
                 state.color.colormap as f32,
-                field_enabled as u32 as f32,
+                u32::from(field_enabled) as f32,
             ],
             style: [
                 state.color.isoline_step,
                 state.color.isoline_width_px,
-                cell_field as u32 as f32,
-                state.color.unlit as u32 as f32,
+                u32::from(cell_field) as f32,
+                u32::from(state.color.unlit) as f32,
             ],
         };
         // Persistent buffer: skip the queue write when view, range, and
@@ -411,10 +411,10 @@ impl WgpuCustomDraw for WgpuMeshDraw {
             return;
         };
         let field_write_started = Instant::now();
-        let field_write_bytes = if resources.field_rev != state.field_rev {
-            resources.update_field(ctx, state.field_rev, field.as_ref())
-        } else {
+        let field_write_bytes = if resources.field_rev == state.field_rev {
             0
+        } else {
+            resources.update_field(ctx, state.field_rev, field.as_ref())
         };
         let field_write_time = field_write_started.elapsed();
         drop(field);

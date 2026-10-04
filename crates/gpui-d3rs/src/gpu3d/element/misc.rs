@@ -21,7 +21,7 @@ pub(super) fn project_world_to_screen(
         return None;
     }
 
-    let x = (ndc.x + 1.0) * 0.5 * width;
+    let x = f32::midpoint(ndc.x, 1.0) * width;
     let y = (1.0 - ndc.y) * 0.5 * height;
     Some(Vec3::new(x, y, ndc.z))
 }
@@ -53,7 +53,7 @@ pub(super) fn log_frequency_minor_ticks(data: &SurfaceData) -> Vec<f64> {
     for decade in start_decade..=end_decade {
         let base = 10_f64.powi(decade);
         for multiplier in 2..10 {
-            let value = base * multiplier as f64;
+            let value = base * f64::from(multiplier);
             if value >= min && value <= max {
                 ticks.push(value);
             }
@@ -65,7 +65,7 @@ pub(super) fn log_frequency_minor_ticks(data: &SurfaceData) -> Vec<f64> {
 pub(super) fn sanitize_axis_positions(values: &mut Vec<f32>, min: f32, max: f32) {
     const EPS: f32 = 1e-4;
     values.retain(|value| value.is_finite() && *value > min + EPS && *value < max - EPS);
-    values.sort_by(|a, b| a.total_cmp(b));
+    values.sort_by(f32::total_cmp);
     values.dedup_by(|a, b| (*a - *b).abs() < EPS);
 }
 

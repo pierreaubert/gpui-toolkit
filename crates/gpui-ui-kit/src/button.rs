@@ -189,7 +189,7 @@ impl Button {
     }
 
     /// Compute colors based on variant and selected state
-    /// Returns (bg, bg_hover, text_color, border_color)
+    /// Returns (bg, `bg_hover`, `text_color`, `border_color`)
     fn compute_colors(
         variant: ButtonVariant,
         selected: bool,
@@ -258,7 +258,7 @@ impl Button {
     }
 
     /// Build the button into a `Stateful<Div>` that can have additional handlers added.
-    /// Use this when you need to add a cx.listener() handler.
+    /// Use this when you need to add a `cx.listener()` handler.
     ///
     /// Note: This bypasses accessibility registration. Prefer using the component
     /// directly via `RenderOnce` for automatic accessibility tree integration.

@@ -1,4 +1,4 @@
-//! GPUI element that paints a [`ChartScene`] via vello (GPU) or vello_cpu.
+//! GPUI element that paints a [`ChartScene`] via vello (GPU) or `vello_cpu`.
 
 #[cfg(all(target_os = "macos", feature = "vello-metal"))]
 use crate::vello2d::snapshot_scene_gpu;
@@ -19,7 +19,7 @@ use std::sync::Arc;
 /// Compatibility name for the Vello backend selector.
 pub type RasterBackend = crate::render2d::VelloBackend;
 
-/// Convert vello_cpu's premultiplied RGBA pixels to GPUI's atlas format while
+/// Convert `vello_cpu`'s premultiplied RGBA pixels to GPUI's atlas format while
 /// determining whether the raster contains drawable coverage. Combining those
 /// operations avoids a separate full-image clear scan on every cache miss.
 fn swizzle_rgba_to_bgra(pixels: &mut [u8]) -> bool {
@@ -270,9 +270,12 @@ impl VelloScenePainter {
                 let draw = WgpuVelloDraw::new(Rc::clone(&shared), Rc::clone(&failed));
                 let custom_id = gpui::register_custom_draw(draw.into_custom_draw());
                 #[cfg(test)]
+                // Braces required: `#[cfg] stmt;` on a non-block statement is E0658,
+                // so the lint-suggested collapse does not compile.
+                #[allow(clippy::unnecessary_operation, clippy::semicolon_if_nothing_returned)]
                 {
-                    self.test_stats.custom_registrations += 1;
-                }
+                    self.test_stats.custom_registrations += 1
+                };
                 BackendState::Wgpu {
                     custom_id,
                     shared,
@@ -409,14 +412,17 @@ impl VelloScenePainter {
                 .rasterizer
                 .rasterize(scene.as_scene(), w, h, scale_factor);
             #[cfg(test)]
+            // Braces required: `#[cfg] stmt;` on a non-block statement is E0658,
+            // so the lint-suggested collapse does not compile.
+            #[allow(clippy::unnecessary_operation, clippy::semicolon_if_nothing_returned)]
             {
-                self.test_stats.cpu_rasterizations += 1;
-            }
+                self.test_stats.cpu_rasterizations += 1
+            };
             if !swizzle_rgba_to_bgra(&mut pixels) {
                 Self::clear_cpu_image(state, window);
                 return;
             }
-            if let Some(rgba) = RgbaImage::from_raw(w as u32, h as u32, pixels) {
+            if let Some(rgba) = RgbaImage::from_raw(u32::from(w), u32::from(h), pixels) {
                 Self::clear_cpu_image(state, window);
                 let image = Arc::new(RenderImage::new(vec![Frame::new(rgba)]));
                 let _ =
@@ -518,8 +524,14 @@ fn paint_metal_snapshot(
 fn physical_raster_size(width: f32, height: f32, scale_factor: f32) -> (u16, u16) {
     let scale_factor = scale_factor.max(0.01);
     (
-        (width * scale_factor).max(1.0).ceil().min(u16::MAX as f32) as u16,
-        (height * scale_factor).max(1.0).ceil().min(u16::MAX as f32) as u16,
+        (width * scale_factor)
+            .max(1.0)
+            .ceil()
+            .min(f32::from(u16::MAX)) as u16,
+        (height * scale_factor)
+            .max(1.0)
+            .ceil()
+            .min(f32::from(u16::MAX)) as u16,
     )
 }
 
@@ -724,7 +736,7 @@ impl std::fmt::Debug for VelloChartElement {
         if self.builder.is_some() {
             d.field("builder", &true);
         }
-        d.finish()
+        d.finish_non_exhaustive()
     }
 }
 
@@ -1048,7 +1060,7 @@ impl Element for VelloChartElement {
                         shared.revision = self.scene.revision();
                     }
                     shared.logical_size = (width, height);
-                }
+                };
                 window.paint_custom(custom_id, bounds);
             } else if let Some(BackendState::Cpu(state)) = self.state.as_mut() {
                 let (w, h) = physical_raster_size(width, height, scale_factor);
@@ -1076,7 +1088,7 @@ impl Element for VelloChartElement {
                 // gpui::swap_rgba_pa_to_bgra and gpui_wgpu's
                 // swizzle_upload_data). vello_cpu yields premultiplied RGBA,
                 // so swap R<->B before handing the pixmap to paint_image.
-                if let Some(rgba) = RgbaImage::from_raw(w as u32, h as u32, pixels) {
+                if let Some(rgba) = RgbaImage::from_raw(u32::from(w), u32::from(h), pixels) {
                     // RenderImage ids are unique and paint_image caches each
                     // one in the sprite atlas; release the previous entry
                     // before inserting its replacement.

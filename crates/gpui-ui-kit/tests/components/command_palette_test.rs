@@ -1,4 +1,4 @@
-//! CommandPalette component tests
+//! `CommandPalette` component tests
 
 use gpui_ui_kit::command_palette::{CommandItem, CommandPalette};
 

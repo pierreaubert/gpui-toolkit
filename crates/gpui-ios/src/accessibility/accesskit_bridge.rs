@@ -1,4 +1,4 @@
-//! Adapter from GPUI's AccessKit tree updates to the existing UIKit snapshot API.
+//! Adapter from GPUI's AccessKit tree updates to the existing `UIKit` snapshot API.
 
 use super::{
     IosAccessibilityAction, IosAccessibilityFrame, IosAccessibilityNode, IosAccessibilityRole,
@@ -17,9 +17,13 @@ use std::{
 #[derive(Default)]
 struct AccessibilityTree {
     nodes: HashMap<NodeId, Node>,
+    #[cfg_attr(not(test), allow(dead_code))]
     root: Option<NodeId>,
 }
 
+// `apply`, `retain_reachable_nodes`, and `snapshot` are only reached from the
+// iOS/tvOS entry points and the host unit tests below.
+#[cfg_attr(not(test), allow(dead_code))]
 impl AccessibilityTree {
     fn apply(&mut self, update: TreeUpdate) {
         if update.tree_id != TreeId::ROOT {
@@ -196,6 +200,8 @@ fn invoke_action(callbacks: A11yCallbacks, request: ActionRequest) -> A11yCallba
     }
 }
 
+// Only reached from `AccessibilityTree::snapshot` (iOS/tvOS entry points and host tests).
+#[cfg_attr(not(test), allow(dead_code))]
 fn build_node(
     id: NodeId,
     nodes: &HashMap<NodeId, Node>,
@@ -246,6 +252,8 @@ fn build_node(
     Some(result)
 }
 
+// Only reached from the iOS/tvOS entry points, `snapshot`, and the host tests.
+#[cfg_attr(not(test), allow(dead_code))]
 fn normalized_scale_factor(scale_factor: f32) -> f32 {
     if scale_factor.is_finite() && scale_factor > f32::EPSILON {
         scale_factor
@@ -255,6 +263,8 @@ fn normalized_scale_factor(scale_factor: f32) -> f32 {
     }
 }
 
+// Only reached from `build_node` (iOS/tvOS entry points and host tests).
+#[cfg_attr(not(test), allow(dead_code))]
 fn ios_role(role: Role) -> IosAccessibilityRole {
     match role {
         Role::Unknown | Role::GenericContainer | Role::IframePresentational => {

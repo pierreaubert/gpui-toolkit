@@ -1,6 +1,6 @@
 //! Empty State Debug Example
 //!
-//! Demonstrates the EmptyState component:
+//! Demonstrates the `EmptyState` component:
 //! - Basic empty state with title
 //! - With description
 //! - With icon

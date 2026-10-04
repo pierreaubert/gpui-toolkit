@@ -278,9 +278,10 @@ impl BoxPlotChart {
             0.0
         };
 
-        let plot_width = (layout_width as f64 - margin_left - margin_right).max(0.0);
+        let plot_width = (f64::from(layout_width) - margin_left - margin_right).max(0.0);
         let plot_height =
-            (layout_height as f64 - title_height as f64 - margin_top - margin_bottom).max(0.0);
+            (f64::from(layout_height) - f64::from(title_height) - margin_top - margin_bottom)
+                .max(0.0);
 
         // Calculate domains
         let (x_min, x_max) = extent_padded(&self.x, DEFAULT_PADDING_FRACTION);
@@ -363,7 +364,7 @@ impl BoxPlotChart {
                 if bin.is_empty() {
                     return None;
                 }
-                bin.sort_by(|a, b| a.total_cmp(b));
+                bin.sort_by(f64::total_cmp);
                 let x_center = x_min + (i as f64 + 0.5) * bin_width;
                 BoxStats::from_values(x_center, &bin)
             })
@@ -835,22 +836,34 @@ fn box_plot_chart_scene(
         let half = data.half_width * sx;
         let low = data.whisker_low_px * sy;
         let high = data.whisker_high_px * sy;
-        whiskers.push(PathEl::MoveTo((x as f64, low as f64).into()));
-        whiskers.push(PathEl::LineTo((x as f64, high as f64).into()));
+        whiskers.push(PathEl::MoveTo((f64::from(x), f64::from(low)).into()));
+        whiskers.push(PathEl::LineTo((f64::from(x), f64::from(high)).into()));
         for y in [low, high] {
-            whiskers.push(PathEl::MoveTo(((x - half * 0.5) as f64, y as f64).into()));
-            whiskers.push(PathEl::LineTo(((x + half * 0.5) as f64, y as f64).into()));
+            whiskers.push(PathEl::MoveTo(
+                (f64::from(x - half * 0.5), f64::from(y)).into(),
+            ));
+            whiskers.push(PathEl::LineTo(
+                (f64::from(x + half * 0.5), f64::from(y)).into(),
+            ));
         }
         let top = data.box_top * sy;
         let bottom = (data.box_top + data.box_height) * sy;
-        boxes.push(PathEl::MoveTo(((x - half) as f64, top as f64).into()));
-        boxes.push(PathEl::LineTo(((x + half) as f64, top as f64).into()));
-        boxes.push(PathEl::LineTo(((x + half) as f64, bottom as f64).into()));
-        boxes.push(PathEl::LineTo(((x - half) as f64, bottom as f64).into()));
+        boxes.push(PathEl::MoveTo((f64::from(x - half), f64::from(top)).into()));
+        boxes.push(PathEl::LineTo((f64::from(x + half), f64::from(top)).into()));
+        boxes.push(PathEl::LineTo(
+            (f64::from(x + half), f64::from(bottom)).into(),
+        ));
+        boxes.push(PathEl::LineTo(
+            (f64::from(x - half), f64::from(bottom)).into(),
+        ));
         boxes.push(PathEl::ClosePath);
         let median = data.q2_px * sy;
-        medians.push(PathEl::MoveTo(((x - half) as f64, median as f64).into()));
-        medians.push(PathEl::LineTo(((x + half) as f64, median as f64).into()));
+        medians.push(PathEl::MoveTo(
+            (f64::from(x - half), f64::from(median)).into(),
+        ));
+        medians.push(PathEl::LineTo(
+            (f64::from(x + half), f64::from(median)).into(),
+        ));
         for y in data.outliers_low.iter().chain(data.outliers_high.iter()) {
             outliers.push((x, *y * sy));
         }
@@ -858,7 +871,7 @@ fn box_plot_chart_scene(
     if !whiskers.is_empty() {
         scene.stroke_path(
             whiskers,
-            Stroke::new(stroke_width as f64),
+            Stroke::new(f64::from(stroke_width)),
             brush(whisker_color, 1.0),
         );
     }
@@ -868,7 +881,7 @@ fn box_plot_chart_scene(
     if !medians.is_empty() {
         scene.stroke_path(
             medians,
-            Stroke::new(stroke_width as f64 * 2.0),
+            Stroke::new(f64::from(stroke_width) * 2.0),
             brush(median_color, 1.0),
         );
     }
@@ -876,7 +889,12 @@ fn box_plot_chart_scene(
         let radius = outlier_radius * sx.min(sy);
         let outlier_brush = brush(outlier_color, 0.7);
         for (x, y) in outliers {
-            scene.fill_circle(x as f64, y as f64, radius as f64, outlier_brush.clone());
+            scene.fill_circle(
+                f64::from(x),
+                f64::from(y),
+                f64::from(radius),
+                outlier_brush.clone(),
+            );
         }
     }
     scene
@@ -1007,10 +1025,10 @@ mod tests {
 
     #[test]
     fn test_boxplot_successful_build() {
-        let x: Vec<f64> = (0..30).map(|i| i as f64).collect();
+        let x: Vec<f64> = (0..30).map(f64::from).collect();
         let y: Vec<f64> = x.iter().map(|&xi| xi + 1.0).collect();
         let result = boxplot(&x, &y).title("Box Plot").build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]
@@ -1084,7 +1102,7 @@ mod tests {
             .bins(3)
             .size(800.0, 600.0)
             .build();
-        assert!(result.is_ok());
+        result.unwrap();
     }
 
     #[test]

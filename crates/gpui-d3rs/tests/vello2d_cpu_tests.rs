@@ -339,8 +339,8 @@ fn cpu_fixture_covers_heatmap_contours_and_isolines() {
             } else {
                 Color::from_rgb8(220, 80, 120)
             };
-            let x = column as f64 * 8.0;
-            let y = row as f64 * 8.0;
+            let x = f64::from(column) * 8.0;
+            let y = f64::from(row) * 8.0;
             heatmap.fill_rect(Rect::new(x, y, x + 8.0, y + 8.0), Brush::Solid(color));
         }
     }

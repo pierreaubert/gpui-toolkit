@@ -2,7 +2,7 @@
 //!
 //! A circular knob with:
 //! - Selection highlighting for plugin parameter editing
-//! - Drag support with vertical mouse movement (via on_drag_start handler)
+//! - Drag support with vertical mouse movement (via `on_drag_start` handler)
 //! - Scroll wheel adjustment (Shift for fine control: 0.5% vs 5%)
 //! - Double-click to reset to default
 //! - Keyboard navigation (when focused via click):
@@ -329,7 +329,7 @@ impl Potentiometer {
 
     /// Format the label with keyboard shortcut indicator
     fn format_label(&self) -> SharedString {
-        let label = self.label.as_ref().cloned().unwrap_or_default();
+        let label = self.label.clone().unwrap_or_default();
         match self.shortcut_key {
             Some(key) => {
                 let key_lower = key.to_ascii_lowercase();
@@ -365,7 +365,7 @@ impl Potentiometer {
         let value = self.value.clamp(self.min, self.max);
         let unit = self.unit.as_ref();
         SharedString::new(if unit == ":1" {
-            format!("{:.1}{}", value, unit)
+            format!("{value:.1}{unit}")
         } else if unit == "%" {
             // Compute percentage relative to the range (min=0%, max=100%)
             let pct = if self.max > self.min {
@@ -373,13 +373,13 @@ impl Potentiometer {
             } else {
                 0.0
             };
-            format!("{:.0}{}", pct, unit)
+            format!("{pct:.0}{unit}")
         } else if unit == "Hz" {
-            format!("{:.0} {}", value, unit)
+            format!("{value:.0} {unit}")
         } else if unit.is_empty() {
-            format!("{:.1}", value)
+            format!("{value:.1}")
         } else {
-            format!("{:.1} {}", value, unit)
+            format!("{value:.1} {unit}")
         })
     }
 
@@ -388,7 +388,7 @@ impl Potentiometer {
         let value = self.value.clamp(self.min, self.max);
         let unit = self.unit.as_ref();
         SharedString::new(if unit == ":1" {
-            format!("{:.1}", value)
+            format!("{value:.1}")
         } else if unit == "%" {
             // Compute percentage relative to the range (min=0%, max=100%)
             let pct = if self.max > self.min {
@@ -396,12 +396,12 @@ impl Potentiometer {
             } else {
                 0.0
             };
-            format!("{:.0}", pct)
+            format!("{pct:.0}")
         } else if unit == "Hz" {
-            format!("{:.0}", value)
+            format!("{value:.0}")
         } else {
             // Default: show one decimal place
-            format!("{:.1}", value)
+            format!("{value:.1}")
         })
     }
 }
@@ -565,8 +565,8 @@ impl Potentiometer {
     fn dial_metrics(&self, normalized: f32, selected: bool) -> DialMetrics {
         let knob_size = self.size.knob_size();
         let center = knob_size / 2.0;
-        let start_rad: f32 = self.design_tokens.knob_arc_start_deg.to_radians();
-        let end_rad: f32 = (self.design_tokens.knob_arc_start_deg
+        let start_rad = self.design_tokens.knob_arc_start_deg.to_radians();
+        let end_rad = (self.design_tokens.knob_arc_start_deg
             + self.design_tokens.knob_arc_sweep_deg)
             .to_radians();
         // Tick ring radii and label gutters around the knob graphic.
@@ -975,7 +975,7 @@ fn build_indicator(
     // Add shiny shadow for Lg size and selected state
     indicator = match size {
         PotentiometerSize::Lg => indicator.shadow_md(), // Always shiny for Lg
-        _ => indicator.when(selected, |d| d.shadow_sm()),
+        _ => indicator.when(selected, gpui::Styled::shadow_sm),
     };
     indicator
 }

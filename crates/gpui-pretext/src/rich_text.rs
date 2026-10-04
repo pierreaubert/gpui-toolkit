@@ -161,8 +161,7 @@ pub fn parse_inline_markdown(input: &str) -> Vec<RichTextSpan<'_>> {
             .char_indices()
             .skip(1)
             .find(|(_, ch)| matches!(ch, '*' | '`' | '_' | '['))
-            .map(|(idx, _)| idx)
-            .unwrap_or(remaining.len());
+            .map_or(remaining.len(), |(idx, _)| idx);
         spans.push(RichTextSpan::plain(&remaining[..next_marker]));
         remaining = &remaining[next_marker..];
     }
@@ -249,9 +248,9 @@ mod tests {
 
     #[test]
     fn variable_font_axes_validate_tags_and_ranges() {
-        assert!(VariableFontAxis::new("wght", 100.0, 400.0, 900.0).is_ok());
-        assert!(VariableFontAxis::new("weight", 100.0, 400.0, 900.0).is_err());
-        assert!(VariableFontAxis::new("wdth", 100.0, 50.0, 900.0).is_err());
+        VariableFontAxis::new("wght", 100.0, 400.0, 900.0).unwrap();
+        VariableFontAxis::new("weight", 100.0, 400.0, 900.0).unwrap_err();
+        VariableFontAxis::new("wdth", 100.0, 50.0, 900.0).unwrap_err();
     }
 
     #[test]
@@ -321,8 +320,8 @@ mod tests {
 
 #[test]
 fn variable_font_axis_rejects_infinite_values() {
-    assert!(VariableFontAxis::new("wght", f32::INFINITY, 400.0, 900.0).is_err());
-    assert!(VariableFontAxis::new("wght", 100.0, 400.0, f32::NAN).is_err());
+    VariableFontAxis::new("wght", f32::INFINITY, 400.0, 900.0).unwrap_err();
+    VariableFontAxis::new("wght", 100.0, 400.0, f32::NAN).unwrap_err();
 }
 
 #[test]

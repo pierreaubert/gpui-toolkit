@@ -112,8 +112,7 @@ async fn test_input_click_to_focus_and_type(cx: &mut TestAppContext) {
         let last_change = changes.last().unwrap();
         assert!(
             last_change.contains("abc") || last_change == "abc",
-            "Last text change should contain 'abc', got: {}",
-            last_change
+            "Last text change should contain 'abc', got: {last_change}"
         );
     } else {
         // Input element not found in debug bounds - this can happen if the
@@ -169,9 +168,7 @@ async fn test_input_focus_persists_across_renders(cx: &mut TestAppContext) {
         // Should have multiple renders (from window.refresh() calls)
         assert!(
             renders_after > renders_before,
-            "Should have re-rendered after typing. Before: {}, After: {}",
-            renders_before,
-            renders_after
+            "Should have re-rendered after typing. Before: {renders_before}, After: {renders_after}"
         );
 
         // Verify all characters were captured
@@ -181,8 +178,7 @@ async fn test_input_focus_persists_across_renders(cx: &mut TestAppContext) {
             // The text should build up: "x", "xy", "xyz"
             assert!(
                 last.len() >= 3,
-                "Should have captured all typed characters, got: {}",
-                last
+                "Should have captured all typed characters, got: {last}"
             );
         }
     }
@@ -315,9 +311,8 @@ async fn test_input_double_click_selects_all(cx: &mut TestAppContext) {
             // If double-click select all worked, typing "X" should replace the entire text
             // The text should be "X" or contain "X" as replacement
             assert!(
-                last.contains("X"),
-                "After double-click and typing, text should contain 'X', got: {}",
-                last
+                last.contains('X'),
+                "After double-click and typing, text should contain 'X', got: {last}"
             );
         }
     }
@@ -363,8 +358,7 @@ async fn test_input_mouse_drag_selects_text(cx: &mut TestAppContext) {
             let last = changes.last().unwrap();
             assert!(
                 last.contains("NEW"),
-                "After drag select and typing, text should contain 'NEW', got: {}",
-                last
+                "After drag select and typing, text should contain 'NEW', got: {last}"
             );
         }
     }
@@ -404,9 +398,8 @@ async fn test_input_backspace_deletes(cx: &mut TestAppContext) {
             let last = changes.last().unwrap();
             // Should have deleted the last character
             assert!(
-                last.len() < 6 || !last.ends_with("F"),
-                "Backspace should have deleted a character, got: {}",
-                last
+                last.len() < 6 || !last.ends_with('F'),
+                "Backspace should have deleted a character, got: {last}"
             );
         }
     }
@@ -446,9 +439,8 @@ async fn test_input_delete_key(cx: &mut TestAppContext) {
             let last = changes.last().unwrap();
             // Should have deleted the first character 'A'
             assert!(
-                !last.starts_with("A") || last.len() < 6,
-                "Delete should have removed first character, got: {}",
-                last
+                !last.starts_with('A') || last.len() < 6,
+                "Delete should have removed first character, got: {last}"
             );
         }
     }
@@ -491,9 +483,8 @@ async fn test_input_arrow_key_navigation(cx: &mut TestAppContext) {
             let last = changes.last().unwrap();
             // 'X' should be inserted at position len-2
             assert!(
-                last.contains("X"),
-                "Should have inserted 'X' after arrow navigation, got: {}",
-                last
+                last.contains('X'),
+                "Should have inserted 'X' after arrow navigation, got: {last}"
             );
         }
     }
@@ -537,9 +528,8 @@ async fn test_input_ctrl_a_moves_to_beginning(cx: &mut TestAppContext) {
             let last = changes.last().unwrap();
             // 'Z' should be at the beginning
             assert!(
-                last.starts_with("Z"),
-                "Ctrl+A should move cursor to beginning, got: {}",
-                last
+                last.starts_with('Z'),
+                "Ctrl+A should move cursor to beginning, got: {last}"
             );
         }
     }
@@ -583,9 +573,8 @@ async fn test_input_ctrl_e_moves_to_end(cx: &mut TestAppContext) {
             let last = changes.last().unwrap();
             // 'Z' should be at the end
             assert!(
-                last.ends_with("Z"),
-                "Ctrl+E should move cursor to end, got: {}",
-                last
+                last.ends_with('Z'),
+                "Ctrl+E should move cursor to end, got: {last}"
             );
         }
     }
@@ -626,8 +615,7 @@ async fn test_input_ctrl_k_kills_to_end(cx: &mut TestAppContext) {
             // Should only have "AB" left
             assert_eq!(
                 last, "AB",
-                "Ctrl+K should kill text after cursor, got: {}",
-                last
+                "Ctrl+K should kill text after cursor, got: {last}"
             );
         }
     }
@@ -668,8 +656,7 @@ async fn test_input_ctrl_u_kills_to_beginning(cx: &mut TestAppContext) {
             // Should only have "EF" left
             assert_eq!(
                 last, "EF",
-                "Ctrl+U should kill text before cursor, got: {}",
-                last
+                "Ctrl+U should kill text before cursor, got: {last}"
             );
         }
     }
@@ -737,8 +724,7 @@ async fn test_input_copy_paste(cx: &mut TestAppContext) {
             let last = changes.last().unwrap();
             assert_eq!(
                 last, "Hello Hello",
-                "Paste should append copied text, got: {}",
-                last
+                "Paste should append copied text, got: {last}"
             );
         }
     }
@@ -791,10 +777,9 @@ async fn test_input_cut(cx: &mut TestAppContext) {
             let last = changes.last().unwrap();
             assert_eq!(
                 last, "Keep",
-                "Cut should remove selected text, got: {}",
-                last
+                "Cut should remove selected text, got: {last}"
             );
-        }
+        };
 
         // Move to end and Paste to verify it was copied
         cx.simulate_keystrokes("end");
@@ -810,8 +795,7 @@ async fn test_input_cut(cx: &mut TestAppContext) {
             let last = changes.last().unwrap();
             assert_eq!(
                 last, "KeepRemove",
-                "Paste after cut should restore text, got: {}",
-                last
+                "Paste after cut should restore text, got: {last}"
             );
         }
     }

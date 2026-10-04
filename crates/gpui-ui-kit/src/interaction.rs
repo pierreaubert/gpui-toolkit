@@ -49,7 +49,7 @@ thread_local! {
     static DRAG_MOVED_STATES: RefCell<HashSet<ElementId>> = RefCell::new(HashSet::new());
 }
 
-/// Store drag state for an element (call on mouse_down)
+/// Store drag state for an element (call on `mouse_down`)
 pub fn store_drag_state(element_key: ElementId, start_pos: f32, start_value: f64) {
     DRAG_MOVED_STATES.with(|states| {
         states.borrow_mut().remove(&element_key);
@@ -80,12 +80,12 @@ pub fn drag_has_moved(element_key: &ElementId) -> bool {
     DRAG_MOVED_STATES.with(|states| states.borrow().contains(element_key))
 }
 
-/// Get drag state for an element (call on mouse_move)
+/// Get drag state for an element (call on `mouse_move`)
 pub fn get_drag_state(element_key: &ElementId) -> Option<DragState> {
     DRAG_STATES.with(|states| states.borrow().get(element_key).copied())
 }
 
-/// Clear drag state for an element (call on mouse_up)
+/// Clear drag state for an element (call on `mouse_up`)
 pub fn clear_drag_state(element_key: ElementId) {
     DRAG_MOVED_STATES.with(|states| {
         states.borrow_mut().remove(&element_key);
@@ -312,7 +312,7 @@ pub fn handle_drag(
     }
 
     // Map pixel delta to normalized change
-    let delta_norm = (delta / config.track_size) as f64;
+    let delta_norm = f64::from(delta / config.track_size);
 
     Some(config.scale.step_value(
         drag_state.start_value,

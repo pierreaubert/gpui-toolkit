@@ -1,4 +1,4 @@
-//! Box Plot -- Observable example using d3rs::examples::box_plot
+//! Box Plot -- Observable example using `d3rs::examples::box_plot`
 //!
 //! Demonstrates idiomatic d3rs usage: `BandScale` for groups, `LinearScale` for y-axis,
 //! `PathBuilder` for box/whisker/outlier paths, `d3rs_path_to_gpui_simple` for rendering.
@@ -194,7 +194,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
     let y_step = (y_range / 6.0).ceil();
     let y_min_tick = (y_min / y_step).floor() * y_step;
     let y_ticks: Vec<f64> = (0..=8)
-        .map(|i| y_min_tick + i as f64 * y_step)
+        .map(|i| y_min_tick + f64::from(i) * y_step)
         .filter(|v| *v >= y_min - 0.1 && *v <= y_max + 0.1)
         .collect();
 
@@ -211,7 +211,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                 .flex()
                 .justify_center()
                 .text_xs()
-                .child(format!("Group {}", name))
+                .child(format!("Group {name}"))
         })
         .collect();
 
@@ -325,7 +325,7 @@ pub fn render(_app: &ShowcaseApp, cx: &mut Context<ShowcaseApp>) -> Div {
                         .flex()
                         .justify_end()
                         .pr_1()
-                        .child(div().text_xs().child(format!("{:.0}", val)))
+                        .child(div().text_xs().child(format!("{val:.0}")))
                 }))
                 // Y grid lines
                 .children(y_ticks.iter().map(|&val| {

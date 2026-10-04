@@ -1,4 +1,4 @@
-//! SettingsForm component tests
+//! `SettingsForm` component tests
 
 use gpui::div;
 use gpui::prelude::ParentElement;

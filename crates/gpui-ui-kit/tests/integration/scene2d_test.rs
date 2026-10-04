@@ -1,4 +1,4 @@
-//! Integration tests for the native retained Scene2D painter.
+//! Integration tests for the native retained `Scene2D` painter.
 
 // Rust guideline compliant 2026-02-21
 

@@ -1,4 +1,4 @@
-//! ImageView component tests
+//! `ImageView` component tests
 
 use gpui_ui_kit::image_view::{ImageFit, ImageView};
 

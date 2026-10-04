@@ -5,5 +5,5 @@ pub(super) fn option_text(value: Option<&str>) -> &str {
 }
 
 pub(super) fn option_number(value: Option<f32>) -> String {
-    value.map(format_number).unwrap_or_else(|| "-".to_string())
+    value.map_or_else(|| "-".to_string(), format_number)
 }

@@ -23,8 +23,7 @@ fn test_line_y_rel_inverted_range_with_zero() {
     // 50% of domain should map to middle of relative coords
     assert!(
         (y_rel - 0.5).abs() < 1e-5,
-        "y_rel should be 0.5, got {}",
-        y_rel
+        "y_rel should be 0.5, got {y_rel}"
     );
 }
 

@@ -1,4 +1,4 @@
-//! KeyboardShortcutLabel component tests
+//! `KeyboardShortcutLabel` component tests
 
 use gpui_ui_kit::keyboard_shortcut_label::{KeyboardShortcutLabel, KeyboardShortcutSize};
 

@@ -87,8 +87,8 @@ pub fn polygon_centroid(polygon: &[(f64, f64)]) -> (f64, f64) {
     }
     if n == 2 {
         return (
-            (polygon[0].0 + polygon[1].0) / 2.0,
-            (polygon[0].1 + polygon[1].1) / 2.0,
+            f64::midpoint(polygon[0].0, polygon[1].0),
+            f64::midpoint(polygon[0].1, polygon[1].1),
         );
     }
 

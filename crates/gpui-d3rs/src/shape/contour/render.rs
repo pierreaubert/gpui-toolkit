@@ -208,8 +208,7 @@ where
         let color = config
             .color_scale
             .as_ref()
-            .map(|scale| scale(t))
-            .unwrap_or(fallback);
+            .map_or(fallback, |scale| scale(t));
         let rgba = color.to_rgba();
         Brush::Solid(Color::new([rgba.r, rgba.g, rgba.b, rgba.a * alpha]))
     };
@@ -225,8 +224,8 @@ where
                 .points
                 .iter()
                 .map(|point| {
-                    let x = ((x_scale.scale(point.x) - x0.min(x1)) / x_span) * width as f64;
-                    let y = ((y_scale.scale(point.y) - y0.min(y1)) / y_span) * height as f64;
+                    let x = ((x_scale.scale(point.x) - x0.min(x1)) / x_span) * f64::from(width);
+                    let y = ((y_scale.scale(point.y) - y0.min(y1)) / y_span) * f64::from(height);
                     StrokePoint::new(x as f32, y as f32)
                 })
                 .collect();
@@ -240,9 +239,9 @@ where
                 let mut path = BezPath::new();
                 for (index, point) in screen_points.iter().enumerate() {
                     path.push(if index == 0 {
-                        PathEl::MoveTo((point.x as f64, point.y as f64).into())
+                        PathEl::MoveTo((f64::from(point.x), f64::from(point.y)).into())
                     } else {
-                        PathEl::LineTo((point.x as f64, point.y as f64).into())
+                        PathEl::LineTo((f64::from(point.x), f64::from(point.y)).into())
                     });
                 }
                 path.push(PathEl::ClosePath);
@@ -252,7 +251,7 @@ where
                 let draw_points = if closed && screen_points.len() >= 2 {
                     &screen_points[..screen_points.len() - 1]
                 } else {
-                    &screen_points[..]
+                    &*screen_points
                 };
                 let segments = split_stroke_points(draw_points, x_jump_threshold, y_jump_threshold);
                 let closes_single_segment = closed && segments.len() == 1;
@@ -269,21 +268,23 @@ where
                         continue;
                     }
                     path.push(PathEl::MoveTo(
-                        (smoothed[0].x as f64, smoothed[0].y as f64).into(),
+                        (f64::from(smoothed[0].x), f64::from(smoothed[0].y)).into(),
                     ));
                     for point in &smoothed[1..] {
-                        path.push(PathEl::LineTo((point.x as f64, point.y as f64).into()));
+                        path.push(PathEl::LineTo(
+                            (f64::from(point.x), f64::from(point.y)).into(),
+                        ));
                     }
                     if closes_single_segment && segment.len() >= 3 {
                         path.push(PathEl::LineTo(
-                            (smoothed[0].x as f64, smoothed[0].y as f64).into(),
+                            (f64::from(smoothed[0].x), f64::from(smoothed[0].y)).into(),
                         ));
                     }
                 }
                 if !path.is_empty() {
                     scene.stroke_path(
                         path,
-                        Stroke::new(config.stroke_width as f64),
+                        Stroke::new(f64::from(config.stroke_width)),
                         stroke_brush.clone(),
                     );
                 }
@@ -370,8 +371,7 @@ where
         let color = config
             .color_scale
             .as_ref()
-            .map(|scale| scale(t))
-            .unwrap_or(config.fill_color);
+            .map_or(config.fill_color, |scale| scale(t));
         let rgba = color.to_rgba();
         for ring in &band.polygons {
             if ring.points.len() < 3 {
@@ -379,8 +379,8 @@ where
             }
             let mut path = BezPath::new();
             for (index, point) in ring.points.iter().enumerate() {
-                let x = ((x_scale.scale(point.x) - x0.min(x1)) / x_span) * width as f64;
-                let y = ((y_scale.scale(point.y) - y0.min(y1)) / y_span) * height as f64;
+                let x = ((x_scale.scale(point.x) - x0.min(x1)) / x_span) * f64::from(width);
+                let y = ((y_scale.scale(point.y) - y0.min(y1)) / y_span) * f64::from(height);
                 path.push(if index == 0 {
                     PathEl::MoveTo((x, y).into())
                 } else {
@@ -400,7 +400,7 @@ where
             if config.stroke_width > 0.0 && config.stroke_opacity > 0.0 {
                 scene.stroke_path(
                     path,
-                    Stroke::new(config.stroke_width as f64),
+                    Stroke::new(f64::from(config.stroke_width)),
                     Brush::Solid(Color::new([
                         rgba.r,
                         rgba.g,
@@ -482,10 +482,10 @@ where
                 .unwrap_or(x_data + 1.0);
             let y_data = data.y_values[row];
             let y_next = data.y_values.get(row + 1).copied().unwrap_or(y_data + 1.0);
-            let xa = ((x_scale.scale(x_data) - x0.min(x1)) / x_span) * width as f64;
-            let xb = ((x_scale.scale(x_next) - x0.min(x1)) / x_span) * width as f64;
-            let ya = ((y_scale.scale(y_data) - y0.min(y1)) / y_span) * height as f64;
-            let yb = ((y_scale.scale(y_next) - y0.min(y1)) / y_span) * height as f64;
+            let xa = ((x_scale.scale(x_data) - x0.min(x1)) / x_span) * f64::from(width);
+            let xb = ((x_scale.scale(x_next) - x0.min(x1)) / x_span) * f64::from(width);
+            let ya = ((y_scale.scale(y_data) - y0.min(y1)) / y_span) * f64::from(height);
+            let yb = ((y_scale.scale(y_next) - y0.min(y1)) / y_span) * f64::from(height);
             let t = if value_span < 1e-10 {
                 0.5
             } else {
@@ -494,8 +494,7 @@ where
             let color = config
                 .color_scale
                 .as_ref()
-                .map(|scale| scale(t))
-                .unwrap_or(config.fill_color);
+                .map_or(config.fill_color, |scale| scale(t));
             let rgba = color.to_rgba();
             scene.fill_rect(
                 Rect::new(xa.min(xb), ya.min(yb), xa.max(xb), ya.max(yb)),

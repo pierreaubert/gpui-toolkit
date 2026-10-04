@@ -10,6 +10,9 @@ repository.workspace = true
 description = "Retained scene specifications for the GPUI Python wrapper"
 readme = "README.md"
 
+[lints]
+workspace = true
+
 [features]
 default = []
 autoeq = ["gpui-px?/autoeq"]

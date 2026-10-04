@@ -116,7 +116,7 @@ pub fn revolve(
         let z = spec.axial.component(*p);
         let count = if on_axis[vi] { 1 } else { cols };
         for c in 0..count {
-            let theta = spec.start_angle + spec.sweep_angle * (c as f64 / spec.segments as f64);
+            let theta = spec.start_angle + spec.sweep_angle * (c as f64 / f64::from(spec.segments));
             positions.push([r * theta.cos(), r * theta.sin(), z]);
             source_vertex.push(vi as u32);
             derived[vi].push(positions.len() as u32 - 1);
