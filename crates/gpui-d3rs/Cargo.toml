@@ -233,7 +233,7 @@ name = "chromatic_demo"
 path = "examples/chromatic_demo.rs"
 required-features = ["gpui"]
 
-# GPUI-backed legacy demos (d3rs::surface is gated behind the gpui feature)
+# GPUI-backed legacy demos (surface rendering requires the gpui feature)
 [[example]]
 name = "surface_demo"
 path = "examples/surface_demo.rs"

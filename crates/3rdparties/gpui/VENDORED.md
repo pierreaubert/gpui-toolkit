@@ -7,6 +7,16 @@
 
 ## Local patches
 
+- `src/scene.rs` / `src/window.rs` port upstream zed PR #60482 (merged
+  2026-07-09): GPU-facing `Underline.wavy` / `PolychromeSprite.grayscale`
+  are `PaddedBool32` (`#[repr(transparent)]` over `u32`) instead of
+  `u32` / `bool`, so instance buffers contain no uninitialized padding
+  (soundness: the wgpu renderer reinterprets them as `&[u8]`).
+
+- `src/text_system/line_wrapper.rs` ports upstream zed PR #62743 (merged
+  2026-08-26): UAX #14 LB13 rule in `LineWrapper::is_word_char` so closing
+  punctuation never starts a wrapped line, plus its unit tests.
+
 - `src/app.rs` adds `ApplicationHandle` and `Application::run_embedded` (ported
   verbatim from upstream zed PR #60574, commit 74798c68d5) so that wasm/embedded
   platforms — where `Platform::run` returns immediately after scheduling the

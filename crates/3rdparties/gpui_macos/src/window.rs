@@ -9,7 +9,7 @@ use anyhow::Result;
 use block::ConcreteBlock;
 use cocoa::{
     appkit::{
-        NSApplication, NSBackingStoreBuffered, NSColor, NSEvent, NSEventModifierFlags,
+        NSApplication, NSBackingStoreBuffered, NSColor, NSEventModifierFlags,
         NSFilenamesPboardType, NSPasteboard, NSScreen, NSView, NSViewHeightSizable,
         NSViewWidthSizable, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
         NSWindow, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowOrderingMode,

@@ -39,12 +39,28 @@ the same patch but no longer compiles against gpui v1.9.0) is fully committed
 in git history — recover it at commit e1beddc's parent
 (`git checkout e1beddc~1 -- crates/3rdparties/gpui_macos`).
 
+Upstream converged on the identical removal in zed PR #56315 (merged
+2026-07-28, 1 file +23/−52, same three regions). The local patch now
+matches it exactly, including dropping the `NSEvent` trait import that
+only served the removed `windowNumber()` call.
+
+### Atlas texture lookup returns `Option` (upstream port, 2026-10-04)
+
+Ports the Metal hunks of upstream zed PR #64623 (merged 2026-09-22):
+`metal_texture()` returns `Option` and the mono/polychrome sprite draws
+skip batches whose texture was released (adapted: this tree predates the
+`gpui_apple` extraction, so the code lives in `gpui_macos`; the skip
+returns `true`, matching the empty-batch early-out). Includes the
+upstream regression test.
+
 ### Crate-root lint allows (clippy default lints, upstream code unchanged)
 
 Added at the top of `src/gpui_macos.rs` (Task 6, `just lint-host` gate with `-D warnings`):
 
-- `#![allow(unused_imports)]` — `NSEvent` in the `cocoa::appkit` import list at
-  `src/window.rs:13` (upstream-identical; known since Task 4).
+- `#![allow(unused_imports)]` — historically for `NSEvent` in the
+  `cocoa::appkit` import list at `src/window.rs:13`; the import is now
+  dropped to match upstream #56315, so the allow is currently unneeded
+  but kept as a buffer for future drift.
 - `#![allow(clippy::collapsible_if)]` — `src/keyboard.rs:38`.
 - `#![allow(clippy::single_match)]` — `src/pasteboard.rs:193`.
 - `#![allow(clippy::needless_borrow)]` — `src/pasteboard.rs:195`.

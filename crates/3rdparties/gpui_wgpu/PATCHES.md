@@ -52,3 +52,21 @@ must honor GPUI's premultiplied-atlas contract.
   premultiplied surfaces, darkening translucent sprite content). It now
   matches the Metal renderer's `polychrome_sprite_fragment`: premultiplied
   sample passes through, only `color.a` is scaled by opacity/edge coverage.
+
+## 4. `PaddedBool32` shader mask simplification (upstream port, 2026-10-04)
+
+Ports the `gpui_wgpu` hunk of upstream zed PR #60482 (merged 2026-07-09):
+`fs_underline` / `fs_poly_sprite` compare `wavy` / `grayscale` directly
+instead of masking with `& 0xFFu`, since the Rust side now guarantees
+padding-free 0-or-1 `u32` values.
+
+## 5. Atlas texture lookup returns `Option` (upstream port, 2026-10-04)
+
+Ports the `gpui_wgpu` hunks of upstream zed PR #64623 (merged 2026-09-22):
+`get_texture_info()` returns `Option` and the three sprite draws skip
+batches whose texture was released (adapted to this tree's renderer
+shape, which predates upstream's bind-group caching; the skip returns
+`true`, matching the empty-batch convention). The `Index` impl is kept
+because `flush_uploads` still uses it. No test ported: this tree has no
+`wgpu_atlas` test module (upstream added asserts to its generation
+test).
