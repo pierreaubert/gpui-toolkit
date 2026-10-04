@@ -346,9 +346,7 @@ mod tests {
 
     #[test]
     fn test_metal_texture_is_none_after_last_tile_removed() {
-        let Some(atlas) = create_atlas() else {
-            return;
-        };
+        let atlas = create_atlas().expect("Metal device required for atlas regression");
 
         let key = make_image_key(1, 0);
         let tile = insert_tile(
