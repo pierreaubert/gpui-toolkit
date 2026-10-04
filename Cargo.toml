@@ -33,14 +33,11 @@ members = [
     "crates/3rdparties/gpui_macros",
     "crates/3rdparties/gpui_macos",
     "crates/3rdparties/gpui_linux",
-    "crates/3rdparties/collections",
     "crates/3rdparties/util",
-    "crates/3rdparties/gpui_util",
     "crates/3rdparties/util_macros",
     "crates/3rdparties/scheduler",
     "crates/3rdparties/sum_tree",
     "crates/3rdparties/http_client",
-    "crates/3rdparties/media",
     "crates/3rdparties/perf",
 ]
 resolver = "3"
@@ -137,17 +134,17 @@ parley = { version = "0.11.1", default-features = false, features = ["std"] }
 fontique = { version = "0.11.1", default-features = false, features = ["std"] }
 
 # Internal crates derived from Zed, published under the gpui-toolkit namespace.
-collections = { package = "gpui-toolkit-collections", path = "crates/3rdparties/collections", version = "0.1.0" }
+collections = { git = "https://github.com/pierreaubert/zed.git", rev = "3a0ea890ddf8e6247e38c795a960eb18f5182113", version = "0.1.0" }
 util = { package = "gpui-toolkit-util", path = "crates/3rdparties/util", version = "0.1.1" }
 util_macros = { package = "gpui-toolkit-util-macros", path = "crates/3rdparties/util_macros", version = "0.1.0" }
 perf = { package = "gpui-toolkit-perf", path = "crates/3rdparties/perf", version = "0.1.0" }
-gpui_util = { package = "gpui-toolkit-gpui-util", path = "crates/3rdparties/gpui_util", version = "0.1.0" }
-gpui_shared_string = { git = "https://github.com/zed-industries/zed.git", rev = "ced90fc636c4ede05402befc38a63bae7fd741bd", version = "0.1.0" }
+gpui_util = { git = "https://github.com/pierreaubert/zed.git", rev = "3a0ea890ddf8e6247e38c795a960eb18f5182113", version = "0.1.0" }
+gpui_shared_string = { git = "https://github.com/pierreaubert/zed.git", rev = "3a0ea890ddf8e6247e38c795a960eb18f5182113", version = "0.1.0" }
 http_client = { package = "gpui-toolkit-http-client", path = "crates/3rdparties/http_client", version = "0.1.0" }
-media = { package = "gpui-toolkit-media", path = "crates/3rdparties/media", version = "0.1.0" }
+media = { git = "https://github.com/pierreaubert/zed.git", rev = "3a0ea890ddf8e6247e38c795a960eb18f5182113", version = "0.1.0" }
 scheduler = { package = "gpui-toolkit-scheduler", path = "crates/3rdparties/scheduler", version = "0.1.0" }
 sum_tree = { package = "gpui-toolkit-sum-tree", path = "crates/3rdparties/sum_tree", version = "0.1.0" }
-refineable = { git = "https://github.com/zed-industries/zed.git", rev = "ced90fc636c4ede05402befc38a63bae7fd741bd", version = "0.1.0" }
+refineable = { git = "https://github.com/pierreaubert/zed.git", rev = "3a0ea890ddf8e6247e38c795a960eb18f5182113", version = "0.1.0" }
 scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", default-features = false, package = "zed-scap", version = "0.0.8-zed" }
 
 # Windows crate used by gpui_windows
