@@ -14,12 +14,14 @@ from pathlib import Path
 
 ZED_GIT = "https://github.com/zed-industries/zed.git"
 ZED_V1_9_0_REV = "ced90fc636c4ede05402befc38a63bae7fd741bd"
+ZED_COMPAT_GIT = "https://github.com/pierreaubert/zed.git"
+ZED_COMPAT_REV = "3a0ea890ddf8e6247e38c795a960eb18f5182113"
 ZED_TARBALL = "https://github.com/zed-industries/zed/archive/refs/tags/{ref}.tar.gz"
-DEFAULT_ROOTS = ["gpui", "gpui_macros", "gpui_macos", "gpui_linux", "collections", "util", "gpui_web"]
+DEFAULT_ROOTS = ["gpui", "gpui_macros", "gpui_macos", "gpui_linux", "util", "gpui_web"]
 EXCLUDED_CRATES = {"reqwest_client", "gpui_platform", "zlog", "ztracing", "ztracing_macro"}
 # These Zed crates are pinned directly; keep their dependency edges when
 # rewriting GPUI manifests, but omit their directories from the vendor set.
-EXTERNAL_ZED_CRATES = {"refineable", "derive_refineable", "gpui_shared_string"}
+EXTERNAL_ZED_CRATES = {"refineable", "derive_refineable", "gpui_shared_string", "collections", "gpui_util", "media"}
 EXCLUDED_DIRS = {"examples", "benches"}
 VENDOR_DIR = Path("crates/3rdparties")
 GPUI_IMAGE_FEATURES = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"]
@@ -143,7 +145,7 @@ def resolve_dep(name: str, spec, ctx: dict):
             raise SystemExit(f"error: internal crate not in vendor set: {canonical}")
         merged = {"version": version, "git": ZED_GIT, "tag": ctx["ref"]}
         if canonical in EXTERNAL_ZED_CRATES and ctx["ref"] == "v1.9.0":
-            merged = {"version": version, "git": ZED_GIT, "rev": ZED_V1_9_0_REV}
+            merged = {"version": version, "git": ZED_COMPAT_GIT, "rev": ZED_COMPAT_REV}
         if canonical != name:
             merged = {"package": canonical, **merged}
     else:
@@ -414,6 +416,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--print-closure", action="store_true")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
+    requested = set(args.root) | set(args.only)
+    blocked = sorted(requested & EXTERNAL_ZED_CRATES)
+    if blocked:
+        parser.error(f"Git-backed crates cannot be vendored: {', '.join(blocked)}")
     roots = DEFAULT_ROOTS + [r for r in args.root if r not in DEFAULT_ROOTS]
     zdir = fetch(args.ref, Path(args.cache))
     ctx = load_zed(zdir, args.ref)

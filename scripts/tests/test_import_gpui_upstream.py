@@ -101,7 +101,8 @@ class DepResolutionTests(unittest.TestCase):
         self.ctx["versions"]["refineable"] = "0.1.0"
         name, spec = imp.resolve_dep("refineable", {"workspace": True}, self.ctx)
         self.assertEqual(name, "refineable")
-        self.assertEqual(spec["rev"], imp.ZED_V1_9_0_REV)
+        self.assertEqual(spec["rev"], imp.ZED_COMPAT_REV)
+        self.assertEqual(spec["git"], imp.ZED_COMPAT_GIT)
         self.assertNotIn("tag", spec)
 
     def test_shared_string_uses_same_pinned_revision_as_workspace(self):
@@ -110,8 +111,28 @@ class DepResolutionTests(unittest.TestCase):
         self.ctx["versions"]["gpui_shared_string"] = "0.1.0"
         name, spec = imp.resolve_dep("gpui_shared_string", {"workspace": True}, self.ctx)
         self.assertEqual(name, "gpui_shared_string")
-        self.assertEqual(spec["rev"], imp.ZED_V1_9_0_REV)
+        self.assertEqual(spec["rev"], imp.ZED_COMPAT_REV)
+        self.assertEqual(spec["git"], imp.ZED_COMPAT_GIT)
         self.assertNotIn("tag", spec)
+
+    def test_git_backed_crates_are_not_imported(self):
+        self.ctx["ref"] = "v1.9.0"
+        for crate in ("collections", "gpui_util", "media"):
+            with self.subTest(crate=crate):
+                self.ctx["ws_deps"][crate] = {"path": f"crates/{crate}"}
+                self.ctx["versions"][crate] = "0.1.0"
+                name, spec = imp.resolve_dep(crate, {"workspace": True}, self.ctx)
+                self.assertEqual(name, crate)
+                self.assertEqual(spec["git"], imp.ZED_COMPAT_GIT)
+                self.assertEqual(spec["rev"], imp.ZED_COMPAT_REV)
+                self.assertNotIn(crate, imp.DEFAULT_ROOTS)
+                self.assertIn(crate, imp.EXTERNAL_ZED_CRATES)
+
+    def test_explicit_git_backed_root_is_rejected_before_fetch(self):
+        for flag in ("--root", "--only"):
+            with self.subTest(flag=flag), self.assertRaises(SystemExit) as caught:
+                imp.main([flag, "collections"])
+            self.assertEqual(caught.exception.code, 2)
 
     def test_external_dep_merges_extras(self):
         name, spec = imp.resolve_dep("serde", {"workspace": True, "optional": True}, self.ctx)
@@ -168,6 +189,20 @@ class ClosureAndVendorTests(unittest.TestCase):
         closure = imp.compute_closure(self.zdir, self.ctx, ["internal_a"])
         self.assertEqual(set(closure), {"internal_a", "internal_b"})
         self.assertEqual(self.ctx["versions"], {"internal_a": "0.1.0", "internal_b": "0.1.0"})
+
+    def test_git_backed_dependencies_are_excluded_from_closure(self):
+        source = self.zdir / "crates" / "internal_a" / "Cargo.toml"
+        body = source.read_text()
+        for crate in ("collections", "gpui_util", "media"):
+            body = body.replace("internal_b.workspace = true\n", f"internal_b.workspace = true\n{crate}.workspace = true\n", 1)
+            self.ctx["ws_deps"][crate] = {"path": f"crates/{crate}"}
+            crate_dir = self.zdir / "crates" / crate
+            crate_dir.mkdir()
+            (crate_dir / "Cargo.toml").write_text(INTERNAL_B_TOML.replace("internal_b", crate))
+        source.write_text(body)
+        closure = imp.compute_closure(self.zdir, self.ctx, ["internal_a"])
+        self.assertEqual(set(closure), {"internal_a", "internal_b"})
+        self.assertFalse(set(closure) & {"collections", "gpui_util", "media"})
 
     def test_rewrite_manifest_strips_and_rewrites(self):
         manifest = imp.read_toml(self.zdir / "crates" / "internal_a" / "Cargo.toml")
