@@ -24,7 +24,7 @@ gpui = { workspace = true, default-features = false }
 anyhow = "1.0"
 bytemuck = "1"
 collections = { workspace = true }
-cosmic-text = "0.17.0"
+cosmic-text = { git = "https://github.com/pop-os/cosmic-text.git", rev = "59089955e1c8698c6b83b2e6ab6ebceff825ff96" }
 etagere = "0.2"
 itertools = "0.15.0"
 log = "0.4"
