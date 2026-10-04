@@ -119,7 +119,7 @@ version = "0.24"
 version = "21.0.0"
 
 [target.'cfg(not(any(target_arch = "wasm32", target_family = "windows", target_os = "android", target_env = "ohos")))'.dependencies.dirs]
-version = "5.0"
+version = "6.0"
 
 [target.'cfg(not(any(target_family = "windows", target_os = "macos", target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos")))'.dependencies.freetype-sys]
 version = "0.20"
