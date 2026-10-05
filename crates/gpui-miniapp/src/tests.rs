@@ -466,7 +466,7 @@ fn test_build_menus_with_language_basic() {
     {
         expected_theme_names.pop();
         expected_theme_names.push("Toggle Theme");
-    }
+    };
     assert_eq!(action_names(&theme_menu.items), expected_theme_names);
 
     let design_menu = find_submenu(&menus[1], "Design System");
