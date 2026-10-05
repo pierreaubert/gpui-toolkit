@@ -726,6 +726,11 @@ gpui-ui-kit = {{ path = "{ui_kit_path}" }}
 # compile without zune-core's optional log feature. Keep fresh scaffolds on the
 # compatible release until the upstream decoder constrains or fixes the pair.
 zune-core = "=0.5.1"
+# backtrace 0.3.x calls libc's _dyld_* symbols on every Apple target, but libc
+# 0.2.190 gated them to macOS only, breaking iOS/tvOS simulator builds. Keep
+# fresh scaffolds on the last compatible release until backtrace handles
+# Apple-mobile targets without those symbols.
+libc = "=0.2.189"
 "#,
         package_name = toml_string(&names.package_name),
         library_name = toml_string(&names.library_name),
@@ -1614,6 +1619,7 @@ mod tests {
         assert!(manifest.contains("crates/3rdparties/zed-font-kit"));
         assert!(manifest.contains("[patch.crates-io]"));
         assert!(manifest.contains("zune-core = \"=0.5.1\""));
+        assert!(manifest.contains("libc = \"=0.2.189\""));
         assert!(manifest.contains("block"));
         assert!(manifest.contains("crates/3rdparties/block"));
 

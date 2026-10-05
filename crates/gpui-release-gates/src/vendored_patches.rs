@@ -708,6 +708,6 @@ mod tests {
         assert!(markdown.contains("zed-font-kit"));
         assert!(markdown.contains("script-vendored"));
         assert!(markdown.contains("hand-maintained"));
-        assert!(markdown.contains("110523127440aefb11ce0cf280ae7c5071337ec5"));
+        assert!(markdown.contains("94b0f28166665e8fd2f53ff6d268a14955c82269"));
     }
 }

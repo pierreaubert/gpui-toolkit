@@ -35,7 +35,7 @@ compatibility fork at `3a0ea890ddf8e6247e38c795a960eb18f5182113`.
 | `sum_tree` | `zed-industries/zed`, `crates/sum_tree` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Sequence-tree storage for text; carries a recorded `ztracing::instrument` to `tracing::instrument` patch | Low |
 | `util` | `zed-industries/zed`, `crates/util` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Shared platform/command utilities used across the closure | Low |
 | `util_macros` | `zed-industries/zed`, `crates/util_macros` | `v1.9.0`, `0.1.0` | Active `[patch."https://github.com/zed-industries/zed.git"]` | Proc macros for `util` | Low |
-| `zed-font-kit` | `zed-industries/font-kit` / Servo `font-kit` fork | `0.14.1-zed`, root pin `110523127440aefb11ce0cf280ae7c5071337ec5` | Active `[patch."https://github.com/zed-industries/font-kit"]` | Apple mobile target cfg, CoreText manifest fixes, canvas bitmap conversion fixes, CSS-generic family title aliases | Medium |
+| `zed-font-kit` | `zed-industries/font-kit` / Servo `font-kit` fork | `0.14.1-zed`, root pin `94b0f28166665e8fd2f53ff6d268a14955c82269` | Active `[patch."https://github.com/zed-industries/font-kit"]` | Apple mobile target cfg, CoreText manifest fixes, canvas bitmap conversion fixes, CSS-generic family title aliases | Medium |
 
 ## Migrated Zed Crates
 
