@@ -365,6 +365,12 @@ mod paint_tests {
             })
             .expect("open font paint window");
         let handle: AnyWindowHandle = window.into();
+        let scale = cx
+            .update_window(handle, |_, window, _| window.scale_factor())
+            .expect("read headless window scale");
+        assert!(scale.is_finite() && scale > 0.0);
+        let physical_width = (WIDTH as f32 * scale).round() as u32;
+        let physical_row_height = (ROW_HEIGHT as f32 * scale).round() as u32;
         for _ in 0..2 {
             cx.update_window(handle, |_, window, app| {
                 let _ = window.draw(app);
@@ -373,13 +379,17 @@ mod paint_tests {
             cx.run_until_parked();
         }
         let image = cx.capture_screenshot(handle).expect("capture WGPU text pixels");
-        assert_eq!(image.dimensions(), (WIDTH, height));
+        assert_eq!(
+            image.dimensions(),
+            (physical_width, physical_row_height * LABELS.len() as u32)
+        );
         for (row, label) in LABELS.iter().enumerate() {
             let row_pixels: Vec<_> = image
                 .enumerate_pixels()
-                .filter(|(_, y, _)| (*y as usize / ROW_HEIGHT as usize) == row)
+                .filter(|(_, y, _)| (*y / physical_row_height) == row as u32)
                 .map(|(_, _, pixel)| pixel)
                 .collect();
+            assert_eq!(row_pixels.len(), (physical_width * physical_row_height) as usize);
             let painted = row_pixels
                 .iter()
                 .filter(|pixel| pixel.0[..3].iter().any(|channel| *channel < 245))
