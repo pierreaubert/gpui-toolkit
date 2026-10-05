@@ -40,6 +40,8 @@ members = [
     "crates/3rdparties/http_client",
     "crates/3rdparties/perf",
 ]
+# The vendored font crate has its own workspace; keep it a path dependency.
+exclude = ["crates/3rdparties/zed-font-kit"]
 resolver = "3"
 
 [workspace.package]
@@ -241,7 +243,7 @@ block2 = "0.6"
 core-foundation = "0.10"
 core-graphics = "0.24"
 core-text = "=21.0.0"
-font-kit = { package = "zed-font-kit", version = "0.14.1-zed", git = "https://github.com/zed-industries/font-kit", rev = "94b0f28166665e8fd2f53ff6d268a14955c82269", default-features = false, features = ["source"] }
+font-kit = { package = "zed-font-kit", version = "0.14.1-zed", path = "crates/3rdparties/zed-font-kit", default-features = false, features = ["source"] }
 objc = "0.2"
 oslog = "0.2"
 security-framework = "3.7"
