@@ -13,6 +13,16 @@
 //! On macOS and Windows, the Cargo feature `loader-freetype-default` can be used to opt into this
 //! loader by default.
 
+use crate::canvas::{Canvas, Format, RasterizationOptions};
+use crate::error::{FontLoadingError, GlyphLoadingError};
+use crate::file_type::FileType;
+use crate::handle::Handle;
+use crate::hinting::HintingOptions;
+use crate::loader::{FallbackResult, Loader};
+use crate::metrics::Metrics;
+use crate::outline::OutlineSink;
+use crate::properties::{Properties, Stretch, Style, Weight};
+use crate::utils;
 use byteorder::{BigEndian, ReadBytesExt};
 use freetype_sys::{
     ft_sfnt_os2, FT_Byte, FT_Done_Face, FT_Done_FreeType, FT_Error, FT_Face, FT_Fixed,
@@ -34,27 +44,17 @@ use pathfinder_simd::default::F32x4;
 use std::f32;
 use std::ffi::{CStr, CString};
 use std::fmt::{self, Debug, Formatter};
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs::File;
 use std::io::{Seek, SeekFrom};
 use std::iter;
 use std::mem;
 use std::os::raw::{c_char, c_void};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
 use std::ptr;
 use std::slice;
 use std::sync::Arc;
-use crate::canvas::{Canvas, Format, RasterizationOptions};
-use crate::error::{FontLoadingError, GlyphLoadingError};
-use crate::file_type::FileType;
-use crate::handle::Handle;
-use crate::hinting::HintingOptions;
-use crate::loader::{FallbackResult, Loader};
-use crate::metrics::Metrics;
-use crate::outline::OutlineSink;
-use crate::properties::{Properties, Stretch, Style, Weight};
-use crate::utils;
-#[cfg(not(target_arch = "wasm32"))]
-use std::fs::File;
-#[cfg(not(target_arch = "wasm32"))]
-use std::path::Path;
 
 thread_local! {
     static FREETYPE_LIBRARY: FtLibrary = {
@@ -88,4 +88,3 @@ struct BDF_PropertyRec {
     property_type: BDF_PropertyType,
     value: *const c_char,
 }
-

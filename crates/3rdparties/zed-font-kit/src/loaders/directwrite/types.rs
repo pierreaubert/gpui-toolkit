@@ -1,7 +1,7 @@
+use crate::outline::OutlineBuilder;
 use dwrote::Font as DWriteFont;
 use dwrote::FontFace as DWriteFontFace;
-use pathfinder_geometry :: vector :: { Vector2F } ;
-use crate :: outline :: { OutlineBuilder } ;
+use pathfinder_geometry::vector::Vector2F;
 
 /// DirectWrite's representation of a font.
 #[allow(missing_debug_implementations)]
@@ -17,4 +17,3 @@ pub(super) struct OutlineCanonicalizerInfo {
     pub(super) builder: OutlineBuilder,
     pub(super) last_position: Vector2F,
 }
-

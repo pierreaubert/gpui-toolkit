@@ -1,10 +1,10 @@
-use dwrote::OutlineBuilder as DWriteOutlineBuilder;
-use pathfinder_geometry::line_segment::LineSegment2F;
-use pathfinder_geometry :: vector :: { Vector2F } ;
-use std::sync::{Arc, Mutex};
-use crate :: outline :: { OutlineBuilder } ;
 use super::misc::ERROR_BOUND;
 use super::types::OutlineCanonicalizerInfo;
+use crate::outline::OutlineBuilder;
+use dwrote::OutlineBuilder as DWriteOutlineBuilder;
+use pathfinder_geometry::line_segment::LineSegment2F;
+use pathfinder_geometry::vector::Vector2F;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub(super) struct OutlineCanonicalizer(pub(super) Arc<Mutex<OutlineCanonicalizerInfo>>);
@@ -74,4 +74,3 @@ impl DWriteOutlineBuilder for OutlineCanonicalizer {
         this.last_position = to;
     }
 }
-

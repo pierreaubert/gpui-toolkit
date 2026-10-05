@@ -1,7 +1,7 @@
-use core_graphics :: base :: { kCGImageAlphaPremultipliedLast } ;
+use crate::canvas::Format;
+use core_graphics::base::kCGImageAlphaPremultipliedLast;
 use core_graphics::color_space::CGColorSpace;
 use std::f32;
-use crate :: canvas :: { Format } ;
 
 pub(super) const TTC_TAG: [u8; 4] = [b't', b't', b'c', b'f'];
 
@@ -20,7 +20,9 @@ pub(super) const kCGImageAlphaOnly: u32 = 7;
 
 pub(crate) static FONT_WEIGHT_MAPPING: [f32; 9] = [-0.7, -0.5, -0.23, 0.0, 0.2, 0.3, 0.4, 0.6, 0.8];
 
-pub(super) fn format_to_cg_color_space_and_image_format(format: Format) -> Option<(CGColorSpace, u32)> {
+pub(super) fn format_to_cg_color_space_and_image_format(
+    format: Format,
+) -> Option<(CGColorSpace, u32)> {
     match format {
         Format::Rgb24 => {
             // Unsupported by Core Graphics.
@@ -33,4 +35,3 @@ pub(super) fn format_to_cg_color_space_and_image_format(format: Format) -> Optio
         Format::A8 => Some((CGColorSpace::create_device_gray(), kCGImageAlphaOnly)),
     }
 }
-

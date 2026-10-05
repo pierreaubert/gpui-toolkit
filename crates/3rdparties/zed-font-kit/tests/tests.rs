@@ -5,14 +5,14 @@ use font_kit::font::Font;
 use font_kit::hinting::HintingOptions;
 use font_kit::outline::{Contour, Outline, OutlineBuilder, PointFlags};
 use font_kit::properties::{Properties, Stretch, Weight};
+#[cfg(feature = "source")]
+use font_kit::source::SystemSource;
 use pathfinder_geometry::rect::{RectF, RectI};
 use pathfinder_geometry::transform2d::Transform2F;
 use pathfinder_geometry::vector::{Vector2F, Vector2I};
 use std::fs::File;
 use std::io::Read;
 use std::sync::Arc;
-#[cfg(feature = "source")]
-use font_kit::source::SystemSource;
 
 #[path = "tests/check.rs"]
 mod check;
@@ -445,4 +445,3 @@ pub fn font_transform() {
     assert!((raster_rect2.origin_x() - ((raster_rect.origin_x() - 8) * 3 + 8)).abs() <= 3);
     assert!((raster_rect2.origin_y() - ((raster_rect.origin_y() - 8) * 3 + 8)).abs() <= 3);
 }
-

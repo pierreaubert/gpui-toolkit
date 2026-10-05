@@ -16,4 +16,3 @@ impl Deref for FontData {
         }
     }
 }
-

@@ -17,10 +17,10 @@ mod font;
 mod font_data;
 mod misc;
 mod piecewise;
-mod types;
-mod unpack;
 #[cfg(test)]
 mod tests;
+mod types;
+mod unpack;
 
 pub(crate) use consts::*;
 pub use font::*;

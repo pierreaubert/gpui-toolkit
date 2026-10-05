@@ -1,4 +1,3 @@
-
 #[cfg(target_family = "windows")]
 pub(super) fn stride_pixel_start(pixels: &[u8]) -> Option<u32> {
     let mut index = 0;
@@ -33,4 +32,3 @@ pub(super) fn stripe_width(pixels: &[u8]) -> Option<u32> {
     assert_eq!(x, pixels.len());
     Some(stripe_width)
 }
-

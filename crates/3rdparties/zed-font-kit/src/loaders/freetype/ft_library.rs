@@ -1,7 +1,7 @@
-use freetype_sys :: { FT_Done_FreeType } ;
+use super::FtLibrary;
+use freetype_sys::FT_Done_FreeType;
 use std::mem;
 use std::ptr;
-use super::FtLibrary;
 
 impl Drop for FtLibrary {
     fn drop(&mut self) {
@@ -12,4 +12,3 @@ impl Drop for FtLibrary {
         }
     }
 }
-

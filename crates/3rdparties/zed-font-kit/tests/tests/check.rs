@@ -1,14 +1,14 @@
+#[cfg(target_family = "windows")]
+use super::misc::stride_pixel_start;
+use super::misc::stripe_width;
 use font_kit::canvas::{Canvas, Format, RasterizationOptions};
 use font_kit::family_name::FamilyName;
 use font_kit::hinting::HintingOptions;
-use font_kit :: properties :: { Properties } ;
-use pathfinder_geometry::transform2d::Transform2F;
-use pathfinder_geometry :: vector :: { Vector2F } ;
+use font_kit::properties::Properties;
 #[cfg(feature = "source")]
 use font_kit::source::SystemSource;
-# [cfg (target_family = "windows")]
-use super::misc::stride_pixel_start;
-use super::misc::stripe_width;
+use pathfinder_geometry::transform2d::Transform2F;
+use pathfinder_geometry::vector::Vector2F;
 
 #[cfg(feature = "source")]
 #[test]
@@ -292,4 +292,3 @@ fn check_curly_shape(canvas: &Canvas) {
         y += 1;
     }
 }
-

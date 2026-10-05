@@ -1,36 +1,3 @@
-use byteorder::{BigEndian, ReadBytesExt};
-use freetype_sys :: { ft_sfnt_os2 , FT_Byte , FT_Done_Face , FT_Face , FT_Fixed , FT_Get_Char_Index , FT_Get_Name_Index , FT_Get_Postscript_Name , FT_Get_Sfnt_Name , FT_Get_Sfnt_Name_Count , FT_Get_Sfnt_Table , FT_Load_Glyph , FT_Long , FT_Matrix , FT_New_Memory_Face , FT_Pos , FT_Reference_Face , FT_Set_Char_Size , FT_Set_Transform , FT_ULong , FT_Vector , FT_FACE_FLAG_FIXED_WIDTH , FT_LOAD_DEFAULT , FT_LOAD_MONOCHROME , FT_LOAD_NO_HINTING , FT_LOAD_RENDER , FT_LOAD_TARGET_LCD , FT_LOAD_TARGET_LIGHT , FT_LOAD_TARGET_MONO , FT_LOAD_TARGET_NORMAL , FT_PIXEL_MODE_GRAY , FT_PIXEL_MODE_LCD , FT_PIXEL_MODE_LCD_V , FT_PIXEL_MODE_MONO , FT_STYLE_FLAG_ITALIC , TT_OS2 } ;
-use log::warn;
-use pathfinder_geometry::line_segment::LineSegment2F;
-use pathfinder_geometry::rect::{RectF, RectI};
-use pathfinder_geometry::transform2d::Transform2F;
-use pathfinder_geometry::vector::{Vector2F, Vector2I};
-use pathfinder_simd::default::F32x4;
-use std::f32;
-use std::ffi::{CStr, CString};
-use std::fmt::{self, Debug, Formatter};
-use std::io::{Seek, SeekFrom};
-use std::iter;
-use std::mem;
-use std::os::raw::{c_char, c_void};
-use std::ptr;
-use std::slice;
-use std::sync::Arc;
-use crate::canvas::{Canvas, Format, RasterizationOptions};
-use crate::error::{FontLoadingError, GlyphLoadingError};
-use crate::file_type::FileType;
-use crate::handle::Handle;
-use crate::hinting::HintingOptions;
-use crate::loader::{FallbackResult, Loader};
-use crate::metrics::Metrics;
-use crate::outline::OutlineSink;
-use crate::properties::{Properties, Stretch, Style, Weight};
-use crate::utils;
-#[cfg(not(target_arch = "wasm32"))]
-use std::fs::File;
-#[cfg(not(target_arch = "wasm32"))]
-use std::path::Path;
-use super::FREETYPE_LIBRARY;
 use super::consts::BDF_PROPERTY_TYPE_ATOM;
 use super::consts::FT_POINT_TAG_CUBIC_CONTROL;
 use super::consts::FT_POINT_TAG_ON_CURVE;
@@ -43,9 +10,49 @@ use super::ft_fixed_to_f32::FtFixedToF32;
 use super::misc::reset_freetype_face_char_size;
 use super::misc::setup_freetype_face;
 use super::types::{
-    FT_Get_BDF_Property, FT_Get_Font_Format, FT_Get_PS_Font_Value, FT_Load_Sfnt_Table,
-    NativeFont,
+    FT_Get_BDF_Property, FT_Get_Font_Format, FT_Get_PS_Font_Value, FT_Load_Sfnt_Table, NativeFont,
 };
+use super::FREETYPE_LIBRARY;
+use crate::canvas::{Canvas, Format, RasterizationOptions};
+use crate::error::{FontLoadingError, GlyphLoadingError};
+use crate::file_type::FileType;
+use crate::handle::Handle;
+use crate::hinting::HintingOptions;
+use crate::loader::{FallbackResult, Loader};
+use crate::metrics::Metrics;
+use crate::outline::OutlineSink;
+use crate::properties::{Properties, Stretch, Style, Weight};
+use crate::utils;
+use byteorder::{BigEndian, ReadBytesExt};
+use freetype_sys::{
+    ft_sfnt_os2, FT_Byte, FT_Done_Face, FT_Face, FT_Fixed, FT_Get_Char_Index, FT_Get_Name_Index,
+    FT_Get_Postscript_Name, FT_Get_Sfnt_Name, FT_Get_Sfnt_Name_Count, FT_Get_Sfnt_Table,
+    FT_Load_Glyph, FT_Long, FT_Matrix, FT_New_Memory_Face, FT_Pos, FT_Reference_Face,
+    FT_Set_Char_Size, FT_Set_Transform, FT_ULong, FT_Vector, FT_FACE_FLAG_FIXED_WIDTH,
+    FT_LOAD_DEFAULT, FT_LOAD_MONOCHROME, FT_LOAD_NO_HINTING, FT_LOAD_RENDER, FT_LOAD_TARGET_LCD,
+    FT_LOAD_TARGET_LIGHT, FT_LOAD_TARGET_MONO, FT_LOAD_TARGET_NORMAL, FT_PIXEL_MODE_GRAY,
+    FT_PIXEL_MODE_LCD, FT_PIXEL_MODE_LCD_V, FT_PIXEL_MODE_MONO, FT_STYLE_FLAG_ITALIC, TT_OS2,
+};
+use log::warn;
+use pathfinder_geometry::line_segment::LineSegment2F;
+use pathfinder_geometry::rect::{RectF, RectI};
+use pathfinder_geometry::transform2d::Transform2F;
+use pathfinder_geometry::vector::{Vector2F, Vector2I};
+use pathfinder_simd::default::F32x4;
+use std::f32;
+use std::ffi::{CStr, CString};
+use std::fmt::{self, Debug, Formatter};
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs::File;
+use std::io::{Seek, SeekFrom};
+use std::iter;
+use std::mem;
+use std::os::raw::{c_char, c_void};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+use std::ptr;
+use std::slice;
+use std::sync::Arc;
 
 /// A cross-platform loader that uses the FreeType library to load and rasterize fonts.
 ///

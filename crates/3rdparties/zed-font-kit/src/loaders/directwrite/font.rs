@@ -1,4 +1,19 @@
-use byteorder :: { BigEndian } ;
+use super::misc::convert_len_utf16_to_utf8;
+use super::misc::style_for_dwrite_style;
+use super::misc::OPENTYPE_TABLE_TAG_HEAD;
+use super::my_text_analysis_source::MyTextAnalysisSource;
+use super::outline_canonicalizer::OutlineCanonicalizer;
+use super::types::NativeFont;
+use crate::canvas::{Canvas, Format, RasterizationOptions};
+use crate::error::{FontLoadingError, GlyphLoadingError};
+use crate::file_type::FileType;
+use crate::handle::Handle;
+use crate::hinting::HintingOptions;
+use crate::loader::{FallbackFont, FallbackResult, Loader};
+use crate::metrics::Metrics;
+use crate::outline::OutlineSink;
+use crate::properties::{Properties, Stretch, Weight};
+use byteorder::BigEndian;
 use dwrote::CustomFontCollectionLoaderImpl;
 use dwrote::Font as DWriteFont;
 use dwrote::FontCollection as DWriteFontCollection;
@@ -24,21 +39,6 @@ use std::sync::{Arc, Mutex};
 use winapi::shared::minwindef::{FALSE, MAX_PATH};
 use winapi::um::dwrite::DWRITE_NUMBER_SUBSTITUTION_METHOD_NONE;
 use winapi::um::fileapi;
-use crate::canvas::{Canvas, Format, RasterizationOptions};
-use crate::error::{FontLoadingError, GlyphLoadingError};
-use crate::file_type::FileType;
-use crate::handle::Handle;
-use crate::hinting::HintingOptions;
-use crate::loader::{FallbackFont, FallbackResult, Loader};
-use crate::metrics::Metrics;
-use crate :: outline :: { OutlineSink } ;
-use crate :: properties :: { Properties , Stretch , Weight } ;
-use super::misc::OPENTYPE_TABLE_TAG_HEAD;
-use super::misc::convert_len_utf16_to_utf8;
-use super::misc::style_for_dwrite_style;
-use super::my_text_analysis_source::MyTextAnalysisSource;
-use super::outline_canonicalizer::OutlineCanonicalizer;
-use super::types::NativeFont;
 
 /// A loader that uses the Windows DirectWrite API to load and rasterize fonts.
 pub struct Font {
@@ -819,4 +819,3 @@ impl Loader for Font {
         self.load_font_table(table_tag)
     }
 }
-

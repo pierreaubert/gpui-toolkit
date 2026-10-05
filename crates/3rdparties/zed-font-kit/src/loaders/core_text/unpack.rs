@@ -1,12 +1,12 @@
-use byteorder::{BigEndian, ReadBytesExt};
-use crate :: error :: { FontLoadingError } ;
-use crate::utils;
 use super::consts::OTTO_HEX;
 use super::consts::SFNT_HEX;
 use super::consts::TRUE_HEX;
 use super::consts::TYP1_HEX;
 use super::font::read_number_of_fonts_from_otc_header;
 use super::misc::get_slice_from_start;
+use crate::error::FontLoadingError;
+use crate::utils;
+use byteorder::{BigEndian, ReadBytesExt};
 
 pub(super) fn unpack_otc_font(data: &mut [u8], font_index: u32) -> Result<(), FontLoadingError> {
     if font_index >= read_number_of_fonts_from_otc_header(data)? {

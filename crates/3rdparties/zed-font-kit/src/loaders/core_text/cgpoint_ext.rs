@@ -1,4 +1,4 @@
-use core_graphics :: geometry :: { CGPoint } ;
+use core_graphics::geometry::CGPoint;
 use pathfinder_geometry::vector::Vector2F;
 use std::f32;
 

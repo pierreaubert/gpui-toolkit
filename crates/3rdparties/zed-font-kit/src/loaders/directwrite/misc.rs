@@ -1,5 +1,5 @@
+use crate::properties::Style;
 use dwrote::FontStyle as DWriteFontStyle;
-use crate :: properties :: { Style } ;
 
 pub(super) const ERROR_BOUND: f32 = 0.0001;
 
@@ -27,4 +27,3 @@ pub(super) fn style_for_dwrite_style(style: DWriteFontStyle) -> Style {
         DWriteFontStyle::Italic => Style::Italic,
     }
 }
-

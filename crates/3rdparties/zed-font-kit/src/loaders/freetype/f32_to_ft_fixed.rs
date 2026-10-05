@@ -1,4 +1,4 @@
-use freetype_sys :: { FT_Fixed } ;
+use freetype_sys::FT_Fixed;
 use pathfinder_geometry::vector::{Vector2F, Vector2I};
 use std::f32;
 

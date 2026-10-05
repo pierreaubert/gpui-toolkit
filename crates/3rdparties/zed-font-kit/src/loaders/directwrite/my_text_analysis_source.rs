@@ -16,4 +16,3 @@ impl dwrote::TextAnalysisSourceMethods for MyTextAnalysisSource {
         DWRITE_READING_DIRECTION_LEFT_TO_RIGHT
     }
 }
-

@@ -1,3 +1,4 @@
+use super::misc::fc;
 use crate::error::SelectionError;
 use crate::family_handle::FamilyHandle;
 use crate::family_name::FamilyName;
@@ -5,7 +6,6 @@ use crate::handle::Handle;
 use crate::properties::Properties;
 use crate::source::Source;
 use std::any::Any;
-use super::misc::fc;
 
 /// A source that contains the fonts installed on the system, as reported by the Fontconfig
 /// library.
@@ -229,4 +229,3 @@ impl Source for FontconfigSource {
         self
     }
 }
-

@@ -1,6 +1,6 @@
+use crate::utils;
 use std::cmp::Ordering;
 use std::f32;
-use crate::utils;
 
 pub(crate) fn piecewise_linear_lookup(index: f32, mapping: &[f32]) -> f32 {
     let lower_value = mapping[f32::floor(index) as usize];
@@ -23,4 +23,3 @@ pub(crate) fn piecewise_linear_find_index(query_value: f32, mapping: &[f32]) -> 
     let t = (query_value - lower_value) / (upper_value - lower_value);
     lower_index as f32 + t
 }
-

@@ -1,20 +1,20 @@
+#[cfg(all(feature = "source", target_family = "windows"))]
+use super::check::rasterize_glyph;
 use font_kit::canvas::{Canvas, Format, RasterizationOptions};
 use font_kit::family_name::FamilyName;
 use font_kit::file_type::FileType;
 use font_kit::font::Font;
 use font_kit::hinting::HintingOptions;
 use font_kit::outline::{Contour, Outline, OutlineBuilder, PointFlags};
-use font_kit :: properties :: { Properties } ;
-use pathfinder_geometry :: rect :: { RectI } ;
+use font_kit::properties::Properties;
+#[cfg(feature = "source")]
+use font_kit::source::SystemSource;
+use pathfinder_geometry::rect::RectI;
 use pathfinder_geometry::transform2d::Transform2F;
 use pathfinder_geometry::vector::{Vector2F, Vector2I};
 use std::fs::File;
 use std::io::Read;
 use std::sync::Arc;
-#[cfg(feature = "source")]
-use font_kit::source::SystemSource;
-# [cfg (all (feature = "source" , target_family = "windows"))]
-use super::check::rasterize_glyph;
 
 static TEST_FONT_FILE_PATH: &str = "resources/tests/eb-garamond/EBGaramond12-Regular.otf";
 
@@ -499,4 +499,3 @@ fn get_glyph_outline_inconsolata_J() {
         }
     );
 }
-

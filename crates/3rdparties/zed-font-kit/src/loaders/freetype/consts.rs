@@ -1,5 +1,5 @@
-use std :: os :: raw :: { c_char } ;
 use super::types::BDF_PropertyType;
+use std::os::raw::c_char;
 
 pub(super) const PS_DICT_FULL_NAME: u32 = 38;
 
@@ -24,4 +24,3 @@ const BDF_PROPERTY_TYPE_INTEGER: BDF_PropertyType = 2;
 
 #[allow(dead_code)]
 const BDF_PROPERTY_TYPE_CARDINAL: BDF_PropertyType = 3;
-

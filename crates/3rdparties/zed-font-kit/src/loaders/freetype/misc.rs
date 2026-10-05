@@ -1,4 +1,4 @@
-use freetype_sys :: { FT_Face , FT_Long , FT_Set_Char_Size } ;
+use freetype_sys::{FT_Face, FT_Long, FT_Set_Char_Size};
 
 pub(super) unsafe fn setup_freetype_face(face: FT_Face) {
     reset_freetype_face_char_size(face);
@@ -14,4 +14,3 @@ pub(super) unsafe fn reset_freetype_face_char_size(face: FT_Face) {
         );
     }
 }
-

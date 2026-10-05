@@ -1,6 +1,6 @@
-use freetype_sys :: { FT_Byte , FT_Error , FT_Face , FT_Long , FT_UInt , FT_ULong } ;
-use std::os::raw::{c_char, c_void};
 use super::BDF_PropertyRec;
+use freetype_sys::{FT_Byte, FT_Error, FT_Face, FT_Long, FT_UInt, FT_ULong};
+use std::os::raw::{c_char, c_void};
 
 /// The handle that the FreeType API natively uses to represent a font.
 pub type NativeFont = FT_Face;
@@ -30,4 +30,3 @@ extern "C" {
         length: *mut FT_ULong,
     ) -> FT_Error;
 }
-

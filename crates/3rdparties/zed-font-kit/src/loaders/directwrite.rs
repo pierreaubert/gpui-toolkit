@@ -10,6 +10,15 @@
 
 //! A loader that uses the Windows DirectWrite API to load and rasterize fonts.
 
+use crate::canvas::{Canvas, Format, RasterizationOptions};
+use crate::error::{FontLoadingError, GlyphLoadingError};
+use crate::file_type::FileType;
+use crate::handle::Handle;
+use crate::hinting::HintingOptions;
+use crate::loader::{FallbackFont, FallbackResult, Loader};
+use crate::metrics::Metrics;
+use crate::outline::{OutlineBuilder, OutlineSink};
+use crate::properties::{Properties, Stretch, Style, Weight};
 use byteorder::{BigEndian, ReadBytesExt};
 use dwrote::CustomFontCollectionLoaderImpl;
 use dwrote::Font as DWriteFont;
@@ -44,15 +53,6 @@ use winapi::um::dwrite::DWRITE_NUMBER_SUBSTITUTION_METHOD_NONE;
 use winapi::um::dwrite::DWRITE_READING_DIRECTION;
 use winapi::um::dwrite::DWRITE_READING_DIRECTION_LEFT_TO_RIGHT;
 use winapi::um::fileapi;
-use crate::canvas::{Canvas, Format, RasterizationOptions};
-use crate::error::{FontLoadingError, GlyphLoadingError};
-use crate::file_type::FileType;
-use crate::handle::Handle;
-use crate::hinting::HintingOptions;
-use crate::loader::{FallbackFont, FallbackResult, Loader};
-use crate::metrics::Metrics;
-use crate::outline::{OutlineBuilder, OutlineSink};
-use crate::properties::{Properties, Stretch, Style, Weight};
 
 mod font;
 mod misc;
@@ -62,4 +62,3 @@ mod types;
 
 pub use font::*;
 pub use types::*;
-
