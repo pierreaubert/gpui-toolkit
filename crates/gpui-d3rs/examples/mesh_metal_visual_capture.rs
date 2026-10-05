@@ -17,9 +17,9 @@
 )]
 
 use d3rs::gpu3d::Camera3D;
-use d3rs::mesh::gpu::{GeometryRevision, MeshColorConfig, MeshSceneElement, MeshSceneState};
 #[cfg(target_os = "macos")]
 use d3rs::mesh::gpu::MetalMeshRenderer;
+use d3rs::mesh::gpu::{GeometryRevision, MeshColorConfig, MeshSceneElement, MeshSceneState};
 use d3rs::mesh::{
     CoordinateAxis, MeshTopology, RevolveSpec, ScalarAssociation, ScalarField, TriangleMesh,
     prepare_upload, revolve, revolve_field,

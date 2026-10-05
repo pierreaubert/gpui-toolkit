@@ -596,11 +596,7 @@ fn array_payload<'a>(
     Ok(payload)
 }
 
-fn array_numbers(
-    value: &Value,
-    arrays: &DatasetFrameStore,
-    name: &str,
-) -> ShapedNumbers {
+fn array_numbers(value: &Value, arrays: &DatasetFrameStore, name: &str) -> ShapedNumbers {
     let Some(reference) = array_resource_ref(value, name)? else {
         return Ok(None);
     };
@@ -614,11 +610,7 @@ fn array_numbers(
     Ok(Some((values, reference.shape)))
 }
 
-fn array_unsigned(
-    value: &Value,
-    arrays: &DatasetFrameStore,
-    name: &str,
-) -> ShapedUnsigned {
+fn array_unsigned(value: &Value, arrays: &DatasetFrameStore, name: &str) -> ShapedUnsigned {
     let Some(reference) = array_resource_ref(value, name)? else {
         return Ok(None);
     };

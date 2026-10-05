@@ -209,7 +209,11 @@ impl WebWindowInner {
             // End retained gestures outside every hitbox, preventing a cancelled click.
             let modifiers = self.state.borrow().modifiers;
             let outside = point(px(-1_000_000.0), px(-1_000_000.0));
-            self.dispatch_input(PlatformInput::MouseMove(MouseMoveEvent { position: outside, pressed_button: None, modifiers }));
+            self.dispatch_input(PlatformInput::MouseMove(MouseMoveEvent {
+                position: outside,
+                pressed_button: None,
+                modifiers,
+            }));
             self.dispatch_input(PlatformInput::MouseUp(MouseUpEvent {
                 button,
                 position: outside,
@@ -414,7 +418,9 @@ impl WebWindowInner {
 
             // Browser paste events carry current system clipboard contents.
             // The synchronous GPUI clipboard interface cannot await a read.
-            if key == "v" && (modifiers.control || modifiers.platform) { return; }
+            if key == "v" && (modifiers.control || modifiers.platform) {
+                return;
+            }
             event.prevent_default();
 
             let is_held = event.repeat();

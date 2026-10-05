@@ -218,10 +218,7 @@ fn test_fallback_to_english() {
     // (though in practice all translations should be present)
     for lang in Language::all() {
         let text = translations.get(*lang, TranslationKey::AppTitle);
-        assert_ne!(
-            text, "???",
-            "Language {lang:?} should fall back to English"
-        );
+        assert_ne!(text, "???", "Language {lang:?} should fall back to English");
     }
 }
 

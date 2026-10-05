@@ -129,7 +129,8 @@ impl PlatformAtlas for WgpuAtlas {
         };
 
         let released = {
-            let Some(texture_slot) = lock.storage[id.kind].textures.get_mut(id.index as usize) else {
+            let Some(texture_slot) = lock.storage[id.kind].textures.get_mut(id.index as usize)
+            else {
                 return;
             };
             let Some(mut texture) = texture_slot.take() else {

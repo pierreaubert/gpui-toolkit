@@ -195,8 +195,14 @@ mod tests {
         let regular = text_system.font_id(&font("IBM Plex Sans")).unwrap();
         let bold = text_system.font_id(&font("IBM Plex Sans").bold()).unwrap();
         let lilex = text_system.font_id(&font("Lilex")).unwrap();
-        assert_ne!(regular, bold, "weight selection must use a distinct font face");
-        assert_ne!(regular, lilex, "family selection must use a distinct font face");
+        assert_ne!(
+            regular, bold,
+            "weight selection must use a distinct font face"
+        );
+        assert_ne!(
+            regular, lilex,
+            "family selection must use a distinct font face"
+        );
 
         let first = "Cafe\u{301}";
         let second = " | Lilex";
@@ -227,26 +233,22 @@ mod tests {
                 "selected font {selected:?} must shape visible glyphs"
             );
         }
-        assert!(layout
-            .runs
-            .iter()
-            .flat_map(|run| &run.glyphs)
-            .all(|glyph| {
-                text.is_char_boundary(glyph.index)
-                    && f32::from(glyph.position.x).is_finite()
-                    && f32::from(glyph.position.y).is_finite()
-            }));
+        assert!(layout.runs.iter().flat_map(|run| &run.glyphs).all(|glyph| {
+            text.is_char_boundary(glyph.index)
+                && f32::from(glyph.position.x).is_finite()
+                && f32::from(glyph.position.y).is_finite()
+        }));
     }
 }
 
 #[cfg(all(test, feature = "headless-qa"))]
 mod paint_tests {
-    use gpui::{
-        AnyWindowHandle, AppContext, Context, HeadlessAppContext, IntoElement, ParentElement,
-        FontRun, PlatformTextSystem, Render, Styled, Window, div, font, px, rgb, size,
-    };
     use super::CosmicTextSystem;
     use crate::WgpuHeadlessRenderer;
+    use gpui::{
+        AnyWindowHandle, AppContext, Context, FontRun, HeadlessAppContext, IntoElement,
+        ParentElement, PlatformTextSystem, Render, Styled, Window, div, font, px, rgb, size,
+    };
     use std::{borrow::Cow, env, fs, sync::Arc};
 
     const WIDTH: u32 = 640;
@@ -304,9 +306,10 @@ mod paint_tests {
             );
             for ch in label.chars().filter(|ch| !ch.is_whitespace()) {
                 assert!(
-                    layout.runs.iter().any(|run| {
-                        text_system.glyph_for_char(run.font_id, ch).is_some()
-                    }),
+                    layout
+                        .runs
+                        .iter()
+                        .any(|run| { text_system.glyph_for_char(run.font_id, ch).is_some() }),
                     "{label:?} has no selected font covering {ch:?}"
                 );
             }
@@ -378,7 +381,9 @@ mod paint_tests {
             .expect("draw font paint window");
             cx.run_until_parked();
         }
-        let image = cx.capture_screenshot(handle).expect("capture WGPU text pixels");
+        let image = cx
+            .capture_screenshot(handle)
+            .expect("capture WGPU text pixels");
         assert_eq!(
             image.dimensions(),
             (physical_width, physical_row_height * LABELS.len() as u32)
@@ -389,7 +394,10 @@ mod paint_tests {
                 .filter(|(_, y, _)| (*y / physical_row_height) == row as u32)
                 .map(|(_, _, pixel)| pixel)
                 .collect();
-            assert_eq!(row_pixels.len(), (physical_width * physical_row_height) as usize);
+            assert_eq!(
+                row_pixels.len(),
+                (physical_width * physical_row_height) as usize
+            );
             let painted = row_pixels
                 .iter()
                 .filter(|pixel| pixel.0[..3].iter().any(|channel| *channel < 245))
@@ -402,7 +410,10 @@ mod paint_tests {
                 background > row_pixels.len() / 2,
                 "{label:?} has no painted white panel"
             );
-            assert!(painted > 20, "{label:?} produced no visible WGPU text pixels");
+            assert!(
+                painted > 20,
+                "{label:?} produced no visible WGPU text pixels"
+            );
         }
         if let Ok(dir) = env::var("GPUI_FONT_CAPTURE_DIR") {
             fs::create_dir_all(&dir).expect("create font capture directory");

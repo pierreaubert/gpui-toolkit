@@ -775,10 +775,7 @@ async fn test_input_cut(cx: &mut TestAppContext) {
         {
             let changes = text_changes.borrow();
             let last = changes.last().unwrap();
-            assert_eq!(
-                last, "Keep",
-                "Cut should remove selected text, got: {last}"
-            );
+            assert_eq!(last, "Keep", "Cut should remove selected text, got: {last}");
         };
 
         // Move to end and Paste to verify it was copied

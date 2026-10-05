@@ -113,11 +113,14 @@ fn effective_error_prefers_explicit_error_over_validator() {
 #[test]
 fn external_values_update_active_edits_without_erasing_uncommitted_typing() {
     let mut state = EditState::default();
-    state.editing = true; state.text = "typing".into(); state.cursor = 6;
+    state.editing = true;
+    state.text = "typing".into();
+    state.cursor = 6;
     state.sync_external_value("saved", "saved");
     assert_eq!(state.text, "typing");
     state.sync_external_value("saved", "é");
-    assert_eq!(state.text, "é"); assert_eq!(state.cursor, 1);
+    assert_eq!(state.text, "é");
+    assert_eq!(state.cursor, 1);
     state.selection_anchor = Some(0);
     state.sync_external_value("é", "é");
     assert_eq!(state.selection_anchor, Some(0));

@@ -344,7 +344,11 @@ impl Platform for WebPlatform {
 
     fn write_to_clipboard(&self, item: ClipboardItem) {
         if let Some(text) = item.text() {
-            let promise = self.browser_window.navigator().clipboard().write_text(&text);
+            let promise = self
+                .browser_window
+                .navigator()
+                .clipboard()
+                .write_text(&text);
             wasm_bindgen_futures::spawn_local(async move {
                 if let Err(error) = wasm_bindgen_futures::JsFuture::from(promise).await {
                     log::warn!("browser clipboard write failed: {error:?}");
