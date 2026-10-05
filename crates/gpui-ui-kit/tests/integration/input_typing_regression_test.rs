@@ -120,7 +120,8 @@ async fn test_input_debug_repeated_typing_builds_text(cx: &mut TestAppContext) {
     cx.run_until_parked();
 
     let center = cx
-        .debug_bounds("input-debug-empty").map_or_else(|| point(px(150.), px(24.)), |bounds| bounds.center());
+        .debug_bounds("input-debug-empty")
+        .map_or_else(|| point(px(150.), px(24.)), |bounds| bounds.center());
 
     cx.simulate_mouse_down(center, MouseButton::Left, Modifiers::default());
     cx.simulate_mouse_up(center, MouseButton::Left, Modifiers::default());
@@ -157,7 +158,8 @@ async fn test_input_debug_commits_live_text_on_blur(cx: &mut TestAppContext) {
     cx.run_until_parked();
 
     let input_center = cx
-        .debug_bounds("input-blur-commit").map_or_else(|| point(px(150.), px(24.)), |bounds| bounds.center());
+        .debug_bounds("input-blur-commit")
+        .map_or_else(|| point(px(150.), px(24.)), |bounds| bounds.center());
 
     cx.simulate_mouse_down(input_center, MouseButton::Left, Modifiers::default());
     cx.simulate_mouse_up(input_center, MouseButton::Left, Modifiers::default());
@@ -168,7 +170,8 @@ async fn test_input_debug_commits_live_text_on_blur(cx: &mut TestAppContext) {
     cx.run_until_parked();
 
     let blur_center = cx
-        .debug_bounds("blur-target").map_or_else(|| point(px(40.), px(80.)), |bounds| bounds.center());
+        .debug_bounds("blur-target")
+        .map_or_else(|| point(px(40.), px(80.)), |bounds| bounds.center());
     cx.simulate_mouse_down(blur_center, MouseButton::Left, Modifiers::default());
     cx.simulate_mouse_up(blur_center, MouseButton::Left, Modifiers::default());
     cx.run_until_parked();
@@ -194,7 +197,8 @@ async fn test_input_debug_emacs_keybindings_edit_text(cx: &mut TestAppContext) {
     cx.run_until_parked();
 
     let center = cx
-        .debug_bounds("input-emacs").map_or_else(|| point(px(150.), px(24.)), |bounds| bounds.center());
+        .debug_bounds("input-emacs")
+        .map_or_else(|| point(px(150.), px(24.)), |bounds| bounds.center());
 
     cx.simulate_mouse_down(center, MouseButton::Left, Modifiers::default());
     cx.simulate_mouse_up(center, MouseButton::Left, Modifiers::default());
@@ -221,7 +225,8 @@ async fn test_input_debug_caret_stays_near_rendered_text(cx: &mut TestAppContext
     cx.run_until_parked();
 
     let center = cx
-        .debug_bounds("input-caret-gap").map_or_else(|| point(px(150.), px(24.)), |bounds| bounds.center());
+        .debug_bounds("input-caret-gap")
+        .map_or_else(|| point(px(150.), px(24.)), |bounds| bounds.center());
 
     cx.simulate_mouse_down(center, MouseButton::Left, Modifiers::default());
     cx.simulate_mouse_up(center, MouseButton::Left, Modifiers::default());

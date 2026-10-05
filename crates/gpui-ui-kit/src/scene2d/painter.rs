@@ -1180,7 +1180,10 @@ fn paint_rect(
         let width = (bottom_right_x - top_left_x).abs();
         let height = (bottom_right_y - top_left_y).abs();
         let mapped_radius = radius * transform_scale(node.transform) * transform.scale();
-        let background = fill_brush.map_or_else(|| gpui::transparent_black().into(), |brush| background_for(brush, node.opacity));
+        let background = fill_brush.map_or_else(
+            || gpui::transparent_black().into(),
+            |brush| background_for(brush, node.opacity),
+        );
         let mut painted = quad(
             Bounds {
                 origin: point(px(x), px(y)),
@@ -1188,9 +1191,12 @@ fn paint_rect(
             },
             Corners::all(px(mapped_radius)),
             background,
-            stroke
-                .map_or(px(0.0), |edge| px(edge.width * transform.scale() * transform_scale(node.transform))),
-            stroke.map_or_else(gpui::transparent_black, |edge| rgba_color(edge.color, node.opacity).into()),
+            stroke.map_or(px(0.0), |edge| {
+                px(edge.width * transform.scale() * transform_scale(node.transform))
+            }),
+            stroke.map_or_else(gpui::transparent_black, |edge| {
+                rgba_color(edge.color, node.opacity).into()
+            }),
             gpui::BorderStyle::default(),
         );
         painted.background = background;
@@ -1228,7 +1234,10 @@ fn paint_circle(
     if is_uniform_orthogonal(node.transform) {
         let mapped_center = window_point(center.x, center.y, node.transform, transform, bounds);
         let mapped_radius = radius * transform_scale(node.transform) * transform.scale();
-        let background = fill_brush.map_or_else(|| gpui::transparent_black().into(), |brush| background_for(brush, node.opacity));
+        let background = fill_brush.map_or_else(
+            || gpui::transparent_black().into(),
+            |brush| background_for(brush, node.opacity),
+        );
         let painted = quad(
             Bounds {
                 origin: point(
@@ -1245,9 +1254,10 @@ fn paint_circle(
             },
             Corners::all(px(mapped_radius)),
             background,
-            stroke
-                .map_or(px(0.0), |edge| px(stroke_width(node, edge, transform))),
-            stroke.map_or_else(gpui::transparent_black, |edge| rgba_color(edge.color, node.opacity).into()),
+            stroke.map_or(px(0.0), |edge| px(stroke_width(node, edge, transform))),
+            stroke.map_or_else(gpui::transparent_black, |edge| {
+                rgba_color(edge.color, node.opacity).into()
+            }),
             gpui::BorderStyle::default(),
         );
         window.paint_quad(painted);
@@ -1505,7 +1515,8 @@ fn build_scene_path(
     bounds: Bounds<Pixels>,
     stroke_width: Option<f32>,
 ) -> Option<gpui::Path<Pixels>> {
-    let mut path = stroke_width.map_or_else(PathBuilder::fill, |width| PathBuilder::stroke(px(width)));
+    let mut path =
+        stroke_width.map_or_else(PathBuilder::fill, |width| PathBuilder::stroke(px(width)));
     use super::types::Scene2DPathCommand as Command;
     for command in commands {
         match command {

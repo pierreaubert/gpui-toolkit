@@ -420,7 +420,10 @@ mod tests {
     fn archive_with_first_path(bytes: &[u8], path: &Path) -> Vec<u8> {
         let mut archive = bytes.to_vec();
         let name = path.as_os_str().as_encoded_bytes();
-        assert!(name.len() <= 100, "tar fixture path exceeds ustar name field");
+        assert!(
+            name.len() <= 100,
+            "tar fixture path exceeds ustar name field"
+        );
         archive[..100].fill(0);
         archive[..name.len()].copy_from_slice(name);
         archive[148..156].fill(b' ');
@@ -531,12 +534,8 @@ mod tests {
     fn tar_corruption_truncation_and_digest_mismatch_leave_no_destination() {
         futures::executor::block_on(async {
             for kind in [AssetKind::TarGz, AssetKind::TarBz2] {
-                assert_tar_failure_cleans_staging(
-                    kind,
-                    b"not a compressed archive".to_vec(),
-                    None,
-                )
-                .await;
+                assert_tar_failure_cleans_staging(kind, b"not a compressed archive".to_vec(), None)
+                    .await;
                 let mut truncated = compress_tar(kind, NORMAL_TAR);
                 truncated.truncate(truncated.len() / 2);
                 assert_tar_failure_cleans_staging(kind, truncated, None).await;
@@ -583,32 +582,37 @@ mod tests {
                 assert!(!destination.exists());
             }
         }
-        assert!(!outside.exists(), "archive wrote outside its staging directory");
+        assert!(
+            !outside.exists(),
+            "archive wrote outside its staging directory"
+        );
     }
 
     #[test]
     fn tar_traversal_symlink_and_pax_entries_stay_within_staging() {
         futures::executor::block_on(async {
-            assert!(SYMLINK_ESCAPE_TAR
-                .windows(b"../outside".len())
-                .any(|part| part == b"../outside"));
-            assert!(SYMLINK_ESCAPE_TAR
-                .windows(b"link/escape.txt".len())
-                .any(|part| part == b"link/escape.txt"));
-            assert!(PAX_ESCAPE_TAR
-                .windows(b"../pax-escape.txt".len())
-                .any(|part| part == b"../pax-escape.txt"));
+            assert!(
+                SYMLINK_ESCAPE_TAR
+                    .windows(b"../outside".len())
+                    .any(|part| part == b"../outside")
+            );
+            assert!(
+                SYMLINK_ESCAPE_TAR
+                    .windows(b"link/escape.txt".len())
+                    .any(|part| part == b"link/escape.txt")
+            );
+            assert!(
+                PAX_ESCAPE_TAR
+                    .windows(b"../pax-escape.txt".len())
+                    .any(|part| part == b"../pax-escape.txt")
+            );
             assert_tar_path_confined(
                 &archive_with_first_path(NORMAL_TAR, Path::new("../escape.txt")),
                 Path::new("escape.txt"),
             )
             .await;
             assert_tar_path_confined(PAX_ESCAPE_TAR, Path::new("pax-escape.txt")).await;
-            assert_tar_path_confined(
-                SYMLINK_ESCAPE_TAR,
-                Path::new("outside/escape.txt"),
-            )
-            .await;
+            assert_tar_path_confined(SYMLINK_ESCAPE_TAR, Path::new("outside/escape.txt")).await;
             #[cfg(unix)]
             {
                 let temp_dir = tempfile::tempdir().unwrap();

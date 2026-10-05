@@ -2399,7 +2399,9 @@ fn current_pointer_device_states(
             }),
     );
     if pointer_device_states.is_empty() {
-        log::warn!("No XI2 smooth-scroll pointers detected; wheel-button scrolling remains available.");
+        log::warn!(
+            "No XI2 smooth-scroll pointers detected; wheel-button scrolling remains available."
+        );
     }
     Some(pointer_device_states)
 }

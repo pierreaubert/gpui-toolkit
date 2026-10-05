@@ -1163,10 +1163,13 @@ impl EntityInputHandler for InputEntity {
 
         self.ensure_editing_state();
         let mut state = self.edit_state.borrow_mut();
-        let range = range.map_or_else(|| Self::current_selected_char_range(&state), |range| {
+        let range = range.map_or_else(
+            || Self::current_selected_char_range(&state),
+            |range| {
                 Self::utf16_to_char(&state.text, range.start)
                     ..Self::utf16_to_char(&state.text, range.end)
-            });
+            },
+        );
         Self::replace_char_range(&mut state, range, text);
         let selection = Self::selection_from_state(&state);
         self.emit_text_change(&state.text, window, cx);
@@ -1373,7 +1376,8 @@ impl Render for InputEntity {
             None
         };
         let cursor_pos = state.cursor;
-        let edit_text: Option<SharedString> = (editing && state.editing).then(|| state.text.clone().into());
+        let edit_text: Option<SharedString> =
+            (editing && state.editing).then(|| state.text.clone().into());
         drop(state);
 
         let border_color = if has_error {
@@ -1662,7 +1666,9 @@ impl RenderOnce for Input {
         });
 
         entity.update(cx, |model, _cx| {
-            edit_state.borrow_mut().sync_external_value(&model.props.value, &self.value);
+            edit_state
+                .borrow_mut()
+                .sync_external_value(&model.props.value, &self.value);
             model.props = self;
             // Keep the persistent focus handle/edit state in sync with any
             // explicit ones provided on the builder.

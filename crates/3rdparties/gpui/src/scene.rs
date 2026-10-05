@@ -974,8 +974,14 @@ mod tests {
 
     #[test]
     fn gpu_boolean_has_u32_layout_and_values() {
-        assert_eq!(std::mem::size_of::<PaddedBool32>(), std::mem::size_of::<u32>());
-        assert_eq!(std::mem::align_of::<PaddedBool32>(), std::mem::align_of::<u32>());
+        assert_eq!(
+            std::mem::size_of::<PaddedBool32>(),
+            std::mem::size_of::<u32>()
+        );
+        assert_eq!(
+            std::mem::align_of::<PaddedBool32>(),
+            std::mem::align_of::<u32>()
+        );
         assert_eq!(PaddedBool32::from(false).0, 0);
         assert_eq!(PaddedBool32::from(true).0, 1);
     }

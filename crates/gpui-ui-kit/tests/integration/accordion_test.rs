@@ -9,8 +9,8 @@
 //! - `on_change` callback
 
 use gpui::{
-    Context, InteractiveElement, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled,
-    TestAppContext, VisualTestContext, Window, div,
+    Context, InteractiveElement, IntoElement, Modifiers, MouseButton, ParentElement, Render,
+    Styled, TestAppContext, VisualTestContext, Window, div,
 };
 use gpui_ui_kit::accordion::{Accordion, AccordionItem, AccordionMode, AccordionOrientation};
 use std::cell::RefCell;
@@ -273,14 +273,17 @@ impl Render for AccordionGeometryView {
 
 #[gpui::test]
 async fn horizontal_accordion_content_spans_header_width(cx: &mut TestAppContext) {
-    let window = cx.open_window(gpui::size(gpui::px(800.0), gpui::px(400.0)), |_window, _cx| {
-        AccordionGeometryView {
+    let window = cx.open_window(
+        gpui::size(gpui::px(800.0), gpui::px(400.0)),
+        |_window, _cx| AccordionGeometryView {
             orientation: AccordionOrientation::Horizontal,
-        }
-    });
+        },
+    );
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     cx.run_until_parked();
-    let root = cx.debug_bounds("accordion-geometry-root").expect("root rendered");
+    let root = cx
+        .debug_bounds("accordion-geometry-root")
+        .expect("root rendered");
     let content = cx
         .debug_bounds("accordion-geometry-content")
         .expect("expanded content rendered");
@@ -292,19 +295,26 @@ async fn horizontal_accordion_content_spans_header_width(cx: &mut TestAppContext
 
 #[gpui::test]
 async fn side_accordion_places_tabs_on_both_sides_of_content(cx: &mut TestAppContext) {
-    let window = cx.open_window(gpui::size(gpui::px(800.0), gpui::px(400.0)), |_window, _cx| {
-        AccordionGeometryView {
+    let window = cx.open_window(
+        gpui::size(gpui::px(800.0), gpui::px(400.0)),
+        |_window, _cx| AccordionGeometryView {
             orientation: AccordionOrientation::Side,
-        }
-    });
+        },
+    );
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     cx.run_until_parked();
-    let left = cx.debug_bounds("accordion-header-side-left").expect("left tab rendered");
-    let active = cx.debug_bounds("accordion-header-side-active").expect("active tab rendered");
+    let left = cx
+        .debug_bounds("accordion-header-side-left")
+        .expect("left tab rendered");
+    let active = cx
+        .debug_bounds("accordion-header-side-active")
+        .expect("active tab rendered");
     let content = cx
         .debug_bounds("accordion-geometry-content")
         .expect("expanded content rendered");
-    let right = cx.debug_bounds("accordion-header-side-right").expect("right tab rendered");
+    let right = cx
+        .debug_bounds("accordion-header-side-right")
+        .expect("right tab rendered");
     for bounds in [left, active, content, right] {
         assert!(bounds.size.width > gpui::px(0.0));
         assert!(bounds.size.height > gpui::px(0.0));

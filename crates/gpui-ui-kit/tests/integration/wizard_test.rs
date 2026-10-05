@@ -56,7 +56,12 @@ impl Render for WizardDensityView {
         div()
             .flex()
             .flex_col()
-            .child(WizardHeader::new().id("qa-header").steps(steps()).current_step(1))
+            .child(
+                WizardHeader::new()
+                    .id("qa-header")
+                    .steps(steps())
+                    .current_step(1),
+            )
             .child(Wizard::new().id("qa-wizard").steps(steps()).current_step(1))
     }
 }
@@ -68,9 +73,10 @@ async fn wizard_step_labels_follow_rendered_viewport_width(cx: &mut TestAppConte
         (700.0, false, true, true),
         (420.0, false, false, false),
     ] {
-        let window = cx.open_window(gpui::size(gpui::px(width), gpui::px(650.0)), |_window, _cx| {
-            WizardDensityView
-        });
+        let window = cx.open_window(
+            gpui::size(gpui::px(width), gpui::px(650.0)),
+            |_window, _cx| WizardDensityView,
+        );
         let mut visual = VisualTestContext::from_window(window.into(), cx);
         visual.run_until_parked();
         for (prefix, first_label_id, current_label_id, first_step_id, current_step_id) in [

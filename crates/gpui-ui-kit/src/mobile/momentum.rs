@@ -280,7 +280,9 @@ mod tests {
 
         // Exhaust the fling
         while scroller.is_active() {
-            scroller.last_time = Instant::now().checked_sub(Duration::from_millis(33)).unwrap();
+            scroller.last_time = Instant::now()
+                .checked_sub(Duration::from_millis(33))
+                .unwrap();
             let _ = scroller.step();
         }
         assert!(scroller.is_finished());
@@ -291,7 +293,9 @@ mod tests {
         let mut scroller = MomentumScroller::new();
         scroller.fling(100.0, 0.0, 0.0, 0.0);
 
-        scroller.last_time = Instant::now().checked_sub(Duration::from_millis(16)).unwrap();
+        scroller.last_time = Instant::now()
+            .checked_sub(Duration::from_millis(16))
+            .unwrap();
         assert!(scroller.step().is_some());
 
         scroller.last_time = Instant::now();
@@ -305,7 +309,9 @@ mod tests {
     fn step_advances_reported_position() {
         let mut scroller = MomentumScroller::new();
         scroller.fling(100.0, 50.0, 10.0, 20.0);
-        scroller.last_time = Instant::now().checked_sub(Duration::from_millis(16)).unwrap();
+        scroller.last_time = Instant::now()
+            .checked_sub(Duration::from_millis(16))
+            .unwrap();
 
         let delta = scroller.step().expect("fling should produce a delta");
 

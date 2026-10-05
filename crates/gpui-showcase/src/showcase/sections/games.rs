@@ -687,9 +687,9 @@ impl GamesShowcase {
     }
 
     fn sudoku_selected_cell_preview(&self) -> impl IntoElement {
-        let (label, value) = self
-            .sudoku
-            .selected.map_or_else(|| ("Select a cell on the board".to_owned(), "·".to_owned()), |(row, col)| {
+        let (label, value) = self.sudoku.selected.map_or_else(
+            || ("Select a cell on the board".to_owned(), "·".to_owned()),
+            |(row, col)| {
                 let value = self.sudoku.values[row][col];
                 (
                     format!("Selected cell · Row {}, column {}", row + 1, col + 1),
@@ -699,7 +699,8 @@ impl GamesShowcase {
                         value.to_string()
                     },
                 )
-            });
+            },
+        );
         let preview_fill = if self.light_palette {
             rgba(0xe4edf4ff)
         } else {
@@ -1455,9 +1456,7 @@ impl QueensGame {
             .filter(|value| **value)
             .count();
         if conflicts > 0 {
-            format!(
-                "{conflicts} crowns are in conflict. Move or remove a crown."
-            )
+            format!("{conflicts} crowns are in conflict. Move or remove a crown.")
         } else {
             format!("{} of {} crowns placed.", self.count(), QUEENS_SIZE)
         }
@@ -1799,7 +1798,9 @@ impl SudokuGame {
     }
 
     fn preview(&self) -> String {
-        self.selected.map_or_else(|| "Select a cell to preview its candidates.".to_owned(), |(row, col)| {
+        self.selected.map_or_else(
+            || "Select a cell to preview its candidates.".to_owned(),
+            |(row, col)| {
                 let value = self.values[row][col];
                 let candidates = self
                     .candidates(row, col)
@@ -1831,7 +1832,8 @@ impl SudokuGame {
                         value
                     )
                 }
-            })
+            },
+        )
     }
 
     fn status(&self) -> String {
@@ -1859,8 +1861,9 @@ impl SudokuGame {
                 "ArrowUp" => self.move_selection(-1, 0),
                 "ArrowDown" => self.move_selection(1, 0),
                 "Backspace" | "Delete" => self.erase(),
-                value if value.len() == 1 && value.as_bytes()[0].is_ascii_digit() => value
-                    .parse::<u8>().is_ok_and(|digit| self.enter(digit)),
+                value if value.len() == 1 && value.as_bytes()[0].is_ascii_digit() => {
+                    value.parse::<u8>().is_ok_and(|digit| self.enter(digit))
+                }
                 _ => false,
             },
             Scene2DInput::Activate {

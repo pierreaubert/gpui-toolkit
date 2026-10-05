@@ -162,11 +162,7 @@ impl WizardHeader {
                 label.into_any_element()
             };
 
-            let mut step_item = div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(step_circle);
+            let mut step_item = div().flex().items_center().gap_2().child(step_circle);
 
             let show_label = match density {
                 WizardStepIndicatorDensity::Full => true,

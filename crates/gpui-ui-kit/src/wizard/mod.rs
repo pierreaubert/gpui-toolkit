@@ -355,7 +355,10 @@ impl Wizard {
             };
 
             let label = div()
-                .id(SharedString::from(format!("{}-step-{index}-label", self.id)))
+                .id(SharedString::from(format!(
+                    "{}-step-{index}-label",
+                    self.id
+                )))
                 .debug_selector(|| format!("{}-step-{index}-label", self.id))
                 .text_sm()
                 .font_weight(if is_current {
