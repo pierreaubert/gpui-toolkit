@@ -384,6 +384,7 @@ codegen-units = 256
 zed-font-kit = { path = "crates/3rdparties/zed-font-kit" }
 
 [patch.crates-io]
+fontconfig-parser = { git = "https://github.com/pierreaubert/fontconfig-parser.git", rev = "d247c91f5a57edd6ba6eb26e884d4904dbfbc87e" }
 psm = { git = "https://github.com/pierreaubert/stacker.git", rev = "48bf8e3abfb350de9387a675275a629e4daf9717" }
 block = { path = "crates/3rdparties/block" }
 objc = { path = "crates/3rdparties/objc" }
