@@ -2381,8 +2381,10 @@ impl MeshPlot {
     #[cfg(all(feature = "gpu-3d", not(test)))]
     fn frame_3d_custom_id(
         &mut self,
+        #[cfg(all(feature = "gpu-metal", target_os = "macos"))]
         retained_3d_state: &Rc<RefCell<d3rs::mesh::gpu::MeshSceneState>>,
         retained_3d_renderer: &Rc<d3rs::mesh::gpu::WgpuMesh3DRenderer>,
+        #[cfg(all(feature = "gpu-metal", target_os = "macos"))]
         retained_3d_camera: Option<&Rc<RefCell<d3rs::gpu3d::Camera3D>>>,
     ) -> gpui::CustomDrawId {
         #[cfg(all(
@@ -3216,8 +3218,10 @@ impl MeshPlot {
 
         #[cfg(all(feature = "gpu-3d", not(test)))]
         let retained_3d_custom_id = self.frame_3d_custom_id(
+            #[cfg(all(feature = "gpu-metal", target_os = "macos"))]
             &retained_3d_state,
             &retained_3d_renderer,
+            #[cfg(all(feature = "gpu-metal", target_os = "macos"))]
             retained_3d_camera.as_ref(),
         );
 
