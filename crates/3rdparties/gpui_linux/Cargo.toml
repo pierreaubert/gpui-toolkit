@@ -50,7 +50,7 @@ smol = "2.0"
 strum = { version = "0.28.0", features = ["derive"] }
 url = "2.2"
 uuid = { version = "1.1.2", features = ["v4", "v5", "v7", "serde"] }
-oo7 = { version = "0.6", default-features = false, features = ["async-std", "native_crypto"] }
+oo7 = { version = "0.7", default-features = false, features = ["async-std", "native_crypto"] }
 calloop = "0.14.3"
 raw-window-handle = "0.6"
 ashpd = { version = "0.13", default-features = false, features = ["async-io", "notification", "open_uri", "file_chooser", "settings", "trash"], optional = true }
