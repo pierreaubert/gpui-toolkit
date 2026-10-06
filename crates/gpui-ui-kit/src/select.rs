@@ -225,7 +225,7 @@ impl Select {
         let (py, _text_size_class) = match self.size {
             SelectSize::Xs => (px(2.0), "xs"),
             SelectSize::Sm => (px(4.0), "sm"),
-            SelectSize::Md => (px(8.0), "md"),
+            SelectSize::Md => (px(6.0), "md"),
             SelectSize::Lg => (px(12.0), "lg"),
         };
 

@@ -84,6 +84,27 @@ impl TabItem {
         self
     }
 
+    pub(super) fn for_render(&mut self, icon_color: Rgba) -> Self {
+        let custom_icon = self
+            .icon_factory
+            .as_ref()
+            .map(|factory| factory(icon_color))
+            .or_else(|| self.custom_icon.take());
+        Self {
+            id: self.id.clone(),
+            label: self.label.clone(),
+            icon: self.icon.clone(),
+            custom_icon,
+            icon_factory: None,
+            badge: self.badge.clone(),
+            disabled: self.disabled,
+            closeable: self.closeable,
+            tab_element_id: self.tab_element_id.clone(),
+            close_element_id: self.close_element_id.clone(),
+            wrapper_element_id: self.wrapper_element_id.clone(),
+        }
+    }
+
     /// Get the tab ID
     pub fn id(&self) -> &SharedString {
         &self.id

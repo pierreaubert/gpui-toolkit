@@ -10,8 +10,8 @@ use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    App, ClickEvent, Div, ElementId, FocusHandle, KeyDownEvent, KeyboardClickEvent, Pixels, Rgba,
-    SharedString, Stateful, Window, div, px,
+    AnyElement, App, ClickEvent, Div, ElementId, FocusHandle, KeyDownEvent, KeyboardClickEvent,
+    Pixels, Rgba, SharedString, Stateful, Window, div, px,
 };
 use gpui_design::DesignSystem;
 use std::cell::RefCell;
@@ -47,6 +47,7 @@ pub struct Button {
     expanded: Option<bool>,
     full_width: bool,
     icon_left: Option<SharedString>,
+    custom_icon_left: Option<AnyElement>,
     icon_right: Option<SharedString>,
     theme: Option<ButtonTheme>,
     design: Option<Arc<DesignSystem>>,
@@ -68,6 +69,7 @@ impl Button {
             expanded: None,
             full_width: false,
             icon_left: None,
+            custom_icon_left: None,
             icon_right: None,
             theme: None,
             design: None,
@@ -119,6 +121,12 @@ impl Button {
     /// Add an icon to the left of the label
     pub fn icon_left(mut self, icon: impl Into<SharedString>) -> Self {
         self.icon_left = Some(icon.into());
+        self
+    }
+
+    /// Add a custom element to the left of the label.
+    pub fn custom_icon_left(mut self, icon: impl IntoElement) -> Self {
+        self.custom_icon_left = Some(icon.into_any_element());
         self
     }
 
@@ -321,7 +329,9 @@ impl Button {
         }
 
         // Add icon left
-        if let Some(icon) = self.icon_left {
+        if let Some(icon) = self.custom_icon_left {
+            el = el.child(icon);
+        } else if let Some(icon) = self.icon_left {
             el = el.child(icon);
         }
 
@@ -446,7 +456,9 @@ impl RenderOnce for Button {
         }
 
         // Add icon left
-        if let Some(icon) = self.icon_left {
+        if let Some(icon) = self.custom_icon_left {
+            el = el.child(icon);
+        } else if let Some(icon) = self.icon_left {
             el = el.child(icon);
         }
 

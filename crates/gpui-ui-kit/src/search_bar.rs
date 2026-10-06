@@ -17,7 +17,9 @@ use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaR
 use crate::input::{Input, InputSize, InputVariant};
 use crate::theme::ThemeExt;
 use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{App, Div, ElementId, MouseButton, Rgba, SharedString, Stateful, Window, div, px};
+use gpui::{
+    AnyElement, App, Div, ElementId, MouseButton, Rgba, SharedString, Stateful, Window, div, px,
+};
 use std::rc::Rc;
 
 /// Theme colors for search bar styling
@@ -68,6 +70,7 @@ pub struct SearchBar {
     placeholder: SharedString,
     size: SearchBarSize,
     show_icon: bool,
+    custom_icon: Option<AnyElement>,
     show_clear: bool,
     on_change: Option<Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
     on_submit: Option<Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
@@ -85,6 +88,7 @@ impl SearchBar {
             placeholder: "Search...".into(),
             size: SearchBarSize::default(),
             show_icon: true,
+            custom_icon: None,
             show_clear: true,
             on_change: None,
             on_submit: None,
@@ -115,6 +119,12 @@ impl SearchBar {
     /// Show or hide the search icon
     pub fn show_icon(mut self, show: bool) -> Self {
         self.show_icon = show;
+        self
+    }
+
+    /// Use a custom search icon element.
+    pub fn custom_icon(mut self, icon: impl IntoElement) -> Self {
+        self.custom_icon = Some(icon.into_any_element());
         self
     }
 
@@ -183,7 +193,11 @@ impl SearchBar {
 
         // Search icon
         if self.show_icon {
-            container = container.child(div().text_color(theme.icon).text_sm().child("⌕"));
+            container = if let Some(icon) = self.custom_icon {
+                container.child(div().flex_shrink_0().pl(px(8.0)).child(icon))
+            } else {
+                container.child(div().text_color(theme.icon).text_sm().child("⌕"))
+            };
         }
 
         let mut input = Input::new(self.id.clone())

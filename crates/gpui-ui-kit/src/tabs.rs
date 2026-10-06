@@ -8,11 +8,9 @@ use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    App, AppContext, Context, ElementId, Entity, FocusHandle, KeyDownEvent, MouseDownEvent, Render,
-    SharedString, WeakEntity, Window, div,
+    App, Context, ElementId, Entity, FocusHandle, KeyDownEvent, MouseDownEvent, Render,
+    SharedString, Window, div,
 };
-use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 mod tab_item;
@@ -25,16 +23,6 @@ use tab_render::{
     style_tab_container,
 };
 pub use types::{IconFactory, TabVariant, TabsTheme};
-
-thread_local! {
-    /// Cached render entities so repeated renders reuse the same GPUI entity.
-    // Stored as weak references so GPUI can drop the entity when the view is
-    // destroyed; otherwise tests report leaked entity handles.
-    static TABS_ENTITIES: RefCell<HashMap<ElementId, WeakEntity<TabsEntity>>> =
-        RefCell::new(HashMap::new());
-}
-
-const MAX_TABS_ENTITIES: usize = 1024;
 
 /// A tabs component with theming support
 pub struct Tabs {
@@ -256,12 +244,22 @@ impl Render for TabsEntity {
         // Apply variant-specific container styling
         container = style_tab_container(container, self.props.variant, &colors);
 
-        // Consume the tab list for this render. The props are refreshed before
-        // each render by the RenderOnce impl, so the vector will be repopulated.
-        let tabs = std::mem::take(&mut self.props.items);
+        // Retain tab metadata and factories across hover-triggered renders.
         let variant = self.props.variant;
-
-        for (index, tab) in tabs.into_iter().enumerate() {
+        let selected_index = self.props.selected_index;
+        for (index, item) in self.props.items.iter_mut().enumerate() {
+            let icon_color = if index == selected_index {
+                colors.icon_selected.unwrap_or(colors.text_selected)
+            } else {
+                colors
+                    .icon_unselected
+                    .unwrap_or(if variant == TabVariant::VerticalCard {
+                        colors.accent
+                    } else {
+                        colors.text_unselected
+                    })
+            };
+            let tab = item.for_render(icon_color);
             let state = TabRenderState {
                 index,
                 is_selected: index == self.props.selected_index,
@@ -289,7 +287,7 @@ impl Render for TabsEntity {
 }
 
 impl RenderOnce for Tabs {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let id = self.id.clone();
         let focus_handle = self
             .focus_handle
@@ -297,18 +295,8 @@ impl RenderOnce for Tabs {
             .unwrap_or_else(|| cx.focus_handle());
         let tab_count = self.items.len();
 
-        let entity: Entity<TabsEntity> = TABS_ENTITIES.with(|map| {
-            let mut map = map.borrow_mut();
-            map.retain(|_, weak| weak.upgrade().is_some());
-            if !map.contains_key(&id) && map.len() >= MAX_TABS_ENTITIES {
-                map.clear();
-            }
-            if let Some(weak) = map.get(&id)
-                && let Some(entity) = weak.upgrade()
-            {
-                return entity;
-            }
-            let entity = cx.new(|_cx| TabsEntity {
+        let entity: Entity<TabsEntity> =
+            window.use_keyed_state(id.clone(), cx, |_, _| TabsEntity {
                 props: Tabs::new(id.clone()),
                 focus_handle: focus_handle.clone(),
                 tab_count,
@@ -316,9 +304,6 @@ impl RenderOnce for Tabs {
                 hovered_close: None,
                 tab_ids: Vec::new(),
             });
-            map.insert(id.clone(), entity.downgrade());
-            entity
-        });
         entity.update(cx, |model, _cx| {
             model.tab_count = tab_count;
             model.tab_ids = self.items.iter().map(|tab| tab.id.clone()).collect();
