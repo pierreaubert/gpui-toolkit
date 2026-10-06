@@ -236,7 +236,7 @@ smallvec = { version = "1.6", features = ["union", "const_new"] }
 
 # Camera and QR examples
 qrcode = "0.14"
-rqrr = "0.10.0"
+rqrr = "0.11.0"
 
 # Apple platform bindings
 block2 = "0.6"
