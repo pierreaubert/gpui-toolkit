@@ -851,6 +851,7 @@ async fn test_number_input_with_custom_theme(cx: &mut TestAppContext) {
                 button_bg: gpui::rgba(0x2a2a2aff),
                 button_hover: gpui::rgba(0x3a3a3aff),
                 button_active: gpui::rgba(0xff6600ff),
+                selection_text: gpui::rgba(0xffffffff),
                 button_text: gpui::rgba(0xccccccff),
                 border: gpui::rgba(0x444444ff),
                 border_focus: gpui::rgba(0xff6600ff),

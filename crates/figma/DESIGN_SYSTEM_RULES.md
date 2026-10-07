@@ -39,6 +39,23 @@ Use `DesignSystem` radius tokens (`radius.sm`, `radius.md`, `radius.lg`,
 ### Component Sizes
 `ComponentSize` enum: Xs (0.5x), Sm (0.75x), Md (1.0x default), Lg (1.5x), Xl (2.0x)
 
+### Platform Defaults
+Apps resolve native styling per OS at startup; components must consume
+`DesignSystem` tokens and `Theme` roles so they follow automatically:
+
+| OS | `DesignLanguage` | `ThemeVariant` pair | Notes |
+|----|------------------|---------------------|-------|
+| macOS | `macos` (desktop HIG: 28pt target, 13pt body) | `MacosDark` / `MacosLight` (`AppKit` semantic colors) | `apple_hig` keeps the iOS values |
+| Windows | `fluent` (4/8px radii) | `FluentDark` / `FluentLight` (WinUI resources) | Mica/Acrylic render as flat layered fills |
+| Linux / other | `adwaita` (unchanged) | classic `Dark` / `Light` (frozen) | No visual change; values locked by tests |
+
+`MiniApp` follows the OS light/dark appearance live by default
+(`MiniAppConfig::follow_system_theme`). An explicit
+`.initial_theme(...)`, a persisted state-file theme, or a manual menu
+choice opts out in favor of the fixed variant. Component themes must
+derive from `Theme` roles (`from = ...`); never hardcode hex fallbacks
+for surfaces, text, borders, or accents.
+
 ## 2. Component Library
 
 Located at `crates/gpui-ui-kit/src/`. Each component is a single `.rs` file.

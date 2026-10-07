@@ -953,6 +953,157 @@ impl EditorTheme {
         }
     }
 
+    /// Native macOS dark theme from `AppKit` semantic colors.
+    ///
+    /// UI chrome mirrors [`gpui_ui_kit::Theme::macos_dark`]; audio and
+    /// visualization palettes are inherited from [`Self::dark`].
+    pub fn macos_dark() -> Self {
+        let mut theme = Self::dark();
+        theme.name = "macOS Dark".to_string();
+        theme.background = Color::from_hex(0x1e1e1e);
+        theme.background_secondary = Color::from_hex(0x252525);
+        theme.background_tertiary = Color::from_hex(0x2c2c2c);
+        theme.surface = Color::from_hex(0x282828);
+        theme.surface_hover = Color::from_hex(0x333333);
+        theme.surface_selected = Color::from_hex(0x0059d1);
+        theme.text_primary = Color::from_hex_alpha(0xffffffd8);
+        theme.text_secondary = Color::from_hex_alpha(0xffffff8c);
+        theme.text_muted = Color::from_hex_alpha(0xffffff3f);
+        theme.text_disabled = Color::from_hex_alpha(0xffffff3f);
+        theme.border = Color::from_hex_alpha(0xffffff19);
+        theme.border_focused = Color::from_hex_alpha(0x1aa9ff7f);
+        theme.accent = Color::from_hex(0x007aff);
+        theme.accent_hover = Color::from_hex(0x1a87ff);
+        theme.accent_muted = Color::from_hex_alpha(0x007aff33);
+        theme.text_on_accent = Color::from_hex(0xffffff);
+        theme.success = Color::from_hex(0x30d158);
+        theme.warning = Color::from_hex(0xff9230);
+        theme.error = Color::from_hex(0xff4245);
+        theme.info = Color::from_hex(0x0091ff);
+        theme.progress_bar_bg = Color::from_hex(0x333333);
+        theme.progress_bar_fill = Color::from_hex(0x007aff);
+        theme.toast_success_bg = Color::from_hex_alpha(0x30d1582e);
+        theme.toast_error_bg = Color::from_hex_alpha(0xff42452e);
+        theme.toast_info_bg = Color::from_hex_alpha(0x0091ff2e);
+        theme.toast_warning_bg = Color::from_hex_alpha(0xff92302e);
+        theme.design_language = "macos".to_string();
+        theme
+    }
+
+    /// Native macOS light theme from `AppKit` semantic colors.
+    ///
+    /// UI chrome mirrors [`gpui_ui_kit::Theme::macos_light`]; audio and
+    /// visualization palettes are inherited from [`Self::light`].
+    pub fn macos_light() -> Self {
+        let mut theme = Self::light();
+        theme.name = "macOS Light".to_string();
+        theme.background = Color::from_hex(0xffffff);
+        theme.background_secondary = Color::from_hex(0xf6f6f6);
+        theme.background_tertiary = Color::from_hex(0xededed);
+        theme.surface = Color::from_hex(0xffffff);
+        theme.surface_hover = Color::from_hex(0xf5f5f5);
+        theme.surface_selected = Color::from_hex(0x0064e1);
+        theme.text_primary = Color::from_hex_alpha(0x000000d8);
+        theme.text_secondary = Color::from_hex_alpha(0x0000007f);
+        theme.text_muted = Color::from_hex_alpha(0x00000042);
+        theme.text_disabled = Color::from_hex_alpha(0x0000003f);
+        theme.border = Color::from_hex_alpha(0x00000019);
+        theme.border_focused = Color::from_hex_alpha(0x0067f47f);
+        theme.accent = Color::from_hex(0x007aff);
+        theme.accent_hover = Color::from_hex(0x006ee6);
+        theme.accent_muted = Color::from_hex_alpha(0x007aff22);
+        theme.text_on_accent = Color::from_hex(0xffffff);
+        theme.success = Color::from_hex(0x34c759);
+        theme.warning = Color::from_hex(0xff8d28);
+        theme.error = Color::from_hex(0xff383c);
+        theme.info = Color::from_hex(0x0088ff);
+        theme.progress_bar_bg = Color::from_hex(0xe6e6e6);
+        theme.progress_bar_fill = Color::from_hex(0x007aff);
+        theme.toast_success_bg = Color::from_hex_alpha(0x34c7591f);
+        theme.toast_error_bg = Color::from_hex_alpha(0xff383c1f);
+        theme.toast_info_bg = Color::from_hex_alpha(0x0088ff1f);
+        theme.toast_warning_bg = Color::from_hex_alpha(0xff8d281f);
+        theme.design_language = "macos".to_string();
+        theme
+    }
+
+    /// Native Windows 11 dark theme from Fluent theme resources.
+    ///
+    /// UI chrome mirrors [`gpui_ui_kit::Theme::fluent_dark`]; audio and
+    /// visualization palettes are inherited from [`Self::dark`].
+    pub fn fluent_dark() -> Self {
+        let mut theme = Self::dark();
+        theme.name = "Fluent Dark".to_string();
+        theme.background = Color::from_hex(0x202020);
+        theme.background_secondary = Color::from_hex(0x282828);
+        theme.background_tertiary = Color::from_hex(0x2d2d2d);
+        theme.surface = Color::from_hex(0x2b2b2b);
+        theme.surface_hover = Color::from_hex(0x323232);
+        theme.surface_selected = Color::from_hex_alpha(0x60cdff66);
+        theme.text_primary = Color::from_hex(0xffffff);
+        theme.text_secondary = Color::from_hex(0xc5c5c5);
+        theme.text_muted = Color::from_hex(0x8b8b8b);
+        theme.text_disabled = Color::from_hex(0x707070);
+        theme.border = Color::from_hex(0x2e2e2e);
+        theme.border_focused = Color::from_hex(0x60cdff);
+        theme.accent = Color::from_hex(0x60cdff);
+        theme.accent_hover = Color::from_hex(0x7bd4ff);
+        theme.accent_muted = Color::from_hex_alpha(0x60cdff33);
+        theme.text_on_accent = Color::from_hex(0x000000);
+        theme.text_on_accent_muted = Color::new(0, 0, 0, 204);
+        theme.success = Color::from_hex(0x6ccb5f);
+        theme.warning = Color::from_hex(0xfce100);
+        theme.error = Color::from_hex(0xff99a4);
+        theme.info = Color::from_hex(0x60cdff);
+        theme.progress_bar_bg = Color::from_hex(0x3a3a3a);
+        theme.progress_bar_fill = Color::from_hex(0x60cdff);
+        theme.toast_success_bg = Color::from_hex_alpha(0x6ccb5f2e);
+        theme.toast_error_bg = Color::from_hex_alpha(0xff99a42e);
+        theme.toast_info_bg = Color::from_hex_alpha(0x60cdff2e);
+        theme.toast_warning_bg = Color::from_hex_alpha(0xfce1002e);
+        theme.font_family = "Segoe UI Variable".to_string();
+        theme.design_language = "fluent".to_string();
+        theme
+    }
+
+    /// Native Windows 11 light theme from Fluent theme resources.
+    ///
+    /// UI chrome mirrors [`gpui_ui_kit::Theme::fluent_light`]; audio and
+    /// visualization palettes are inherited from [`Self::light`].
+    pub fn fluent_light() -> Self {
+        let mut theme = Self::light();
+        theme.name = "Fluent Light".to_string();
+        theme.background = Color::from_hex(0xf3f3f3);
+        theme.background_secondary = Color::from_hex(0xeeeeee);
+        theme.background_tertiary = Color::from_hex(0xe7e7e7);
+        theme.surface = Color::from_hex(0xffffff);
+        theme.surface_hover = Color::from_hex(0xf9f9f9);
+        theme.surface_selected = Color::from_hex_alpha(0x0067c066);
+        theme.text_primary = Color::from_hex(0x1b1b1b);
+        theme.text_secondary = Color::from_hex(0x5d5d5d);
+        theme.text_muted = Color::from_hex(0x8a8a8a);
+        theme.text_disabled = Color::from_hex(0x9a9a9a);
+        theme.border = Color::from_hex(0xe4e4e4);
+        theme.border_focused = Color::from_hex(0x0067c0);
+        theme.accent = Color::from_hex(0x0067c0);
+        theme.accent_hover = Color::from_hex(0x1975c5);
+        theme.accent_muted = Color::from_hex_alpha(0x0067c022);
+        theme.text_on_accent = Color::from_hex(0xffffff);
+        theme.success = Color::from_hex(0x0f7b0f);
+        theme.warning = Color::from_hex(0x9d5d00);
+        theme.error = Color::from_hex(0xc42b1c);
+        theme.info = Color::from_hex(0x0067c0);
+        theme.progress_bar_bg = Color::from_hex(0xe4e4e4);
+        theme.progress_bar_fill = Color::from_hex(0x0067c0);
+        theme.toast_success_bg = Color::from_hex_alpha(0x0f7b0f1f);
+        theme.toast_error_bg = Color::from_hex_alpha(0xc42b1c1f);
+        theme.toast_info_bg = Color::from_hex_alpha(0x0067c01f);
+        theme.toast_warning_bg = Color::from_hex_alpha(0x9d5d001f);
+        theme.font_family = "Segoe UI Variable".to_string();
+        theme.design_language = "fluent".to_string();
+        theme
+    }
+
     /// Save theme to JSON string
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)

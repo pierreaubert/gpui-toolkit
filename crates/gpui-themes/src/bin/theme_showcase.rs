@@ -129,6 +129,10 @@ fn preset_button_id(preset: BuiltInThemePreset) -> SharedString {
         BuiltInThemePreset::Protanopia => "theme-Protanopia",
         BuiltInThemePreset::Deuteranopia => "theme-Deuteranopia",
         BuiltInThemePreset::Tritanopia => "theme-Tritanopia",
+        BuiltInThemePreset::MacosDark => "theme-MacosDark",
+        BuiltInThemePreset::MacosLight => "theme-MacosLight",
+        BuiltInThemePreset::FluentDark => "theme-FluentDark",
+        BuiltInThemePreset::FluentLight => "theme-FluentLight",
     })
 }
 

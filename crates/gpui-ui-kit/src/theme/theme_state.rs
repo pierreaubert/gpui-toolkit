@@ -7,6 +7,8 @@ use std::sync::Arc;
 /// Global state for theme management
 pub struct ThemeState {
     pub theme: Arc<Theme>,
+    /// Track live OS appearance changes within the current family.
+    pub follow_system: bool,
 }
 
 impl Global for ThemeState {}
@@ -16,6 +18,7 @@ impl ThemeState {
     pub fn new() -> Self {
         Self {
             theme: Arc::new(Theme::default()),
+            follow_system: false,
         }
     }
 
@@ -23,6 +26,7 @@ impl ThemeState {
     pub fn with_variant(variant: ThemeVariant) -> Self {
         Self {
             theme: Arc::new(Theme::for_variant(variant)),
+            follow_system: false,
         }
     }
 
@@ -34,6 +38,21 @@ impl ThemeState {
     /// Toggle between light and dark themes
     pub fn toggle(&mut self) {
         self.set_variant(self.theme.variant.toggle());
+    }
+
+    /// Enable or disable tracking of OS appearance changes.
+    pub fn set_follow_system(&mut self, follow: bool) {
+        self.follow_system = follow;
+    }
+
+    /// Apply a live OS dark-mode flag when following the system.
+    ///
+    /// No-op unless [`ThemeState::set_follow_system`] enabled tracking;
+    /// a manual [`ThemeState::set_variant`] choice is never overridden.
+    pub fn apply_system_appearance(&mut self, system_dark: bool) {
+        if self.follow_system {
+            self.set_variant(self.theme.variant.with_system_appearance(system_dark));
+        }
     }
 }
 

@@ -16040,6 +16040,7 @@ impl PythonIrShowcase {
         theme.info = editor.info.to_rgba();
         cx.set_global(ThemeState {
             theme: Arc::new(theme),
+            follow_system: false,
         });
         cx.refresh_windows();
     }

@@ -255,6 +255,69 @@ fn test_builtin_preset_lookup_accepts_friendly_ids() {
 }
 
 #[test]
+fn test_platform_presets_use_native_anchors() {
+    assert_eq!(
+        BuiltInThemePreset::from_id("macos_dark"),
+        Some(BuiltInThemePreset::MacosDark)
+    );
+    assert_eq!(
+        BuiltInThemePreset::from_id("macOS Light"),
+        Some(BuiltInThemePreset::MacosLight)
+    );
+    assert_eq!(
+        BuiltInThemePreset::from_id("fluent_dark"),
+        Some(BuiltInThemePreset::FluentDark)
+    );
+    assert_eq!(
+        BuiltInThemePreset::from_id("Fluent Light"),
+        Some(BuiltInThemePreset::FluentLight)
+    );
+
+    let macos_dark = BuiltInThemePreset::MacosDark.to_theme();
+    assert_eq!(macos_dark.name, "macOS Dark");
+    assert_eq!(macos_dark.appearance(), ThemeAppearance::Dark);
+    assert_eq!(macos_dark.background, Color::from_hex(0x1e1e1e));
+    assert_eq!(macos_dark.accent, Color::from_hex(0x007aff));
+    assert_eq!(macos_dark.design_language, "macos");
+    // Native deviation: white on #007AFF is 4.02:1, exactly as macOS ships.
+    let issues: Vec<_> = macos_dark
+        .accessibility_issues()
+        .iter()
+        .map(|issue| issue.pair)
+        .collect();
+    assert_eq!(issues, ["text_on_accent/accent"]);
+
+    let macos_light = BuiltInThemePreset::MacosLight.to_theme();
+    assert_eq!(macos_light.name, "macOS Light");
+    assert_eq!(macos_light.appearance(), ThemeAppearance::Light);
+    assert_eq!(macos_light.background, Color::from_hex(0xffffff));
+    assert_eq!(macos_light.accent, Color::from_hex(0x007aff));
+    assert_eq!(macos_light.design_language, "macos");
+    let issues: Vec<_> = macos_light
+        .accessibility_issues()
+        .iter()
+        .map(|issue| issue.pair)
+        .collect();
+    assert_eq!(issues, ["text_on_accent/accent"]);
+
+    let fluent_dark = BuiltInThemePreset::FluentDark.to_theme();
+    assert_eq!(fluent_dark.name, "Fluent Dark");
+    assert_eq!(fluent_dark.appearance(), ThemeAppearance::Dark);
+    assert_eq!(fluent_dark.background, Color::from_hex(0x202020));
+    assert_eq!(fluent_dark.accent, Color::from_hex(0x60cdff));
+    assert_eq!(fluent_dark.design_language, "fluent");
+    fluent_dark.validate_accessibility().unwrap();
+
+    let fluent_light = BuiltInThemePreset::FluentLight.to_theme();
+    assert_eq!(fluent_light.name, "Fluent Light");
+    assert_eq!(fluent_light.appearance(), ThemeAppearance::Light);
+    assert_eq!(fluent_light.background, Color::from_hex(0xf3f3f3));
+    assert_eq!(fluent_light.accent, Color::from_hex(0x0067c0));
+    assert_eq!(fluent_light.design_language, "fluent");
+    fluent_light.validate_accessibility().unwrap();
+}
+
+#[test]
 fn test_tui_presets_have_full_ansi_palettes() {
     for preset in TuiThemePreset::all() {
         let palette = preset.palette();

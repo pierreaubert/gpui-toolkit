@@ -8,6 +8,7 @@
 //! width=900
 //! height=700
 //! theme=Dark
+//! follow_system_theme=true
 //! language=en
 //! ```
 //!
@@ -32,6 +33,8 @@ pub struct MiniAppState {
     pub height: Option<f32>,
     /// Theme variant, when present and recognized.
     pub theme: Option<ThemeVariant>,
+    /// Whether the theme tracks the OS appearance, when present.
+    pub follow_system_theme: Option<bool>,
     /// Language, when present and recognized.
     pub language: Option<Language>,
 }
@@ -39,11 +42,18 @@ pub struct MiniAppState {
 impl MiniAppState {
     /// Concrete snapshot of live values, for saving.
     #[must_use]
-    pub fn snapshot(width: f32, height: f32, theme: ThemeVariant, language: Language) -> Self {
+    pub fn snapshot(
+        width: f32,
+        height: f32,
+        theme: ThemeVariant,
+        follow_system_theme: bool,
+        language: Language,
+    ) -> Self {
         Self {
             width: Some(width),
             height: Some(height),
             theme: Some(theme),
+            follow_system_theme: Some(follow_system_theme),
             language: Some(language),
         }
     }
@@ -54,6 +64,7 @@ impl MiniAppState {
         self.width.is_none()
             && self.height.is_none()
             && self.theme.is_none()
+            && self.follow_system_theme.is_none()
             && self.language.is_none()
     }
 }
@@ -91,6 +102,14 @@ fn parse_positive_size(value: &str) -> Option<f32> {
     }
 }
 
+fn parse_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => Some(true),
+        "false" | "0" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
 /// Load session state from `path`.
 ///
 /// Returns [`None`] when the file cannot be read. A readable file with no
@@ -115,6 +134,9 @@ pub fn load_miniapp_state(path: &Path) -> Option<MiniAppState> {
             "width" => state.width = parse_positive_size(value).or(state.width),
             "height" => state.height = parse_positive_size(value).or(state.height),
             "theme" => state.theme = theme_from_name(value).or(state.theme),
+            "follow_system_theme" => {
+                state.follow_system_theme = parse_bool(value).or(state.follow_system_theme);
+            }
             "language" => state.language = language_from_code(value).or(state.language),
             _ => {}
         }
@@ -146,6 +168,9 @@ pub fn save_miniapp_state(path: &Path, state: &MiniAppState) -> std::io::Result<
     }
     if let Some(theme) = state.theme {
         let _ = writeln!(text, "theme={}", theme.name());
+    }
+    if let Some(follow) = state.follow_system_theme {
+        let _ = writeln!(text, "follow_system_theme={follow}");
     }
     if let Some(language) = state.language {
         let _ = writeln!(text, "language={}", language.code());

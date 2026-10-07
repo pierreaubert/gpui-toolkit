@@ -17,6 +17,10 @@ pub enum BuiltInThemePreset {
     Protanopia,
     Deuteranopia,
     Tritanopia,
+    MacosDark,
+    MacosLight,
+    FluentDark,
+    FluentLight,
 }
 
 impl BuiltInThemePreset {
@@ -30,6 +34,10 @@ impl BuiltInThemePreset {
             BuiltInThemePreset::Protanopia,
             BuiltInThemePreset::Deuteranopia,
             BuiltInThemePreset::Tritanopia,
+            BuiltInThemePreset::MacosDark,
+            BuiltInThemePreset::MacosLight,
+            BuiltInThemePreset::FluentDark,
+            BuiltInThemePreset::FluentLight,
         ]
     }
 
@@ -43,6 +51,10 @@ impl BuiltInThemePreset {
             BuiltInThemePreset::Protanopia => "protanopia",
             BuiltInThemePreset::Deuteranopia => "deuteranopia",
             BuiltInThemePreset::Tritanopia => "tritanopia",
+            BuiltInThemePreset::MacosDark => "macos_dark",
+            BuiltInThemePreset::MacosLight => "macos_light",
+            BuiltInThemePreset::FluentDark => "fluent_dark",
+            BuiltInThemePreset::FluentLight => "fluent_light",
         }
     }
 
@@ -56,6 +68,10 @@ impl BuiltInThemePreset {
             BuiltInThemePreset::Protanopia => "Protanopia",
             BuiltInThemePreset::Deuteranopia => "Deuteranopia",
             BuiltInThemePreset::Tritanopia => "Tritanopia",
+            BuiltInThemePreset::MacosDark => "macOS Dark",
+            BuiltInThemePreset::MacosLight => "macOS Light",
+            BuiltInThemePreset::FluentDark => "Fluent Dark",
+            BuiltInThemePreset::FluentLight => "Fluent Light",
         }
     }
 
@@ -69,6 +85,10 @@ impl BuiltInThemePreset {
             "protanopia" => Some(Self::Protanopia),
             "deuteranopia" => Some(Self::Deuteranopia),
             "tritanopia" => Some(Self::Tritanopia),
+            "macos_dark" | "macosdark" => Some(Self::MacosDark),
+            "macos_light" | "macoslight" => Some(Self::MacosLight),
+            "fluent_dark" | "fluentdark" => Some(Self::FluentDark),
+            "fluent_light" | "fluentlight" => Some(Self::FluentLight),
             _ => None,
         }
     }
@@ -86,14 +106,18 @@ impl BuiltInThemePreset {
     /// Appearance metadata without constructing the full editor theme.
     pub fn appearance(self) -> ThemeAppearance {
         match self {
-            BuiltInThemePreset::Light => ThemeAppearance::Light,
+            BuiltInThemePreset::Light
+            | BuiltInThemePreset::MacosLight
+            | BuiltInThemePreset::FluentLight => ThemeAppearance::Light,
             BuiltInThemePreset::Dark
             | BuiltInThemePreset::HighContrast
             | BuiltInThemePreset::Nord
             | BuiltInThemePreset::Dracula
             | BuiltInThemePreset::Protanopia
             | BuiltInThemePreset::Deuteranopia
-            | BuiltInThemePreset::Tritanopia => ThemeAppearance::Dark,
+            | BuiltInThemePreset::Tritanopia
+            | BuiltInThemePreset::MacosDark
+            | BuiltInThemePreset::FluentDark => ThemeAppearance::Dark,
         }
     }
 
@@ -107,6 +131,10 @@ impl BuiltInThemePreset {
             BuiltInThemePreset::Protanopia => EditorTheme::protanopia(),
             BuiltInThemePreset::Deuteranopia => EditorTheme::deuteranopia(),
             BuiltInThemePreset::Tritanopia => EditorTheme::tritanopia(),
+            BuiltInThemePreset::MacosDark => EditorTheme::macos_dark(),
+            BuiltInThemePreset::MacosLight => EditorTheme::macos_light(),
+            BuiltInThemePreset::FluentDark => EditorTheme::fluent_dark(),
+            BuiltInThemePreset::FluentLight => EditorTheme::fluent_light(),
         }
     }
 }

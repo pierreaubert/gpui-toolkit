@@ -571,17 +571,24 @@ fn language_codes_round_trip_all_languages_case_insensitively() {
 
 #[test]
 fn state_snapshot_and_is_empty() {
-    let full = MiniAppState::snapshot(800.0, 600.0, ThemeVariant::Light, Language::French);
+    let full = MiniAppState::snapshot(800.0, 600.0, ThemeVariant::Light, false, Language::French);
     assert!(!full.is_empty());
     assert_eq!(full.width, Some(800.0));
     assert_eq!(full.theme, Some(ThemeVariant::Light));
+    assert_eq!(full.follow_system_theme, Some(false));
     assert!(MiniAppState::default().is_empty());
 }
 
 #[test]
 fn state_save_and_load_round_trip() {
     let path = unique_state_path("roundtrip");
-    let state = MiniAppState::snapshot(1024.0, 768.0, ThemeVariant::Forest, Language::Japanese);
+    let state = MiniAppState::snapshot(
+        1024.0,
+        768.0,
+        ThemeVariant::Forest,
+        true,
+        Language::Japanese,
+    );
     save_miniapp_state(&path, &state).expect("save should succeed");
     let loaded = load_miniapp_state(&path).expect("load should succeed");
     assert_eq!(loaded, state);
@@ -623,7 +630,7 @@ fn state_load_empty_file_yields_empty_state() {
 fn state_save_creates_parent_directories() {
     let dir = unique_state_path("parentdir");
     let path = dir.join("nested").join("state.txt");
-    let state = MiniAppState::snapshot(900.0, 700.0, ThemeVariant::Dark, Language::English);
+    let state = MiniAppState::snapshot(900.0, 700.0, ThemeVariant::Dark, false, Language::English);
     save_miniapp_state(&path, &state).expect("save should create parents");
     assert_eq!(load_miniapp_state(&path), Some(state));
     let _ = std::fs::remove_file(&path);
@@ -662,7 +669,34 @@ fn config_with_persisted_state_applies_file_and_ignores_missing() {
     assert_eq!(applied.height, 222.0);
     assert_eq!(applied.initial_theme, ThemeVariant::Light);
     assert_eq!(applied.initial_language, Language::Japanese);
+    // A restored explicit theme opts out of system tracking.
+    assert!(!applied.follow_system_theme);
     let _ = std::fs::remove_file(&path);
+
+    // A stored follow flag is honored and keeps tracking enabled.
+    let path = unique_state_path("apply-follow");
+    std::fs::write(&path, "theme=Dark\nfollow_system_theme=true\n")
+        .expect("fixture write should succeed");
+    let config = MiniAppConfig::new("Test")
+        .initial_theme(ThemeVariant::Light)
+        .state_file(&path);
+    let applied = MiniApp::config_with_persisted_state(config);
+    assert!(applied.follow_system_theme);
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn config_follow_system_theme_defaults_on_and_initial_theme_opts_out() {
+    let config = MiniAppConfig::new("Test");
+    assert!(config.follow_system_theme);
+
+    let config = MiniAppConfig::new("Test").initial_theme(ThemeVariant::Midnight);
+    assert!(!config.follow_system_theme);
+
+    let config = MiniAppConfig::new("Test")
+        .initial_theme(ThemeVariant::Midnight)
+        .follow_system_theme(true);
+    assert!(config.follow_system_theme);
 }
 
 #[test]

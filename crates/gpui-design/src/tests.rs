@@ -40,6 +40,7 @@ fn test_neutral_matches_current_solver_constants() {
 #[test]
 fn test_all_presets_construct() {
     let _ = DesignSystem::neutral();
+    let _ = DesignSystem::macos();
     let _ = DesignSystem::apple_hig();
     let _ = DesignSystem::material3();
     let _ = DesignSystem::fluent();
@@ -54,7 +55,8 @@ fn test_platform_default_returns_valid() {
     // Should be one of the known languages
     assert!(matches!(
         ds.language,
-        DesignLanguage::AppleHig
+        DesignLanguage::Macos
+            | DesignLanguage::AppleHig
             | DesignLanguage::Material3
             | DesignLanguage::Fluent
             | DesignLanguage::Adwaita
@@ -68,7 +70,7 @@ fn test_platform_default_returns_valid() {
 fn test_platform_mapping_covers_main_os_families() {
     assert_eq!(
         DesignSystem::for_platform(DesignPlatform::Macos).language,
-        DesignLanguage::AppleHig
+        DesignLanguage::Macos
     );
     assert_eq!(
         DesignSystem::for_platform(DesignPlatform::Ios).language,
@@ -95,6 +97,7 @@ fn test_platform_mapping_covers_main_os_families() {
 #[test]
 fn test_design_language_ids_select_presets() {
     for language in [
+        DesignLanguage::Macos,
         DesignLanguage::AppleHig,
         DesignLanguage::Material3,
         DesignLanguage::Fluent,
@@ -130,6 +133,7 @@ fn test_design_language_ids_select_presets() {
 fn test_presets_use_origin_typography() {
     for (preset_id, system) in all_design_presets() {
         let expected = match system.language {
+            DesignLanguage::Macos => ".SystemUIFont",
             DesignLanguage::AppleHig => ".SystemUIFont",
             DesignLanguage::Material3 => "Roboto",
             DesignLanguage::Neutral => "system-ui",
@@ -145,6 +149,7 @@ fn test_presets_use_origin_typography() {
 #[test]
 fn test_presets_differ() {
     let neutral = DesignSystem::neutral();
+    let macos = DesignSystem::macos();
     let apple = DesignSystem::apple_hig();
     let material = DesignSystem::material3();
     let fluent = DesignSystem::fluent();
@@ -153,7 +158,8 @@ fn test_presets_differ() {
     let carbon = DesignSystem::carbon();
 
     // Each preset should have a different language
-    assert_ne!(neutral.language, apple.language);
+    assert_ne!(neutral.language, macos.language);
+    assert_ne!(macos.language, apple.language);
     assert_ne!(apple.language, material.language);
     assert_ne!(material.language, fluent.language);
     assert_ne!(fluent.language, adwaita.language);
@@ -176,6 +182,24 @@ fn test_apple_uses_larger_touch_targets() {
     assert!(apple.interaction.min_touch_target > neutral.interaction.min_touch_target);
     assert_eq!(apple.group_separator, GroupSeparatorStyle::None);
     assert!(apple.corners.md > neutral.corners.md);
+}
+
+#[test]
+fn test_macos_uses_desktop_hig_values() {
+    let macos = DesignSystem::macos();
+    let apple = DesignSystem::apple_hig();
+
+    // HIG macOS control target is 28pt, not the 44pt iOS target.
+    assert_eq!(macos.interaction.min_touch_target, 28.0);
+    assert!(macos.interaction.min_touch_target < apple.interaction.min_touch_target);
+    // HIG macOS body is 13pt with no Dynamic Type support.
+    assert_eq!(macos.typography.base_size, 13.0);
+    assert_eq!(macos.typography.small_size, 11.0);
+    assert!(!macos.typography.dynamic_sizing);
+    // Measured AppKit control radii are smaller than the iOS preset.
+    assert_eq!(macos.corners.md, 8.0);
+    assert!(macos.corners.md < apple.corners.md);
+    assert_eq!(macos.group_separator, GroupSeparatorStyle::Divider);
 }
 
 #[test]
@@ -228,6 +252,7 @@ fn test_serializable() {
 
 #[test]
 fn test_design_language_as_str() {
+    assert_eq!(DesignLanguage::Macos.as_str(), "macos");
     assert_eq!(DesignLanguage::AppleHig.as_str(), "apple_hig");
     assert_eq!(DesignLanguage::Material3.as_str(), "material3");
     assert_eq!(DesignLanguage::Fluent.as_str(), "fluent");

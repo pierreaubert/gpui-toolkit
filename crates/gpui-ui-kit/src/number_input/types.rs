@@ -19,6 +19,9 @@ pub struct NumberInputTheme {
     /// Button active (pressed) background
     #[theme(default = 0x007accff, from = accent)]
     pub button_active: Rgba,
+    /// Selected-text color on the active background
+    #[theme(default = 0xffffffff, from = text_on_accent)]
+    pub selection_text: Rgba,
     /// Button text color
     #[theme(default = 0xccccccff, from = text_secondary)]
     pub button_text: Rgba,

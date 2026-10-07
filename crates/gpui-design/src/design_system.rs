@@ -143,7 +143,92 @@ impl DesignSystem {
         }
     }
 
-    /// Apple Human Interface Guidelines preset.
+    /// Apple HIG preset for macOS desktop.
+    ///
+    /// macOS values differ from iOS (see [`Self::apple_hig`]): 28pt control
+    /// target instead of 44pt, 13pt body instead of 17pt, no Dynamic Type,
+    /// and smaller measured `AppKit` corner radii. Apple publishes no spacing
+    /// or radius scale, so grid and radii below are measured conventions.
+    pub fn macos() -> Self {
+        Self {
+            language: DesignLanguage::Macos,
+            corners: CornerRadii {
+                sm: 6.0,
+                md: 8.0,
+                lg: 12.0,
+                xl: 18.0,
+                style: CornerRadiusStyle::Continuous,
+                flip_in_rtl: true,
+            },
+            spacing: SpacingRules {
+                grid_unit: 8.0,
+                control_padding_x: 12.0,
+                control_padding_y: 5.0,
+                control_gap: 8.0,
+                section_gap: 16.0,
+                card_padding: 16.0,
+                density: DensityTier::Medium,
+                flip_in_rtl: true,
+            },
+            interaction: InteractionRules {
+                min_touch_target: 28.0,
+                border_width: 1.0,
+                focus_ring_width: 3.0,
+                focus_ring_offset: 2.0,
+                state_hover_opacity: 0.08,
+                state_focus_opacity: 0.12,
+                state_pressed_opacity: 0.12,
+                state_dragged_opacity: 0.16,
+            },
+            elevation: ElevationRules {
+                level_0_blur: 0.0,
+                level_1_blur: 8.0,
+                level_2_blur: 20.0,
+                shadow_opacity: 0.18,
+                shadow_y_offset: 3.0,
+            },
+            animation: AnimationRules {
+                duration_ms: 200,
+                fast_ms: 100,
+                slow_ms: 350,
+                prefer_spring: true,
+                spring_stiffness: 200.0,
+                spring_damping: 26.0,
+            },
+            typography: TypographyRules {
+                font_family: String::from(".SystemUIFont"),
+                dynamic_sizing: false,
+                base_size: 13.0,
+                small_size: 11.0,
+                large_size: 22.0,
+                fluid_min_size: 11.0,
+                fluid_max_size: 26.0,
+            },
+            layout: LayoutThresholds {
+                vertical_threshold: 400.0,
+                group_stack_threshold: 500.0,
+                compact_slider_threshold: 700.0,
+                hide_viz_threshold: 600.0,
+                compact_knob_threshold: 400.0,
+                large_knob_threshold: 800.0,
+                slider_height_normal: 180.0,
+                slider_height_compact: 120.0,
+            },
+            audio_controls: AudioControlRules {
+                knob_arc_start_deg: 135.0,
+                knob_arc_sweep_deg: 270.0,
+                knob_arc_width: 2.5,
+                knob_arc_segments: 48,
+                knob_border_width: 2.0,
+                slider_track_widths: [14.0, 18.0, 24.0],
+            },
+            toggle_variant: ToggleVariant::Capsule,
+            label_position: LabelPosition::Below,
+            group_separator: GroupSeparatorStyle::Divider,
+        }
+    }
+
+    /// Apple Human Interface Guidelines preset for iOS and iPadOS.
     pub fn apple_hig() -> Self {
         Self {
             language: DesignLanguage::AppleHig,
@@ -625,6 +710,7 @@ impl DesignSystem {
 
     pub fn for_language(language: DesignLanguage) -> Self {
         match language {
+            DesignLanguage::Macos => Self::macos(),
             DesignLanguage::AppleHig => Self::apple_hig(),
             DesignLanguage::Material3 => Self::material3(),
             DesignLanguage::Fluent => Self::fluent(),
@@ -641,7 +727,8 @@ impl DesignSystem {
 
     pub fn for_platform(platform: DesignPlatform) -> Self {
         match platform {
-            DesignPlatform::Macos | DesignPlatform::Ios => Self::apple_hig(),
+            DesignPlatform::Macos => Self::macos(),
+            DesignPlatform::Ios => Self::apple_hig(),
             DesignPlatform::Windows => Self::fluent(),
             DesignPlatform::Android => Self::material3(),
             DesignPlatform::Linux => Self::adwaita(),
@@ -1241,6 +1328,7 @@ fn css_value(token: &DesignToken) -> String {
 pub(super) fn all_design_presets() -> Vec<(&'static str, DesignSystem)> {
     vec![
         ("neutral", DesignSystem::neutral()),
+        ("macos", DesignSystem::macos()),
         ("apple_hig", DesignSystem::apple_hig()),
         ("material3", DesignSystem::material3()),
         ("fluent", DesignSystem::fluent()),

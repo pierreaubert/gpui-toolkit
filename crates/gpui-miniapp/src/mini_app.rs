@@ -182,7 +182,8 @@ impl MiniApp {
 
             // Initialize theme state if enabled
             if config_rc.with_theme {
-                cx.set_global(ThemeState::with_variant(config_rc.initial_theme));
+                let theme_state = Self::initial_theme_state(&config_rc, cx);
+                cx.set_global(theme_state);
             }
 
             // Always set design system global (platform-appropriate defaults)
@@ -280,7 +281,8 @@ impl MiniApp {
 
             // Initialize theme state if enabled
             if configs[0].with_theme {
-                cx.set_global(ThemeState::with_variant(configs[0].initial_theme));
+                let theme_state = Self::initial_theme_state(&configs[0], cx);
+                cx.set_global(theme_state);
             }
 
             // Always set design system global (platform-appropriate defaults)
@@ -356,6 +358,7 @@ impl MiniApp {
             cx.on_action::<ToggleTheme>(move |_action, cx| {
                 cx.update_global::<ThemeState, _>(|state, _cx| {
                     state.toggle();
+                    state.set_follow_system(false);
                 });
                 Self::refresh_menus(cx, &config);
                 cx.refresh_windows();
@@ -426,6 +429,7 @@ impl MiniApp {
         let bounds = Bounds::centered(None, initial_size, cx);
 
         let scrollable = config.scrollable;
+        let follow_system_theme = config.with_theme && config.follow_system_theme;
         if let Err(e) = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -436,7 +440,26 @@ impl MiniApp {
                 }),
                 ..Default::default()
             },
-            move |_, cx| {
+            move |window, cx| {
+                if follow_system_theme {
+                    // Intentionally leaked like the close-handler
+                    // subscription: the observer dies with the window and
+                    // no-ops once a manual choice opts out of tracking.
+                    std::mem::forget(window.observe_window_appearance(
+                        |window: &mut Window, cx: &mut App| {
+                            let system_dark = matches!(
+                                window.appearance(),
+                                WindowAppearance::Dark | WindowAppearance::VibrantDark
+                            );
+                            if cx.try_global::<ThemeState>().is_some() {
+                                cx.update_global::<ThemeState, _>(|state, _| {
+                                    state.apply_system_appearance(system_dark);
+                                });
+                                cx.refresh_windows();
+                            }
+                        },
+                    ));
+                }
                 let inner_view = build_view(cx);
                 cx.new(|_| MiniAppShell {
                     inner: inner_view.into(),
@@ -489,6 +512,10 @@ impl MiniApp {
         }
         if let Some(theme) = state.theme {
             config.initial_theme = theme;
+            config.follow_system_theme = false;
+        }
+        if let Some(follow) = state.follow_system_theme {
+            config.follow_system_theme = follow;
         }
         if let Some(language) = state.language {
             config.initial_language = language;
@@ -509,6 +536,7 @@ impl MiniApp {
     {
         let state_file = config.state_file.clone();
         let fallback_theme = config.initial_theme;
+        let fallback_follow = config.follow_system_theme;
         let fallback_language = config.initial_language;
         let fallback_size = (config.width, config.height);
         let mut on_close = on_close;
@@ -517,11 +545,19 @@ impl MiniApp {
                 let theme = cx
                     .try_global::<ThemeState>()
                     .map_or(fallback_theme, |state| state.theme.variant);
+                let follow = cx
+                    .try_global::<ThemeState>()
+                    .map_or(fallback_follow, |state| state.follow_system);
                 let language = cx
                     .try_global::<I18nState>()
                     .map_or(fallback_language, |state| state.language);
-                let snapshot =
-                    MiniAppState::snapshot(fallback_size.0, fallback_size.1, theme, language);
+                let snapshot = MiniAppState::snapshot(
+                    fallback_size.0,
+                    fallback_size.1,
+                    theme,
+                    follow,
+                    language,
+                );
                 if let Err(error) = save_miniapp_state(path, &snapshot) {
                     eprintln!("MiniApp state save error: {error}");
                 }
@@ -690,6 +726,20 @@ impl MiniApp {
         cx.refresh_windows();
     }
 
+    /// Resolve the starting theme from the live OS appearance when the
+    /// config follows the system, otherwise use the explicit variant.
+    fn initial_theme_state(config: &MiniAppConfig, cx: &mut App) -> ThemeState {
+        if config.follow_system_theme {
+            let mut state = ThemeState::with_variant(ThemeVariant::for_window_appearance(
+                cx.window_appearance(),
+            ));
+            state.set_follow_system(true);
+            state
+        } else {
+            ThemeState::with_variant(config.initial_theme)
+        }
+    }
+
     fn set_theme_variant(cx: &mut App, variant: ThemeVariant) {
         if cx
             .try_global::<ThemeState>()
@@ -698,7 +748,9 @@ impl MiniApp {
             return;
         }
         cx.update_global::<ThemeState, _>(|state, _cx| {
+            // An explicit menu choice wins over system tracking.
             state.set_variant(variant);
+            state.set_follow_system(false);
         });
         cx.refresh_windows();
     }

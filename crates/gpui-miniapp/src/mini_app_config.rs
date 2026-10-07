@@ -24,6 +24,14 @@ pub struct MiniAppConfig {
     pub with_i18n: bool,
     /// Initial theme variant
     pub initial_theme: ThemeVariant,
+    /// Resolve the initial theme from the OS appearance and track changes.
+    ///
+    /// When true (default), the app starts with the platform-native theme
+    /// pair (macOS on macOS, Fluent on Windows, classic on Linux) matching
+    /// the system light/dark mode, and follows live OS appearance changes.
+    /// Calling [`MiniAppConfig::initial_theme`] opts out in favor of the
+    /// explicit variant.
+    pub follow_system_theme: bool,
     /// Initial language
     pub initial_language: Language,
     /// Optional file used to persist window size, theme, and language.
@@ -50,6 +58,7 @@ impl MiniAppConfig {
             with_theme: false,
             with_i18n: false,
             initial_theme: ThemeVariant::default(),
+            follow_system_theme: true,
             initial_language: Language::default(),
             state_file: None,
         }
@@ -98,9 +107,22 @@ impl MiniAppConfig {
         self
     }
 
-    /// Set initial theme variant
+    /// Set initial theme variant, opting out of system tracking.
+    ///
+    /// An explicit variant always wins over [`MiniAppConfig::follow_system_theme`]:
+    /// use [`MiniAppConfig::follow_system_theme`] afterwards to re-enable.
     pub fn initial_theme(mut self, theme: ThemeVariant) -> Self {
         self.initial_theme = theme;
+        self.follow_system_theme = false;
+        self
+    }
+
+    /// Follow the OS light/dark appearance for the theme.
+    ///
+    /// Enabled by default. When disabled, [`MiniAppConfig::initial_theme`]
+    /// selects a fixed starting variant instead.
+    pub fn follow_system_theme(mut self, follow: bool) -> Self {
+        self.follow_system_theme = follow;
         self
     }
 

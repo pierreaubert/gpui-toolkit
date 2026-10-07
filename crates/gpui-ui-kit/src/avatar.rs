@@ -148,7 +148,11 @@ impl Avatar {
     }
 
     /// Get background color based on name hash
-    fn get_bg_color(&self) -> Rgba {
+    ///
+    /// Identity colors are content, not theme: they stay stable per name
+    /// across themes. Only the nameless fallback uses the theme so it
+    /// stays readable on light themes.
+    fn get_bg_color(&self, theme: &Theme) -> Rgba {
         if let Some(name) = &self.name {
             let hash: u32 = name.chars().fold(0u32, |acc, c| acc.wrapping_add(c as u32));
             let colors = [
@@ -163,7 +167,7 @@ impl Avatar {
             ];
             colors[(hash as usize) % colors.len()]
         } else {
-            rgb(0x3a3a3a)
+            theme.muted
         }
     }
 
@@ -171,7 +175,7 @@ impl Avatar {
     pub fn build_with_theme(self, theme: &Theme) -> Div {
         let size = self.size.size();
         let initials = self.get_initials();
-        let bg_color = self.get_bg_color();
+        let bg_color = self.get_bg_color(theme);
 
         let mut avatar = div()
             .relative()

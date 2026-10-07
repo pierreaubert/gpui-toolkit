@@ -18,6 +18,17 @@
 //!     .hover(|s| s.bg(accent.hover))
 //!     .active(|s| s.bg(accent.active))
 //! ```
+//!
+//! # Platform-native themes
+//!
+//! [`ThemeVariant::MacosDark`] / [`ThemeVariant::MacosLight`] snapshot
+//! `AppKit` semantic colors and [`ThemeVariant::FluentDark`] /
+//! [`ThemeVariant::FluentLight`] flatten `WinUI` theme resources, so apps
+//! look native on macOS and Windows 11. Linux keeps the classic
+//! [`Theme::dark`] / [`Theme::light`] values, which are frozen by tests.
+//! [`ThemeVariant::for_window_appearance`] maps a live GPUI appearance to
+//! the platform pair, and `ThemeState::apply_system_appearance` tracks
+//! OS changes while following is enabled.
 
 use crate::color_tokens::{
     BackgroundColors, BorderColors, ColorPalette, ColorToken, SemanticColors, TextColors,
@@ -658,6 +669,227 @@ impl Theme {
     }
 
     /// Get theme for variant
+    /// Create a native macOS dark theme.
+    ///
+    /// Snapshots of `AppKit` semantic colors resolved to sRGB: label
+    /// hierarchy keeps its native translucency, accent is the default
+    /// blue control accent, and semantic colors are the system colors.
+    pub fn macos_dark() -> Self {
+        Self {
+            variant: ThemeVariant::MacosDark,
+            // Backgrounds (windowBackground, underPageBackground)
+            background: rgb(0x1e1e1e),
+            surface: rgb(0x282828),
+            surface_hover: rgb(0x333333),
+            muted: rgb(0x252525),
+            transparent: rgba(0x00000000),
+            overlay_bg: rgba(0x00000088),
+            // Text (labelColor hierarchy with native alpha)
+            text_primary: rgba(0xffffffd8),
+            text_secondary: rgba(0xffffff8c),
+            text_muted: rgba(0xffffff3f),
+            text_on_accent: rgb(0xffffff),
+            icon_on_accent: rgb(0xffffff),
+            // Accent (controlAccentColor, default blue)
+            accent: rgb(0x007aff),
+            accent_hover: rgb(0x1a87ff),
+            accent_muted: rgba(0x007aff33),
+            // Semantic (systemGreen/Orange/Red/Blue)
+            success: rgb(0x30d158),
+            warning: rgb(0xff9230),
+            error: rgb(0xff4245),
+            info: rgb(0x0091ff),
+            // Border (separatorColor)
+            border: rgba(0xffffff19),
+            border_hover: rgba(0xffffff33),
+            // Typography
+            font_family: ".SystemUI".into(),
+            // Badge colors (semantic at 18% over background)
+            badge_primary_bg: rgba(0x007aff2e),
+            badge_primary_text: rgb(0x419cff),
+            badge_success_bg: rgba(0x30d1582e),
+            badge_success_text: rgb(0x30d158),
+            badge_warning_bg: rgba(0xff92302e),
+            badge_warning_text: rgb(0xff9230),
+            badge_error_bg: rgba(0xff42452e),
+            badge_error_text: rgb(0xff4245),
+            badge_info_bg: rgba(0x0091ff2e),
+            badge_info_text: rgb(0x0091ff),
+            // Alert backgrounds
+            alert_info_bg: rgba(0x0091ff2e),
+            alert_success_bg: rgba(0x30d1582e),
+            alert_warning_bg: rgba(0xff92302e),
+            alert_error_bg: rgba(0xff42452e),
+            // Code text
+            code_text: rgb(0xf97583),
+        }
+    }
+
+    /// Create a native macOS light theme.
+    ///
+    /// Snapshots of `AppKit` semantic colors resolved to sRGB, matching
+    /// [`Theme::macos_dark`] role for role in the light appearance.
+    pub fn macos_light() -> Self {
+        Self {
+            variant: ThemeVariant::MacosLight,
+            // Backgrounds (windowBackground, underPageBackground)
+            background: rgb(0xffffff),
+            surface: rgb(0xffffff),
+            surface_hover: rgb(0xf5f5f5),
+            muted: rgb(0xf6f6f6),
+            transparent: rgba(0x00000000),
+            overlay_bg: rgba(0x00000088),
+            // Text (labelColor hierarchy with native alpha)
+            text_primary: rgba(0x000000d8),
+            text_secondary: rgba(0x0000007f),
+            text_muted: rgba(0x00000042),
+            text_on_accent: rgb(0xffffff),
+            icon_on_accent: rgb(0xffffff),
+            // Accent (controlAccentColor, default blue)
+            accent: rgb(0x007aff),
+            accent_hover: rgb(0x006ee6),
+            accent_muted: rgba(0x007aff22),
+            // Semantic (systemGreen/Orange/Red/Blue)
+            success: rgb(0x34c759),
+            warning: rgb(0xff8d28),
+            error: rgb(0xff383c),
+            info: rgb(0x0088ff),
+            // Border (separatorColor)
+            border: rgba(0x00000019),
+            border_hover: rgba(0x00000033),
+            // Typography
+            font_family: ".SystemUI".into(),
+            // Badge colors (semantic at 12% with legible text)
+            badge_primary_bg: rgba(0x007aff1f),
+            badge_primary_text: rgb(0x0068da),
+            badge_success_bg: rgba(0x34c7591f),
+            badge_success_text: rgb(0x1a7f37),
+            badge_warning_bg: rgba(0xff8d281f),
+            badge_warning_text: rgb(0x9d5d00),
+            badge_error_bg: rgba(0xff383c1f),
+            badge_error_text: rgb(0xcf222e),
+            badge_info_bg: rgba(0x0088ff1f),
+            badge_info_text: rgb(0x0068da),
+            // Alert backgrounds
+            alert_info_bg: rgba(0x0088ff1f),
+            alert_success_bg: rgba(0x34c7591f),
+            alert_warning_bg: rgba(0xff8d281f),
+            alert_error_bg: rgba(0xff383c1f),
+            // Code text
+            code_text: rgb(0xcf222e),
+        }
+    }
+
+    /// Create a native Windows 11 dark theme.
+    ///
+    /// Flattened `WinUI` theme resources over an opaque base: layered
+    /// fills stand in for Mica, and accent is the default blue.
+    pub fn fluent_dark() -> Self {
+        Self {
+            variant: ThemeVariant::FluentDark,
+            // Backgrounds (SolidBackground base/secondary, card fill)
+            background: rgb(0x202020),
+            surface: rgb(0x2b2b2b),
+            surface_hover: rgb(0x323232),
+            muted: rgb(0x282828),
+            transparent: rgba(0x00000000),
+            overlay_bg: rgba(0x00000088),
+            // Text (TextFill primary/secondary/tertiary)
+            text_primary: rgb(0xffffff),
+            text_secondary: rgb(0xc5c5c5),
+            text_muted: rgb(0x8b8b8b),
+            text_on_accent: rgb(0x000000),
+            icon_on_accent: rgb(0x000000),
+            // Accent (AccentFill default/secondary)
+            accent: rgb(0x60cdff),
+            accent_hover: rgb(0x7bd4ff),
+            accent_muted: rgba(0x60cdff33),
+            // Semantic (SystemFill success/caution/critical, attention)
+            success: rgb(0x6ccb5f),
+            warning: rgb(0xfce100),
+            error: rgb(0xff99a4),
+            info: rgb(0x60cdff),
+            // Border (control strokes)
+            border: rgb(0x2e2e2e),
+            border_hover: rgb(0x3d3d3d),
+            // Typography
+            font_family: "Segoe UI Variable".into(),
+            // Badge colors (semantic at 18% over background)
+            badge_primary_bg: rgba(0x60cdff2e),
+            badge_primary_text: rgb(0x60cdff),
+            badge_success_bg: rgba(0x6ccb5f2e),
+            badge_success_text: rgb(0x6ccb5f),
+            badge_warning_bg: rgba(0xfce1002e),
+            badge_warning_text: rgb(0xfce100),
+            badge_error_bg: rgba(0xff99a42e),
+            badge_error_text: rgb(0xff99a4),
+            badge_info_bg: rgba(0x60cdff2e),
+            badge_info_text: rgb(0x60cdff),
+            // Alert backgrounds
+            alert_info_bg: rgba(0x60cdff2e),
+            alert_success_bg: rgba(0x6ccb5f2e),
+            alert_warning_bg: rgba(0xfce1002e),
+            alert_error_bg: rgba(0xff99a42e),
+            // Code text
+            code_text: rgb(0xff99a4),
+        }
+    }
+
+    /// Create a native Windows 11 light theme.
+    ///
+    /// Flattened `WinUI` theme resources over an opaque base, matching
+    /// [`Theme::fluent_dark`] role for role in the light appearance.
+    pub fn fluent_light() -> Self {
+        Self {
+            variant: ThemeVariant::FluentLight,
+            // Backgrounds (SolidBackground base/tertiary, card fill)
+            background: rgb(0xf3f3f3),
+            surface: rgb(0xffffff),
+            surface_hover: rgb(0xf9f9f9),
+            muted: rgb(0xededed),
+            transparent: rgba(0x00000000),
+            overlay_bg: rgba(0x00000088),
+            // Text (TextFill primary/secondary/tertiary)
+            text_primary: rgb(0x1b1b1b),
+            text_secondary: rgb(0x5d5d5d),
+            text_muted: rgb(0x8a8a8a),
+            text_on_accent: rgb(0xffffff),
+            icon_on_accent: rgb(0xffffff),
+            // Accent (AccentFill default/secondary)
+            accent: rgb(0x0067c0),
+            accent_hover: rgb(0x1975c5),
+            accent_muted: rgba(0x0067c022),
+            // Semantic (SystemFill success/caution/critical, attention)
+            success: rgb(0x0f7b0f),
+            warning: rgb(0x9d5d00),
+            error: rgb(0xc42b1c),
+            info: rgb(0x0067c0),
+            // Border (control strokes)
+            border: rgb(0xe4e4e4),
+            border_hover: rgb(0xd9d9d9),
+            // Typography
+            font_family: "Segoe UI Variable".into(),
+            // Badge colors (semantic at 12% with legible text)
+            badge_primary_bg: rgba(0x0067c01f),
+            badge_primary_text: rgb(0x005a9e),
+            badge_success_bg: rgba(0x0f7b0f1f),
+            badge_success_text: rgb(0x0f7b0f),
+            badge_warning_bg: rgba(0x9d5d001f),
+            badge_warning_text: rgb(0x9d5d00),
+            badge_error_bg: rgba(0xc42b1c1f),
+            badge_error_text: rgb(0xc42b1c),
+            badge_info_bg: rgba(0x0067c01f),
+            badge_info_text: rgb(0x005a9e),
+            // Alert backgrounds
+            alert_info_bg: rgba(0x0067c01f),
+            alert_success_bg: rgba(0x0f7b0f1f),
+            alert_warning_bg: rgba(0x9d5d001f),
+            alert_error_bg: rgba(0xc42b1c1f),
+            // Code text
+            code_text: rgb(0xc42b1c),
+        }
+    }
+
     pub fn for_variant(variant: ThemeVariant) -> Self {
         match variant {
             ThemeVariant::Dark => Self::dark(),
@@ -670,6 +902,10 @@ impl Theme {
             ThemeVariant::CarbonGray10 => Self::carbon_gray10(),
             ThemeVariant::CarbonGray90 => Self::carbon_gray90(),
             ThemeVariant::CarbonGray100 => Self::carbon_gray100(),
+            ThemeVariant::MacosDark => Self::macos_dark(),
+            ThemeVariant::MacosLight => Self::macos_light(),
+            ThemeVariant::FluentDark => Self::fluent_dark(),
+            ThemeVariant::FluentLight => Self::fluent_light(),
         }
     }
 

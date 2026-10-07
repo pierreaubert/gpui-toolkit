@@ -54,7 +54,7 @@ use gpui::{
     AnyElement, App, AppContext, Bounds, ClipboardItem, Context, DispatchPhase, Element, ElementId,
     Entity, FocusHandle, FontWeight, GlobalElementId, InspectorElementId, KeyDownEvent, LayoutId,
     MouseButton, MouseDownEvent, MouseUpEvent, Pixels, Render, ScrollDelta, ScrollWheelEvent,
-    SharedString, Subscription, WeakEntity, Window, div, px, rgba,
+    SharedString, Subscription, WeakEntity, Window, div, px,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -795,7 +795,7 @@ impl Render for NumberInputEntity {
 
         // Value display / edit field
         let (value_bg, value_text_color) = if editing && text_selected {
-            (Some(theme.button_active), rgba(0xffffffff))
+            (Some(theme.button_active), theme.selection_text)
         } else {
             (None, text_color)
         };

@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 /// Which platform design language to follow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DesignLanguage {
-    /// Apple Human Interface Guidelines (macOS, iOS).
+    /// Apple Human Interface Guidelines, macOS desktop values.
+    Macos,
+    /// Apple Human Interface Guidelines (iOS, iPadOS).
     AppleHig,
     /// Material Design 3 (Android, `ChromeOS`, web).
     Material3,
@@ -23,6 +25,7 @@ impl DesignLanguage {
     pub fn all() -> &'static [Self] {
         &[
             Self::Neutral,
+            Self::Macos,
             Self::AppleHig,
             Self::Material3,
             Self::Fluent,
@@ -34,6 +37,7 @@ impl DesignLanguage {
 
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::Macos => "macos",
             Self::AppleHig => "apple_hig",
             Self::Material3 => "material3",
             Self::Fluent => "fluent",
@@ -46,6 +50,7 @@ impl DesignLanguage {
 
     pub fn from_id(value: &str) -> Option<Self> {
         match value {
+            "macos" | "apple_hig_macos" => Some(Self::Macos),
             "apple_hig" => Some(Self::AppleHig),
             "material3" => Some(Self::Material3),
             "fluent" => Some(Self::Fluent),
@@ -59,6 +64,7 @@ impl DesignLanguage {
 
     pub fn label(&self) -> &'static str {
         match self {
+            Self::Macos => "macOS",
             Self::AppleHig => "Apple HIG",
             Self::Material3 => "Material 3",
             Self::Fluent => "Fluent",
