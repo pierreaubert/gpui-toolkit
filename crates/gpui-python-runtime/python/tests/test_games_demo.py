@@ -525,6 +525,23 @@ class ZipGameTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             game.select_level("nope")
 
+    def test_next_advances_through_levels_and_wraps(self):
+        game = games.ZipGame()
+        path = games.solve_zip(game.level)
+        assert path is not None
+        for cell in path:
+            game.click(*cell)
+        self.assertTrue(game.won)
+        ops = game.control("next")
+        self.assertEqual(game.level_index, 1)
+        self.assertFalse(game.won)
+        self.assertEqual(game.path, [])
+        self.assertTrue(any(op.get("op") == "replace" for op in ops))
+        game.control("next")
+        self.assertEqual(game.level_index, 2)
+        game.control("next")
+        self.assertEqual(game.level_index, 0)
+
 
 class QueensGameTests(unittest.TestCase):
     def test_generated_puzzles_are_valid(self):
@@ -802,6 +819,37 @@ class GamesAppDispatchTests(unittest.TestCase):
         app = games.build_app()
         messages, _ = _run_action(app, "nope", "nope")
         self.assertTrue(any(message.get("type") == "rejected" for message in messages))
+
+    def test_othello_dropdown_picks_apply_and_patch(self):
+        app = games.build_app()
+        messages, _ = _run_action(
+            app, games.OTHELLO_MODE_ACTION, "othello-mode", {"value": "two"})
+        kinds = [message.get("type") for message in messages]
+        self.assertIn("acknowledged", kinds)
+        self.assertIn("patch", kinds)
+        self.assertEqual(app.othello_game.mode, "two")
+        messages, _ = _run_action(
+            app, games.OTHELLO_DIFFICULTY_ACTION, "othello-difficulty",
+            {"value": "hard"})
+        self.assertEqual(app.othello_game.difficulty, "hard")
+        self.assertTrue(
+            any(message.get("type") == "patch" for message in messages))
+        messages, _ = _run_action(
+            app, games.OTHELLO_MODE_ACTION, "othello-mode",
+            {"value": "correspondence"})
+        self.assertTrue(
+            any(message.get("type") == "rejected" for message in messages))
+        self.assertEqual(app.othello_game.mode, "two")
+
+    def test_zip_level_dropdown_changes_board_size(self):
+        app = games.build_app()
+        messages, _ = _run_action(
+            app, games.ZIP_LEVEL_ACTION, "zip-level", {"value": "zip-6"})
+        self.assertIn("acknowledged",
+                      [message.get("type") for message in messages])
+        self.assertEqual(app.zip_game.level_index, 2)
+        self.assertEqual((app.zip_game.level.rows, app.zip_game.level.cols),
+                         (6, 6))
 
     def test_board_palette_updates_every_surface_with_one_revisioned_diff(self):
         app = games.build_app()

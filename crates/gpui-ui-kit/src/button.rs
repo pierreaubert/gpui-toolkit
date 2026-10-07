@@ -222,7 +222,7 @@ impl Button {
                     theme.surface,
                     theme.surface_hover,
                     theme.text_secondary,
-                    theme.surface,
+                    theme.border,
                 ),
                 ButtonVariant::Destructive => (
                     theme.error,
@@ -471,5 +471,19 @@ impl RenderOnce for Button {
         }
 
         el
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secondary_buttons_draw_a_visible_border() {
+        let theme = ButtonTheme::default();
+        let (_bg, _hover, _text, border) =
+            Button::compute_colors(ButtonVariant::Secondary, false, &theme);
+        assert_eq!(border, theme.border);
+        assert_ne!(border, theme.surface);
     }
 }

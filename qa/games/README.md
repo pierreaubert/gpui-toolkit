@@ -17,12 +17,14 @@ cargo run -p gpui-python-runtime --features showcase --bin gpui-python-host -- c
 Native showcase:
 
 ```sh
-GPUI_SHOWCASE_SECTION=Games GPUI_GAMES_GAME=sudoku cargo run -p gpui-showcase --bin gpui-showcase
+GPUI_SHOWCASE_SECTION=Sudoku cargo run -p gpui-showcase --bin gpui-showcase
 ```
 
-The game selector accepts `zip`, `queens`, `sudoku`, and `tetris`. On Android,
-launch the showcase activity with Intent string extras `section=Games` and
-`game=<name>`. For iOS simulator launches, use the corresponding
+Each game is a sidebar section under Games: `Zip`, `Queens`, `Sudoku`,
+`Tetris`, `Chess`, and `Othello`. The legacy `GPUI_SHOWCASE_SECTION=Games`
+plus `GPUI_GAMES_GAME=<name>` pair still resolves to the named game. On
+Android, launch the showcase activity with Intent string extras
+`section=<Game>` and `game=<name>`. For iOS simulator launches, use the corresponding
 `SIMCTL_CHILD_GPUI_SHOWCASE_SECTION` and `SIMCTL_CHILD_GPUI_GAMES_GAME` variables.
 Existing showcase iOS/XcodeGen and Android/Gradle projects package the apps.
 
@@ -57,7 +59,7 @@ an input-to-present measurement.
 | Python suite | 438 tests run; 45 skipped |
 | Rust runtime library | 200 tests passed |
 | Shared Scene2D | 27 unit, 3 component, 2 integration tests passed |
-| Native game controllers | 29 tests passed |
+| Native game controllers | 55 tests passed |
 | Native Metal host | 7 tests passed; 32 game/theme/size captures |
 | Native host transport/layout | 73 tests passed; image matrix checked separately |
 | iOS accessibility bridge | 4 tests passed, including 2×/3× scale conversion |

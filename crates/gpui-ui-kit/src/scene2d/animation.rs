@@ -109,6 +109,11 @@ impl Scene2DState {
             .clone()
     }
 
+    /// Moves keyboard focus to the surface so it receives key input.
+    pub fn focus(&self, window: &mut Window, cx: &mut App) {
+        window.focus(&self.focus_handle(cx), cx);
+    }
+
     pub(crate) fn set_input_handler(&self, handler: Option<Scene2DInputHandler>) {
         *self.input_handler.borrow_mut() = handler;
     }

@@ -278,6 +278,7 @@ class ZipGame(_PaletteAwareGame):
                     ui.hstack([
                         _cell_button("↩ Undo", "zip-btn-undo", ZIP_CONTROL_ACTION),
                         _cell_button("↺ Reset", "zip-btn-reset", ZIP_CONTROL_ACTION),
+                        _cell_button("Next →", "zip-btn-next", ZIP_CONTROL_ACTION),
                     ], gap=8.0),
                 ], gap=12.0),
             ], gap=20.0),
@@ -318,7 +319,7 @@ class ZipGame(_PaletteAwareGame):
     def click(self, row: int, col: int) -> list[dict[str, Any]]:
         level = self.level
         if self.won:
-            return self.status_ops("Already solved — pick another puzzle or press Reset to draw again.")
+            return self.status_ops("Already solved — press Next for another puzzle, or Reset to draw again.")
         cell = (row, col)
         if self.head == cell:
             removed = self.path.pop()
@@ -405,6 +406,11 @@ class ZipGame(_PaletteAwareGame):
             self.reset()
             return [_replace("zip-board", self.board_node()),
                     *self.status_ops("Fresh grid — click cell 1 to begin.")]
+        if name == "next":
+            self.reset((self.level_index + 1) % len(ZIP_LEVELS))
+            level = self.level
+            return [_replace("zip-board", self.board_node()),
+                    *self.status_ops(f"{level.label}: cover {level.cell_count} cells in order.")]
         raise ValueError(f"unknown zip control {name!r}")
 
     def select_level(self, level_id: str) -> list[dict[str, Any]]:

@@ -168,9 +168,25 @@ fn initial_section() -> ShowcaseSection {
         {
             return section;
         }
+        // Legacy tabbed view: open the requested game (or Zip) instead.
+        if requested == "games" {
+            return requested_game_section().unwrap_or(ShowcaseSection::Zip);
+        }
+    }
+
+    // Launchers that pass only a game name open its section directly.
+    if let Some(section) = requested_game_section() {
+        return section;
     }
 
     ShowcaseSection::default()
+}
+
+/// Resolves `GPUI_GAMES_GAME` (or the mobile launch extra) to a section.
+fn requested_game_section() -> Option<ShowcaseSection> {
+    initial_game_name()
+        .and_then(|name| sections::games::GameKind::from_name(&name))
+        .map(sections::games::GameKind::section)
 }
 
 #[cfg(any(target_os = "ios", target_os = "tvos"))]
@@ -355,8 +371,12 @@ impl Showcase {
         let thinking_orbs_entity = cx.new(ThinkingOrbsLab::new);
         let games_entity = cx.new(sections::games::GamesShowcase::new);
         let current_section = initial_section();
-        let game_is_active = current_section == ShowcaseSection::Games;
-        games_entity.update(cx, |games, cx| games.set_active(game_is_active, cx));
+        games_entity.update(cx, |games, cx| {
+            games.set_active(current_section.is_game(), cx);
+            if let Some(game) = sections::games::game_kind_for_section(current_section) {
+                games.set_game(game, cx);
+            }
+        });
         let scene2d_state = Scene2DState::new(sections::render_scene2d::demo_scene(12))
             .expect("the built-in Scene2D showcase is valid");
 
@@ -483,7 +503,10 @@ impl Showcase {
         let mut showcase = Self::new(cx);
         showcase.current_section = section;
         showcase.games_entity.update(cx, |games, cx| {
-            games.set_active(section == ShowcaseSection::Games, cx);
+            games.set_active(section.is_game(), cx);
+            if let Some(game) = sections::games::game_kind_for_section(section) {
+                games.set_game(game, cx);
+            }
         });
         showcase.ensure_animated_qr(section, cx);
         showcase.embedded = true;
@@ -514,7 +537,10 @@ impl Showcase {
         self.ensure_animated_qr(section, cx);
         self.current_section = section;
         self.games_entity.update(cx, |games, cx| {
-            games.set_active(section == ShowcaseSection::Games, cx);
+            games.set_active(section.is_game(), cx);
+            if let Some(game) = sections::games::game_kind_for_section(section) {
+                games.set_game(game, cx);
+            }
         });
         self.content_entity.update(cx, |content, cx| {
             content
@@ -542,7 +568,6 @@ impl Render for Showcase {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let current_section = self.current_section;
         let embedded = self.embedded;
-        let games_fullscreen = current_section == ShowcaseSection::Games;
         let compact = showcase_layout_for_width(window.viewport_size().width.as_f32())
             == ShowcaseLayout::Compact;
         let (safe_top, safe_left, safe_bottom, safe_right) = platform_safe_area_insets();
@@ -635,17 +660,14 @@ impl Render for Showcase {
             .pl(px(safe_left))
             .on_key_down(cx.listener(Self::handle_key_down));
 
-        let mut content = div()
+        let content = div()
             .flex_1()
             .flex()
             .flex_col()
             .min_w_0()
             .min_h_0()
-            .overflow_hidden();
-        if !games_fullscreen {
-            content = content.child(self.header_entity.clone());
-        }
-        let content = content
+            .overflow_hidden()
+            .child(self.header_entity.clone())
             // These views own their layout-defining styles: the sidebar has a
             // fixed width and the header derives its height from padding and
             // contents. `AnyView::cached` only uses the supplied refinement
@@ -653,11 +675,7 @@ impl Render for Showcase {
             // their slots while their descendants still paint.
             .child(self.content_entity.clone());
 
-        if games_fullscreen && compact {
-            root.flex_col().child(content)
-        } else if games_fullscreen {
-            root.child(content)
-        } else if compact {
+        if compact {
             root.flex_col()
                 .child(self.sidebar_entity.clone())
                 .child(content)
@@ -726,7 +744,12 @@ impl Showcase {
             ShowcaseSection::Wizard => self.render_wizard_section(cx).into_any_element(),
             ShowcaseSection::Workflow => self.render_workflow_section(cx).into_any_element(),
             ShowcaseSection::Scene2d => self.render_scene2d_section(cx).into_any_element(),
-            ShowcaseSection::Games => self.games_entity.clone().into_any_element(),
+            ShowcaseSection::Zip
+            | ShowcaseSection::Queens
+            | ShowcaseSection::Sudoku
+            | ShowcaseSection::Tetris
+            | ShowcaseSection::Chess
+            | ShowcaseSection::Othello => self.games_entity.clone().into_any_element(),
             ShowcaseSection::QrCode => self.render_qr_section(cx).into_any_element(),
             ShowcaseSection::ContextMenu => self.render_context_menu_section(cx).into_any_element(),
             ShowcaseSection::Popover => self.render_popover_section(cx).into_any_element(),
@@ -952,11 +975,22 @@ impl Render for ShowcaseSidebar {
 
                     nav_items = nav_items.child(item.child(section.label()).on_mouse_down(
                         MouseButton::Left,
-                        move |_event, _window, cx| {
+                        move |_event, window, cx| {
                             if let Some(parent) = parent.upgrade() {
                                 parent.update(cx, |this, cx| {
                                     this.select_section(section, cx);
                                 });
+                                // Keyboard play starts as soon as a game opens.
+                                if section.is_game() {
+                                    let board = parent.update(cx, |this, cx| {
+                                        this.games_entity
+                                            .read(cx)
+                                            .surface_state_for_section(section)
+                                    });
+                                    if let Some(state) = board {
+                                        state.focus(window, cx);
+                                    }
+                                }
                             }
                         },
                     ));
@@ -1015,11 +1049,22 @@ impl Render for ShowcaseSidebar {
 
                 item = item.child(div().child(section.label())).on_mouse_down(
                     MouseButton::Left,
-                    move |_event, _window, cx| {
+                    move |_event, window, cx| {
                         if let Some(parent) = parent.upgrade() {
                             parent.update(cx, |this, cx| {
                                 this.select_section(section, cx);
                             });
+                            // Keyboard play starts as soon as a game opens.
+                            if section.is_game() {
+                                let board = parent.update(cx, |this, cx| {
+                                    this.games_entity
+                                        .read(cx)
+                                        .surface_state_for_section(section)
+                                });
+                                if let Some(state) = board {
+                                    state.focus(window, cx);
+                                }
+                            }
                         }
                     },
                 );
@@ -1141,32 +1186,29 @@ impl Render for ShowcaseContent {
             let current_group = section.group();
             let theme = cx.theme();
 
-            let games_fullscreen = section == ShowcaseSection::Games;
-            let group_info = (!games_fullscreen).then(|| {
-                div()
-                    .mb_4()
-                    .p_4()
-                    .bg(theme.surface)
-                    .border_1()
-                    .border_color(theme.border)
-                    .rounded(px(6.0))
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(theme.text_muted)
-                            .child(current_group.label()),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.text_muted)
-                            .child(current_group.description()),
-                    )
-            });
+            let group_info = div()
+                .mb_4()
+                .p_4()
+                .bg(theme.surface)
+                .border_1()
+                .border_color(theme.border)
+                .rounded(px(6.0))
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_xs()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(theme.text_muted)
+                        .child(current_group.label()),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(theme.text_muted)
+                        .child(current_group.description()),
+                );
 
             let scroll_handle = self.scroll_handle.clone();
             let log_handle = scroll_handle.clone();
@@ -1205,27 +1247,13 @@ impl Render for ShowcaseContent {
                     ));
                 });
 
-            let content = if games_fullscreen {
-                content.p_2()
-            } else if compact {
+            let content = if compact {
                 content.p_4()
             } else {
                 content.p_8().pt_4()
             };
-            let content = if let Some(group_info) = group_info {
-                content.child(group_info.flex_shrink_0())
-            } else {
-                content
-            };
-            let section_content = if games_fullscreen {
-                div()
-                    .w_full()
-                    .flex_1()
-                    .min_h_0()
-                    .child(section_content)
-            } else {
-                div().w_full().flex_shrink_0().child(section_content)
-            };
+            let content = content.child(group_info.flex_shrink_0());
+            let section_content = div().w_full().flex_shrink_0().child(section_content);
             content.child(section_content)
         }) {
             Ok(element) => element.into_any_element(),

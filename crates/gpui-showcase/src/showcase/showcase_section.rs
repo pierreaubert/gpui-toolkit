@@ -50,7 +50,12 @@ pub enum ShowcaseSection {
     AudioVisuals,
     ThinkingOrbs,
     Scene2d,
-    Games,
+    Zip,
+    Queens,
+    Sudoku,
+    Tetris,
+    Chess,
+    Othello,
 }
 
 impl ShowcaseSection {
@@ -106,7 +111,12 @@ impl ShowcaseSection {
             ShowcaseSection::AudioVisuals,
             ShowcaseSection::ThinkingOrbs,
             ShowcaseSection::Scene2d,
-            ShowcaseSection::Games,
+            ShowcaseSection::Zip,
+            ShowcaseSection::Queens,
+            ShowcaseSection::Sudoku,
+            ShowcaseSection::Tetris,
+            ShowcaseSection::Chess,
+            ShowcaseSection::Othello,
         ]
     }
 
@@ -157,8 +167,26 @@ impl ShowcaseSection {
             ShowcaseSection::AudioVisuals => "Audio Visuals",
             ShowcaseSection::ThinkingOrbs => "Thinking Orbs",
             ShowcaseSection::Scene2d => "Scene2D",
-            ShowcaseSection::Games => "Games",
+            ShowcaseSection::Zip => "Zip",
+            ShowcaseSection::Queens => "Queens",
+            ShowcaseSection::Sudoku => "Sudoku",
+            ShowcaseSection::Tetris => "Tetris",
+            ShowcaseSection::Chess => "Chess",
+            ShowcaseSection::Othello => "Othello",
         }
+    }
+
+    /// Whether this section renders one of the playable games.
+    pub fn is_game(self) -> bool {
+        matches!(
+            self,
+            ShowcaseSection::Zip
+                | ShowcaseSection::Queens
+                | ShowcaseSection::Sudoku
+                | ShowcaseSection::Tetris
+                | ShowcaseSection::Chess
+                | ShowcaseSection::Othello
+        )
     }
 
     pub fn group(&self) -> ShowcaseGroup {

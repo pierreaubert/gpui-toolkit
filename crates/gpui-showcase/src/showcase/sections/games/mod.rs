@@ -1,8 +1,12 @@
-//! Four small, playable native games built on the retained `Scene2D` surface.
+//! Six small, playable native games built on the retained `Scene2D` surface.
 
 // Rust guideline compliant 2026-02-21
 
+mod chess;
+mod othello;
+
 use super::prelude::*;
+use chess::{ChessDifficulty, ChessGame, ChessMode};
 use gpui::{AnyElement, Subscription, WeakEntity};
 use gpui_ui_kit::scene2d::{
     GameSurface, Scene2DBrush, Scene2DColor, Scene2DEasing, Scene2DGrid, Scene2DInput,
@@ -10,57 +14,81 @@ use gpui_ui_kit::scene2d::{
     Scene2DScene, Scene2DSemantic, Scene2DSemanticRole, Scene2DState, Scene2DStroke,
     Scene2DTextAlign, Scene2DTransform, Scene2DTransition, ScenePoint, SceneRect,
 };
+use othello::{OthelloDifficulty, OthelloGame, OthelloMode};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::time::Duration;
 use web_time::Instant;
 
-const ZIP_ROWS: usize = 5;
-const ZIP_COLS: usize = 5;
-const ZIP_START: (usize, usize) = (0, 0);
-const ZIP_CHECKPOINTS: [(usize, usize); 5] = [(0, 0), (0, 4), (2, 2), (4, 0), (4, 4)];
-const ZIP_SOLUTION: [(usize, usize); ZIP_ROWS * ZIP_COLS] = [
-    (0, 0),
-    (0, 1),
-    (0, 2),
-    (0, 3),
-    (0, 4),
-    (1, 4),
-    (1, 3),
-    (1, 2),
-    (1, 1),
-    (1, 0),
-    (2, 0),
-    (2, 1),
-    (2, 2),
-    (2, 3),
-    (2, 4),
-    (3, 4),
-    (3, 3),
-    (3, 2),
-    (3, 1),
-    (3, 0),
-    (4, 0),
-    (4, 1),
-    (4, 2),
-    (4, 3),
-    (4, 4),
-];
+/// Default level: the original 5 x 5 board.
+const ZIP_DEFAULT_LEVEL: usize = 1;
 
-const QUEENS_SIZE: usize = 8;
-const QUEENS_SOLUTION: [usize; QUEENS_SIZE] = [0, 4, 7, 5, 2, 6, 1, 3];
-// Eight fixed, connected regions. Each solution queen belongs to the region
-// matching its row, so the built-in board satisfies all four rules.
-const QUEENS_REGIONS: [[usize; QUEENS_SIZE]; QUEENS_SIZE] = [
-    [0, 0, 0, 1, 1, 1, 2, 2],
-    [0, 0, 4, 1, 1, 1, 2, 2],
-    [0, 4, 4, 1, 1, 3, 2, 2],
-    [0, 0, 4, 4, 3, 3, 3, 2],
-    [6, 4, 4, 5, 3, 3, 3, 2],
-    [6, 6, 4, 5, 3, 5, 5, 5],
-    [6, 6, 6, 5, 5, 5, 7, 7],
-    [6, 6, 7, 7, 7, 7, 7, 7],
-];
-const QUEENS_COLORS: [Scene2DColor; QUEENS_SIZE] = [
+/// One zip board: dimensions plus checkpoints on a covering snake walk.
+#[derive(Clone, Debug)]
+struct ZipLevel {
+    label: &'static str,
+    rows: usize,
+    cols: usize,
+    checkpoints: Vec<(usize, usize)>,
+    solution: Vec<(usize, usize)>,
+}
+
+impl ZipLevel {
+    fn cell_count(&self) -> usize {
+        self.rows * self.cols
+    }
+
+    fn start(&self) -> (usize, usize) {
+        self.checkpoints[0]
+    }
+}
+
+/// Boustrophedon walk covering every cell (a guaranteed zip solution).
+fn zip_snake(rows: usize, cols: usize) -> Vec<(usize, usize)> {
+    let mut path = Vec::with_capacity(rows * cols);
+    for row in 0..rows {
+        if row % 2 == 0 {
+            for col in 0..cols {
+                path.push((row, col));
+            }
+        } else {
+            for col in (0..cols).rev() {
+                path.push((row, col));
+            }
+        }
+    }
+    path
+}
+
+/// Builds a level whose checkpoints sit on the snake at 1-based marks.
+fn zip_level(label: &'static str, rows: usize, cols: usize, marks: &[usize]) -> ZipLevel {
+    let solution = zip_snake(rows, cols);
+    let checkpoints = marks.iter().map(|mark| solution[mark - 1]).collect();
+    ZipLevel {
+        label,
+        rows,
+        cols,
+        checkpoints,
+        solution,
+    }
+}
+
+fn zip_levels() -> Vec<ZipLevel> {
+    vec![
+        zip_level("4 x 4 Starter", 4, 4, &[1, 6, 11, 16]),
+        zip_level("5 x 5 Classic", 5, 5, &[1, 5, 13, 21, 25]),
+        zip_level("6 x 6 Challenge", 6, 6, &[1, 11, 22, 30, 36]),
+    ]
+}
+
+/// Largest queens board; storage is fixed and smaller sizes use a prefix.
+const QUEENS_MAX_SIZE: usize = 8;
+/// Default queens board, matching the original fixed puzzle.
+const QUEENS_DEFAULT_SIZE: usize = 8;
+/// Board sizes offered by the size picker, mirroring the Python showcase.
+const QUEENS_SIZES: [usize; 3] = [6, 7, 8];
+/// Deterministic seed for the opening queens puzzle.
+const QUEENS_FIRST_SEED: u64 = 0x243F_6A88_85A3_08D3;
+const QUEENS_COLORS: [Scene2DColor; QUEENS_MAX_SIZE] = [
     Scene2DColor::rgb(0.89, 0.43, 0.42),
     Scene2DColor::rgb(0.90, 0.59, 0.34),
     Scene2DColor::rgb(0.83, 0.69, 0.30),
@@ -116,24 +144,31 @@ fn push_history<T>(history: &mut VecDeque<T>, value: T) {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum GameKind {
+pub(crate) enum GameKind {
     Zip,
     Queens,
     Sudoku,
     Tetris,
+    Chess,
+    Othello,
+}
+
+/// Maps a sidebar section to the game it renders, if any.
+pub(crate) fn game_kind_for_section(section: super::super::ShowcaseSection) -> Option<GameKind> {
+    GameKind::ALL
+        .into_iter()
+        .find(|game| game.section() == section)
 }
 
 impl GameKind {
-    const ALL: [Self; 4] = [Self::Zip, Self::Queens, Self::Sudoku, Self::Tetris];
-
-    const fn label(self) -> &'static str {
-        match self {
-            Self::Zip => "Zip",
-            Self::Queens => "Queens",
-            Self::Sudoku => "Sudoku",
-            Self::Tetris => "Tetris",
-        }
-    }
+    const ALL: [Self; 6] = [
+        Self::Zip,
+        Self::Queens,
+        Self::Sudoku,
+        Self::Tetris,
+        Self::Chess,
+        Self::Othello,
+    ];
 
     const fn help(self) -> &'static str {
         match self {
@@ -149,16 +184,35 @@ impl GameKind {
             Self::Tetris => {
                 "Use the arrows to move, Up or X to rotate, Space to drop, and P to pause. Hold the surface controls to move or soft drop; two fingers work at once."
             }
+            Self::Chess => {
+                "Select a piece, then a highlighted square. Full rules with a built-in AI. Arrows move the cursor, Enter selects, U undoes, F flips."
+            }
+            Self::Othello => {
+                "Place on a dotted square to outflank and flip rival discs. Black moves first. Arrows move the cursor, Enter places, U undoes, P passes."
+            }
         }
     }
 
-    fn from_name(value: &str) -> Option<Self> {
+    pub(crate) fn from_name(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "zip" => Some(Self::Zip),
             "queens" => Some(Self::Queens),
             "sudoku" => Some(Self::Sudoku),
             "tetris" => Some(Self::Tetris),
+            "chess" => Some(Self::Chess),
+            "othello" => Some(Self::Othello),
             _ => None,
+        }
+    }
+
+    pub(crate) fn section(self) -> super::super::ShowcaseSection {
+        match self {
+            Self::Zip => super::super::ShowcaseSection::Zip,
+            Self::Queens => super::super::ShowcaseSection::Queens,
+            Self::Sudoku => super::super::ShowcaseSection::Sudoku,
+            Self::Tetris => super::super::ShowcaseSection::Tetris,
+            Self::Chess => super::super::ShowcaseSection::Chess,
+            Self::Othello => super::super::ShowcaseSection::Othello,
         }
     }
 }
@@ -171,7 +225,23 @@ enum GameAction {
     Check,
     Pause,
     Drop,
+    Flip,
+    AiMove,
+    Pass,
+    NextLevel,
+    NewPuzzle,
     ToggleHelp,
+}
+
+/// Dropdown pickers in the game details panels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum GameSelect {
+    ChessMode,
+    ChessDifficulty,
+    ChessPromotion,
+    OthelloMode,
+    OthelloDifficulty,
+    QueensSize,
 }
 
 /// Persistent game state and the native scenes used by the Games showcase.
@@ -184,12 +254,18 @@ pub(crate) struct GamesShowcase {
     queens: QueensGame,
     sudoku: SudokuGame,
     tetris: TetrisGame,
+    chess: ChessGame,
+    othello: OthelloGame,
     zip_surface: Scene2DState,
     queens_surface: Scene2DState,
     sudoku_surface: Scene2DState,
     tetris_surface: Scene2DState,
     tetris_preview: Scene2DState,
     tetris_controls: Scene2DState,
+    chess_surface: Scene2DState,
+    othello_surface: Scene2DState,
+    select_open: HashMap<GameSelect, bool>,
+    select_highlighted: HashMap<GameSelect, Option<usize>>,
     light_palette: bool,
     window_active: bool,
     activation_subscription: Option<Subscription>,
@@ -208,6 +284,8 @@ impl GamesShowcase {
         let queens = QueensGame::default();
         let sudoku = SudokuGame::default();
         let tetris = TetrisGame::default();
+        let chess = ChessGame::default();
+        let othello = OthelloGame::default();
         Self {
             zip_surface: Scene2DState::new(zip.scene(1)).expect("built-in Zip scene is valid"),
             queens_surface: Scene2DState::new(queens.scene(1))
@@ -220,6 +298,10 @@ impl GamesShowcase {
                 .expect("built-in Tetris preview is valid"),
             tetris_controls: Scene2DState::new(tetris.controls_scene(1))
                 .expect("built-in Tetris controls are valid"),
+            chess_surface: Scene2DState::new(chess.scene(1))
+                .expect("built-in Chess scene is valid"),
+            othello_surface: Scene2DState::new(othello.scene(1))
+                .expect("built-in Othello scene is valid"),
             active: false,
             active_game,
             help_open: false,
@@ -228,6 +310,10 @@ impl GamesShowcase {
             queens,
             sudoku,
             tetris,
+            chess,
+            othello,
+            select_open: HashMap::new(),
+            select_highlighted: HashMap::new(),
             light_palette: false,
             window_active: false,
             activation_subscription: None,
@@ -274,9 +360,31 @@ impl GamesShowcase {
             &self.tetris_surface,
             &self.tetris_preview,
             &self.tetris_controls,
+            &self.chess_surface,
+            &self.othello_surface,
         ] {
             scene.set_suspended(suspended);
         }
+    }
+
+    /// Retained input state for a game's board surface.
+    pub(crate) fn surface_state(&self, game: GameKind) -> Scene2DState {
+        match game {
+            GameKind::Zip => self.zip_surface.clone(),
+            GameKind::Queens => self.queens_surface.clone(),
+            GameKind::Sudoku => self.sudoku_surface.clone(),
+            GameKind::Tetris => self.tetris_surface.clone(),
+            GameKind::Chess => self.chess_surface.clone(),
+            GameKind::Othello => self.othello_surface.clone(),
+        }
+    }
+
+    /// Retained input state for the board a sidebar section renders, if any.
+    pub(crate) fn surface_state_for_section(
+        &self,
+        section: super::super::ShowcaseSection,
+    ) -> Option<Scene2DState> {
+        game_kind_for_section(section).map(|game| self.surface_state(game))
     }
 
     fn surface(&self, game: GameKind, handle: WeakEntity<Self>) -> GameSurface {
@@ -288,6 +396,12 @@ impl GamesShowcase {
                 "native-tetris",
                 "Tetris playfield",
                 self.tetris_surface.clone(),
+            ),
+            GameKind::Chess => ("native-chess", "Chess board", self.chess_surface.clone()),
+            GameKind::Othello => (
+                "native-othello",
+                "Othello board",
+                self.othello_surface.clone(),
             ),
         };
         GameSurface::from_state(id, state.clone())
@@ -307,7 +421,8 @@ impl GamesShowcase {
             })
     }
 
-    fn set_game(&mut self, game: GameKind, cx: &mut Context<Self>) {
+    /// Shows a game selected from the sidebar, resetting transient UI state.
+    pub(crate) fn set_game(&mut self, game: GameKind, cx: &mut Context<Self>) {
         if self.active_game == game {
             return;
         }
@@ -387,6 +502,8 @@ impl GamesShowcase {
             GameKind::Queens => self.queens.handle(event),
             GameKind::Sudoku => self.sudoku.handle(event),
             GameKind::Tetris => self.tetris.handle(event),
+            GameKind::Chess => self.chess.handle(event),
+            GameKind::Othello => self.othello.handle(event),
         };
         if !changed {
             self.sync_ticker(cx);
@@ -420,6 +537,22 @@ impl GamesShowcase {
             GameKind::Tetris => {
                 self.status = self.tetris.status();
                 self.refresh_tetris_scenes(cx);
+            }
+            GameKind::Chess => {
+                self.status = self.chess.status();
+                self.replace_surface(
+                    &self.chess_surface.clone(),
+                    self.chess.scene(self.chess_revision()),
+                    cx,
+                );
+            }
+            GameKind::Othello => {
+                self.status = self.othello.status();
+                self.replace_surface(
+                    &self.othello_surface.clone(),
+                    self.othello.scene(self.othello_revision()),
+                    cx,
+                );
             }
         }
         self.sync_ticker(cx);
@@ -459,12 +592,32 @@ impl GamesShowcase {
                     .scene(self.sudoku_surface.scene().revision.saturating_add(1)),
             ),
         );
+        let _ = self.chess_surface.replace_scene(
+            self.palette_scene(
+                self.chess
+                    .scene(self.chess_surface.scene().revision.saturating_add(1)),
+            ),
+        );
+        let _ = self.othello_surface.replace_scene(
+            self.palette_scene(
+                self.othello
+                    .scene(self.othello_surface.scene().revision.saturating_add(1)),
+            ),
+        );
         self.refresh_tetris_scenes(cx);
         cx.notify();
     }
 
     fn zip_revision(&self) -> u64 {
         self.zip_surface.scene().revision.saturating_add(1)
+    }
+
+    fn chess_revision(&self) -> u64 {
+        self.chess_surface.scene().revision.saturating_add(1)
+    }
+
+    fn othello_revision(&self) -> u64 {
+        self.othello_surface.scene().revision.saturating_add(1)
     }
 
     fn queens_revision(&self) -> u64 {
@@ -507,9 +660,11 @@ impl GamesShowcase {
             (GameKind::Zip, GameAction::New) => self.zip.reset(),
             (GameKind::Zip, GameAction::Undo) => self.zip.undo(),
             (GameKind::Zip, GameAction::Hint) => self.zip.hint(),
+            (GameKind::Zip, GameAction::NextLevel) => self.zip.next_level(),
             (GameKind::Queens, GameAction::New) => self.queens.reset(),
             (GameKind::Queens, GameAction::Undo) => self.queens.undo(),
             (GameKind::Queens, GameAction::Hint) => self.queens.hint(),
+            (GameKind::Queens, GameAction::NewPuzzle) => self.queens.new_puzzle(),
             (GameKind::Sudoku, GameAction::New) => self.sudoku.reset(),
             (GameKind::Sudoku, GameAction::Undo) => self.sudoku.undo(),
             (GameKind::Sudoku, GameAction::Hint) => self.sudoku.hint(),
@@ -517,6 +672,16 @@ impl GamesShowcase {
             (GameKind::Tetris, GameAction::New) => self.tetris.new_game(),
             (GameKind::Tetris, GameAction::Pause) => self.tetris.toggle_pause(),
             (GameKind::Tetris, GameAction::Drop) => self.tetris.hard_drop(),
+            (GameKind::Chess, GameAction::New) => self.chess.reset(),
+            (GameKind::Chess, GameAction::Undo) => self.chess.undo(),
+            (GameKind::Chess, GameAction::Hint) => self.chess.hint(),
+            (GameKind::Chess, GameAction::Flip) => self.chess.flip(),
+            (GameKind::Chess, GameAction::AiMove) => self.chess.ai_move(),
+            (GameKind::Othello, GameAction::New) => self.othello.reset(),
+            (GameKind::Othello, GameAction::Undo) => self.othello.undo(),
+            (GameKind::Othello, GameAction::Hint) => self.othello.hint(),
+            (GameKind::Othello, GameAction::Pass) => self.othello.pass_move(),
+            (GameKind::Othello, GameAction::AiMove) => self.othello.ai_move(),
             _ => false,
         };
         if changed {
@@ -540,6 +705,16 @@ impl GamesShowcase {
                     self.status = self.tetris.status();
                     self.refresh_tetris_scenes(cx);
                 }
+                GameKind::Chess => {
+                    self.status = self.chess.status();
+                    let scene = self.chess.scene(self.chess_revision());
+                    self.replace_surface(&self.chess_surface.clone(), scene, cx);
+                }
+                GameKind::Othello => {
+                    self.status = self.othello.status();
+                    let scene = self.othello.scene(self.othello_revision());
+                    self.replace_surface(&self.othello_surface.clone(), scene, cx);
+                }
             }
         }
         self.sync_ticker(cx);
@@ -556,28 +731,162 @@ impl GamesShowcase {
     ) -> Button {
         Button::new(id, label)
             .variant(ButtonVariant::Secondary)
-            .on_click(move |_window, app| {
-                let _ = handle.update(app, |this, cx| this.apply_action(game, action, cx));
+            .on_click(move |window, app| {
+                let board = handle.update(app, |this, cx| {
+                    this.apply_action(game, action, cx);
+                    this.surface_state(game)
+                });
+                // Keyboard play continues immediately after using the buttons.
+                if let Ok(state) = board {
+                    state.focus(window, app);
+                }
             })
     }
 
-    fn game_tab(&self, game: GameKind, handle: WeakEntity<Self>) -> Button {
-        let id = match game {
-            GameKind::Zip => "native-game-tab-zip",
-            GameKind::Queens => "native-game-tab-queens",
-            GameKind::Sudoku => "native-game-tab-sudoku",
-            GameKind::Tetris => "native-game-tab-tetris",
+    fn game_select(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        kind: GameSelect,
+        handle: WeakEntity<Self>,
+    ) -> Select {
+        let (options, selected) = match kind {
+            GameSelect::ChessMode => (
+                vec![
+                    SelectOption::new(ChessMode::TwoPlayer.value(), ChessMode::TwoPlayer.label()),
+                    SelectOption::new(ChessMode::VsAi.value(), ChessMode::VsAi.label()),
+                ],
+                self.chess.mode.value(),
+            ),
+            GameSelect::ChessDifficulty => (
+                vec![
+                    SelectOption::new(
+                        ChessDifficulty::Harmless.value(),
+                        ChessDifficulty::Harmless.label(),
+                    ),
+                    SelectOption::new(ChessDifficulty::Easy.value(), ChessDifficulty::Easy.label()),
+                    SelectOption::new(
+                        ChessDifficulty::Medium.value(),
+                        ChessDifficulty::Medium.label(),
+                    ),
+                    SelectOption::new(ChessDifficulty::Hard.value(), ChessDifficulty::Hard.label()),
+                ],
+                self.chess.difficulty.value(),
+            ),
+            GameSelect::ChessPromotion => (
+                vec![
+                    SelectOption::new("Q", "Queen"),
+                    SelectOption::new("R", "Rook"),
+                    SelectOption::new("B", "Bishop"),
+                    SelectOption::new("N", "Knight"),
+                ],
+                self.chess.promotion_value(),
+            ),
+            GameSelect::OthelloMode => (
+                vec![
+                    SelectOption::new(
+                        OthelloMode::TwoPlayer.value(),
+                        OthelloMode::TwoPlayer.label(),
+                    ),
+                    SelectOption::new(OthelloMode::VsAi.value(), OthelloMode::VsAi.label()),
+                ],
+                self.othello.mode.value(),
+            ),
+            GameSelect::OthelloDifficulty => (
+                vec![
+                    SelectOption::new(
+                        OthelloDifficulty::Beginner.value(),
+                        OthelloDifficulty::Beginner.label(),
+                    ),
+                    SelectOption::new(
+                        OthelloDifficulty::Easy.value(),
+                        OthelloDifficulty::Easy.label(),
+                    ),
+                    SelectOption::new(
+                        OthelloDifficulty::Medium.value(),
+                        OthelloDifficulty::Medium.label(),
+                    ),
+                    SelectOption::new(
+                        OthelloDifficulty::Hard.value(),
+                        OthelloDifficulty::Hard.label(),
+                    ),
+                ],
+                self.othello.difficulty.value(),
+            ),
+            GameSelect::QueensSize => (
+                vec![
+                    SelectOption::new("6", "6 x 6"),
+                    SelectOption::new("7", "7 x 7"),
+                    SelectOption::new("8", "8 x 8"),
+                ],
+                match self.queens.size {
+                    6 => "6",
+                    7 => "7",
+                    _ => "8",
+                },
+            ),
         };
-        Button::new(id, game.label())
-            .variant(if self.active_game == game {
-                ButtonVariant::Primary
-            } else {
-                ButtonVariant::Secondary
+        let is_open = self.select_open.get(&kind).copied().unwrap_or(false);
+        let highlighted = self.select_highlighted.get(&kind).copied().flatten();
+        let toggle_handle = handle.clone();
+        let highlight_handle = handle.clone();
+        Select::new(id)
+            .label(label)
+            .options(options)
+            .selected(selected)
+            .is_open(is_open)
+            .highlighted_index(highlighted)
+            .on_change(move |value, _window, app| {
+                let _ = handle.update(app, |this, cx| this.apply_select(kind, value, cx));
             })
-            .selected(self.active_game == game)
-            .on_click(move |_window, app| {
-                let _ = handle.update(app, |this, cx| this.set_game(game, cx));
+            .on_toggle(move |open, _window, app| {
+                let _ = toggle_handle.update(app, |this, cx| {
+                    this.select_open.insert(kind, open);
+                    cx.notify();
+                });
             })
+            .on_highlight(move |index, _window, app| {
+                let _ = highlight_handle.update(app, |this, cx| {
+                    this.select_highlighted.insert(kind, index);
+                    cx.notify();
+                });
+            })
+    }
+
+    /// Applies a dropdown pick, repainting when the board changed.
+    fn apply_select(&mut self, kind: GameSelect, value: &str, cx: &mut Context<Self>) {
+        self.select_open.insert(kind, false);
+        self.select_highlighted.insert(kind, None);
+        let changed = match kind {
+            GameSelect::ChessMode => self.chess.select_mode(value),
+            GameSelect::ChessDifficulty => self.chess.select_difficulty(value),
+            GameSelect::ChessPromotion => self.chess.select_promotion(value),
+            GameSelect::OthelloMode => self.othello.select_mode(value),
+            GameSelect::OthelloDifficulty => self.othello.select_difficulty(value),
+            GameSelect::QueensSize => self.queens.select_size(value),
+        };
+        if changed {
+            match kind {
+                GameSelect::ChessMode
+                | GameSelect::ChessDifficulty
+                | GameSelect::ChessPromotion => {
+                    self.status = self.chess.status();
+                    let scene = self.chess.scene(self.chess_revision());
+                    self.replace_surface(&self.chess_surface.clone(), scene, cx);
+                }
+                GameSelect::OthelloMode | GameSelect::OthelloDifficulty => {
+                    self.status = self.othello.status();
+                    let scene = self.othello.scene(self.othello_revision());
+                    self.replace_surface(&self.othello_surface.clone(), scene, cx);
+                }
+                GameSelect::QueensSize => {
+                    self.status = self.queens.status();
+                    let scene = self.queens.scene(self.queens_revision());
+                    self.replace_surface(&self.queens_surface.clone(), scene, cx);
+                }
+            }
+        }
+        cx.notify();
     }
 
     fn surface_element(
@@ -593,6 +902,8 @@ impl GamesShowcase {
                 GameKind::Queens => ("queens-native-surface", 440.0, 460.0, 1.0),
                 GameKind::Sudoku => ("sudoku-native-surface", 430.0, 460.0, 1.0),
                 GameKind::Tetris => ("tetris-native-surface", 560.0, 330.0, 262.0 / 502.0),
+                GameKind::Chess => ("chess-native-surface", 440.0, 460.0, 1.0),
+                GameKind::Othello => ("othello-native-surface", 440.0, 460.0, 1.0),
             };
         let compact_landscape = viewport_width >= 600.0 && viewport_height < 600.0;
         let phone_portrait = viewport_width < 600.0;
@@ -600,13 +911,15 @@ impl GamesShowcase {
             match game {
                 GameKind::Tetris => (viewport_height - 150.0).clamp(190.0, 270.0),
                 GameKind::Sudoku => (viewport_height - 170.0).clamp(210.0, 300.0),
-                GameKind::Zip | GameKind::Queens => (viewport_height - 150.0).clamp(220.0, 310.0),
+                GameKind::Zip | GameKind::Queens | GameKind::Chess | GameKind::Othello => {
+                    (viewport_height - 150.0).clamp(220.0, 310.0)
+                }
             }
         } else if phone_portrait {
             match game {
                 GameKind::Tetris => (viewport_height * 0.43).clamp(300.0, 390.0),
                 GameKind::Sudoku => (viewport_height * 0.38).clamp(280.0, 340.0),
-                GameKind::Zip | GameKind::Queens => {
+                GameKind::Zip | GameKind::Queens | GameKind::Chess | GameKind::Othello => {
                     (viewport_height * 0.52).clamp(320.0, base_height)
                 }
             }
@@ -656,15 +969,19 @@ impl GamesShowcase {
                 Button::new("native-sudoku-erase", "Erase")
                     .size(ButtonSize::Lg)
                     .variant(ButtonVariant::Ghost)
-                    .on_click(move |_window, app| {
-                        let _ = handle.update(app, |this, cx| {
+                    .on_click(move |window, app| {
+                        let board = handle.update(app, |this, cx| {
                             if this.sudoku.erase() {
                                 this.status = this.sudoku.status();
                                 let scene = this.sudoku.scene(this.sudoku_revision());
                                 this.replace_surface(&this.sudoku_surface.clone(), scene, cx);
                                 cx.notify();
                             }
+                            this.surface_state(GameKind::Sudoku)
                         });
+                        if let Ok(state) = board {
+                            state.focus(window, app);
+                        }
                     }),
             )
     }
@@ -674,15 +991,19 @@ impl GamesShowcase {
             .size(ButtonSize::Lg)
             .variant(ButtonVariant::Secondary)
             .aria_label(format!("Enter {digit}"))
-            .on_click(move |_window, app| {
-                let _ = handle.update(app, |this, cx| {
+            .on_click(move |window, app| {
+                let board = handle.update(app, |this, cx| {
                     if this.sudoku.enter(digit) {
                         this.status = this.sudoku.status();
                         let scene = this.sudoku.scene(this.sudoku_revision());
                         this.replace_surface(&this.sudoku_surface.clone(), scene, cx);
                         cx.notify();
                     }
+                    this.surface_state(GameKind::Sudoku)
                 });
+                if let Ok(state) = board {
+                    state.focus(window, app);
+                }
             })
     }
 
@@ -780,6 +1101,24 @@ impl GamesShowcase {
                         handle.clone(),
                     ));
                 }
+                if game == GameKind::Zip {
+                    actions = actions.child(self.action_button(
+                        game,
+                        GameAction::NextLevel,
+                        "native-zip-next",
+                        "Next →",
+                        handle.clone(),
+                    ));
+                }
+                if game == GameKind::Queens {
+                    actions = actions.child(self.action_button(
+                        game,
+                        GameAction::NewPuzzle,
+                        "native-queens-new",
+                        "New puzzle",
+                        handle.clone(),
+                    ));
+                }
             }
             GameKind::Tetris => {
                 actions = actions
@@ -809,6 +1148,82 @@ impl GamesShowcase {
                         handle.clone(),
                     ));
             }
+            GameKind::Chess => {
+                actions = actions
+                    .child(self.action_button(
+                        game,
+                        GameAction::New,
+                        "native-chess-new",
+                        "New game",
+                        handle.clone(),
+                    ))
+                    .child(self.action_button(
+                        game,
+                        GameAction::Undo,
+                        "native-chess-undo",
+                        "Undo",
+                        handle.clone(),
+                    ))
+                    .child(self.action_button(
+                        game,
+                        GameAction::Hint,
+                        "native-chess-hint",
+                        "Hint",
+                        handle.clone(),
+                    ))
+                    .child(self.action_button(
+                        game,
+                        GameAction::Flip,
+                        "native-chess-flip",
+                        "Flip",
+                        handle.clone(),
+                    ))
+                    .child(self.action_button(
+                        game,
+                        GameAction::AiMove,
+                        "native-chess-ai",
+                        "AI move",
+                        handle.clone(),
+                    ));
+            }
+            GameKind::Othello => {
+                actions = actions
+                    .child(self.action_button(
+                        game,
+                        GameAction::New,
+                        "native-othello-new",
+                        "New game",
+                        handle.clone(),
+                    ))
+                    .child(self.action_button(
+                        game,
+                        GameAction::Undo,
+                        "native-othello-undo",
+                        "Undo",
+                        handle.clone(),
+                    ))
+                    .child(self.action_button(
+                        game,
+                        GameAction::Pass,
+                        "native-othello-pass",
+                        "Pass",
+                        handle.clone(),
+                    ))
+                    .child(self.action_button(
+                        game,
+                        GameAction::Hint,
+                        "native-othello-hint",
+                        "Hint",
+                        handle.clone(),
+                    ))
+                    .child(self.action_button(
+                        game,
+                        GameAction::AiMove,
+                        "native-othello-ai",
+                        "AI move",
+                        handle.clone(),
+                    ));
+            }
         }
 
         let compact_landscape = viewport_width >= 600.0 && viewport_height < 600.0;
@@ -817,10 +1232,11 @@ impl GamesShowcase {
             GameKind::Zip => VStack::new()
                 .spacing(StackSpacing::Md)
                 .child(Text::new(self.zip.status()).weight(TextWeight::Medium))
+                .child(Text::new(self.zip.level_data().label))
                 .child(Text::new(format!(
                     "Path: {}/{} cells · next checkpoint {}",
                     self.zip.path.len(),
-                    ZIP_ROWS * ZIP_COLS,
+                    self.zip.level_data().cell_count(),
                     self.zip.next_checkpoint()
                 )))
                 .into_any_element(),
@@ -830,8 +1246,14 @@ impl GamesShowcase {
                 .child(Text::new(format!(
                     "{} of {} crowns",
                     self.queens.count(),
-                    QUEENS_SIZE
+                    self.queens.size
                 )))
+                .child(self.game_select(
+                    "native-queens-size",
+                    "Board size",
+                    GameSelect::QueensSize,
+                    handle.clone(),
+                ))
                 .into_any_element(),
             GameKind::Sudoku => VStack::new()
                 .spacing(StackSpacing::Sm)
@@ -878,6 +1300,48 @@ impl GamesShowcase {
                     )
                     .into_any_element()
             }
+            GameKind::Chess => VStack::new()
+                .spacing(StackSpacing::Sm)
+                .child(Text::new(self.chess.status()).weight(TextWeight::Medium))
+                .child(Text::new(self.chess.details()))
+                .child(Text::new(self.chess.moves_text()))
+                .child(self.game_select(
+                    "native-chess-mode",
+                    "Opponent",
+                    GameSelect::ChessMode,
+                    handle.clone(),
+                ))
+                .child(self.game_select(
+                    "native-chess-difficulty",
+                    "AI strength",
+                    GameSelect::ChessDifficulty,
+                    handle.clone(),
+                ))
+                .child(self.game_select(
+                    "native-chess-promotion",
+                    "Promote to",
+                    GameSelect::ChessPromotion,
+                    handle.clone(),
+                ))
+                .into_any_element(),
+            GameKind::Othello => VStack::new()
+                .spacing(StackSpacing::Sm)
+                .child(Text::new(self.othello.status()).weight(TextWeight::Medium))
+                .child(Text::new(self.othello.details()))
+                .child(Text::new(self.othello.moves_text()))
+                .child(self.game_select(
+                    "native-othello-mode",
+                    "Opponent",
+                    GameSelect::OthelloMode,
+                    handle.clone(),
+                ))
+                .child(self.game_select(
+                    "native-othello-difficulty",
+                    "AI strength",
+                    GameSelect::OthelloDifficulty,
+                    handle.clone(),
+                ))
+                .into_any_element(),
         };
         let body = if game == GameKind::Tetris {
             // Touch holds are distinct captured Scene2D contacts. Keep them on
@@ -990,40 +1454,48 @@ impl Render for GamesShowcase {
                 }));
         }
         let handle = cx.entity().downgrade();
-        let tabs = HStack::new()
-            .spacing(StackSpacing::Sm)
-            .wrap(true)
-            .scrollable_on_mobile(false);
-        let tabs = GameKind::ALL.into_iter().fold(tabs, |tabs, game| {
-            tabs.child(self.game_tab(game, handle.clone()))
-        });
-        VStack::new()
-            .spacing(StackSpacing::Md)
-            .scrollable_on_mobile(false)
-            .child(tabs)
-            .child(self.render_body(
-                window.viewport_size().width.as_f32(),
-                window.viewport_size().height.as_f32(),
-                handle,
-            ))
+        self.render_body(
+            window.viewport_size().width.as_f32(),
+            window.viewport_size().height.as_f32(),
+            handle,
+        )
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 struct ZipGame {
+    level: usize,
+    levels: Vec<ZipLevel>,
     path: Vec<(usize, usize)>,
     undo: VecDeque<Vec<(usize, usize)>>,
     won: bool,
 }
 
+impl Default for ZipGame {
+    fn default() -> Self {
+        Self {
+            level: ZIP_DEFAULT_LEVEL,
+            levels: zip_levels(),
+            path: Vec::new(),
+            undo: VecDeque::new(),
+            won: false,
+        }
+    }
+}
+
 impl ZipGame {
+    fn level_data(&self) -> &ZipLevel {
+        &self.levels[self.level]
+    }
+
     fn next_checkpoint(&self) -> usize {
-        ZIP_CHECKPOINTS
+        let checkpoints = &self.level_data().checkpoints;
+        checkpoints
             .iter()
             .enumerate()
             .skip(1)
             .find(|(_, point)| !self.path.contains(point))
-            .map_or(ZIP_CHECKPOINTS.len(), |(index, _)| index + 1)
+            .map_or(checkpoints.len(), |(index, _)| index + 1)
     }
 
     fn record(&mut self) {
@@ -1032,7 +1504,7 @@ impl ZipGame {
     }
 
     fn step(&mut self, cell: (usize, usize)) -> bool {
-        if cell.0 >= ZIP_ROWS || cell.1 >= ZIP_COLS || self.won {
+        if cell.0 >= self.level_data().rows || cell.1 >= self.level_data().cols || self.won {
             return false;
         }
         if self.path.last() == Some(&cell) {
@@ -1047,7 +1519,7 @@ impl ZipGame {
             return false;
         }
         if self.path.is_empty() {
-            if cell != ZIP_START {
+            if cell != self.level_data().start() {
                 return false;
             }
         } else {
@@ -1055,7 +1527,11 @@ impl ZipGame {
             if current.0.abs_diff(cell.0) + current.1.abs_diff(cell.1) != 1 {
                 return false;
             }
-            let checkpoint_index = ZIP_CHECKPOINTS.iter().position(|point| *point == cell);
+            let checkpoint_index = self
+                .level_data()
+                .checkpoints
+                .iter()
+                .position(|point| *point == cell);
             if let Some(index) = checkpoint_index
                 && index + 1 != self.next_checkpoint()
             {
@@ -1064,15 +1540,15 @@ impl ZipGame {
         }
         self.record();
         self.path.push(cell);
-        self.won =
-            self.path.len() == ZIP_ROWS * ZIP_COLS && self.path.last() == ZIP_CHECKPOINTS.last();
+        self.won = self.path.len() == self.level_data().cell_count()
+            && self.path.last() == self.level_data().checkpoints.last();
         true
     }
 
     fn undo(&mut self) -> bool {
         if let Some(path) = self.undo.pop_back() {
             self.path = path;
-            self.won = self.path.len() == ZIP_ROWS * ZIP_COLS;
+            self.won = self.path.len() == self.level_data().cell_count();
             true
         } else {
             false
@@ -1081,13 +1557,24 @@ impl ZipGame {
 
     fn reset(&mut self) -> bool {
         let changed = !self.path.is_empty() || self.won;
-        *self = Self::default();
+        self.path.clear();
+        self.undo.clear();
+        self.won = false;
         changed
+    }
+
+    /// Advances to the next board size, wrapping back to the starter.
+    fn next_level(&mut self) -> bool {
+        self.level = (self.level + 1) % self.levels.len();
+        self.path.clear();
+        self.undo.clear();
+        self.won = false;
+        true
     }
 
     fn hint(&mut self) -> bool {
         let index = self.path.len();
-        if let Some(cell) = ZIP_SOLUTION.get(index).copied() {
+        if let Some(cell) = self.level_data().solution.get(index).copied() {
             self.step(cell)
         } else {
             false
@@ -1114,14 +1601,15 @@ impl ZipGame {
                     return self.undo();
                 }
                 if self.path.is_empty() {
-                    return self.step(ZIP_START);
+                    let start = self.level_data().start();
+                    return self.step(start);
                 }
                 let (row, col) = self.path[self.path.len() - 1];
                 let target = match key.as_str() {
                     "ArrowLeft" if col > 0 => Some((row, col - 1)),
-                    "ArrowRight" if col + 1 < ZIP_COLS => Some((row, col + 1)),
+                    "ArrowRight" if col + 1 < self.level_data().cols => Some((row, col + 1)),
                     "ArrowUp" if row > 0 => Some((row - 1, col)),
-                    "ArrowDown" if row + 1 < ZIP_ROWS => Some((row + 1, col)),
+                    "ArrowDown" if row + 1 < self.level_data().rows => Some((row + 1, col)),
                     _ => None,
                 };
                 target.is_some_and(|cell| self.step(cell))
@@ -1144,10 +1632,11 @@ impl ZipGame {
     }
 
     fn scene(&self, revision: u64) -> Scene2DScene {
+        let level = self.level_data();
         let pad = 18.0;
         let cell = 62.0;
         let gap = 6.0;
-        let width = pad * 2.0 + ZIP_COLS as f32 * cell + (ZIP_COLS - 1) as f32 * gap;
+        let width = pad * 2.0 + level.cols as f32 * cell + (level.cols - 1) as f32 * gap;
         let mut scene = new_scene(
             width,
             width,
@@ -1155,15 +1644,15 @@ impl ZipGame {
             "Cover every cell in checkpoint order.",
         );
         scene.grid = Some(Scene2DGrid {
-            rows: ZIP_ROWS as u32,
-            columns: ZIP_COLS as u32,
+            rows: level.rows as u32,
+            columns: level.cols as u32,
             x: pad,
             y: pad,
             cell_width: cell,
             cell_height: cell,
             gap,
-            row_labels: (1..=ZIP_ROWS).map(|value| value.to_string()).collect(),
-            column_labels: (1..=ZIP_COLS).map(|value| value.to_string()).collect(),
+            row_labels: (1..=level.rows).map(|value| value.to_string()).collect(),
+            column_labels: (1..=level.cols).map(|value| value.to_string()).collect(),
         });
         scene.nodes.push(rounded_node(
             "zip-board",
@@ -1174,9 +1663,9 @@ impl ZipGame {
             None,
             None,
         ));
-        for row in 0..ZIP_ROWS {
-            for col in 0..ZIP_COLS {
-                let cell_index = row * ZIP_COLS + col;
+        for row in 0..level.rows {
+            for col in 0..level.cols {
+                let cell_index = row * level.cols + col;
                 let rect = SceneRect::new(
                     pad + col as f32 * (cell + gap),
                     pad + row as f32 * (cell + gap),
@@ -1231,7 +1720,7 @@ impl ZipGame {
                 None,
             ));
         }
-        for (index, (row, col)) in ZIP_CHECKPOINTS.iter().copied().enumerate() {
+        for (index, (row, col)) in level.checkpoints.iter().copied().enumerate() {
             let (x, y) = cell_center((row, col), pad, cell, gap);
             scene.nodes.push(circle_node(
                 &format!("zip-checkpoint-{}", index + 1),
@@ -1258,7 +1747,7 @@ impl ZipGame {
                 )),
             ));
         }
-        let head = self.path.last().copied().unwrap_or(ZIP_START);
+        let head = self.path.last().copied().unwrap_or(level.start());
         let (head_x, head_y) = cell_center(head, pad, cell, gap);
         let mut head_node = circle_node(
             "zip-head",
@@ -1288,11 +1777,15 @@ impl ZipGame {
     }
 }
 
-type QueensUndoEntry = ([[u8; QUEENS_SIZE]; QUEENS_SIZE], (usize, usize));
+type QueensUndoEntry = ([[u8; QUEENS_MAX_SIZE]; QUEENS_MAX_SIZE], (usize, usize));
 
 #[derive(Clone, Debug)]
 struct QueensGame {
-    marks: [[u8; QUEENS_SIZE]; QUEENS_SIZE],
+    size: usize,
+    marks: [[u8; QUEENS_MAX_SIZE]; QUEENS_MAX_SIZE],
+    regions: [[usize; QUEENS_MAX_SIZE]; QUEENS_MAX_SIZE],
+    solution: [usize; QUEENS_MAX_SIZE],
+    rng_state: u64,
     selected: (usize, usize),
     undo: VecDeque<QueensUndoEntry>,
     won: bool,
@@ -1300,13 +1793,133 @@ struct QueensGame {
 
 impl Default for QueensGame {
     fn default() -> Self {
-        Self {
-            marks: [[0; QUEENS_SIZE]; QUEENS_SIZE],
+        let mut game = Self {
+            size: QUEENS_DEFAULT_SIZE,
+            marks: [[0; QUEENS_MAX_SIZE]; QUEENS_MAX_SIZE],
+            regions: [[0; QUEENS_MAX_SIZE]; QUEENS_MAX_SIZE],
+            solution: [0; QUEENS_MAX_SIZE],
+            rng_state: QUEENS_FIRST_SEED,
             selected: (0, 0),
             undo: VecDeque::new(),
             won: false,
+        };
+        game.deal_puzzle();
+        game
+    }
+}
+
+/// Random crown columns with no shared column and no diagonal touch.
+///
+/// Diagonal adjacency only happens between neighboring rows, so the search
+/// constrains consecutive rows to differ by anything but one. The search is
+/// exhaustive, and valid placements exist for every offered size, so it
+/// always succeeds.
+fn queens_solution(size: usize, rng: &mut u64) -> Vec<usize> {
+    fn search(row: usize, size: usize, placement: &mut Vec<usize>, rng: &mut u64) -> bool {
+        if row == size {
+            return true;
+        }
+        let mut order: Vec<usize> = (0..size).collect();
+        shuffle(&mut order, rng);
+        for column in order {
+            if placement.contains(&column) {
+                continue;
+            }
+            if placement
+                .last()
+                .is_some_and(|last| last.abs_diff(column) == 1)
+            {
+                continue;
+            }
+            placement.push(column);
+            if search(row + 1, size, placement, rng) {
+                return true;
+            }
+            placement.pop();
+        }
+        false
+    }
+
+    let mut placement = Vec::with_capacity(size);
+    assert!(
+        search(0, size, &mut placement, rng),
+        "the exhaustive queens search always places every crown"
+    );
+    placement
+}
+
+/// Grows one connected region around each crown until the board is covered.
+///
+/// Each solution crown keeps the region matching its row, so the generated
+/// board always satisfies all four rules.
+fn queens_regions(size: usize, solution: &[usize], rng: &mut u64) -> Vec<Vec<usize>> {
+    const UNCLAIMED: usize = usize::MAX;
+    let mut regions = vec![vec![UNCLAIMED; size]; size];
+    for (row, column) in solution.iter().enumerate() {
+        regions[row][*column] = row;
+    }
+    let mut frontier: Vec<(usize, usize)> = Vec::new();
+    for row in 0..size {
+        for col in 0..size {
+            if regions[row][col] == UNCLAIMED
+                && queen_neighbors(row, col, size)
+                    .any(|(next_row, next_col)| regions[next_row][next_col] != UNCLAIMED)
+            {
+                frontier.push((row, col));
+            }
         }
     }
+    while !frontier.is_empty() {
+        let pick = (next_random(rng) % frontier.len() as u64) as usize;
+        let (row, col) = frontier.swap_remove(pick);
+        if regions[row][col] != UNCLAIMED {
+            continue;
+        }
+        // Frontier cells always touch a claimed neighbor: claims only grow.
+        let options: Vec<usize> = queen_neighbors(row, col, size)
+            .filter_map(|(next_row, next_col)| {
+                (regions[next_row][next_col] != UNCLAIMED).then_some(regions[next_row][next_col])
+            })
+            .collect();
+        regions[row][col] = pick_option(&options, rng);
+        for (next_row, next_col) in queen_neighbors(row, col, size) {
+            if regions[next_row][next_col] == UNCLAIMED {
+                frontier.push((next_row, next_col));
+            }
+        }
+    }
+    regions
+}
+
+/// Builds a solvable puzzle: crown solution first, regions grown around it.
+fn generate_queens_puzzle(size: usize, rng: &mut u64) -> (Vec<usize>, Vec<Vec<usize>>) {
+    let solution = queens_solution(size, rng);
+    let regions = queens_regions(size, &solution, rng);
+    (solution, regions)
+}
+
+fn queen_neighbors(row: usize, col: usize, size: usize) -> impl Iterator<Item = (usize, usize)> {
+    [
+        row.checked_sub(1).map(|next| (next, col)),
+        (row + 1 < size).then_some((row + 1, col)),
+        col.checked_sub(1).map(|next| (row, next)),
+        (col + 1 < size).then_some((row, col + 1)),
+    ]
+    .into_iter()
+    .flatten()
+}
+
+/// Shuffles a tiny slice with the games' dependency-free RNG.
+fn shuffle<T>(items: &mut [T], rng: &mut u64) {
+    for index in (1..items.len()).rev() {
+        let pick = (next_random(rng) % (index as u64 + 1)) as usize;
+        items.swap(index, pick);
+    }
+}
+
+/// Picks a random element. The caller guarantees a non-empty slice.
+fn pick_option<T: Clone>(items: &[T], rng: &mut u64) -> T {
+    items[(next_random(rng) % items.len() as u64) as usize].clone()
 }
 
 impl QueensGame {
@@ -1315,14 +1928,14 @@ impl QueensGame {
         self.won = false;
     }
 
-    fn region(row: usize, col: usize) -> usize {
-        QUEENS_REGIONS[row][col]
+    fn region(&self, row: usize, col: usize) -> usize {
+        self.regions[row][col]
     }
 
     fn queens(&self) -> Vec<(usize, usize)> {
         let mut queens = Vec::new();
-        for row in 0..QUEENS_SIZE {
-            for col in 0..QUEENS_SIZE {
+        for row in 0..self.size {
+            for col in 0..self.size {
                 if self.marks[row][col] == 1 {
                     queens.push((row, col));
                 }
@@ -1331,14 +1944,14 @@ impl QueensGame {
         queens
     }
 
-    fn conflicts(&self) -> [[bool; QUEENS_SIZE]; QUEENS_SIZE] {
+    fn conflicts(&self) -> [[bool; QUEENS_MAX_SIZE]; QUEENS_MAX_SIZE] {
         let queens = self.queens();
-        let mut conflicts = [[false; QUEENS_SIZE]; QUEENS_SIZE];
+        let mut conflicts = [[false; QUEENS_MAX_SIZE]; QUEENS_MAX_SIZE];
         for first in 0..queens.len() {
             for second in first + 1..queens.len() {
                 let (r1, c1) = queens[first];
                 let (r2, c2) = queens[second];
-                let same_region = Self::region(r1, c1) == Self::region(r2, c2);
+                let same_region = self.region(r1, c1) == self.region(r2, c2);
                 let touching = r1.abs_diff(r2) <= 1 && c1.abs_diff(c2) <= 1;
                 if r1 == r2 || c1 == c2 || same_region || touching {
                     conflicts[r1][c1] = true;
@@ -1351,7 +1964,7 @@ impl QueensGame {
 
     fn is_valid(&self) -> bool {
         let queens = self.queens();
-        queens.len() == QUEENS_SIZE && self.conflicts().iter().flatten().all(|conflict| !conflict)
+        queens.len() == self.size && self.conflicts().iter().flatten().all(|conflict| !conflict)
     }
 
     fn count(&self) -> usize {
@@ -1359,7 +1972,7 @@ impl QueensGame {
     }
 
     fn place(&mut self, row: usize, col: usize) -> bool {
-        if row >= QUEENS_SIZE || col >= QUEENS_SIZE {
+        if row >= self.size || col >= self.size {
             return false;
         }
         self.record();
@@ -1370,8 +1983,8 @@ impl QueensGame {
     }
 
     fn move_selection(&mut self, row_delta: i32, col_delta: i32) -> bool {
-        let row = (self.selected.0 as i32 + row_delta).clamp(0, (QUEENS_SIZE - 1) as i32) as usize;
-        let col = (self.selected.1 as i32 + col_delta).clamp(0, (QUEENS_SIZE - 1) as i32) as usize;
+        let row = (self.selected.0 as i32 + row_delta).clamp(0, (self.size - 1) as i32) as usize;
+        let col = (self.selected.1 as i32 + col_delta).clamp(0, (self.size - 1) as i32) as usize;
         if (row, col) == self.selected {
             return false;
         }
@@ -1392,12 +2005,51 @@ impl QueensGame {
 
     fn reset(&mut self) -> bool {
         let changed = self.count() > 0 || self.won;
-        *self = Self::default();
+        self.clear_board();
         changed
     }
 
+    /// Deals a fresh puzzle at the current size, clearing the board.
+    fn new_puzzle(&mut self) -> bool {
+        self.deal_puzzle();
+        self.clear_board();
+        true
+    }
+
+    /// Switches board size, always dealing a fresh puzzle like the picker.
+    fn select_size(&mut self, value: &str) -> bool {
+        let size: usize = value.parse().unwrap_or(0);
+        if !QUEENS_SIZES.contains(&size) {
+            return false;
+        }
+        self.size = size;
+        self.deal_puzzle();
+        self.clear_board();
+        true
+    }
+
+    /// Generates a solution and regions into the fixed storage prefix.
+    fn deal_puzzle(&mut self) {
+        let (solution, regions) = generate_queens_puzzle(self.size, &mut self.rng_state);
+        for (row, column) in solution.iter().enumerate() {
+            self.solution[row] = *column;
+        }
+        for (row, region_row) in regions.iter().enumerate() {
+            for (col, region) in region_row.iter().enumerate() {
+                self.regions[row][col] = *region;
+            }
+        }
+    }
+
+    fn clear_board(&mut self) {
+        self.marks = [[0; QUEENS_MAX_SIZE]; QUEENS_MAX_SIZE];
+        self.selected = (0, 0);
+        self.undo.clear();
+        self.won = false;
+    }
+
     fn hint(&mut self) -> bool {
-        for (row, solution_col) in QUEENS_SOLUTION.iter().enumerate() {
+        for (row, solution_col) in self.solution.iter().take(self.size).enumerate() {
             if !self.queens().iter().any(|(queen_row, _)| *queen_row == row) {
                 return self.place(row, *solution_col);
             }
@@ -1460,12 +2112,12 @@ impl QueensGame {
         if conflicts > 0 {
             format!("{conflicts} crowns are in conflict. Move or remove a crown.")
         } else {
-            format!("{} of {} crowns placed.", self.count(), QUEENS_SIZE)
+            format!("{} of {} crowns placed.", self.count(), self.size)
         }
     }
 
     fn scene(&self, revision: u64) -> Scene2DScene {
-        let size = 8;
+        let size = self.size;
         let pad = 18.0;
         let cell = 48.0;
         let gap = 2.0;
@@ -1497,9 +2149,18 @@ impl QueensGame {
             None,
             None,
         ));
-        for (row, (marks_row, conflicts_row)) in self.marks.iter().zip(conflicts.iter()).enumerate()
+        for (row, (marks_row, conflicts_row)) in self
+            .marks
+            .iter()
+            .zip(conflicts.iter())
+            .enumerate()
+            .take(size)
         {
-            for (col, (&mark, &conflict)) in marks_row.iter().zip(conflicts_row.iter()).enumerate()
+            for (col, (&mark, &conflict)) in marks_row
+                .iter()
+                .zip(conflicts_row.iter())
+                .enumerate()
+                .take(size)
             {
                 let x = pad + col as f32 * (cell + gap);
                 let y = pad + row as f32 * (cell + gap);
@@ -1510,7 +2171,7 @@ impl QueensGame {
                     _ => "open",
                 };
                 let selected = self.selected == (row, col);
-                let region = Self::region(row, col);
+                let region = self.region(row, col);
                 scene.nodes.push(rounded_node(
                     &format!("queens-cell-{row}-{col}"),
                     Some(format!("queens-cell-{row}-{col}")),
@@ -2791,7 +3452,12 @@ impl TetrisGame {
     }
 }
 
-fn new_scene(width: f32, height: f32, label: &str, description: impl Into<String>) -> Scene2DScene {
+pub(super) fn new_scene(
+    width: f32,
+    height: f32,
+    label: &str,
+    description: impl Into<String>,
+) -> Scene2DScene {
     let mut scene = Scene2DScene::new(SceneRect::new(0.0, 0.0, width, height));
     scene.semantic = Some(Scene2DSemantic {
         role: Scene2DSemanticRole::Grid,
@@ -2823,6 +3489,14 @@ fn apply_board_palette(mut scene: Scene2DScene, light: bool) -> Scene2DScene {
 }
 
 fn remap_board_node(node: &mut Scene2DNode) {
+    // Game pieces carry semantic colors: bleaching them would turn black
+    // othello discs grey and make both chess armies unreadable.
+    if node.id.starts_with("othello-disc-")
+        || node.id.starts_with("chess-disc-")
+        || node.id.starts_with("chess-piece-")
+    {
+        return;
+    }
     match &mut node.kind {
         Scene2DNodeKind::Group { children } => {
             for child in children {
@@ -2898,7 +3572,7 @@ fn node(
     }
 }
 
-fn rounded_node(
+pub(super) fn rounded_node(
     id: &str,
     hit_id: Option<String>,
     rect: SceneRect,
@@ -2942,7 +3616,7 @@ fn rect_node(
     )
 }
 
-fn circle_node(
+pub(super) fn circle_node(
     id: &str,
     hit_id: Option<String>,
     center: ScenePoint,
@@ -2965,7 +3639,7 @@ fn circle_node(
     )
 }
 
-fn text_node(
+pub(super) fn text_node(
     id: &str,
     hit_id: Option<String>,
     origin: ScenePoint,
@@ -3005,7 +3679,7 @@ fn line_node(id: &str, start: ScenePoint, end: ScenePoint, edge: Scene2DStroke) 
     )
 }
 
-fn semantic(
+pub(super) fn semantic(
     role: Scene2DSemanticRole,
     label: impl Into<String>,
     value: impl Into<String>,
@@ -3021,19 +3695,19 @@ fn semantic(
     }
 }
 
-const fn color(r: f32, g: f32, b: f32) -> Scene2DColor {
+pub(super) const fn color(r: f32, g: f32, b: f32) -> Scene2DColor {
     Scene2DColor::rgb(r, g, b)
 }
-const fn color_alpha(r: f32, g: f32, b: f32, a: f32) -> Scene2DColor {
+pub(super) const fn color_alpha(r: f32, g: f32, b: f32, a: f32) -> Scene2DColor {
     Scene2DColor::rgba(r, g, b, a)
 }
-const fn brush(color: Scene2DColor) -> Scene2DBrush {
+pub(super) const fn brush(color: Scene2DColor) -> Scene2DBrush {
     Scene2DBrush::Solid { color }
 }
-const fn stroke(width: f32, color: Scene2DColor) -> Scene2DStroke {
+pub(super) const fn stroke(width: f32, color: Scene2DColor) -> Scene2DStroke {
     Scene2DStroke { width, color }
 }
-const fn transition(duration_ms: u64) -> Scene2DTransition {
+pub(super) const fn transition(duration_ms: u64) -> Scene2DTransition {
     Scene2DTransition {
         duration_ms,
         easing: Scene2DEasing::EaseOutCubic,
@@ -3054,7 +3728,16 @@ fn scene_point((x, y): (f32, f32)) -> ScenePoint {
     ScenePoint::new(x, y)
 }
 
-fn inset_rect(rect: SceneRect, inset: f32) -> SceneRect {
+/// `SplitMix64` step for the games' casual randomness (no RNG dependency).
+pub(super) fn next_random(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut value = *state;
+    value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    value ^ (value >> 31)
+}
+
+pub(super) fn inset_rect(rect: SceneRect, inset: f32) -> SceneRect {
     SceneRect::new(
         rect.x + inset,
         rect.y + inset,
@@ -3069,7 +3752,7 @@ mod tests {
 
     fn replace_retained_scene(
         surfaces: &[Scene2DState],
-        revisions: &mut [u64; 6],
+        revisions: &mut [u64; 8],
         index: usize,
         mut scene: Scene2DScene,
     ) {
@@ -3081,23 +3764,183 @@ mod tests {
     }
 
     #[test]
-    fn zip_hint_follows_a_valid_checkpoint_ordered_hamiltonian_path() {
-        let mut game = ZipGame::default();
-        for cell in ZIP_SOLUTION {
-            assert!(game.step(cell));
+    fn every_game_section_maps_to_its_game_and_back() {
+        for game in GameKind::ALL {
+            let section = game.section();
+            assert!(section.is_game());
+            assert_eq!(game_kind_for_section(section), Some(game));
         }
-        assert!(game.won);
-        assert_eq!(game.path.len(), ZIP_ROWS * ZIP_COLS);
         assert_eq!(
-            game.path.iter().copied().collect::<HashSet<_>>().len(),
-            ZIP_ROWS * ZIP_COLS
+            game_kind_for_section(crate::showcase::ShowcaseSection::Buttons),
+            None
         );
+    }
+
+    #[gpui::test]
+    fn game_dropdown_picks_apply_and_close(cx: &mut gpui::TestAppContext) {
+        use gpui::AppContext;
+        let games = cx.new(GamesShowcase::new);
+        games.update(cx, |games, cx| {
+            games.select_open.insert(GameSelect::OthelloMode, true);
+            games.apply_select(GameSelect::OthelloMode, "two", cx);
+            assert_eq!(games.othello.mode, OthelloMode::TwoPlayer);
+            assert_eq!(
+                games.select_open.get(&GameSelect::OthelloMode),
+                Some(&false)
+            );
+            games.select_open.insert(GameSelect::ChessDifficulty, true);
+            games.apply_select(GameSelect::ChessDifficulty, "hard", cx);
+            assert_eq!(games.chess.difficulty, ChessDifficulty::Hard);
+            assert_eq!(
+                games.select_open.get(&GameSelect::ChessDifficulty),
+                Some(&false)
+            );
+            // Unknown values still close the dropdown without touching the game.
+            games.select_open.insert(GameSelect::OthelloMode, true);
+            games.apply_select(GameSelect::OthelloMode, "unknown", cx);
+            assert_eq!(games.othello.mode, OthelloMode::TwoPlayer);
+            assert_eq!(
+                games.select_open.get(&GameSelect::OthelloMode),
+                Some(&false)
+            );
+            games.select_open.insert(GameSelect::QueensSize, true);
+            games.apply_select(GameSelect::QueensSize, "6", cx);
+            assert_eq!(games.queens.size, 6);
+            assert_eq!(games.select_open.get(&GameSelect::QueensSize), Some(&false));
+        });
+    }
+
+    #[test]
+    fn light_palette_preserves_piece_colors_but_remaps_boards() {
+        for scene in [
+            OthelloGame::default().scene(1),
+            ChessGame::default().scene(1),
+        ] {
+            let remapped = apply_board_palette(scene.clone(), true);
+            let mut pieces = 0;
+            for (before, after) in scene.nodes.iter().zip(remapped.nodes.iter()) {
+                assert_eq!(before.id, after.id);
+                let exempt = before.id.starts_with("othello-disc-")
+                    || before.id.starts_with("chess-disc-")
+                    || before.id.starts_with("chess-piece-");
+                if exempt {
+                    pieces += 1;
+                    assert_eq!(
+                        format!("{:?}", before.kind),
+                        format!("{:?}", after.kind),
+                        "{} must keep its game colors",
+                        before.id
+                    );
+                }
+            }
+            assert!(pieces > 0, "expected exempt piece nodes in the scene");
+        }
+        let scene = OthelloGame::default().scene(1);
+        let remapped = apply_board_palette(scene.clone(), true);
+        let before = scene
+            .nodes
+            .iter()
+            .find(|node| node.id == "othello-well")
+            .expect("othello well exists");
+        let after = remapped
+            .nodes
+            .iter()
+            .find(|node| node.id == "othello-well")
+            .expect("remapped othello well exists");
+        assert_ne!(
+            format!("{:?}", before.kind),
+            format!("{:?}", after.kind),
+            "structural board fills still remap to the light palette"
+        );
+    }
+
+    fn key_down(key: &str) -> Scene2DInput {
+        Scene2DInput::Key {
+            phase: Scene2DKeyPhase::Down,
+            key: key.to_owned(),
+            repeat: false,
+            modifiers: Vec::new(),
+            timestamp_ns: 0,
+        }
+    }
+
+    #[test]
+    fn tetris_arrow_keys_move_a_running_piece() {
+        let mut tetris = TetrisGame::default();
+        tetris.handle(key_down("ArrowLeft"));
+        assert_eq!((tetris.row, tetris.col), (0, 3));
+        assert!(tetris.new_game());
+        let col = tetris.col;
+        tetris.handle(key_down("ArrowLeft"));
+        assert_eq!(tetris.col, col - 1);
+        tetris.handle(key_down("ArrowRight"));
+        assert_eq!(tetris.col, col);
+        let row = tetris.row;
+        tetris.handle(key_down("ArrowDown"));
+        assert!(tetris.row >= row);
+        tetris.handle(key_down("ArrowUp"));
+        assert_eq!(tetris.rotation, 1);
+    }
+
+    #[gpui::test]
+    fn tetris_action_buttons_start_pause_and_drop(cx: &mut gpui::TestAppContext) {
+        use gpui::AppContext;
+        let games = cx.new(GamesShowcase::new);
+        games.update(cx, |games, cx| {
+            assert!(!games.tetris.running);
+            games.apply_action(GameKind::Tetris, GameAction::Pause, cx);
+            assert!(games.tetris.running);
+            assert!(!games.tetris.paused);
+            games.apply_action(GameKind::Tetris, GameAction::Drop, cx);
+            assert!(games.tetris.running);
+            games.apply_action(GameKind::Tetris, GameAction::New, cx);
+            assert!(games.tetris.running);
+            assert_eq!(games.tetris.score, 0);
+        });
+    }
+
+    #[test]
+    fn zip_hint_follows_a_valid_checkpoint_ordered_hamiltonian_path() {
+        let levels = zip_levels();
+        assert_eq!(levels.len(), 3);
+        for (index, level) in levels.iter().enumerate() {
+            let mut game = ZipGame {
+                level: index,
+                ..ZipGame::default()
+            };
+            for cell in level.solution.clone() {
+                assert!(game.step(cell), "level {index} walks its solution");
+            }
+            assert!(game.won, "level {index} wins on a full cover");
+            assert_eq!(game.path.len(), level.cell_count());
+            assert_eq!(
+                game.path.iter().copied().collect::<HashSet<_>>().len(),
+                level.cell_count()
+            );
+        }
+    }
+
+    #[test]
+    fn zip_next_level_cycles_board_sizes_and_clears_the_path() {
+        let mut game = ZipGame::default();
+        assert_eq!(game.level, ZIP_DEFAULT_LEVEL);
+        assert_eq!(game.level_data().label, "5 x 5 Classic");
+        assert!(game.step(game.level_data().start()));
+        assert!(game.next_level());
+        assert_eq!(game.level_data().label, "6 x 6 Challenge");
+        assert!(game.path.is_empty());
+        assert!(!game.won);
+        assert!(game.next_level());
+        assert_eq!(game.level_data().label, "4 x 4 Starter");
+        assert!(game.next_level());
+        assert_eq!(game.level, ZIP_DEFAULT_LEVEL);
     }
 
     #[test]
     fn zip_head_uses_a_stable_translated_node_and_rounded_path_joints() {
         let mut game = ZipGame::default();
-        assert!(game.step(ZIP_START));
+        let start = game.level_data().start();
+        assert!(game.step(start));
         let first = game.scene(1);
         assert!(game.step((0, 1)));
         let second = game.scene(2);
@@ -3125,7 +3968,7 @@ mod tests {
     #[test]
     fn queens_hint_satisfies_rows_columns_regions_and_touch_rule() {
         let mut game = QueensGame::default();
-        for _ in 0..QUEENS_SIZE {
+        for _ in 0..game.size {
             assert!(game.hint());
         }
         assert!(game.won);
@@ -3137,7 +3980,7 @@ mod tests {
                 .map(|(row, _)| *row)
                 .collect::<HashSet<_>>()
                 .len(),
-            QUEENS_SIZE
+            game.size
         );
         for first in 0..queens.len() {
             for second in first + 1..queens.len() {
@@ -3154,56 +3997,121 @@ mod tests {
                 .map(|(_, col)| *col)
                 .collect::<HashSet<_>>()
                 .len(),
-            QUEENS_SIZE
+            game.size
         );
         assert_eq!(
             queens
                 .iter()
-                .map(|(row, col)| QueensGame::region(*row, *col))
+                .map(|(row, col)| game.region(*row, *col))
                 .collect::<HashSet<_>>()
                 .len(),
-            QUEENS_SIZE
+            game.size
         );
     }
 
-    #[test]
-    fn queens_regions_are_connected_and_solution_uses_each_region_once() {
-        for (region, solution_col) in QUEENS_SOLUTION.iter().enumerate() {
-            let cells = (0..QUEENS_SIZE)
-                .flat_map(|row| (0..QUEENS_SIZE).map(move |col| (row, col)))
-                .filter(|(row, col)| QueensGame::region(*row, *col) == region)
+    fn assert_queens_puzzle_is_solvable(game: &QueensGame) {
+        // Solution crowns obey the placement rules.
+        for first in 0..game.size {
+            for second in first + 1..game.size {
+                assert_ne!(game.solution[first], game.solution[second]);
+                if second == first + 1 {
+                    assert_ne!(game.solution[first].abs_diff(game.solution[second]), 1);
+                }
+            }
+        }
+        // Every cell belongs to exactly one connected region, and each
+        // solution crown keeps the region matching its row.
+        for (region, solution_col) in game.solution.iter().take(game.size).enumerate() {
+            let cells = (0..game.size)
+                .flat_map(|row| (0..game.size).map(move |col| (row, col)))
+                .filter(|(row, col)| game.region(*row, *col) == region)
                 .collect::<HashSet<_>>();
             assert!(!cells.is_empty(), "region {region} must contain cells");
-            assert_eq!(cells.len(), QUEENS_SIZE, "regions have equal area");
             let start = *cells.iter().next().unwrap();
             let mut visited = HashSet::from([start]);
             let mut pending = VecDeque::from([start]);
             while let Some((row, col)) = pending.pop_front() {
-                for neighbor in [
-                    row.checked_sub(1).map(|next| (next, col)),
-                    (row + 1 < QUEENS_SIZE).then_some((row + 1, col)),
-                    col.checked_sub(1).map(|next| (row, next)),
-                    (col + 1 < QUEENS_SIZE).then_some((row, col + 1)),
-                ]
-                .into_iter()
-                .flatten()
-                {
+                for neighbor in queen_neighbors(row, col, game.size) {
                     if cells.contains(&neighbor) && visited.insert(neighbor) {
                         pending.push_back(neighbor);
                     }
                 }
             }
             assert_eq!(visited, cells, "region {region} must be connected");
-            assert_eq!(QueensGame::region(region, *solution_col), region);
+            assert_eq!(game.region(region, *solution_col), region);
         }
+    }
+
+    #[test]
+    fn queens_regions_are_connected_and_solution_uses_each_region_once() {
+        let mut game = QueensGame::default();
+        for _ in 0..4 {
+            assert_queens_puzzle_is_solvable(&game);
+            assert!(game.new_puzzle());
+        }
+        assert_queens_puzzle_is_solvable(&game);
+    }
+
+    #[test]
+    fn queens_generator_is_deterministic_per_seed() {
+        for size in QUEENS_SIZES {
+            let mut first_rng = QUEENS_FIRST_SEED;
+            let mut second_rng = QUEENS_FIRST_SEED;
+            assert_eq!(
+                generate_queens_puzzle(size, &mut first_rng),
+                generate_queens_puzzle(size, &mut second_rng)
+            );
+        }
+    }
+
+    #[test]
+    fn queens_size_picker_deals_solvable_boards_and_rejects_unknown_sizes() {
+        let mut game = QueensGame::default();
+        assert_eq!(game.size, QUEENS_DEFAULT_SIZE);
+        for size in QUEENS_SIZES {
+            assert!(game.place(0, 0));
+            assert!(game.select_size(&size.to_string()));
+            assert_eq!(game.size, size);
+            assert!(game.queens().is_empty());
+            assert!(game.undo.is_empty());
+            assert_queens_puzzle_is_solvable(&game);
+            // Hints solve the picked size end to end.
+            for _ in 0..size {
+                assert!(game.hint());
+            }
+            assert!(game.won);
+            assert!(game.is_valid());
+        }
+        assert!(!game.select_size("9"));
+        assert!(!game.select_size("tiny"));
+        assert_eq!(game.size, QUEENS_SIZES[QUEENS_SIZES.len() - 1]);
+    }
+
+    #[test]
+    fn queens_new_puzzle_deals_a_fresh_solvable_board() {
+        let mut game = QueensGame::default();
+        let first_regions = game.regions;
+        assert!(game.place(0, 0));
+        assert!(game.new_puzzle());
+        assert!(game.queens().is_empty());
+        assert!(game.undo.is_empty());
+        assert!(!game.won);
+        assert_ne!(game.regions, first_regions);
+        assert_queens_puzzle_is_solvable(&game);
+        // Reset clears marks but keeps the dealt puzzle.
+        assert!(game.place(1, 1));
+        assert!(game.reset());
+        assert!(game.queens().is_empty());
+        assert_queens_puzzle_is_solvable(&game);
     }
 
     #[test]
     fn repeated_queens_and_sudoku_edits_keep_history_bounded() {
         let mut queens = QueensGame::default();
+        let size = queens.size;
         for turn in 0..(HISTORY_LIMIT + 32) {
-            let row = turn % QUEENS_SIZE;
-            let col = (turn / QUEENS_SIZE) % QUEENS_SIZE;
+            let row = turn % size;
+            let col = (turn / size) % size;
             assert!(queens.place(row, col));
         }
         assert_eq!(queens.undo.len(), HISTORY_LIMIT);
@@ -3236,13 +4144,14 @@ mod tests {
     fn accessibility_activation_uses_cells_and_tetris_controls_are_one_shot() {
         use gpui_ui_kit::scene2d::Scene2DGridCell;
 
+        let mut zip = ZipGame::default();
+        let zip_cols = zip.level_data().cols as u32;
         let cell = |row: u32, column: u32| Scene2DGridCell {
             row,
             column,
-            index: row * ZIP_COLS as u32 + column,
+            index: row * zip_cols + column,
             id: format!("r{row}c{column}"),
         };
-        let mut zip = ZipGame::default();
         assert!(zip.handle(Scene2DInput::Activate {
             id: "zip-cell-0-0".to_owned(),
             hit_id: Some("zip-cell-0-0".to_owned()),
@@ -3429,6 +4338,8 @@ mod tests {
         let mut queens = QueensGame::default();
         let mut sudoku = SudokuGame::default();
         let mut tetris = TetrisGame::default();
+        let mut chess = ChessGame::default();
+        let mut othello = OthelloGame::default();
         let surfaces = vec![
             Scene2DState::new(zip.scene(1)).expect("initial Zip scene"),
             Scene2DState::new(queens.scene(1)).expect("initial Queens scene"),
@@ -3436,11 +4347,14 @@ mod tests {
             Scene2DState::new(tetris.scene(1)).expect("initial Tetris scene"),
             Scene2DState::new(tetris.preview_scene(1)).expect("initial preview scene"),
             Scene2DState::new(tetris.controls_scene(1)).expect("initial controls scene"),
+            Scene2DState::new(chess.scene(1)).expect("initial Chess scene"),
+            Scene2DState::new(othello.scene(1)).expect("initial Othello scene"),
         ];
         // Caps reflect scene composition: Queens uses at most 64 cells, 64
-        // marks, and 64 conflict rings; Sudoku can show 51 × 9 candidates.
-        let surface_limits = [128, 256, 1_024, 256, 32, 16];
-        let mut revisions = [1; 6];
+        // marks, and 64 conflict rings; Sudoku can show 51 × 9 candidates;
+        // Chess and Othello stay under 64 cells plus pieces and highlights.
+        let surface_limits = [128, 256, 1_024, 256, 32, 16, 256, 256];
+        let mut revisions = [1; 8];
         let deadline = Instant::now() + Duration::from_secs(seconds);
         let mut cycle = 0_u64;
         let mut active_game = GameKind::Zip;
@@ -3454,7 +4368,8 @@ mod tests {
                         zip.reset();
                     }
                     if zip.path.is_empty() {
-                        zip.step(ZIP_START);
+                        let start = zip.level_data().start();
+                        zip.step(start);
                     } else if game_turn.is_multiple_of(7) {
                         zip.undo();
                     } else {
@@ -3466,8 +4381,8 @@ mod tests {
                     if game_turn.is_multiple_of(512) {
                         queens.reset();
                     }
-                    let row = game_turn as usize % QUEENS_SIZE;
-                    let col = game_turn as usize / QUEENS_SIZE % QUEENS_SIZE;
+                    let row = game_turn as usize % queens.size;
+                    let col = game_turn as usize / queens.size % queens.size;
                     queens.place(row, col);
                     if game_turn.is_multiple_of(9) {
                         queens.undo();
@@ -3520,12 +4435,34 @@ mod tests {
                     assert!(tetris.contacts.is_empty());
                     assert!(tetris.keys.is_empty());
                 }
+                GameKind::Chess => {
+                    if game_turn.is_multiple_of(64) {
+                        chess.reset();
+                    } else if game_turn.is_multiple_of(9) {
+                        chess.undo();
+                    } else if game_turn.is_multiple_of(17) {
+                        chess.flip();
+                    } else {
+                        chess.ai_move();
+                    }
+                    replace_retained_scene(&surfaces, &mut revisions, 6, chess.scene(0));
+                }
+                GameKind::Othello => {
+                    if game_turn.is_multiple_of(64) {
+                        othello.reset();
+                    } else if game_turn.is_multiple_of(9) {
+                        othello.undo();
+                    } else {
+                        othello.ai_move();
+                    }
+                    replace_retained_scene(&surfaces, &mut revisions, 7, othello.scene(0));
+                }
             }
 
             assert!(zip.undo.len() <= HISTORY_LIMIT);
             assert!(queens.undo.len() <= HISTORY_LIMIT);
             assert!(sudoku.history.len() <= HISTORY_LIMIT);
-            assert_eq!(surfaces.len(), 6, "surface cache must stay bounded");
+            assert_eq!(surfaces.len(), 8, "surface cache must stay bounded");
             for (index, surface) in surfaces.iter().enumerate() {
                 let scene = surface.scene();
                 assert_eq!(scene.revision, revisions[index]);
@@ -3549,7 +4486,9 @@ mod tests {
                 GameKind::Zip => GameKind::Queens,
                 GameKind::Queens => GameKind::Sudoku,
                 GameKind::Sudoku => GameKind::Tetris,
-                GameKind::Tetris => GameKind::Zip,
+                GameKind::Tetris => GameKind::Chess,
+                GameKind::Chess => GameKind::Othello,
+                GameKind::Othello => GameKind::Zip,
             };
             if previous_game == GameKind::Tetris && active_game != GameKind::Tetris {
                 tetris.release_all();
@@ -3560,7 +4499,7 @@ mod tests {
         }
 
         eprintln!(
-            "headless native controller soak: {seconds}s, {cycle} game-switch cycles, 6 retained surfaces, max {max_retained_nodes} nodes"
+            "headless native controller soak: {seconds}s, {cycle} game-switch cycles, 8 retained surfaces, max {max_retained_nodes} nodes"
         );
     }
 }

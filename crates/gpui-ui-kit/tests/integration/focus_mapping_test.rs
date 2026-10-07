@@ -4,6 +4,7 @@ use gpui::{
     Window, div,
 };
 use gpui_ui_kit::accessibility::{AccessibilityNode, AccessibilityTree, AriaProps, AriaRole};
+#[cfg(debug_assertions)]
 use gpui_ui_kit::{Button, Input, TabItem, Tabs};
 use std::cell::Cell;
 use std::rc::Rc;
@@ -215,8 +216,10 @@ async fn duplicate_element_ids_with_distinct_handles_are_diagnosed(cx: &mut Test
     draw(cx, window);
 }
 
+#[cfg(debug_assertions)]
 struct FocusMappingComponentsView;
 
+#[cfg(debug_assertions)]
 impl Render for FocusMappingComponentsView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
@@ -230,6 +233,7 @@ impl Render for FocusMappingComponentsView {
     }
 }
 
+#[cfg(debug_assertions)]
 #[gpui::test]
 async fn components_register_their_stable_element_ids(cx: &mut TestAppContext) {
     let window = cx.add_window(|_window, _cx| FocusMappingComponentsView);

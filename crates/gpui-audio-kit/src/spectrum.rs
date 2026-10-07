@@ -3,6 +3,7 @@
 mod meter_data;
 mod meter_fifo;
 mod misc;
+mod peak_hold;
 mod render;
 mod spectrum_axis_theme;
 mod spectrum_colors;

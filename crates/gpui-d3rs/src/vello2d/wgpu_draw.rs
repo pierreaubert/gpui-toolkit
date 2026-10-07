@@ -174,6 +174,22 @@ pub fn clip_src_rect(
     )
 }
 
+/// Pops the init validation scope, blocking for the result (native only:
+/// smol has no wasm32 support and blocking the browser main thread throws).
+#[cfg(not(target_family = "wasm"))]
+fn pop_error_scope(scope: wgpu::ErrorScopeGuard) -> Option<wgpu::Error> {
+    smol::block_on(scope.pop())
+}
+
+/// Validation diagnosis is unavailable on wasm: popping blocks, and the
+/// env-gated scope is never created there (no process environment), so
+/// dropping it is a no-op that keeps the type agreeing across targets.
+#[cfg(target_family = "wasm")]
+fn pop_error_scope(scope: wgpu::ErrorScopeGuard) -> Option<wgpu::Error> {
+    drop(scope);
+    None
+}
+
 fn shared_gpu_state(ctx: &WgpuContext) -> Option<Rc<SharedGpuState>> {
     let device_id = Arc::as_ptr(&ctx.device) as usize;
     SHARED_GPU_STATES.with(|states| {
@@ -200,7 +216,7 @@ fn shared_gpu_state(ctx: &WgpuContext) -> Option<Rc<SharedGpuState>> {
                 ..Default::default()
             },
         );
-        if let Some(error) = error_scope.and_then(|scope| smol::block_on(scope.pop())) {
+        if let Some(error) = error_scope.and_then(pop_error_scope) {
             log::error!("vello2d: renderer initialization validation failed: {error}");
             return None;
         }

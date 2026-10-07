@@ -1,3 +1,4 @@
+use super::peak_hold::SpectrumPeakHold;
 use super::spectrum_colors::SpectrumColors;
 use gpui::prelude::*;
 use gpui::*;
@@ -5,6 +6,14 @@ use std::cell::RefCell;
 use std::panic;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::Instant;
+
+struct SpectrumPaintState {
+    scratch: Vec<f32>,
+    peaks: SpectrumPeakHold,
+    started: Instant,
+    frequency_range: (f32, f32),
+}
 
 use d3rs::render2d::{Renderer2D, VelloBackend};
 
@@ -29,6 +38,8 @@ pub struct SpectrumElement {
     pub(super) colors: SpectrumColors,
     pub(super) height: Pixels,
     pub(super) bar_gap: Pixels,
+    peak_hold: bool,
+    peak_color: Option<Rgba>,
     renderer_2d: Renderer2D,
     vello_backend: VelloBackend,
     #[cfg(feature = "vello")]
@@ -50,6 +61,8 @@ impl SpectrumElement {
             colors: SpectrumColors::default(),
             height: px(120.0),
             bar_gap: px(1.0),
+            peak_hold: false,
+            peak_color: None,
             renderer_2d: Renderer2D::default(),
             vello_backend: VelloBackend::default(),
             #[cfg(feature = "vello")]
@@ -101,6 +114,18 @@ impl SpectrumElement {
 
     pub fn bar_gap(mut self, gap: Pixels) -> Self {
         self.bar_gap = gap;
+        self
+    }
+
+    /// Show per-bar peaks held for one second, then falling at 20 dB/s.
+    pub fn peak_hold(mut self, enabled: bool) -> Self {
+        self.peak_hold = enabled;
+        self
+    }
+
+    /// Set the peak marker color to contrast with the live bars.
+    pub fn peak_color(mut self, color: Rgba) -> Self {
+        self.peak_color = Some(color);
         self
     }
 
@@ -228,16 +253,34 @@ impl Element for SpectrumElement {
         // Elements are recreated on every view render. Retain the scratch
         // buffer under the element's GlobalElementId so the backing allocation
         // survives those reconstructions and GPUI releases it with the element.
-        let scratch = if let Some(id) = id {
-            window.with_element_state::<Rc<RefCell<Vec<f32>>>, _>(id, |state, _window| {
-                let state = state.unwrap_or_else(|| Rc::new(RefCell::new(Vec::new())));
+        let make_state = || {
+            Rc::new(RefCell::new(SpectrumPaintState {
+                scratch: Vec::new(),
+                peaks: SpectrumPeakHold::default(),
+                started: Instant::now(),
+                frequency_range: (self.min_freq, self.max_freq),
+            }))
+        };
+        let state = if let Some(id) = id {
+            window.with_element_state::<Rc<RefCell<SpectrumPaintState>>, _>(id, |state, _window| {
+                let state = state.unwrap_or_else(make_state);
                 (Rc::clone(&state), state)
             })
         } else {
-            Rc::new(RefCell::new(Vec::new()))
+            make_state()
         };
-        let mut scratch = scratch.borrow_mut();
-        self.update_scratch_heights(&mut scratch);
+        let mut state = state.borrow_mut();
+        self.update_scratch_heights(&mut state.scratch);
+        if state.frequency_range != (self.min_freq, self.max_freq) || !self.peak_hold {
+            state.peaks = SpectrumPeakHold::default();
+            state.frequency_range = (self.min_freq, self.max_freq);
+        }
+        if self.peak_hold {
+            let now = state.started.elapsed().as_secs_f64();
+            let SpectrumPaintState { scratch, peaks, .. } = &mut *state;
+            peaks.update(scratch, now);
+        }
+        let scratch = &state.scratch;
 
         #[cfg(feature = "vello")]
         if self.renderer_2d.is_vello() {
@@ -300,6 +343,21 @@ impl Element for SpectrumElement {
                     scene.fill_path(path, color_brush(color));
                 }
             }
+            if self.peak_hold {
+                for (index, &peak) in state.peaks.heights.iter().enumerate() {
+                    let (x0, x1) = bar_x_bounds(width, bar_count, self.bar_gap.into(), index);
+                    let y = (height * (1.0 - peak)).clamp(0.0, (height - 2.0).max(0.0));
+                    scene.fill_rect(
+                        Rect::new(
+                            f64::from(x0),
+                            f64::from(y),
+                            f64::from(x1),
+                            f64::from(y + 2.0),
+                        ),
+                        color_brush(self.peak_color.unwrap_or(self.colors.high)),
+                    );
+                }
+            }
             self.painter.set_backend(self.vello_backend);
             self.painter.paint_retained(id, &scene, bounds, window);
             return;
@@ -360,6 +418,24 @@ impl Element for SpectrumElement {
 
         if let Ok(path) = red_path.build() {
             window.paint_path(path, self.colors.high);
+        }
+        if self.peak_hold {
+            for (index, &peak) in state.peaks.heights.iter().enumerate() {
+                let (x0, x1) = bar_x_bounds(width, bar_count, gap, index);
+                let height: f32 = meter_height.into();
+                let y = (height * (1.0 - peak)).clamp(0.0, (height - 2.0).max(0.0));
+                window.paint_quad(PaintQuad {
+                    bounds: Bounds::new(
+                        point(bounds.origin.x + px(x0), bounds.origin.y + px(y)),
+                        size(px(x1 - x0), px(2.0)),
+                    ),
+                    corner_radii: Corners::default(),
+                    background: self.peak_color.unwrap_or(self.colors.high).into(),
+                    border_widths: Edges::default(),
+                    border_color: Hsla::transparent_black(),
+                    border_style: Default::default(),
+                });
+            }
         }
     }
 }

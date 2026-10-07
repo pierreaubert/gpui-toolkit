@@ -133,7 +133,14 @@ impl ShowcaseGroup {
                 ShowcaseSection::AudioVisuals,
                 ShowcaseSection::Scene2d,
             ],
-            ShowcaseGroup::Games => &[ShowcaseSection::Games],
+            ShowcaseGroup::Games => &[
+                ShowcaseSection::Zip,
+                ShowcaseSection::Queens,
+                ShowcaseSection::Sudoku,
+                ShowcaseSection::Tetris,
+                ShowcaseSection::Chess,
+                ShowcaseSection::Othello,
+            ],
         }
     }
 
@@ -228,7 +235,7 @@ Audio Visuals demonstrates Vello-backed spectrum, meters, potentiometers, and vo
             }
 
             ShowcaseGroup::Games => {
-                "Zip, Queens, Sudoku, and Tetris are playable native Scene2D games with keyboard, pointer, and touch controls."
+                "Zip, Queens, Sudoku, Tetris, Chess, and Othello are playable native Scene2D games with keyboard, pointer, and touch controls."
             }
         }
     }
@@ -255,6 +262,21 @@ mod tests {
                 "{group:?} should own at least one section"
             );
         }
+    }
+
+    #[test]
+    fn games_group_lists_each_playable_game() {
+        assert_eq!(
+            ShowcaseGroup::Games.sections(),
+            &[
+                ShowcaseSection::Zip,
+                ShowcaseSection::Queens,
+                ShowcaseSection::Sudoku,
+                ShowcaseSection::Tetris,
+                ShowcaseSection::Chess,
+                ShowcaseSection::Othello,
+            ]
+        );
     }
 
     #[test]

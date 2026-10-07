@@ -20,9 +20,9 @@ use crate::accessibility::{
 use gpui::{
     App, Bounds, BoxShadow, ContentMask, Corners, ElementId, InteractiveElement, IntoElement,
     KeyDownEvent, KeyUpEvent, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement,
-    PathBuilder, PathStyle, Pixels, PointerDevice, PointerEvent, RenderOnce, Rgba, SharedString,
-    StatefulInteractiveElement, StrokeOptions, Styled, TextAlign, Window, canvas, div, fill,
-    linear_color_stop, linear_gradient, point, px, quad, size,
+    PathBuilder, PathStyle, Pixels, Point, PointerDevice, PointerEvent, RenderOnce, Rgba,
+    SharedString, StatefulInteractiveElement, StrokeOptions, Styled, TextAlign, Window, canvas,
+    div, fill, linear_color_stop, linear_gradient, point, px, quad, size,
 };
 use std::cell::RefCell;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -1618,13 +1618,18 @@ fn paint_text(
             .text_system()
             .shape_line(text.content.into(), text_size, &[run], None)
     });
-    let origin = window_point(
+    let mut origin = window_point(
         text.origin.x,
         text.origin.y,
         node.transform,
         transform,
         bounds,
     );
+    // `ShapedLine::paint` aligns within `align_width` and falls back to the
+    // line's own width when it is `None`, which paints Center/Right text as if
+    // left-aligned at the origin. Shift the origin so the origin acts as the
+    // anchor point for markers that carry no width bound.
+    origin = aligned_text_origin(origin, text.align, line.width(), align_width);
     let align = match text.align {
         Scene2DTextAlign::Left => TextAlign::Left,
         Scene2DTextAlign::Center => TextAlign::Center,
@@ -1632,6 +1637,23 @@ fn paint_text(
     };
     let line_height = px(text.size * transform.scale() * transform_scale(node.transform) * 1.25);
     let _ = line.paint(origin, line_height, align, align_width, window, cx);
+}
+
+/// Anchors Center/Right text origins when no alignment width is set.
+fn aligned_text_origin(
+    origin: Point<Pixels>,
+    align: Scene2DTextAlign,
+    line_width: Pixels,
+    align_width: Option<Pixels>,
+) -> Point<Pixels> {
+    if align_width.is_some() {
+        return origin;
+    }
+    match align {
+        Scene2DTextAlign::Left => origin,
+        Scene2DTextAlign::Center => point(origin.x - line_width * 0.5, origin.y),
+        Scene2DTextAlign::Right => point(origin.x - line_width, origin.y),
+    }
 }
 
 fn rounded_rect_path(
@@ -1836,6 +1858,20 @@ mod tests {
         assert!(!semantic_is_actionable(&semantic, &scene, true));
         scene.input.pointer = true;
         assert!(!semantic_is_actionable(&semantic, &scene, false));
+    }
+
+    #[test]
+    fn unanchored_center_and_right_text_shift_by_the_line_width() {
+        let origin = point(px(100.0), px(50.0));
+        let centered = aligned_text_origin(origin, Scene2DTextAlign::Center, px(20.0), None);
+        assert_eq!(centered, point(px(90.0), px(50.0)));
+        let right = aligned_text_origin(origin, Scene2DTextAlign::Right, px(20.0), None);
+        assert_eq!(right, point(px(80.0), px(50.0)));
+        let left = aligned_text_origin(origin, Scene2DTextAlign::Left, px(20.0), None);
+        assert_eq!(left, origin);
+        let bounded =
+            aligned_text_origin(origin, Scene2DTextAlign::Center, px(20.0), Some(px(60.0)));
+        assert_eq!(bounded, origin);
     }
 
     #[test]
