@@ -14,6 +14,7 @@
 
 pub mod cli;
 pub mod component;
+pub mod config;
 pub mod doctor;
 pub mod eject;
 pub mod envelope;
@@ -30,11 +31,18 @@ pub mod upgrade;
 pub use cli::{Cli, CommandOutput, Commands, DetailArg, LayoutAction, ThemeAction, run_command};
 #[doc(inline)]
 pub use component::{
-    COMPONENT_DETAIL_TYPE, COMPONENT_LIST_TYPE, COMPONENT_PROPS_TYPE, ComponentDetail,
-    ComponentEntry, ComponentList, ComponentProps, DEFAULT_SEARCH_LIMIT, DetailLevel, SEARCH_TYPE,
-    SearchHit, SearchResults, component_detail, component_list, component_props,
-    parse_detail_level, render_detail_text, render_list_text, render_props_text,
-    render_search_text, search,
+    COMPONENT_BATCH_TYPE, COMPONENT_DETAIL_TYPE, COMPONENT_LIST_TYPE, COMPONENT_PROPS_TYPE,
+    ComponentBatch, ComponentBatchItem, ComponentDetail, ComponentEntry, ComponentList,
+    ComponentProps, DEFAULT_SEARCH_LIMIT, DetailLevel, SEARCH_TYPE, SearchHit, SearchResults,
+    component_batch, component_detail, component_list, component_props, parse_detail_level,
+    render_batch_text, render_detail_text, render_list_text, render_props_text, render_search_text,
+    search,
+};
+#[doc(inline)]
+pub use config::{
+    CONFIG_FILE_NAME, LayoutComponentConfig, LayoutConfig, LoadedConfig, ProjectConfig,
+    ToolkitConfig, UpgradeConfig, UpgradeRuleConfig, discover_config, load_config, parse_config,
+    read_config_file,
 };
 #[doc(inline)]
 pub use doctor::{
@@ -65,8 +73,8 @@ pub use layout::{
 };
 #[doc(inline)]
 pub use manifest::{
-    COMMANDS, MANIFEST_TYPE, Manifest, ManifestArgument, ManifestCommand, ManifestOption,
-    build_manifest, command_static,
+    COMMANDS, MANIFEST_TYPE, Manifest, ManifestArgument, ManifestCommand, ManifestExitCode,
+    ManifestOption, build_manifest, command_static,
 };
 #[doc(inline)]
 pub use template::{
@@ -84,6 +92,7 @@ pub use theme::{
 };
 #[doc(inline)]
 pub use upgrade::{
-    MIGRATIONS, MigrationNote, UPGRADE_LIST_TYPE, UpgradeList, render_upgrade_list_text,
-    upgrade_list,
+    MIGRATIONS, MigrationNote, UPGRADE_DETECT_TYPE, UPGRADE_LIST_TYPE, UpgradeDetect,
+    UpgradeFinding, UpgradeList, UpgradeRule, builtin_rules, render_upgrade_detect_text,
+    render_upgrade_list_text, upgrade_detect, upgrade_list,
 };

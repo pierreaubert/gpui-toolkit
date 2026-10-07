@@ -1,16 +1,18 @@
 //! Read-only health checks with an exit-code contract.
 //!
-//! [`run_doctor`] aggregates checks over a directory: the component
-//! catalog builds, every exported story resolves, agent docs carry the
-//! managed catalog block, and the checkout root is detectable. Each
-//! check reports `[ok]`, `[warn]`, `[fail]`, or `[info]` with an
-//! actionable `fix` when one exists. The exit code is the contract:
+//! [`run_doctor`] aggregates checks over a directory: `toolkit.toml`
+//! (when present) parses strictly, the component catalog builds,
+//! every exported story resolves, agent docs carry the managed catalog
+//! block, and the checkout root is detectable. Each check reports
+//! `[ok]`, `[warn]`, `[fail]`, or `[info]` with an actionable `fix`
+//! when one exists. The exit code is the contract:
 //! [`DoctorReport::failed`] is true when any check fails, and the CLI
 //! exits 1 in that case, so `gpui-toolkit doctor` works as a raw CI
 //! step. Warnings never fail.
 
 // Rust guideline compliant 2026-02-21
 
+use crate::config::{discover_config, read_config_file};
 use gpui_component_lab::{
     UI_KIT_EXPORTED_COMPONENT_STORIES, UI_KIT_SHOWCASE_STORIES, builtin_story_registry,
 };
@@ -134,7 +136,8 @@ impl DoctorReport {
 /// assert!(!report.checks.is_empty());
 /// ```
 pub fn run_doctor(dir: &Path) -> DoctorReport {
-    let mut checks = Vec::with_capacity(4);
+    let mut checks = Vec::with_capacity(5);
+    checks.push(config_check(dir));
     let registry = builtin_story_registry();
     match &registry {
         Ok(registry) if registry.is_empty() => checks.push(DoctorCheck {
@@ -269,6 +272,57 @@ pub fn run_doctor(dir: &Path) -> DoctorReport {
         }
     }
     DoctorReport { checks, summary }
+}
+
+/// Checks `toolkit.toml` discovery and strict parsing.
+///
+/// Missing config is informational (built-ins apply); an unparsable or
+/// invalid config fails, since silently ignoring project settings is
+/// worse than stopping.
+fn config_check(dir: &Path) -> DoctorCheck {
+    let id = String::from("config");
+    let label = String::from("Project config");
+    match discover_config(dir) {
+        None => DoctorCheck {
+            id,
+            status: DoctorStatus::Info,
+            label,
+            message: format!(
+                "no toolkit.toml above {}; built-in defaults apply",
+                dir.display()
+            ),
+            fix: None,
+        },
+        Some(path) => match read_config_file(&path) {
+            Ok(loaded) => match loaded.customs() {
+                Ok(customs) => DoctorCheck {
+                    id,
+                    status: DoctorStatus::Ok,
+                    label,
+                    message: format!(
+                        "{} valid ({} custom layout components)",
+                        path.display(),
+                        customs.len()
+                    ),
+                    fix: None,
+                },
+                Err(error) => DoctorCheck {
+                    id,
+                    status: DoctorStatus::Fail,
+                    label,
+                    message: format!("{}: {}", path.display(), error.message),
+                    fix: Some(format!("fix the reported error in {}", path.display())),
+                },
+            },
+            Err(error) => DoctorCheck {
+                id,
+                status: DoctorStatus::Fail,
+                label,
+                message: format!("{}: {}", path.display(), error.message),
+                fix: Some(format!("fix the reported error in {}", path.display())),
+            },
+        },
+    }
 }
 
 /// Renders a report as human-readable text.

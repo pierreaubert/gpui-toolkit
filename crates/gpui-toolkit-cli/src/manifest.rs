@@ -3,13 +3,21 @@
 //! [`build_manifest`] walks the clap command tree so mechanical facts
 //! (names, descriptions, flags, arguments) cannot drift from the parser.
 //! Hand-authored facts live in exactly one place: [`COMMANDS`], which
-//! records per-command JSON support and usage examples. A drift test
-//! asserts both directions — every clap subcommand appears in [`COMMANDS`]
-//! with at least one example, and every table entry names a real
-//! subcommand — so adding a command without documenting it fails CI.
+//! records per-command JSON support, response types, and usage examples.
+//! A drift test asserts both directions — every clap subcommand appears
+//! in [`COMMANDS`] with at least one example, and every table entry
+//! names a real subcommand — so adding a command without documenting it
+//! fails CI.
 
 // Rust guideline compliant 2026-02-21
 
+use crate::{
+    COMPONENT_BATCH_TYPE, COMPONENT_DETAIL_TYPE, COMPONENT_LIST_TYPE, COMPONENT_PROPS_TYPE,
+    DOCTOR_TYPE, EJECT_TYPE, GAP_REPORT_TYPE, INIT_TYPE, LAYOUT_CHECK_TYPE, LAYOUT_EXPAND_TYPE,
+    LAYOUT_GRAMMAR_TYPE, SEARCH_TYPE, TEMPLATE_COPY_TYPE, TEMPLATE_LIST_TYPE, TEMPLATE_SHOW_TYPE,
+    TEMPLATE_SKELETON_TYPE, THEME_BUILD_TYPE, THEME_CHECK_TYPE, THEME_LIST_TYPE,
+    THEME_TARGETS_TYPE, UPGRADE_DETECT_TYPE, UPGRADE_LIST_TYPE,
+};
 use clap::{Arg, ArgAction, Command};
 use serde::Serialize;
 
@@ -19,14 +27,17 @@ pub const MANIFEST_TYPE: &str = "manifest";
 /// Hand-authored facts for one subcommand.
 ///
 /// Mechanical facts (description, flags) derive from clap; this table
-/// carries what clap cannot know: whether the command honors `--json`
-/// and the examples agents copy.
+/// carries what clap cannot know: whether the command honors `--json`,
+/// the response types it emits, and the examples agents copy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CommandStatic {
     /// Subcommand name as spelled on the command line.
     pub name: &'static str,
     /// Whether `--json` yields a typed envelope for this command.
     pub json: bool,
+    /// Response discriminators, referencing the `*_TYPE` constants, plus
+    /// `"error"` for the failure envelope; empty for bare groups.
+    pub responses: &'static [&'static str],
     /// Copy-pasteable invocations; never empty.
     pub examples: &'static [&'static str],
 }
@@ -43,11 +54,13 @@ pub const COMMANDS: &[CommandStatic] = &[
     CommandStatic {
         name: "manifest",
         json: true,
+        responses: &[MANIFEST_TYPE, "error"],
         examples: &["gpui-toolkit manifest", "gpui-toolkit manifest --json"],
     },
     CommandStatic {
         name: "init",
         json: true,
+        responses: &[INIT_TYPE, "error"],
         examples: &[
             "gpui-toolkit init --dir ./my-app",
             "gpui-toolkit init --dir ./my-app --json",
@@ -56,15 +69,24 @@ pub const COMMANDS: &[CommandStatic] = &[
     CommandStatic {
         name: "component",
         json: true,
+        responses: &[
+            COMPONENT_LIST_TYPE,
+            COMPONENT_DETAIL_TYPE,
+            COMPONENT_PROPS_TYPE,
+            COMPONENT_BATCH_TYPE,
+            "error",
+        ],
         examples: &[
             "gpui-toolkit component --detail compact",
             "gpui-toolkit component ui-kit.button",
             "gpui-toolkit component ui-kit.button --props --json",
+            "gpui-toolkit component ui-kit.button ui-kit.input --json",
         ],
     },
     CommandStatic {
         name: "search",
         json: true,
+        responses: &[SEARCH_TYPE, "error"],
         examples: &[
             "gpui-toolkit search button",
             "gpui-toolkit search meter --limit 5 --json",
@@ -73,6 +95,13 @@ pub const COMMANDS: &[CommandStatic] = &[
     CommandStatic {
         name: "template",
         json: true,
+        responses: &[
+            TEMPLATE_LIST_TYPE,
+            TEMPLATE_SHOW_TYPE,
+            TEMPLATE_SKELETON_TYPE,
+            TEMPLATE_COPY_TYPE,
+            "error",
+        ],
         examples: &[
             "gpui-toolkit template",
             "gpui-toolkit template settings-page --skeleton",
@@ -82,6 +111,7 @@ pub const COMMANDS: &[CommandStatic] = &[
     CommandStatic {
         name: "eject",
         json: true,
+        responses: &[EJECT_TYPE, "error"],
         examples: &[
             "gpui-toolkit eject Button --into ./src/vendor",
             "gpui-toolkit eject NumberInput --into ./src/vendor --json",
@@ -90,16 +120,19 @@ pub const COMMANDS: &[CommandStatic] = &[
     CommandStatic {
         name: "theme",
         json: false,
+        responses: &[],
         examples: &["gpui-toolkit theme list"],
     },
     CommandStatic {
         name: "theme list",
         json: true,
+        responses: &[THEME_LIST_TYPE, "error"],
         examples: &["gpui-toolkit theme list", "gpui-toolkit theme list --json"],
     },
     CommandStatic {
         name: "theme build",
         json: true,
+        responses: &[THEME_BUILD_TYPE, THEME_CHECK_TYPE, "error"],
         examples: &[
             "gpui-toolkit theme build dark --out ./tokens",
             "gpui-toolkit theme build dark --out ./tokens --check --json",
@@ -108,6 +141,7 @@ pub const COMMANDS: &[CommandStatic] = &[
     CommandStatic {
         name: "theme targets",
         json: true,
+        responses: &[THEME_TARGETS_TYPE, "error"],
         examples: &[
             "gpui-toolkit theme targets dark",
             "gpui-toolkit theme targets nord --json",
@@ -116,16 +150,23 @@ pub const COMMANDS: &[CommandStatic] = &[
     CommandStatic {
         name: "doctor",
         json: true,
+        responses: &[DOCTOR_TYPE, "error"],
         examples: &["gpui-toolkit doctor", "gpui-toolkit doctor --json"],
     },
     CommandStatic {
         name: "upgrade",
         json: true,
-        examples: &["gpui-toolkit upgrade", "gpui-toolkit upgrade --json"],
+        responses: &[UPGRADE_LIST_TYPE, UPGRADE_DETECT_TYPE, "error"],
+        examples: &[
+            "gpui-toolkit upgrade",
+            "gpui-toolkit upgrade --json",
+            "gpui-toolkit upgrade --detect --dir ./src",
+        ],
     },
     CommandStatic {
         name: "gap-report",
         json: true,
+        responses: &[GAP_REPORT_TYPE, "error"],
         examples: &[
             "gpui-toolkit gap-report --area component DateRangePicker",
             "gpui-toolkit gap-report --area theme \"Dark sidebar\" --json",
@@ -134,11 +175,13 @@ pub const COMMANDS: &[CommandStatic] = &[
     CommandStatic {
         name: "layout",
         json: false,
+        responses: &[],
         examples: &["gpui-toolkit layout check \"V > B\\\"Hi\\\"\""],
     },
     CommandStatic {
         name: "layout check",
         json: true,
+        responses: &[LAYOUT_CHECK_TYPE, "error"],
         examples: &[
             "gpui-toolkit layout check \"V > B\\\"Hi\\\"\"",
             "gpui-toolkit layout check \"V > B\\\"Hi\\\"\" --json",
@@ -147,6 +190,7 @@ pub const COMMANDS: &[CommandStatic] = &[
     CommandStatic {
         name: "layout expand",
         json: true,
+        responses: &[LAYOUT_EXPAND_TYPE, "error"],
         examples: &[
             "gpui-toolkit layout expand \"V > B\\\"Hi\\\"\"",
             "gpui-toolkit layout expand \"V > B\\\"Hi\\\"\" --out ./src --json",
@@ -155,6 +199,7 @@ pub const COMMANDS: &[CommandStatic] = &[
     CommandStatic {
         name: "layout grammar",
         json: true,
+        responses: &[LAYOUT_GRAMMAR_TYPE, "error"],
         examples: &["gpui-toolkit layout grammar"],
     },
 ];
@@ -198,6 +243,8 @@ pub struct ManifestCommand {
     pub options: Vec<ManifestOption>,
     /// Whether `--json` yields a typed envelope.
     pub json: bool,
+    /// Response discriminators from [`COMMANDS`].
+    pub response_types: Vec<String>,
     /// Copy-pasteable invocations from [`COMMANDS`].
     pub examples: Vec<String>,
     /// Nested subcommands; empty for leaves.
@@ -205,10 +252,21 @@ pub struct ManifestCommand {
     pub subcommands: Vec<ManifestCommand>,
 }
 
+/// One process exit code and its meaning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManifestExitCode {
+    /// Numeric exit code.
+    pub code: i32,
+    /// What the code signals.
+    pub meaning: String,
+}
+
 /// Full CLI capability manifest.
 ///
 /// Agents read this instead of scraping `--help`: names, flags with
-/// types, JSON support, and examples in one typed payload.
+/// types, JSON support, response types, exit codes, and examples in one
+/// typed payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Manifest {
@@ -224,6 +282,8 @@ pub struct Manifest {
     pub commands: Vec<ManifestCommand>,
     /// Names of commands honoring `--json`.
     pub json_supported: Vec<String>,
+    /// Process exit codes shared by every command.
+    pub exit_codes: Vec<ManifestExitCode>,
 }
 
 /// Looks up hand-authored facts for a command path.
@@ -288,7 +348,26 @@ pub fn build_manifest(command: &Command) -> Manifest {
         global_options,
         commands,
         json_supported,
+        exit_codes: exit_codes(),
     }
+}
+
+/// Process exit codes shared by every command.
+///
+/// Mirrors `src/main.rs` plus clap usage errors: 0 succeeds, 1 fails
+/// (including doctor reports with failures), 2 rejects the invocation.
+fn exit_codes() -> Vec<ManifestExitCode> {
+    [
+        (0, "success"),
+        (1, "command failed, or doctor reported failures"),
+        (2, "usage error: invalid flags or arguments"),
+    ]
+    .into_iter()
+    .map(|(code, meaning)| ManifestExitCode {
+        code,
+        meaning: meaning.to_owned(),
+    })
+    .collect()
 }
 
 /// Builds one manifest entry, recursing into nested groups.
@@ -337,6 +416,7 @@ fn build_command(
         arguments,
         options,
         json: facts.json,
+        response_types: facts.responses.iter().map(ToString::to_string).collect(),
         examples: facts.examples.iter().map(ToString::to_string).collect(),
         subcommands,
     }

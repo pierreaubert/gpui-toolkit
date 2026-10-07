@@ -37,6 +37,8 @@ pub enum ErrorCode {
     LayoutParse,
     /// A layout expression is well-formed but invalid.
     LayoutInvalid,
+    /// `toolkit.toml` is missing, unreadable, or fails strict parsing.
+    InvalidConfig,
 }
 
 impl ErrorCode {
@@ -65,6 +67,7 @@ impl ErrorCode {
             Self::UnknownTheme => "ERR_UNKNOWN_THEME",
             Self::LayoutParse => "ERR_LAYOUT_PARSE",
             Self::LayoutInvalid => "ERR_LAYOUT_INVALID",
+            Self::InvalidConfig => "ERR_INVALID_CONFIG",
         }
     }
 }

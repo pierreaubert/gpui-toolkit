@@ -3,8 +3,9 @@
 //! These functions read the component-lab story registry and project it
 //! into CLI-sized documents. [`component_detail`] returns one full story,
 //! [`component_list`] returns id/title/description rows at a [`DetailLevel`],
-//! [`component_props`] returns just the props table, and [`search`] ranks
-//! stories against a free-text query. Unknown ids fail with
+//! [`component_props`] returns just the props table, [`search`] ranks
+//! stories against a free-text query, and [`component_batch`] resolves
+//! several names in one catalog load. Unknown ids fail with
 //! [`ErrorCode::UnknownComponent`](crate::ErrorCode) plus suggestions, so
 //! agents recover with one follow-up call instead of guessing.
 
@@ -22,6 +23,9 @@ pub const COMPONENT_LIST_TYPE: &str = "component.list";
 
 /// Discriminator for component props payloads.
 pub const COMPONENT_PROPS_TYPE: &str = "component.detail.props";
+
+/// Discriminator for batch payloads in JSON envelopes.
+pub const COMPONENT_BATCH_TYPE: &str = "component.batch";
 
 /// Discriminator for search payloads.
 pub const SEARCH_TYPE: &str = "search";
@@ -154,6 +158,47 @@ pub struct SearchResults {
     pub results: Vec<SearchHit>,
 }
 
+/// One batch result: `ok` carries a payload, `error` a code.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComponentBatchItem {
+    /// Requested name, as spelled.
+    pub name: String,
+    /// `ok` or `error`.
+    pub status: String,
+    /// Detail document (detail mode hits only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<ComponentDetail>,
+    /// Props table (props mode hits only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub props: Option<ComponentProps>,
+    /// Failure code (misses only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<ErrorCode>,
+    /// Human-readable failure (misses only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    /// Similarly named story ids (misses only).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub suggestions: Vec<String>,
+}
+
+/// Multi-read payload resolving several names at once.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComponentBatch {
+    /// Payload mode: `detail` or `props`.
+    pub mode: String,
+    /// Requested names.
+    pub count: usize,
+    /// Hits.
+    pub ok: usize,
+    /// Misses.
+    pub errors: usize,
+    /// Results in request order.
+    pub results: Vec<ComponentBatchItem>,
+}
+
 /// Loads all stories sorted by id.
 ///
 /// # Errors
@@ -188,31 +233,120 @@ fn load_stories() -> Result<Vec<ComponentStory>, ToolkitError> {
 /// ```
 pub fn component_detail(name: &str) -> Result<ComponentDetail, ToolkitError> {
     let stories = load_stories()?;
-    if let Some(story) = stories.iter().find(|story| story.id == name) {
+    if let Some(story) = find_story(&stories, name) {
         return Ok(detail_for(story));
+    }
+    Err(missing_component(&stories, name))
+}
+
+/// Matches a name against story ids exactly, then titles.
+///
+/// Title matching is case-insensitive, so both `ui-kit.button` and
+/// `button` resolve.
+fn find_story<'stories>(
+    stories: &'stories [ComponentStory],
+    name: &str,
+) -> Option<&'stories ComponentStory> {
+    if let Some(story) = stories.iter().find(|story| story.id == name) {
+        return Some(story);
     }
     let lowered = name.to_lowercase();
-    if let Some(story) = stories
+    stories
         .iter()
         .find(|story| story.title.to_lowercase() == lowered)
-    {
-        return Ok(detail_for(story));
-    }
-    let suggestions: Vec<Suggestion> = search(name, 3)
-        .unwrap_or_else(|_| SearchResults {
-            query: name.to_owned(),
-            match_count: 0,
-            results: Vec::new(),
-        })
+}
+
+/// Builds the unknown-component error with up to three suggestions.
+fn missing_component(stories: &[ComponentStory], name: &str) -> ToolkitError {
+    let suggestions: Vec<Suggestion> = search_in(stories, name, 3)
         .results
         .into_iter()
         .map(|hit| Suggestion::new(hit.id, "similar name"))
         .collect();
-    Err(ToolkitError::new(
+    ToolkitError::new(
         ErrorCode::UnknownComponent,
         format!("no component named '{name}'"),
     )
-    .with_suggestions(suggestions))
+    .with_suggestions(suggestions)
+}
+
+/// Returns detail or props documents for several names at once.
+///
+/// The catalog loads once; misses record per-item errors with
+/// suggestions instead of failing the batch, so agents resolve a
+/// whole import list in one call.
+///
+/// # Errors
+///
+/// Returns [`ErrorCode::CatalogLoad`] when the registry cannot build.
+/// Unknown names never fail the call; they surface as `error` items.
+///
+/// # Examples
+///
+/// ```rust
+/// use gpui_toolkit_cli::component_batch;
+///
+/// let batch = component_batch(&["ui-kit.button".to_owned(), "nope".to_owned()], false).unwrap();
+/// assert_eq!(batch.count, 2);
+/// assert_eq!(batch.ok, 1);
+/// assert_eq!(batch.errors, 1);
+/// ```
+pub fn component_batch(names: &[String], props_only: bool) -> Result<ComponentBatch, ToolkitError> {
+    let stories = load_stories()?;
+    let mut results = Vec::with_capacity(names.len());
+    let mut ok = 0;
+    for name in names {
+        if let Some(story) = find_story(&stories, name) {
+            ok += 1;
+            let detail = detail_for(story);
+            let (detail, props) = if props_only {
+                (
+                    None,
+                    Some(ComponentProps {
+                        id: detail.story.id.clone(),
+                        props: detail.story.props.clone(),
+                    }),
+                )
+            } else {
+                (Some(detail), None)
+            };
+            results.push(ComponentBatchItem {
+                name: name.clone(),
+                status: String::from("ok"),
+                detail,
+                props,
+                code: None,
+                message: None,
+                suggestions: Vec::new(),
+            });
+        } else {
+            let suggestions: Vec<String> = search_in(&stories, name, 3)
+                .results
+                .into_iter()
+                .map(|hit| hit.id)
+                .collect();
+            results.push(ComponentBatchItem {
+                name: name.clone(),
+                status: String::from("error"),
+                detail: None,
+                props: None,
+                code: Some(ErrorCode::UnknownComponent),
+                message: Some(format!("no component named '{name}'")),
+                suggestions,
+            });
+        }
+    }
+    Ok(ComponentBatch {
+        mode: if props_only {
+            String::from("props")
+        } else {
+            String::from("detail")
+        },
+        count: names.len(),
+        ok,
+        errors: names.len() - ok,
+        results,
+    })
 }
 
 /// Builds a detail document with its follow-up command.
@@ -313,9 +447,14 @@ pub fn component_props(name: &str) -> Result<ComponentProps, ToolkitError> {
 /// ```
 pub fn search(query: &str, limit: usize) -> Result<SearchResults, ToolkitError> {
     let stories = load_stories()?;
+    Ok(search_in(&stories, query, limit))
+}
+
+/// Ranks preloaded stories against a query; see [`search`].
+fn search_in(stories: &[ComponentStory], query: &str, limit: usize) -> SearchResults {
     let needle = query.to_lowercase();
     let mut scored: Vec<(u32, &str, &ComponentStory)> = Vec::new();
-    for story in &stories {
+    for story in stories {
         let id = story.id.to_lowercase();
         let title = story.title.to_lowercase();
         let description = story.description.to_lowercase();
@@ -353,11 +492,11 @@ pub fn search(query: &str, limit: usize) -> Result<SearchResults, ToolkitError> 
             command: format!("gpui-toolkit component {}", story.id),
         })
         .collect();
-    Ok(SearchResults {
+    SearchResults {
         query: query.to_owned(),
         match_count,
         results,
-    })
+    }
 }
 
 /// Renders one prop value in human-readable text.
@@ -463,6 +602,61 @@ pub fn render_props_text(props: &ComponentProps, dense: bool) -> String {
             }
             text.push('\n');
         }
+    }
+    text
+}
+
+/// Renders a batch payload as human-readable text.
+///
+/// Dense output keeps one line per item plus the counts; the default
+/// rendering sections each hit with its full document.
+pub fn render_batch_text(batch: &ComponentBatch, dense: bool) -> String {
+    let mut text = String::new();
+    for item in &batch.results {
+        if item.status == "ok" {
+            if dense {
+                let id = item
+                    .detail
+                    .as_ref()
+                    .map(|detail| detail.story.id.as_str())
+                    .or_else(|| item.props.as_ref().map(|props| props.id.as_str()))
+                    .unwrap_or(&item.name);
+                text.push_str(&format!("ok {id}\n"));
+                continue;
+            }
+            text.push_str(&format!("=== {} (ok)\n", item.name));
+            if let Some(detail) = &item.detail {
+                text.push_str(&render_detail_text(detail, false));
+            }
+            if let Some(props) = &item.props {
+                text.push_str(&render_props_text(props, false));
+            }
+            text.push('\n');
+        } else if dense {
+            text.push_str(&format!(
+                "error {} {}\n",
+                item.name,
+                item.code.map_or("ERR_UNKNOWN_COMPONENT", ErrorCode::as_str)
+            ));
+        } else {
+            text.push_str(&format!(
+                "=== {} (error): {}\n",
+                item.name,
+                item.message.as_deref().unwrap_or("unknown error")
+            ));
+            if !item.suggestions.is_empty() {
+                text.push_str(&format!("  similar: {}\n", item.suggestions.join(", ")));
+            }
+            text.push('\n');
+        }
+    }
+    if dense {
+        text.push_str(&format!("ok={} errors={}\n", batch.ok, batch.errors));
+    } else {
+        text.push_str(&format!(
+            "{} of {} resolved ({} errors).\n",
+            batch.ok, batch.count, batch.errors
+        ));
     }
     text
 }

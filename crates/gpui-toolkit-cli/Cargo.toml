@@ -20,6 +20,7 @@ gpui-layout-expr = { workspace = true }
 gpui-themes = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+toml = { workspace = true }
 
 [dev-dependencies]
 gpui = { workspace = true }

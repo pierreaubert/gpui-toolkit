@@ -184,22 +184,25 @@ cargo install --path crates/gpui-toolkit-cli
 | Command | Purpose |
 | --- | --- |
 | `init` | Write the managed component catalog into a project's agent docs. |
-| `component` / `search` | List components, print one component document, or search the catalog. |
-| `template` | List, preview, and copy page and block templates. |
+| `component` / `search` | List components, print documents, batch-read several names, or search. |
+| `template` | List, preview, and copy page, block, and theme templates. |
 | `eject` | Copy a component's source into your tree to own and customize it. |
 | `theme` | List presets, export token JSON, check freshness, list token targets. |
 | `doctor` | Read-only health checks; exits 1 on failure, suitable as a CI step. |
-| `upgrade` | List registered migration notes between releases. |
+| `upgrade` | List migration notes, or `--detect` deprecated patterns in a tree. |
 | `gap-report` | Render a prefilled missing-capability issue for the tracker. |
 | `layout` | Validate and expand compact layout expressions to Rust. |
-| `manifest` | Self-describing capability manifest for the whole CLI. |
+| `manifest` | Self-describing capability manifest: response types, exit codes, flags. |
 
 Every command honors `--json` with a typed `{apiVersion, type, data}`
 envelope and stable `ERR_*` error codes, so agents can drive the CLI
 without scraping `--help`; `manifest --json` describes every command,
-flag, and example in one payload. `--dense` switches to token-efficient
-output. The companion `layout!` proc macro (in `gpui-ui-kit-macros`)
-expands the same layout expressions at compile time. See
+its response types and exit codes, flags, and examples in one payload.
+`--dense` switches to token-efficient output. The companion `layout!`
+proc macro (in `gpui-ui-kit-macros`) expands the same layout
+expressions at compile time. Projects customize the CLI with a
+`toolkit.toml` file (custom layout components, tracker URL, extra
+upgrade rules); `doctor` reports whether it parses. See
 [TUTORIAL.md](./TUTORIAL.md) for a guided walkthrough.
 
 ## Demos

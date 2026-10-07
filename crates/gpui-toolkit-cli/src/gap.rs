@@ -32,6 +32,9 @@ pub struct GapReport {
 
 /// Builds a prefilled report for an area and a title.
 ///
+/// `issues_url` overrides the default tracker destination (from
+/// `[project] issues_url` in `toolkit.toml`).
+///
 /// # Errors
 ///
 /// Returns [`ErrorCode::InvalidArgument`] for areas outside
@@ -42,10 +45,14 @@ pub struct GapReport {
 /// ```rust
 /// use gpui_toolkit_cli::gap_report;
 ///
-/// let report = gap_report("component", "Add DateRangePicker").unwrap();
+/// let report = gap_report("component", "Add DateRangePicker", None).unwrap();
 /// assert_eq!(report.area, "component");
 /// ```
-pub fn gap_report(area: &str, title: &str) -> Result<GapReport, ToolkitError> {
+pub fn gap_report(
+    area: &str,
+    title: &str,
+    issues_url: Option<&str>,
+) -> Result<GapReport, ToolkitError> {
     if !GAP_AREAS.contains(&area) {
         return Err(ToolkitError::new(
             ErrorCode::InvalidArgument,
@@ -58,7 +65,10 @@ pub fn gap_report(area: &str, title: &str) -> Result<GapReport, ToolkitError> {
             "title must not be blank",
         ));
     }
-    let issues_url = format!("{}/issues", env!("CARGO_PKG_REPOSITORY"));
+    let issues_url = issues_url.map_or_else(
+        || format!("{}/issues", env!("CARGO_PKG_REPOSITORY")),
+        str::to_owned,
+    );
     let body = format!(
         "## Gap\n\n**Area:** {area}\n**Title:** {title}\n**Toolkit:** {}\n\n\
         Describe the missing capability: what you tried, what you expected, \

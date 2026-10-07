@@ -20,19 +20,24 @@
 //! suffix := "#" id | "." modifier | '"' payload '"' | "[" attrs "]" | "*" N
 //! ```
 //!
-//! See `docs/superpowers/specs/2026-10-07-layout-expressions.md` for the
+//! See `docs/superpowers/2026-10-07-layout-expressions.md` for the
 //! full design.
 
 // Rust guideline compliant 2026-02-21
 
 mod canonical;
 mod parser;
+mod registry;
 mod validate;
 
 #[doc(inline)]
 pub use canonical::{canonical_layout, layout_node_count};
 #[doc(inline)]
 pub use parser::{ParseError, column_for_offset, parse_layout};
+#[doc(inline)]
+pub use registry::{
+    CustomComponent, CustomComponents, CustomRegistryError, resolve_layout, validate_layout_with,
+};
 #[doc(inline)]
 pub use validate::{
     ComponentKind, ValidationError, button_variant_ident, component_kind, validate_layout,

@@ -24,6 +24,7 @@ fn error_codes_are_stable() {
     assert_eq!(ErrorCode::UnknownTheme.as_str(), "ERR_UNKNOWN_THEME");
     assert_eq!(ErrorCode::LayoutParse.as_str(), "ERR_LAYOUT_PARSE");
     assert_eq!(ErrorCode::LayoutInvalid.as_str(), "ERR_LAYOUT_INVALID");
+    assert_eq!(ErrorCode::InvalidConfig.as_str(), "ERR_INVALID_CONFIG");
 }
 
 #[test]
@@ -77,6 +78,27 @@ fn manifest_json_shape() {
             .iter()
             .any(|option| option["flag"] == "--json" && option["type"] == "boolean")
     );
+    let codes: Vec<i64> = value["data"]["exitCodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["code"].as_i64().unwrap())
+        .collect();
+    assert_eq!(codes, vec![0, 1, 2]);
+    let component = value["data"]["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["name"] == "component")
+        .unwrap();
+    let responses: Vec<&str> = component["responseTypes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry.as_str().unwrap())
+        .collect();
+    assert!(responses.contains(&"component.batch"));
+    assert!(responses.contains(&"error"));
 }
 
 fn collect_paths(command: &clap::Command, prefix: &str, paths: &mut Vec<String>) {
@@ -110,6 +132,24 @@ fn drift_manifest_covers_subcommands() {
             facts.name
         );
         assert!(!facts.examples.is_empty());
+        if facts.json {
+            assert!(
+                !facts.responses.is_empty(),
+                "missing response types for {}",
+                facts.name
+            );
+            assert!(
+                facts.responses.contains(&"error"),
+                "missing error response for {}",
+                facts.name
+            );
+        } else {
+            assert!(
+                facts.responses.is_empty(),
+                "bare group '{}' must not list responses",
+                facts.name
+            );
+        }
     }
 
     let manifest = build_manifest(&command);
@@ -239,6 +279,63 @@ fn component_props_only() {
 }
 
 #[test]
+fn component_batch_mixes_hits_and_misses() {
+    use gpui_toolkit_cli::{COMPONENT_BATCH_TYPE, component_batch, render_batch_text};
+
+    assert_eq!(COMPONENT_BATCH_TYPE, "component.batch");
+    let batch = component_batch(
+        &[
+            "ui-kit.button".to_owned(),
+            "nope".to_owned(),
+            "button".to_owned(),
+        ],
+        false,
+    )
+    .unwrap();
+    assert_eq!(batch.mode, "detail");
+    assert_eq!(batch.count, 3);
+    assert_eq!(batch.ok, 2);
+    assert_eq!(batch.errors, 1);
+    assert_eq!(batch.results[0].status, "ok");
+    assert!(batch.results[0].detail.is_some());
+    assert_eq!(batch.results[1].status, "error");
+    assert_eq!(batch.results[1].code, Some(ErrorCode::UnknownComponent));
+    assert_eq!(batch.results[2].status, "ok");
+
+    let props = component_batch(&["ui-kit.button".to_owned()], true).unwrap();
+    assert_eq!(props.mode, "props");
+    assert!(props.results[0].props.is_some());
+    assert!(props.results[0].detail.is_none());
+
+    let text = render_batch_text(&batch, false);
+    assert!(text.contains("2 of 3 resolved"));
+    let dense = render_batch_text(&batch, true);
+    assert!(dense.contains("ok=2 errors=1"));
+}
+
+#[test]
+fn component_command_batches_several_names() {
+    let cli = Cli::try_parse_from([
+        "gpui-toolkit",
+        "component",
+        "ui-kit.button",
+        "nope",
+        "--json",
+    ])
+    .unwrap();
+    let output = run_command(&cli).unwrap();
+    assert_eq!(output.exit_code, 0);
+    let value: serde_json::Value = serde_json::from_str(&output.json).unwrap();
+    assert_eq!(value["type"], "component.batch");
+    assert_eq!(value["data"]["ok"], 1);
+    assert_eq!(value["data"]["errors"], 1);
+
+    let cli = Cli::try_parse_from(["gpui-toolkit", "component", "--props"]).unwrap();
+    let error = run_command(&cli).unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidArgument);
+}
+
+#[test]
 fn search_ranks_and_limits() {
     let results = search("ui-kit.button", 20).unwrap();
     assert_eq!(results.results[0].id, "ui-kit.button");
@@ -264,15 +361,25 @@ fn detail_parses_known_levels() {
 
 #[test]
 fn templates_show_and_copy() {
-    let list = template_list();
-    assert!(list.count >= 3);
+    let list = template_list(false);
+    assert_eq!(list.count, 4);
+    assert!(list.templates.iter().all(|entry| !entry.hidden));
     for entry in &list.templates {
         let shown = template_show(&entry.id).unwrap();
-        assert!(shown.source.contains("impl IntoElement"));
+        match shown.kind.as_str() {
+            "page" | "block" => assert!(shown.source.contains("impl IntoElement")),
+            "theme" => assert!(shown.source.contains("EditorTheme")),
+            kind => unreachable!("unexpected template kind '{kind}'"),
+        }
         let skeleton = template_skeleton(&entry.id).unwrap();
         assert!(!skeleton.skeleton.is_empty());
         assert_ne!(skeleton.skeleton, shown.source);
     }
+    let all = template_list(true);
+    assert_eq!(all.count, 5);
+    assert!(all.templates.iter().any(|entry| entry.hidden));
+    let hidden = template_show("empty-page").unwrap();
+    assert!(hidden.source.contains("impl IntoElement"));
     let error = template_show("nope").unwrap_err();
     assert_eq!(error.code, ErrorCode::UnknownTemplate);
 
@@ -409,19 +516,20 @@ fn doctor_reports_and_codes() {
 
     let dir = tempfile::tempdir().unwrap();
     let report = run_doctor(dir.path());
-    assert_eq!(report.checks.len(), 4);
+    assert_eq!(report.checks.len(), 5);
     let ids: Vec<&str> = report
         .checks
         .iter()
         .map(|check| check.id.as_str())
         .collect();
+    assert!(ids.contains(&"config"));
     assert!(ids.contains(&"catalog"));
     assert!(ids.contains(&"story-coverage"));
     assert!(ids.contains(&"agent-docs"));
     assert!(ids.contains(&"checkout-root"));
     let total =
         report.summary.pass + report.summary.warn + report.summary.fail + report.summary.info;
-    assert_eq!(total, 4);
+    assert_eq!(total, 5);
     assert!(!report.failed());
 
     let cli = Cli::try_parse_from([
@@ -445,76 +553,89 @@ fn gap_report_validates_area() {
     use gpui_toolkit_cli::{GAP_AREAS, gap_report};
 
     assert!(GAP_AREAS.contains(&"component"));
-    let report = gap_report("component", "Add DateRangePicker").unwrap();
+    let report = gap_report("component", "Add DateRangePicker", None).unwrap();
     assert_eq!(report.area, "component");
     assert!(report.body.contains("Add DateRangePicker"));
     assert!(report.issues_url.ends_with("/issues"));
-    let error = gap_report("nope", "Title").unwrap_err();
+    let custom = gap_report("cli", "Title", Some("https://x.test/issues")).unwrap();
+    assert_eq!(custom.issues_url, "https://x.test/issues");
+    let error = gap_report("nope", "Title", None).unwrap_err();
     assert_eq!(error.code, ErrorCode::InvalidArgument);
-    let error = gap_report("cli", "   ").unwrap_err();
+    let error = gap_report("cli", "   ", None).unwrap_err();
     assert_eq!(error.code, ErrorCode::InvalidArgument);
 }
 
 #[test]
 fn layout_check_expand_and_errors() {
+    use gpui_layout_expr::CustomComponents;
     use gpui_toolkit_cli::{layout_check, layout_expand};
 
-    let checked = layout_check("V>(Tx\"Hi\"+B.primary\"Save\"#save)").unwrap();
+    let builtin = CustomComponents::empty();
+    let checked = layout_check("V>(Tx\"Hi\"+B.primary\"Save\"#save)", &builtin).unwrap();
     assert_eq!(checked.canonical, "V > (Tx\"Hi\" + B#save.primary\"Save\")");
     assert_eq!(checked.nodes, 3);
+    assert!(checked.custom_components.is_empty());
 
-    let unit = layout_expand("V > B\"Hi\"", None).unwrap();
+    let unit = layout_expand("V > B\"Hi\"", None, &builtin).unwrap();
     assert!(unit.contains("pub fn expanded_layout()"));
     assert!(unit.contains("VStack::new()"));
     assert!(unit.contains("Button::new(\"layout-0\", \"Hi\")"));
 
-    let named = layout_expand("B\"Hi\"", Some("hero")).unwrap();
+    let named = layout_expand("B\"Hi\"", Some("hero"), &builtin).unwrap();
     assert!(named.contains("pub fn hero()"));
 
-    let error = layout_check("V > *").unwrap_err();
+    let error = layout_check("V > *", &builtin).unwrap_err();
     assert_eq!(error.code, ErrorCode::LayoutParse);
     assert!(error.message.contains("column 5"));
-    let error = layout_check("V > X\"?\"").unwrap_err();
+    let error = layout_check("V > X\"?\"", &builtin).unwrap_err();
     assert_eq!(error.code, ErrorCode::LayoutInvalid);
-    let error = layout_expand("B\"a\" + B\"b\"", None).unwrap_err();
+    let error = layout_expand("B\"a\" + B\"b\"", None, &builtin).unwrap_err();
     assert_eq!(error.code, ErrorCode::LayoutInvalid);
-    let error = layout_expand("B\"Hi\"", Some("fn")).unwrap_err();
+    let error = layout_expand("B\"Hi\"", Some("fn"), &builtin).unwrap_err();
     assert_eq!(error.code, ErrorCode::InvalidArgument);
 }
 
 #[test]
 fn layout_expand_to_file_refuses_overwrite() {
+    use gpui_layout_expr::CustomComponents;
     use gpui_toolkit_cli::layout_expand_to_file;
 
+    let builtin = CustomComponents::empty();
     let dir = tempfile::tempdir().unwrap();
-    let first = layout_expand_to_file("B\"Hi\"", None, dir.path(), None).unwrap();
+    let first = layout_expand_to_file("B\"Hi\"", None, dir.path(), None, &builtin).unwrap();
     assert!(first.path.as_ref().unwrap().ends_with("expanded_layout.rs"));
-    let error = layout_expand_to_file("B\"Hi\"", None, dir.path(), None).unwrap_err();
+    let error = layout_expand_to_file("B\"Hi\"", None, dir.path(), None, &builtin).unwrap_err();
     assert_eq!(error.code, ErrorCode::FileExists);
 }
 
 #[test]
 fn layout_expand_matches_fixture() {
+    use gpui_layout_expr::CustomComponents;
     use gpui_toolkit_cli::layout_expand;
 
     let expr = "V > (Tx\"Dashboard\" + (H > I#name[label=\"Name\"] + B.primary\"Go\"#go))";
-    let unit = layout_expand(expr, Some("fixture_dashboard")).unwrap();
+    let unit = layout_expand(expr, Some("fixture_dashboard"), &CustomComponents::empty()).unwrap();
     let fixture = include_str!("fixtures/expanded_fixture_dashboard.rs").replace("\r\n", "\n");
     assert_eq!(unit, fixture);
 }
 
 #[test]
 fn templates_carry_valid_layout_headers() {
+    use gpui_layout_expr::CustomComponents;
     use gpui_toolkit_cli::{TEMPLATES, layout_check, template_show};
 
+    let builtin = CustomComponents::empty();
     for entry in TEMPLATES {
         let shown = template_show(entry.id).unwrap();
+        if shown.kind == "theme" {
+            continue;
+        }
         let header = shown.source.lines().next().unwrap();
         let expr = header
             .strip_prefix("// LAYOUT (")
             .and_then(|rest| rest.strip_suffix(')'))
             .unwrap_or_else(|| panic!("{}: malformed LAYOUT header", entry.id));
-        let checked = layout_check(expr)
+        let checked = layout_check(expr, &builtin)
             .unwrap_or_else(|error| panic!("{}: invalid LAYOUT header: {error}", entry.id));
         assert!(checked.nodes > 1, "{}: header is trivial", entry.id);
     }
@@ -537,4 +658,257 @@ fn init_rejects_missing_dir() {
     };
     let error = run_init(&options).unwrap_err();
     assert_eq!(error.code, ErrorCode::InvalidArgument);
+}
+
+#[test]
+fn config_discovers_upward_and_rejects_unknown_fields() {
+    use gpui_toolkit_cli::{discover_config, parse_config, read_config_file};
+
+    assert!(parse_config("").unwrap().layout.components.is_empty());
+    parse_config("[project]\nname = 1\n").unwrap_err();
+    parse_config("[layout.components]\n").unwrap_err();
+
+    let dir = tempfile::tempdir().unwrap();
+    let nested = dir.path().join("a").join("b");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(
+        dir.path().join("toolkit.toml"),
+        "[[layout.components]]\nname = \"PrimaryButton\"\nbase = \"B\"\n",
+    )
+    .unwrap();
+    let found = discover_config(&nested).unwrap();
+    assert!(found.ends_with("toolkit.toml"));
+    let loaded = read_config_file(&found).unwrap();
+    assert_eq!(loaded.customs().unwrap().len(), 1);
+}
+
+#[test]
+fn layout_check_reports_custom_components() {
+    use gpui_layout_expr::CustomComponents;
+    use gpui_toolkit_cli::{LoadedConfig, layout_check, parse_config};
+
+    let config = parse_config(
+        "[[layout.components]]\nname = \"PrimaryButton\"\nbase = \"B\"\nmodifier = \"primary\"\n",
+    )
+    .unwrap();
+    let loaded = LoadedConfig { path: None, config };
+    let customs = loaded.customs().unwrap();
+    let checked = layout_check("V > PrimaryButton\"Save\"", &customs).unwrap();
+    assert_eq!(checked.canonical, "V > PrimaryButton\"Save\"");
+    assert_eq!(checked.custom_components, vec!["PrimaryButton"]);
+
+    let builtin = CustomComponents::empty();
+    let error = layout_check("V > PrimaryButton\"Save\"", &builtin).unwrap_err();
+    assert_eq!(error.code, ErrorCode::LayoutInvalid);
+
+    let error = layout_check("V > PrimaryButton.secondary\"Save\"", &customs).unwrap_err();
+    assert_eq!(error.code, ErrorCode::LayoutInvalid);
+    assert!(error.message.contains("twice"));
+}
+
+#[test]
+fn layout_expand_resolves_custom_aliases() {
+    use gpui_toolkit_cli::{LoadedConfig, layout_expand, parse_config};
+
+    let config = parse_config(
+        "[[layout.components]]\nname = \"PrimaryButton\"\nbase = \"B\"\nmodifier = \"primary\"\n",
+    )
+    .unwrap();
+    let loaded = LoadedConfig { path: None, config };
+    let unit = layout_expand("PrimaryButton\"Save\"", None, &loaded.customs().unwrap()).unwrap();
+    assert!(unit.contains("Button::new"));
+    assert!(unit.contains("ButtonVariant::Primary"));
+}
+
+#[test]
+fn layout_commands_honor_explicit_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("toolkit.toml");
+    std::fs::write(
+        &config,
+        "[[layout.components]]\nname = \"PrimaryButton\"\nbase = \"B\"\nmodifier = \"primary\"\n",
+    )
+    .unwrap();
+
+    let cli = Cli::try_parse_from([
+        "gpui-toolkit",
+        "layout",
+        "check",
+        "PrimaryButton\"Save\"",
+        "--config",
+        config.to_str().unwrap(),
+    ])
+    .unwrap();
+    let output = run_command(&cli).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&output.json).unwrap();
+    assert_eq!(value["data"]["customComponents"][0], "PrimaryButton");
+
+    let cli = Cli::try_parse_from([
+        "gpui-toolkit",
+        "layout",
+        "expand",
+        "PrimaryButton\"Save\"",
+        "--config",
+        config.to_str().unwrap(),
+    ])
+    .unwrap();
+    let output = run_command(&cli).unwrap();
+    assert!(output.text.contains("ButtonVariant::Primary"));
+
+    let missing = dir.path().join("nope.toml");
+    let cli = Cli::try_parse_from([
+        "gpui-toolkit",
+        "layout",
+        "check",
+        "B\"Hi\"",
+        "--config",
+        missing.to_str().unwrap(),
+    ])
+    .unwrap();
+    let error = run_command(&cli).unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidConfig);
+}
+
+#[test]
+fn doctor_config_check_tracks_toolkit_toml() {
+    use gpui_toolkit_cli::{DoctorStatus, run_doctor};
+
+    let dir = tempfile::tempdir().unwrap();
+    let report = run_doctor(dir.path());
+    let check = report
+        .checks
+        .iter()
+        .find(|check| check.id == "config")
+        .unwrap();
+    assert_eq!(check.status, DoctorStatus::Info);
+
+    std::fs::write(
+        dir.path().join("toolkit.toml"),
+        "[project]\nname = \"demo\"\n",
+    )
+    .unwrap();
+    let report = run_doctor(dir.path());
+    let check = report
+        .checks
+        .iter()
+        .find(|check| check.id == "config")
+        .unwrap();
+    assert_eq!(check.status, DoctorStatus::Ok);
+    assert!(!report.failed());
+
+    std::fs::write(dir.path().join("toolkit.toml"), "[bogus]\n").unwrap();
+    let report = run_doctor(dir.path());
+    let check = report
+        .checks
+        .iter()
+        .find(|check| check.id == "config")
+        .unwrap();
+    assert_eq!(check.status, DoctorStatus::Fail);
+    assert!(check.fix.is_some());
+    assert!(report.failed());
+}
+
+#[test]
+fn upgrade_detect_finds_calls_not_comments() {
+    use gpui_toolkit_cli::{UPGRADE_DETECT_TYPE, render_upgrade_detect_text, upgrade_detect};
+
+    assert_eq!(UPGRADE_DETECT_TYPE, "upgrade.detect");
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("lib.rs"),
+        "fn f() {\n    thing.build_with_theme(cx);\n    // build_with_theme( is deprecated\n    let url = \"https://x.test\"; other.build_with_theme(cx);\n}\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("notes.txt"), "build_with_theme(\n").unwrap();
+    let nested = dir.path().join("sub");
+    std::fs::create_dir(&nested).unwrap();
+    std::fs::write(nested.join("m.rs"), "fn g() {}\n").unwrap();
+    let report = upgrade_detect(dir.path(), &[]).unwrap();
+    assert_eq!(report.scanned_files, 2);
+    assert_eq!(report.count, 2);
+    assert_eq!(report.findings[0].line, 2);
+    assert_eq!(report.findings[1].line, 4);
+    assert_eq!(report.findings[0].rule, "no-build-with-theme");
+    assert!(report.findings[0].fix.is_some());
+    let text = render_upgrade_detect_text(&report, false);
+    assert!(text.contains("2 findings"));
+    let dense = render_upgrade_detect_text(&report, true);
+    assert!(dense.contains("findings=2"));
+
+    let error = upgrade_detect(&dir.path().join("nope"), &[]).unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidArgument);
+}
+
+#[test]
+fn upgrade_detect_honors_config_rules() {
+    use gpui_toolkit_cli::{LoadedConfig, parse_config, upgrade_detect};
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("lib.rs"), "legacy_color();\n").unwrap();
+    let config = parse_config(
+        "[[upgrade.rules]]\nid = \"no-legacy\"\npattern = \"legacy_\"\nmessage = \"gone\"\n",
+    )
+    .unwrap();
+    let loaded = LoadedConfig { path: None, config };
+    let report = upgrade_detect(dir.path(), &loaded.upgrade_rules().unwrap()).unwrap();
+    assert_eq!(report.count, 1);
+    assert_eq!(report.findings[0].rule, "no-legacy");
+    assert_eq!(report.rules.len(), 2);
+}
+
+#[test]
+fn upgrade_command_detect_exits_1_on_findings() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("lib.rs"), "x.build_with_theme(cx);\n").unwrap();
+    let cli = Cli::try_parse_from([
+        "gpui-toolkit",
+        "upgrade",
+        "--detect",
+        "--dir",
+        dir.path().to_str().unwrap(),
+    ])
+    .unwrap();
+    let output = run_command(&cli).unwrap();
+    assert_eq!(output.exit_code, 1);
+    assert!(output.json.contains("\"type\": \"upgrade.detect\""));
+
+    let clean = tempfile::tempdir().unwrap();
+    std::fs::write(clean.path().join("lib.rs"), "fn f() {}\n").unwrap();
+    let cli = Cli::try_parse_from([
+        "gpui-toolkit",
+        "upgrade",
+        "--detect",
+        "--dir",
+        clean.path().to_str().unwrap(),
+    ])
+    .unwrap();
+    let output = run_command(&cli).unwrap();
+    assert_eq!(output.exit_code, 0);
+
+    let cli = Cli::try_parse_from(["gpui-toolkit", "upgrade"]).unwrap();
+    let output = run_command(&cli).unwrap();
+    assert!(output.json.contains("\"type\": \"upgrade.list\""));
+}
+
+#[test]
+fn gap_report_honors_configured_issues_url() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("toolkit.toml");
+    std::fs::write(
+        &config,
+        "[project]\nissues_url = \"https://x.test/tracker/issues\"\n",
+    )
+    .unwrap();
+    let cli = Cli::try_parse_from([
+        "gpui-toolkit",
+        "gap-report",
+        "--area",
+        "cli",
+        "Title",
+        "--config",
+        config.to_str().unwrap(),
+    ])
+    .unwrap();
+    let output = run_command(&cli).unwrap();
+    assert!(output.text.contains("https://x.test/tracker/issues"));
 }

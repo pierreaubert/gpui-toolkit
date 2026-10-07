@@ -8,20 +8,22 @@
 // Rust guideline compliant 2026-02-21
 
 use crate::{
-    COMPONENT_DETAIL_TYPE, COMPONENT_LIST_TYPE, COMPONENT_PROPS_TYPE, DEFAULT_LAYOUT_FN,
-    DOCTOR_TYPE, EJECT_TYPE, ErrorCode, GAP_REPORT_TYPE, InitOptions, LAYOUT_CHECK_TYPE,
-    LAYOUT_EXPAND_TYPE, LAYOUT_GRAMMAR_TYPE, LayoutExpand, SEARCH_TYPE, TEMPLATE_COPY_TYPE,
-    TEMPLATE_LIST_TYPE, TEMPLATE_SHOW_TYPE, TEMPLATE_SKELETON_TYPE, THEME_BUILD_TYPE,
-    THEME_CHECK_TYPE, THEME_LIST_TYPE, THEME_TARGETS_TYPE, ToolkitError, UPGRADE_LIST_TYPE,
-    build_manifest, component_detail, component_list, component_props, eject_component, gap_report,
-    layout_check, layout_expand, layout_expand_to_file, layout_grammar, render_detail_text,
+    COMPONENT_BATCH_TYPE, COMPONENT_DETAIL_TYPE, COMPONENT_LIST_TYPE, COMPONENT_PROPS_TYPE,
+    DEFAULT_LAYOUT_FN, DOCTOR_TYPE, EJECT_TYPE, ErrorCode, GAP_REPORT_TYPE, InitOptions,
+    LAYOUT_CHECK_TYPE, LAYOUT_EXPAND_TYPE, LAYOUT_GRAMMAR_TYPE, LayoutExpand, SEARCH_TYPE,
+    TEMPLATE_COPY_TYPE, TEMPLATE_LIST_TYPE, TEMPLATE_SHOW_TYPE, TEMPLATE_SKELETON_TYPE,
+    THEME_BUILD_TYPE, THEME_CHECK_TYPE, THEME_LIST_TYPE, THEME_TARGETS_TYPE, ToolkitError,
+    UPGRADE_DETECT_TYPE, UPGRADE_LIST_TYPE, build_manifest, component_batch, component_detail,
+    component_list, component_props, eject_component, gap_report, layout_check, layout_expand,
+    layout_expand_to_file, layout_grammar, load_config, render_batch_text, render_detail_text,
     render_doctor_text, render_eject_text, render_gap_text, render_json, render_json_compact,
     render_layout_check_text, render_layout_expand_text, render_list_text, render_props_text,
     render_search_text, render_template_copy_text, render_template_list_text,
     render_theme_build_text, render_theme_check_text, render_theme_list_text,
-    render_theme_targets_text, render_upgrade_list_text, run_doctor, run_init, search,
-    success_envelope, template_copy, template_list, template_show, template_skeleton, theme_build,
-    theme_check, theme_list, theme_targets, upgrade_list,
+    render_theme_targets_text, render_upgrade_detect_text, render_upgrade_list_text, run_doctor,
+    run_init, search, success_envelope, template_copy, template_list, template_show,
+    template_skeleton, theme_build, theme_check, theme_list, theme_targets, upgrade_detect,
+    upgrade_list,
 };
 use crate::{DEFAULT_SEARCH_LIMIT, DetailLevel};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
@@ -90,12 +92,12 @@ pub enum Commands {
         #[arg(long, value_name = "FILE", default_value = "AGENTS.md")]
         agents_file: String,
     },
-    /// List components or print one component document.
+    /// List components, print documents, or batch-read several names.
     Component {
-        /// Story id or title; omit to list components.
-        name: Option<String>,
+        /// Story ids or titles; omit to list, pass several for one batch read.
+        names: Vec<String>,
         /// Print only the props table; requires a name.
-        #[arg(long, requires = "name")]
+        #[arg(long)]
         props: bool,
     },
     /// Search components by free text.
@@ -110,6 +112,9 @@ pub enum Commands {
     Template {
         /// Template id; omit to list templates.
         id: Option<String>,
+        /// Include hidden templates when listing.
+        #[arg(long)]
+        all: bool,
         /// Print the structural skeleton instead of the source.
         #[arg(long, conflicts_with = "out")]
         skeleton: bool,
@@ -140,8 +145,18 @@ pub enum Commands {
         #[arg(long, value_name = "DIR")]
         dir: Option<PathBuf>,
     },
-    /// List registered migration notes.
-    Upgrade,
+    /// List registered migration notes, or detect deprecated patterns.
+    Upgrade {
+        /// Scan a tree for deprecated patterns instead of listing notes.
+        #[arg(long)]
+        detect: bool,
+        /// Directory to scan; defaults to the working directory.
+        #[arg(long, value_name = "DIR")]
+        dir: Option<PathBuf>,
+        /// Explicit toolkit.toml; otherwise discovered by walking up.
+        #[arg(long, value_name = "FILE")]
+        config: Option<PathBuf>,
+    },
     /// Render a prefilled missing-capability report.
     GapReport {
         /// Report area: component, template, theme, layout, cli, other.
@@ -149,6 +164,9 @@ pub enum Commands {
         area: String,
         /// Issue title.
         title: String,
+        /// Explicit toolkit.toml; otherwise discovered by walking up.
+        #[arg(long, value_name = "FILE")]
+        config: Option<PathBuf>,
     },
     /// Work with layout expressions.
     Layout {
@@ -165,6 +183,9 @@ pub enum LayoutAction {
     Check {
         /// Layout expression to validate.
         expr: String,
+        /// Explicit toolkit.toml; otherwise discovered by walking up.
+        #[arg(long, value_name = "FILE")]
+        config: Option<PathBuf>,
     },
     /// Expand an expression to a Rust unit.
     Expand {
@@ -179,6 +200,9 @@ pub enum LayoutAction {
         /// Output file name; defaults to `<function>.rs`.
         #[arg(long, value_name = "FILE", requires = "out")]
         file: Option<String>,
+        /// Explicit toolkit.toml; otherwise discovered by walking up.
+        #[arg(long, value_name = "FILE")]
+        config: Option<PathBuf>,
     },
     /// Print the normative grammar reference.
     Grammar,
@@ -326,23 +350,33 @@ pub fn run_command(cli: &Cli) -> Result<CommandOutput, ToolkitError> {
             let json = render_typed(crate::INIT_TYPE, &receipt, cli.dense)?;
             Ok(CommandOutput::ok(text, json))
         }
-        Commands::Component { name, props } => match name {
-            None => {
+        Commands::Component { names, props } => match names.as_slice() {
+            [] if *props => Err(ToolkitError::new(
+                ErrorCode::InvalidArgument,
+                "component --props requires a name",
+            )),
+            [] => {
                 let list = component_list(detail_level(cli.detail))?;
                 let text = render_list_text(&list, cli.dense);
                 let json = render_typed(COMPONENT_LIST_TYPE, &list, cli.dense)?;
                 Ok(CommandOutput::ok(text, json))
             }
-            Some(name) if *props => {
+            [name] if *props => {
                 let props = component_props(name)?;
                 let text = render_props_text(&props, cli.dense);
                 let json = render_typed(COMPONENT_PROPS_TYPE, &props, cli.dense)?;
                 Ok(CommandOutput::ok(text, json))
             }
-            Some(name) => {
+            [name] => {
                 let detail = component_detail(name)?;
                 let text = render_detail_text(&detail, cli.dense);
                 let json = render_typed(COMPONENT_DETAIL_TYPE, &detail, cli.dense)?;
+                Ok(CommandOutput::ok(text, json))
+            }
+            _ => {
+                let batch = component_batch(names, *props)?;
+                let text = render_batch_text(&batch, cli.dense);
+                let json = render_typed(COMPONENT_BATCH_TYPE, &batch, cli.dense)?;
                 Ok(CommandOutput::ok(text, json))
             }
         },
@@ -354,12 +388,13 @@ pub fn run_command(cli: &Cli) -> Result<CommandOutput, ToolkitError> {
         }
         Commands::Template {
             id,
+            all,
             skeleton,
             out,
             file,
         } => match (id, out) {
             (None, None) => {
-                let list = template_list();
+                let list = template_list(*all);
                 let text = render_template_list_text(&list, cli.dense);
                 let json = render_typed(TEMPLATE_LIST_TYPE, &list, cli.dense)?;
                 Ok(CommandOutput::ok(text, json))
@@ -439,21 +474,49 @@ pub fn run_command(cli: &Cli) -> Result<CommandOutput, ToolkitError> {
             let exit_code = i32::from(report.failed());
             Ok(CommandOutput::with_code(text, json, exit_code))
         }
-        Commands::Upgrade => {
-            let list = upgrade_list();
-            let text = render_upgrade_list_text(&list, cli.dense);
-            let json = render_typed(UPGRADE_LIST_TYPE, &list, cli.dense)?;
-            Ok(CommandOutput::ok(text, json))
+        Commands::Upgrade {
+            detect,
+            dir,
+            config,
+        } => {
+            if !detect {
+                let list = upgrade_list();
+                let text = render_upgrade_list_text(&list, cli.dense);
+                let json = render_typed(UPGRADE_LIST_TYPE, &list, cli.dense)?;
+                return Ok(CommandOutput::ok(text, json));
+            }
+            let dir = match dir {
+                Some(dir) => dir.clone(),
+                None => std::env::current_dir().map_err(|error| {
+                    ToolkitError::new(
+                        ErrorCode::Unknown,
+                        format!("cannot determine working directory: {error}"),
+                    )
+                })?,
+            };
+            let loaded = load_config(config.as_deref())?;
+            let report = upgrade_detect(&dir, &loaded.upgrade_rules()?)?;
+            let text = render_upgrade_detect_text(&report, cli.dense);
+            let json = render_typed(UPGRADE_DETECT_TYPE, &report, cli.dense)?;
+            let exit_code = i32::from(report.count > 0);
+            Ok(CommandOutput::with_code(text, json, exit_code))
         }
-        Commands::GapReport { area, title } => {
-            let report = gap_report(area, title)?;
+        Commands::GapReport {
+            area,
+            title,
+            config,
+        } => {
+            let loaded = load_config(config.as_deref())?;
+            let issues_url = loaded.config.project.issues_url.as_deref();
+            let report = gap_report(area, title, issues_url)?;
             let text = render_gap_text(&report, cli.dense);
             let json = render_typed(GAP_REPORT_TYPE, &report, cli.dense)?;
             Ok(CommandOutput::ok(text, json))
         }
         Commands::Layout { action } => match action {
-            LayoutAction::Check { expr } => {
-                let checked = layout_check(expr)?;
+            LayoutAction::Check { expr, config } => {
+                let loaded = load_config(config.as_deref())?;
+                let checked = layout_check(expr, &loaded.customs()?)?;
                 let text = render_layout_check_text(&checked, cli.dense);
                 let json = render_typed(LAYOUT_CHECK_TYPE, &checked, cli.dense)?;
                 Ok(CommandOutput::ok(text, json))
@@ -463,15 +526,23 @@ pub fn run_command(cli: &Cli) -> Result<CommandOutput, ToolkitError> {
                 function,
                 out,
                 file,
+                config,
             } => {
+                let loaded = load_config(config.as_deref())?;
+                let customs = loaded.customs()?;
                 if let Some(out) = out {
-                    let expanded =
-                        layout_expand_to_file(expr, function.as_deref(), out, file.as_deref())?;
+                    let expanded = layout_expand_to_file(
+                        expr,
+                        function.as_deref(),
+                        out,
+                        file.as_deref(),
+                        &customs,
+                    )?;
                     let text = render_layout_expand_text(&expanded);
                     let json = render_typed(LAYOUT_EXPAND_TYPE, &expanded, cli.dense)?;
                     Ok(CommandOutput::ok(text, json))
                 } else {
-                    let rust = layout_expand(expr, function.as_deref())?;
+                    let rust = layout_expand(expr, function.as_deref(), &customs)?;
                     let expanded = LayoutExpand {
                         expr: expr.clone(),
                         function: function

@@ -26,13 +26,15 @@ pub const TEMPLATE_SKELETON_TYPE: &str = "template.skeleton";
 /// Discriminator for template copy receipts.
 pub const TEMPLATE_COPY_TYPE: &str = "template.copy";
 
-/// Template granularity: full pages or embeddable blocks.
+/// Template granularity: full pages, embeddable blocks, or themes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TemplateKind {
     /// Full page content, wrapped in app chrome by the caller.
     Page,
     /// Embeddable block for use inside a page layout.
     Block,
+    /// Annotated theme customization starting point.
+    Theme,
 }
 
 impl TemplateKind {
@@ -44,11 +46,13 @@ impl TemplateKind {
     /// use gpui_toolkit_cli::TemplateKind;
     ///
     /// assert_eq!(TemplateKind::Page.as_str(), "page");
+    /// assert_eq!(TemplateKind::Theme.as_str(), "theme");
     /// ```
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Page => "page",
             Self::Block => "block",
+            Self::Theme => "theme",
         }
     }
 }
@@ -62,8 +66,10 @@ pub struct TemplateStatic {
     pub title: &'static str,
     /// What the template is for.
     pub description: &'static str,
-    /// Page or block granularity.
+    /// Page, block, or theme granularity.
     pub kind: TemplateKind,
+    /// Unlisted unless `--all` passes; still addressable by id.
+    pub hidden: bool,
     /// Full Rust source, embedded from `templates/`.
     pub source: &'static str,
     /// Structural outline with spatial annotations.
@@ -80,6 +86,7 @@ pub const TEMPLATES: &[TemplateStatic] = &[
         title: "Settings page",
         description: "Title, two labeled fields, and save/cancel actions",
         kind: TemplateKind::Page,
+        hidden: false,
         source: include_str!("../templates/settings_page.rs"),
         skeleton: "VStack [settings page]\n  Text \"Settings\" [heading]\n  Input#settings-name [label=\"Display name\"]\n  Input#settings-email [label=\"Email\"]\n  HStack [actions]\n    Button#settings-save.primary \"Save\"\n    Button#settings-cancel \"Cancel\"\n",
     },
@@ -88,6 +95,7 @@ pub const TEMPLATES: &[TemplateStatic] = &[
         title: "Dashboard page",
         description: "Title, two stat blocks, and a primary action",
         kind: TemplateKind::Page,
+        hidden: false,
         source: include_str!("../templates/dashboard_page.rs"),
         skeleton: "VStack [dashboard page]\n  Text \"Dashboard\" [heading]\n  HStack [stats]\n    VStack [stat]\n      Text \"$42k\" [value]\n      Text \"Revenue\" [label]\n    VStack [stat]\n      Text \"128\" [value]\n      Text \"Orders\" [label]\n  Button#dashboard-new.primary \"New report\"\n",
     },
@@ -96,8 +104,27 @@ pub const TEMPLATES: &[TemplateStatic] = &[
         title: "Form section",
         description: "Reusable block of two labeled inputs",
         kind: TemplateKind::Block,
+        hidden: false,
         source: include_str!("../templates/form_section.rs"),
         skeleton: "VStack [form block]\n  Input#form-name [label=\"Name\"]\n  Input#form-email [label=\"Email\"]\n",
+    },
+    TemplateStatic {
+        id: "empty-page",
+        title: "Empty page",
+        description: "Minimal page with a heading; hidden starter",
+        kind: TemplateKind::Page,
+        hidden: true,
+        source: include_str!("../templates/empty_page.rs"),
+        skeleton: "VStack [empty page]\n  Text \"Title\" [heading]\n",
+    },
+    TemplateStatic {
+        id: "theme-custom",
+        title: "Custom theme",
+        description: "Annotated EditorTheme preset override with validation",
+        kind: TemplateKind::Theme,
+        hidden: false,
+        source: include_str!("../templates/theme_custom.rs"),
+        skeleton: "EditorTheme [custom theme]\n  identity: name\n  surfaces: background ladder, surface states\n  text: primary plus muted rungs\n  accent: interactive color plus on-accent text\n  semantic: success, warning, error, info\n  audio: meters, mixer buttons, plugin/graph/EQ/spectrum colors\n  layout: separator size, font family, design language\n",
     },
 ];
 
@@ -111,8 +138,10 @@ pub struct TemplateEntry {
     pub title: String,
     /// What the template is for.
     pub description: String,
-    /// `page` or `block`.
+    /// `page`, `block`, or `theme`.
     pub kind: String,
+    /// Unlisted unless `--all` passes.
+    pub hidden: bool,
 }
 
 /// Template list payload.
@@ -135,7 +164,7 @@ pub struct TemplateShow {
     pub title: String,
     /// What the template is for.
     pub description: String,
-    /// `page` or `block`.
+    /// `page`, `block`, or `theme`.
     pub kind: String,
     /// Full Rust source.
     pub source: String,
@@ -167,28 +196,36 @@ pub struct TemplateCopy {
     pub bytes: usize,
 }
 
-/// Lists all templates in registry order.
+/// Lists templates in registry order.
+///
+/// Hidden templates stay unlisted unless `include_hidden` passes;
+/// they remain addressable by id for show, skeleton, and copy.
 ///
 /// # Examples
 ///
 /// ```rust
 /// use gpui_toolkit_cli::template_list;
 ///
-/// let list = template_list();
-/// assert!(list.count >= 3);
+/// let list = template_list(false);
+/// assert!(list.templates.iter().all(|entry| !entry.hidden));
+/// let all = template_list(true);
+/// assert!(all.count >= list.count);
 /// ```
-pub fn template_list() -> TemplateList {
+pub fn template_list(include_hidden: bool) -> TemplateList {
+    let templates: Vec<TemplateEntry> = TEMPLATES
+        .iter()
+        .filter(|entry| include_hidden || !entry.hidden)
+        .map(|entry| TemplateEntry {
+            id: entry.id.to_owned(),
+            title: entry.title.to_owned(),
+            description: entry.description.to_owned(),
+            kind: entry.kind.as_str().to_owned(),
+            hidden: entry.hidden,
+        })
+        .collect();
     TemplateList {
-        count: TEMPLATES.len(),
-        templates: TEMPLATES
-            .iter()
-            .map(|entry| TemplateEntry {
-                id: entry.id.to_owned(),
-                title: entry.title.to_owned(),
-                description: entry.description.to_owned(),
-                kind: entry.kind.as_str().to_owned(),
-            })
-            .collect(),
+        count: templates.len(),
+        templates,
     }
 }
 

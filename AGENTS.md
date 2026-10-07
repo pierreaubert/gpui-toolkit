@@ -173,7 +173,7 @@ just wasm-visual           # positional args: `just wasm-visual hello 8080 gpui-
 
 The browser target is WebGPU-only (Chrome/Edge 113+, Firefox 141+ on Windows,
 Safari 26+); design in
-[docs/superpowers/specs/2026-08-15-wasm-browser-target-design.md](docs/superpowers/specs/2026-08-15-wasm-browser-target-design.md).
+[docs/superpowers/2026-08-15-wasm-browser-target-design.md](docs/superpowers/2026-08-15-wasm-browser-target-design.md).
 wasm builds need nightly (`-Z build-std`), env-injected by the `just` recipes
 so the stable host toolchain is untouched. Visual QA baselines live at
 `qa/visual/wasm/baselines/`. The px showcase honors `PX_SHOWCASE_SECTION`

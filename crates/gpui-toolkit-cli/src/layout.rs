@@ -12,8 +12,9 @@
 use crate::error_codes::{ErrorCode, ToolkitError};
 use crate::init::is_plain_file_name;
 use gpui_layout_expr::{
-    ComponentKind, LayoutNode, button_variant_ident, canonical_layout, column_for_offset,
-    component_kind, layout_node_count, parse_layout, validate_layout,
+    ComponentKind, CustomComponents, LayoutNode, button_variant_ident, canonical_layout,
+    column_for_offset, component_kind, layout_node_count, parse_layout, resolve_layout,
+    validate_layout,
 };
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -49,6 +50,8 @@ pub struct LayoutCheck {
     pub canonical: String,
     /// Node count with repeats expanded.
     pub nodes: usize,
+    /// Custom components the expression used, in first-seen order.
+    pub custom_components: Vec<String>,
 }
 
 /// Layout expansion payload.
@@ -78,37 +81,69 @@ pub struct LayoutGrammar {
 
 /// Parses and validates one expression.
 ///
-/// Returns the canonical form and the expanded node count.
+/// Custom aliases from `customs` resolve before validation; the
+/// canonical form keeps names as written. Returns the canonical form,
+/// the expanded node count, and the custom components used.
 ///
 /// # Errors
 ///
 /// Returns [`ErrorCode::LayoutParse`] for syntax failures (with a
 /// 1-based column) and [`ErrorCode::LayoutInvalid`] for registry
-/// violations.
+/// violations and preset-modifier collisions.
 ///
 /// # Examples
 ///
 /// ```rust
+/// use gpui_layout_expr::CustomComponents;
 /// use gpui_toolkit_cli::layout_check;
 ///
-/// let checked = layout_check("V>B\"Hi\"").unwrap();
+/// let checked = layout_check("V>B\"Hi\"", &CustomComponents::empty()).unwrap();
 /// assert_eq!(checked.canonical, "V > B\"Hi\"");
 /// assert_eq!(checked.nodes, 2);
 /// ```
-pub fn layout_check(expr: &str) -> Result<LayoutCheck, ToolkitError> {
-    let nodes = parse_validated(expr)?;
+pub fn layout_check(expr: &str, customs: &CustomComponents) -> Result<LayoutCheck, ToolkitError> {
+    let nodes = parse_expr(expr)?;
+    resolve_and_validate(expr, &nodes, customs)?;
     Ok(LayoutCheck {
         expr: expr.to_owned(),
         nodes: layout_node_count(&nodes),
         canonical: canonical_layout(&nodes),
+        custom_components: used_custom_names(&nodes, customs),
     })
 }
 
-/// Parses plus validates, mapping failures to toolkit codes.
-fn parse_validated(expr: &str) -> Result<Vec<LayoutNode>, ToolkitError> {
-    let nodes = parse_layout(expr)
-        .map_err(|error| ToolkitError::new(ErrorCode::LayoutParse, error.to_string()))?;
-    validate_layout(&nodes).map_err(|error| {
+/// Collects custom names used in a parsed tree, first-seen order.
+///
+/// Callers pass unresolved nodes: resolution rewrites names to bases,
+/// so usage is only visible before resolving.
+fn used_custom_names(nodes: &[LayoutNode], customs: &CustomComponents) -> Vec<String> {
+    let mut used = Vec::new();
+    collect_custom_names(nodes, customs, &mut used);
+    used
+}
+
+/// Walks one level, recording custom names before descending.
+fn collect_custom_names(nodes: &[LayoutNode], customs: &CustomComponents, used: &mut Vec<String>) {
+    for node in nodes {
+        if customs.get(&node.name).is_some() && !used.iter().any(|name| name == &node.name) {
+            used.push(node.name.clone());
+        }
+        collect_custom_names(&node.children, customs, used);
+    }
+}
+
+/// Parses one expression, mapping syntax failures to codes.
+fn parse_expr(expr: &str) -> Result<Vec<LayoutNode>, ToolkitError> {
+    parse_layout(expr).map_err(|error| ToolkitError::new(ErrorCode::LayoutParse, error.to_string()))
+}
+
+/// Resolves customs plus validates, mapping failures to codes.
+fn resolve_and_validate(
+    expr: &str,
+    nodes: &[LayoutNode],
+    customs: &CustomComponents,
+) -> Result<Vec<LayoutNode>, ToolkitError> {
+    let resolved = resolve_layout(nodes, customs).map_err(|error| {
         ToolkitError::new(
             ErrorCode::LayoutInvalid,
             format!(
@@ -118,7 +153,26 @@ fn parse_validated(expr: &str) -> Result<Vec<LayoutNode>, ToolkitError> {
             ),
         )
     })?;
-    Ok(nodes)
+    validate_layout(&resolved).map_err(|error| {
+        ToolkitError::new(
+            ErrorCode::LayoutInvalid,
+            format!(
+                "column {}: {}",
+                column_for_offset(expr, error.offset),
+                error.message
+            ),
+        )
+    })?;
+    Ok(resolved)
+}
+
+/// Parses, resolves customs, plus validates, mapping failures to codes.
+fn parse_validated(
+    expr: &str,
+    customs: &CustomComponents,
+) -> Result<Vec<LayoutNode>, ToolkitError> {
+    let nodes = parse_expr(expr)?;
+    resolve_and_validate(expr, &nodes, customs)
 }
 
 /// Checks that a function name is a usable Rust identifier.
@@ -146,8 +200,9 @@ fn check_fn_name(name: &str) -> Result<(), ToolkitError> {
 /// Expands one single-root expression to a Rust unit.
 ///
 /// `function` names the generated function (default
-/// [`DEFAULT_LAYOUT_FN`]). Forests and repeated roots fail: expansion
-/// targets one `impl IntoElement` value.
+/// [`DEFAULT_LAYOUT_FN`]); `customs` resolves project aliases first.
+/// Forests and repeated roots fail: expansion targets one
+/// `impl IntoElement` value.
 ///
 /// # Errors
 ///
@@ -158,13 +213,18 @@ fn check_fn_name(name: &str) -> Result<(), ToolkitError> {
 /// # Examples
 ///
 /// ```rust
+/// use gpui_layout_expr::CustomComponents;
 /// use gpui_toolkit_cli::layout_expand;
 ///
-/// let unit = layout_expand("B\"Hi\"", None).unwrap();
+/// let unit = layout_expand("B\"Hi\"", None, &CustomComponents::empty()).unwrap();
 /// assert!(unit.contains("Button::new"));
 /// ```
-pub fn layout_expand(expr: &str, function: Option<&str>) -> Result<String, ToolkitError> {
-    let nodes = parse_validated(expr)?;
+pub fn layout_expand(
+    expr: &str,
+    function: Option<&str>,
+    customs: &CustomComponents,
+) -> Result<String, ToolkitError> {
+    let nodes = parse_validated(expr, customs)?;
     if nodes.len() != 1 {
         return Err(ToolkitError::new(
             ErrorCode::LayoutInvalid,
@@ -200,8 +260,9 @@ pub fn layout_expand_to_file(
     function: Option<&str>,
     dir: &Path,
     file: Option<&str>,
+    customs: &CustomComponents,
 ) -> Result<LayoutExpand, ToolkitError> {
-    let rust = layout_expand(expr, function)?;
+    let rust = layout_expand(expr, function, customs)?;
     if !dir.is_dir() {
         return Err(ToolkitError::new(
             ErrorCode::InvalidArgument,
@@ -427,6 +488,9 @@ pub fn render_layout_expand_text(expand: &LayoutExpand) -> String {
 }
 
 /// Counts nodes for receipts; validated input always parses.
+///
+/// Parse-only on purpose: the expression already validated upstream,
+/// and counting needs no registry.
 fn layout_node_count_str(expr: &str) -> usize {
-    parse_validated(expr).map_or(0, |nodes| gpui_layout_expr::layout_node_count(&nodes))
+    parse_expr(expr).map_or(0, |nodes| gpui_layout_expr::layout_node_count(&nodes))
 }
