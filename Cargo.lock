@@ -2754,6 +2754,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-layout-expr"
+version = "0.9.31"
+
+[[package]]
 name = "gpui-miniapp"
 version = "0.9.11"
 dependencies = [
@@ -2956,6 +2960,21 @@ dependencies = [
  "gpui-themes",
  "gpui-ui-kit",
  "gpui-ui-kit-macros",
+]
+
+[[package]]
+name = "gpui-toolkit-cli"
+version = "0.9.31"
+dependencies = [
+ "clap",
+ "gpui-component-lab",
+ "gpui-layout-expr",
+ "gpui-themes",
+ "gpui-toolkit-gpui",
+ "gpui-ui-kit",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -3347,6 +3366,9 @@ dependencies = [
 name = "gpui-ui-kit-macros"
 version = "0.9.7"
 dependencies = [
+ "gpui-layout-expr",
+ "gpui-toolkit-gpui",
+ "gpui-ui-kit",
  "proc-macro2",
  "quote",
  "serde_json",

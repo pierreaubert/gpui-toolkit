@@ -28,9 +28,12 @@ urlencoding = []
 proc-macro = true
 
 [dev-dependencies]
+gpui = { workspace = true }
+gpui-ui-kit = { workspace = true }
 serde_json = { workspace = true }
 
 [dependencies]
+gpui-layout-expr = { workspace = true }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true }

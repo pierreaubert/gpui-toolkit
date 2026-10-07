@@ -370,7 +370,11 @@ pub(super) fn ui_kit_showcase_story_id(story_id: &str) -> bool {
         .any(|(id, _, _)| *id == story_id)
 }
 
-pub(super) const UI_KIT_EXPORTED_COMPONENT_STORIES: &[(&str, &str, &str)] = &[
+/// Exported component stories as (story id, component name, description).
+///
+/// Tooling (notably `gpui-toolkit doctor`) reads this to verify every
+/// exported component resolves to a registered story.
+pub const UI_KIT_EXPORTED_COMPONENT_STORIES: &[(&str, &str, &str)] = &[
     (
         "ui-kit.button-set",
         "ButtonSet",
@@ -558,7 +562,11 @@ pub(super) const UI_KIT_EXPORTED_COMPONENT_STORIES: &[(&str, &str, &str)] = &[
     ),
 ];
 
-pub(super) const UI_KIT_SHOWCASE_STORIES: &[(&str, &str, &str)] = &[
+/// Showcase stories as (story id, component name, description).
+///
+/// Tooling (notably `gpui-toolkit doctor`) reads this to verify every
+/// showcase story resolves to a registered story.
+pub const UI_KIT_SHOWCASE_STORIES: &[(&str, &str, &str)] = &[
     (
         "ui-kit.buttons",
         "Buttons",

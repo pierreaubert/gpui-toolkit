@@ -51,6 +51,7 @@ Two open source examples:
 | [gpui-hello-web](./crates/gpui-hello-web/) | Minimal wasm/browser spike app running GPUI on the vendored `gpui_web` WebGPU backend via Trunk. |
 | [gpui-ios](./crates/gpui-ios/) | iOS/tvOS platform backend for GPUI with Metal rendering, touch input, text input, accessibility, platform views, and hot reload hooks. |
 | [gpui-keybinding](./crates/gpui-keybinding/) | Reusable keybinding framework with editor-style preset support for GPUI applications. |
+| [gpui-layout-expr](./crates/gpui-layout-expr/) | Compact layout-expression AST, parser, and validation shared by the CLI and the `layout!` macro. |
 | [gpui-miniapp](./crates/gpui-miniapp/) | Small application shell used by examples and showcases to select the right GPUI platform backend. |
 | [gpui-pretext](./crates/gpui-pretext/) | High-performance text measurement and multiline layout utilities. |
 | [gpui-profiler](./crates/gpui-profiler/) | Lightweight allocation profiling and hot-path regression utilities. |
@@ -62,6 +63,7 @@ Two open source examples:
 | [gpui-ui-kit](./crates/gpui-ui-kit/) | Reusable UI component library: buttons, inputs, dialogs, menus, tabs, tables, QR, command palette, sidebar, wizard, workflow canvas, and more. |
 | [gpui-ui-kit-macros](./crates/gpui-ui-kit-macros/) | Procedural macros used by `gpui-ui-kit`, including builder and theme derivation helpers. |
 | [gpui-toolkit](./crates/gpui-toolkit/) | Aggregate crate and machine-readable release, stability, and vendored-patch policy manifests. |
+| [gpui-toolkit-cli](./crates/gpui-toolkit-cli/) | Unified `gpui-toolkit` CLI: component catalog, templates, themes, health checks, and layout tools for humans and agents. |
 | [gpui-showcase](./crates/gpui-showcase/) | Desktop component showcase application. |
 | [gpui-showcase-android](./crates/gpui-showcase/android/) | Android native library and Gradle host for the component showcase. |
 | [gpui-showcase-ios](./crates/gpui-showcase/ios/) | Static library and Swift host project for showing `gpui-ui-kit` on iOS, with tvOS Rust library build support. |
@@ -163,6 +165,42 @@ To create the app somewhere else, pass `--output-dir`:
 ```bash
 cargo run -p gpui-scaffolder -- my-app --output-dir /tmp
 ```
+
+## Toolkit CLI
+
+The `gpui-toolkit` binary is the unified entry point for working with the
+design system. Run it from the workspace without installing:
+
+```bash
+cargo run -p gpui-toolkit-cli -- --help
+```
+
+or install it once:
+
+```bash
+cargo install --path crates/gpui-toolkit-cli
+```
+
+| Command | Purpose |
+| --- | --- |
+| `init` | Write the managed component catalog into a project's agent docs. |
+| `component` / `search` | List components, print one component document, or search the catalog. |
+| `template` | List, preview, and copy page and block templates. |
+| `eject` | Copy a component's source into your tree to own and customize it. |
+| `theme` | List presets, export token JSON, check freshness, list token targets. |
+| `doctor` | Read-only health checks; exits 1 on failure, suitable as a CI step. |
+| `upgrade` | List registered migration notes between releases. |
+| `gap-report` | Render a prefilled missing-capability issue for the tracker. |
+| `layout` | Validate and expand compact layout expressions to Rust. |
+| `manifest` | Self-describing capability manifest for the whole CLI. |
+
+Every command honors `--json` with a typed `{apiVersion, type, data}`
+envelope and stable `ERR_*` error codes, so agents can drive the CLI
+without scraping `--help`; `manifest --json` describes every command,
+flag, and example in one payload. `--dense` switches to token-efficient
+output. The companion `layout!` proc macro (in `gpui-ui-kit-macros`)
+expands the same layout expressions at compile time. See
+[TUTORIAL.md](./TUTORIAL.md) for a guided walkthrough.
 
 ## Demos
 
