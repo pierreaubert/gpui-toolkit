@@ -1231,8 +1231,8 @@ fn validate_color(color: Scene2DColor) -> Result<(), Scene2DError> {
     Ok(())
 }
 fn validate_semantic(value: Option<&Scene2DSemantic>) -> Result<(), Scene2DError> {
-    if let Some(value) = value {
-        if value.label.trim().is_empty()
+    if let Some(value) = value
+        && (value.label.trim().is_empty()
             || value.label.len() > MAX_TEXT_BYTES
             || value
                 .description
@@ -1241,13 +1241,12 @@ fn validate_semantic(value: Option<&Scene2DSemantic>) -> Result<(), Scene2DError
             || value
                 .value_text
                 .as_ref()
-                .is_some_and(|text| text.len() > MAX_TEXT_BYTES)
-        {
-            return Err(Scene2DError::InvalidId {
-                field: "semantic label",
-                max_bytes: MAX_TEXT_BYTES,
-            });
-        }
+                .is_some_and(|text| text.len() > MAX_TEXT_BYTES))
+    {
+        return Err(Scene2DError::InvalidId {
+            field: "semantic label",
+            max_bytes: MAX_TEXT_BYTES,
+        });
     }
     Ok(())
 }

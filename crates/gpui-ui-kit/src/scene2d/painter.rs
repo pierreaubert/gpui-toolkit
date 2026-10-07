@@ -1134,12 +1134,14 @@ fn paint_leaf_node(
             align,
         } => paint_text(
             node,
-            *origin,
-            content,
-            *size,
-            *color,
-            family.as_deref(),
-            *align,
+            TextDraw {
+                origin: *origin,
+                content,
+                size: *size,
+                color: *color,
+                family: family.as_deref(),
+                align: *align,
+            },
             transform,
             bounds,
             window,
@@ -1208,15 +1210,14 @@ fn paint_rect(
                 window.paint_path(path, background_for(fill_brush, node.opacity));
             }
         }
-        if let Some(stroke) = stroke {
-            if let Ok(path) = rounded_rect_path(rect, radius, node.transform, transform, bounds)
+        if let Some(stroke) = stroke
+            && let Ok(path) = rounded_rect_path(rect, radius, node.transform, transform, bounds)
                 .with_style(PathStyle::Stroke(
                     StrokeOptions::default().with_line_width(stroke_width(node, stroke, transform)),
                 ))
                 .build()
-            {
-                window.paint_path(path, rgba_color(stroke.color, node.opacity));
-            }
+        {
+            window.paint_path(path, rgba_color(stroke.color, node.opacity));
         }
     }
 }
@@ -1487,14 +1488,14 @@ fn paint_path(
             theme_key
         )
     ));
-    if let Some(fill_brush) = fill_brush {
-        if let Some(path) = state.cached_path(
+    if let Some(fill_brush) = fill_brush
+        && let Some(path) = state.cached_path(
             &format!("{}\0fill", node.id),
             cache_key ^ 0x9e37_79b9_7f4a_7c15,
             || build_scene_path(commands, node.transform, transform, bounds, None),
-        ) {
-            window.paint_path(path, background_for(fill_brush, node.opacity));
-        }
+        )
+    {
+        window.paint_path(path, background_for(fill_brush, node.opacity));
     }
     if let Some(stroke) = stroke {
         let width = stroke_width(node, stroke, transform);
@@ -1549,33 +1550,39 @@ fn build_scene_path(
     path.build().ok()
 }
 
-fn paint_text(
-    node: &Scene2DNode,
+/// Text content and styling for [`paint_text`], grouped so the painter
+/// takes a single text parameter instead of six positional scalars.
+struct TextDraw<'a> {
     origin: ScenePoint,
-    content: &str,
+    content: &'a str,
     size: f32,
     color: Scene2DColor,
-    family: Option<&str>,
+    family: Option<&'a str>,
     align: Scene2DTextAlign,
+}
+
+fn paint_text(
+    node: &Scene2DNode,
+    text: TextDraw<'_>,
     transform: Scene2DViewTransform,
     bounds: Bounds<Pixels>,
     window: &mut Window,
     cx: &mut App,
     state: &Scene2DState,
 ) {
-    if content.is_empty() {
+    if text.content.is_empty() {
         return;
     }
     let mut style = window.text_style();
     let theme = cx.theme();
-    if let Some(family) = family {
+    if let Some(family) = text.family {
         style.font_family = family.into();
     } else {
         style.font_family = theme.font_family.clone();
     }
-    style.color = rgba_color(color, node.opacity).into();
-    let run = style.to_run(content.len());
-    let text_size = px(size * transform.scale() * transform_scale(node.transform));
+    style.color = rgba_color(text.color, node.opacity).into();
+    let run = style.to_run(text.content.len());
+    let text_size = px(text.size * transform.scale() * transform_scale(node.transform));
     let align_width = node.hit_bounds.map(|hit_bounds| {
         px(hit_bounds.width * transform.scale() * transform_scale(node.transform))
     });
@@ -1589,7 +1596,7 @@ fn paint_text(
         (
             (
                 node.id.as_str(),
-                content,
+                text.content,
                 style.font_family,
                 style.font_features,
                 style.font_fallbacks,
@@ -1609,15 +1616,21 @@ fn paint_text(
     let line = state.cached_text_line(node.id.as_str(), hash_debug(&style_key), || {
         window
             .text_system()
-            .shape_line(content.into(), text_size, &[run], None)
+            .shape_line(text.content.into(), text_size, &[run], None)
     });
-    let origin = window_point(origin.x, origin.y, node.transform, transform, bounds);
-    let align = match align {
+    let origin = window_point(
+        text.origin.x,
+        text.origin.y,
+        node.transform,
+        transform,
+        bounds,
+    );
+    let align = match text.align {
         Scene2DTextAlign::Left => TextAlign::Left,
         Scene2DTextAlign::Center => TextAlign::Center,
         Scene2DTextAlign::Right => TextAlign::Right,
     };
-    let line_height = px(size * transform.scale() * transform_scale(node.transform) * 1.25);
+    let line_height = px(text.size * transform.scale() * transform_scale(node.transform) * 1.25);
     let _ = line.paint(origin, line_height, align, align_width, window, cx);
 }
 

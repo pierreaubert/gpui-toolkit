@@ -2,8 +2,10 @@ use gpui::SharedString;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+type TickLabelCacheKey = (u64, Option<fn(f64) -> String>);
+
 thread_local! {
-    static TICK_LABEL_CACHE: RefCell<HashMap<(u64, Option<fn(f64) -> String>), SharedString>> =
+    static TICK_LABEL_CACHE: RefCell<HashMap<TickLabelCacheKey, SharedString>> =
         RefCell::new(HashMap::new());
 }
 

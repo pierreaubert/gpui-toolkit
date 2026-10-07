@@ -1056,10 +1056,10 @@ impl ZipGame {
                 return false;
             }
             let checkpoint_index = ZIP_CHECKPOINTS.iter().position(|point| *point == cell);
-            if let Some(index) = checkpoint_index {
-                if index + 1 != self.next_checkpoint() {
-                    return false;
-                }
+            if let Some(index) = checkpoint_index
+                && index + 1 != self.next_checkpoint()
+            {
+                return false;
             }
         }
         self.record();
@@ -1288,11 +1288,13 @@ impl ZipGame {
     }
 }
 
+type QueensUndoEntry = ([[u8; QUEENS_SIZE]; QUEENS_SIZE], (usize, usize));
+
 #[derive(Clone, Debug)]
 struct QueensGame {
     marks: [[u8; QUEENS_SIZE]; QUEENS_SIZE],
     selected: (usize, usize),
-    undo: VecDeque<([[u8; QUEENS_SIZE]; QUEENS_SIZE], (usize, usize))>,
+    undo: VecDeque<QueensUndoEntry>,
     won: bool,
 }
 
@@ -1603,12 +1605,14 @@ impl QueensGame {
     }
 }
 
+type SudokuHistoryEntry = ([[u8; 9]; 9], Option<(usize, usize)>);
+
 #[derive(Clone, Debug)]
 struct SudokuGame {
     values: [[u8; 9]; 9],
     givens: [[bool; 9]; 9],
     selected: Option<(usize, usize)>,
-    history: VecDeque<([[u8; 9]; 9], Option<(usize, usize)>)>,
+    history: VecDeque<SudokuHistoryEntry>,
     won: bool,
     message: String,
 }
