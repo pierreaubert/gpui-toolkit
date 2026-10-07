@@ -351,11 +351,13 @@ fn create_scaffold_directories(
     Ok(())
 }
 
-/// Derive the six toolkit dependency paths from a single [`relative_path`]
-/// ancestor walk: everything below the toolkit root hangs off that base, so
-/// `relative_path(app, root.join(sub)) == relative_path(app, root).join(sub)`.
+/// Derive toolkit and shared fork dependency paths relative to the scaffold.
 fn toolkit_dependency_paths(app_dir: &Path, toolkit_root: &Path) -> DependencyPaths {
     let base = relative_path(app_dir, toolkit_root);
+    let shared_forks = toolkit_root
+        .parent()
+        .unwrap_or(toolkit_root)
+        .join("sotf-3rdparties");
     // Joining onto "." would produce "./crates/..." while the direct walk
     // produces "crates/..."; normalize so both spellings agree exactly.
     let join = |sub: &str| {
@@ -370,8 +372,8 @@ fn toolkit_dependency_paths(app_dir: &Path, toolkit_root: &Path) -> DependencyPa
         ui_kit: join("crates/gpui-ui-kit"),
         ios: join("crates/gpui-ios"),
         android: join("crates/gpui-android"),
-        block: join("crates/3rdparties/block"),
-        zed_font_kit: join("crates/3rdparties/zed-font-kit"),
+        block: relative_path(app_dir, &shared_forks.join("block")),
+        zed_font_kit: relative_path(app_dir, &shared_forks.join("zed-font-kit")),
     }
 }
 
@@ -1616,12 +1618,14 @@ mod tests {
         assert!(manifest.contains("android_logger"));
         assert!(manifest.contains("[patch.\"https://github.com/zed-industries/font-kit\"]"));
         assert!(manifest.contains("zed-font-kit"));
-        assert!(manifest.contains("crates/3rdparties/zed-font-kit"));
+        assert!(manifest.contains("sotf-3rdparties/zed-font-kit"));
+        assert!(!manifest.contains("../sotf-3rdparties/gpui/crates/zed-font-kit"));
         assert!(manifest.contains("[patch.crates-io]"));
         assert!(manifest.contains("zune-core = \"=0.5.1\""));
         assert!(manifest.contains("libc = \"=0.2.189\""));
         assert!(manifest.contains("block"));
-        assert!(manifest.contains("crates/3rdparties/block"));
+        assert!(manifest.contains("sotf-3rdparties/block"));
+        assert!(!manifest.contains("../sotf-3rdparties/gpui/crates/block"));
 
         let metadata: toml::Value = toml::from_str(&fs::read_to_string(
             scaffolded.app_dir.join("gpui-scaffold.toml"),
@@ -1819,7 +1823,9 @@ mod tests {
         let generated_gpui = format!(
             r#"gpui = {{ version = "{GPUI_VERSION}", git = "https://github.com/zed-industries/zed.git", tag = "{GPUI_ZED_TAG}" }}"#
         );
-        let local_gpui = toolkit_root.join("crates/3rdparties/gpui").canonicalize()?;
+        let local_gpui = toolkit_root
+            .join("../sotf-3rdparties/gpui/crates/gpui")
+            .canonicalize()?;
         let local_gpui = format!(
             r#"gpui = {{ package = "gpui-toolkit-gpui", path = "{}" }}"#,
             cargo_path(&local_gpui),
@@ -1927,7 +1933,7 @@ mod tests {
 
     #[test]
     fn generated_gpui_tag_matches_vendored_revision() -> Result<()> {
-        let vendored = include_str!("../../3rdparties/gpui/VENDORED.md");
+        let vendored = include_str!("../../../../sotf-3rdparties/gpui/crates/gpui/VENDORED.md");
         let vendored_ref = vendored
             .lines()
             .find_map(|line| line.strip_prefix("- Base ref: "))
@@ -2547,11 +2553,14 @@ mod tests {
             );
             assert_eq!(
                 dependencies.block,
-                relative_path(from, &root.join("crates/3rdparties/block"))
+                relative_path(from, &root.parent().unwrap().join("sotf-3rdparties/block"))
             );
             assert_eq!(
                 dependencies.zed_font_kit,
-                relative_path(from, &root.join("crates/3rdparties/zed-font-kit"))
+                relative_path(
+                    from,
+                    &root.parent().unwrap().join("sotf-3rdparties/zed-font-kit")
+                )
             );
         }
     }

@@ -41,7 +41,7 @@ macOS Keychain access instead of declaring Security.framework functions, and
 
 ## Vendored code
 
-Sources under `crates/3rdparties/` are excluded from the first-party scanner
+Sources under `../sotf-3rdparties/gpui/crates/` are excluded from the first-party scanner
 because they are imported projects with their own safety architecture. They
 are pinned, patched, and reviewed through the vendored-dependency governance
 checks. A local modification that introduces or changes an unsafe block must

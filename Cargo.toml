@@ -26,22 +26,8 @@ members = [
     "crates/gpui-ui-kit",
     "crates/gpui-showcase/ios",
     "crates/gpui-ui-kit-macros",
-    "crates/3rdparties/gpui_wgpu",
-    "crates/3rdparties/gpui_web",
-    "crates/3rdparties/gpui_windows",
-    "crates/3rdparties/gpui",
-    "crates/3rdparties/gpui_macros",
-    "crates/3rdparties/gpui_macos",
-    "crates/3rdparties/gpui_linux",
-    "crates/3rdparties/util",
-    "crates/3rdparties/util_macros",
-    "crates/3rdparties/scheduler",
-    "crates/3rdparties/sum_tree",
-    "crates/3rdparties/http_client",
-    "crates/3rdparties/perf",
 ]
 # The vendored font crate has its own workspace; keep it a path dependency.
-exclude = ["crates/3rdparties/zed-font-kit"]
 resolver = "3"
 
 [workspace.package]
@@ -117,14 +103,14 @@ gpui-ui-kit-macros = { path = "crates/gpui-ui-kit-macros", version = "0.9" }
 
 # GPUI framework derived from Zed. The dependency keys retain the upstream
 # Rust crate names, while package names are namespaced for crates.io.
-gpui = { package = "gpui-toolkit-gpui", path = "crates/3rdparties/gpui", version = "0.2.3", default-features = false }
-gpui_macros = { package = "gpui-toolkit-gpui-macros", path = "crates/3rdparties/gpui_macros", version = "0.1.0" }
-gpui_macos = { package = "gpui-toolkit-gpui-macos", path = "crates/3rdparties/gpui_macos", version = "0.1.1", default-features = false, features = ["font-kit"] }
-gpui_linux = { package = "gpui-toolkit-gpui-linux", path = "crates/3rdparties/gpui_linux", version = "0.1.0", default-features = false }
-gpui_windows = { package = "gpui-toolkit-gpui-windows", path = "crates/3rdparties/gpui_windows", version = "0.1.2", default-features = false }
-gpui_wgpu = { package = "gpui-toolkit-gpui-wgpu", path = "crates/3rdparties/gpui_wgpu", version = "0.1.2" }
-gpui_web = { package = "gpui-toolkit-gpui-web", path = "crates/3rdparties/gpui_web", version = "0.1.1" }
-wgpu = { version = "29.0.0", git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
+gpui = { package = "gpui-toolkit-gpui", path = "../sotf-3rdparties/gpui/crates/gpui", version = "0.2.3", default-features = false }
+gpui_macros = { package = "gpui-toolkit-gpui-macros", path = "../sotf-3rdparties/gpui/crates/gpui_macros", version = "0.1.0" }
+gpui_macos = { package = "gpui-toolkit-gpui-macos", path = "../sotf-3rdparties/gpui/crates/gpui_macos", version = "0.1.1", default-features = false, features = ["font-kit"] }
+gpui_linux = { package = "gpui-toolkit-gpui-linux", path = "../sotf-3rdparties/gpui/crates/gpui_linux", version = "0.1.0", default-features = false }
+gpui_windows = { package = "gpui-toolkit-gpui-windows", path = "../sotf-3rdparties/gpui/crates/gpui_windows", version = "0.1.2", default-features = false }
+gpui_wgpu = { package = "gpui-toolkit-gpui-wgpu", path = "../sotf-3rdparties/gpui/crates/gpui_wgpu", version = "0.1.2" }
+gpui_web = { package = "gpui-toolkit-gpui-web", path = "../sotf-3rdparties/gpui/crates/gpui_web", version = "0.1.1" }
+wgpu = { path = "../sotf-3rdparties/wgpu/wgpu", version = "29.0.0" }
 vello = { version = "0.10.0", default-features = false, features = ["wgpu"] }
 vello_cpu = { version = "0.2.0" }
 peniko = { version = "0.6.1" }
@@ -136,18 +122,18 @@ parley = { version = "0.11.1", default-features = false, features = ["std"] }
 fontique = { version = "0.11.1", default-features = false, features = ["std"] }
 
 # Internal crates derived from Zed, published under the gpui-toolkit namespace.
-collections = { git = "https://github.com/pierreaubert/zed.git", rev = "3a0ea890ddf8e6247e38c795a960eb18f5182113", version = "0.1.0" }
-util = { package = "gpui-toolkit-util", path = "crates/3rdparties/util", version = "0.1.1" }
-util_macros = { package = "gpui-toolkit-util-macros", path = "crates/3rdparties/util_macros", version = "0.1.0" }
-perf = { package = "gpui-toolkit-perf", path = "crates/3rdparties/perf", version = "0.1.0" }
-gpui_util = { git = "https://github.com/pierreaubert/zed.git", rev = "3a0ea890ddf8e6247e38c795a960eb18f5182113", version = "0.1.0" }
-gpui_shared_string = { git = "https://github.com/pierreaubert/zed.git", rev = "3a0ea890ddf8e6247e38c795a960eb18f5182113", version = "0.1.0" }
-http_client = { package = "gpui-toolkit-http-client", path = "crates/3rdparties/http_client", version = "0.1.0" }
-media = { git = "https://github.com/pierreaubert/zed.git", rev = "3a0ea890ddf8e6247e38c795a960eb18f5182113", version = "0.1.0" }
-scheduler = { package = "gpui-toolkit-scheduler", path = "crates/3rdparties/scheduler", version = "0.1.0" }
-sum_tree = { package = "gpui-toolkit-sum-tree", path = "crates/3rdparties/sum_tree", version = "0.1.0" }
-refineable = { git = "https://github.com/pierreaubert/zed.git", rev = "3a0ea890ddf8e6247e38c795a960eb18f5182113", version = "0.1.0" }
-scap = { git = "https://github.com/zed-industries/scap", rev = "4afea48c3b002197176fb19cd0f9b180dd36eaac", default-features = false, package = "zed-scap", version = "0.0.8-zed" }
+collections = { path = "../sotf-3rdparties/gpui/crates/collections", version = "0.1.0" }
+util = { package = "gpui-toolkit-util", path = "../sotf-3rdparties/gpui/crates/util", version = "0.1.1" }
+util_macros = { package = "gpui-toolkit-util-macros", path = "../sotf-3rdparties/gpui/crates/util_macros", version = "0.1.0" }
+perf = { package = "gpui-toolkit-perf", path = "../sotf-3rdparties/gpui/crates/perf", version = "0.1.0" }
+gpui_util = { path = "../sotf-3rdparties/gpui/crates/gpui_util", version = "0.1.0" }
+gpui_shared_string = { path = "../sotf-3rdparties/gpui/crates/gpui_shared_string", version = "0.1.0" }
+http_client = { package = "gpui-toolkit-http-client", path = "../sotf-3rdparties/gpui/crates/http_client", version = "0.1.0" }
+media = { path = "../sotf-3rdparties/gpui/crates/media", version = "0.1.0" }
+scheduler = { package = "gpui-toolkit-scheduler", path = "../sotf-3rdparties/gpui/crates/scheduler", version = "0.1.0" }
+sum_tree = { package = "gpui-toolkit-sum-tree", path = "../sotf-3rdparties/gpui/crates/sum_tree", version = "0.1.0" }
+refineable = { path = "../sotf-3rdparties/gpui/crates/refineable", version = "0.1.0" }
+scap = { path = "../sotf-3rdparties/scap", default-features = false, package = "zed-scap", version = "0.0.8-zed" }
 
 # Windows crate used by gpui_windows
 windows = { version = "0.62", features = [
@@ -243,7 +229,7 @@ block2 = "0.6"
 core-foundation = "0.10"
 core-graphics = "0.24"
 core-text = "=21.0.0"
-font-kit = { package = "zed-font-kit", version = "0.14.1-zed", path = "crates/3rdparties/zed-font-kit", default-features = false, features = ["source"] }
+font-kit = { package = "zed-font-kit", version = "0.14.1-zed", path = "../sotf-3rdparties/zed-font-kit", default-features = false, features = ["source"] }
 objc = "0.2"
 oslog = "0.2"
 security-framework = "3.7"
@@ -383,27 +369,27 @@ codegen-units = 256
 # Fix: git font-kit rev lacks tvOS target cfgs and has broken core-text imports;
 # use the vendored manifest with Apple mobile target fixes.
 [patch."https://github.com/zed-industries/font-kit"]
-zed-font-kit = { path = "crates/3rdparties/zed-font-kit" }
+zed-font-kit = { path = "../sotf-3rdparties/zed-font-kit" }
 
 [patch.crates-io]
 # SOTF owned maintenance forks; upstream 2.1.1, local version 2.1.2.
-derive_more = { path = "../math-audio/crates/3rdparties/derive_more" }
-derive_more-impl = { path = "../math-audio/crates/3rdparties/derive_more-impl" }
+derive_more = { path = "../sotf-3rdparties/derive_more" }
+derive_more-impl = { path = "../sotf-3rdparties/derive_more-impl" }
 
-oo7 = { path = "crates/3rdparties/crypto-forks/oo7" }
-rusty-fork = { git = "https://github.com/pierreaubert/rusty-fork.git", rev = "ee62bcd64fa6afe7fae0e52a448d716dc294e98d" }
-fontconfig-parser = { git = "https://github.com/pierreaubert/fontconfig-parser.git", rev = "d247c91f5a57edd6ba6eb26e884d4904dbfbc87e" }
-psm = { git = "https://github.com/pierreaubert/stacker.git", rev = "48bf8e3abfb350de9387a675275a629e4daf9717" }
-block = { path = "crates/3rdparties/block" }
-objc = { path = "crates/3rdparties/objc" }
-async-task = { git = "https://github.com/smol-rs/async-task.git", rev = "b4486cd71e4e94fbda54ce6302444de14f4d190e" }
+oo7 = { path = "../sotf-3rdparties/oo7" }
+rusty-fork = { path = "../sotf-3rdparties/rusty-fork" }
+fontconfig-parser = { path = "../sotf-3rdparties/fontconfig-parser" }
+psm = { path = "../sotf-3rdparties/stacker/psm" }
+block = { path = "../sotf-3rdparties/block" }
+objc = { path = "../sotf-3rdparties/objc" }
+async-task = { path = "../sotf-3rdparties/async-task" }
 # vello 0.10 requires crates-io wgpu/naga 29.0.3; unify with Zed's fork
 # (fork = upstream v29.0.3 + one internal wgpu-hal EGL patch, version-identical).
-wgpu = { git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
-wgpu-core = { git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
-wgpu-hal = { git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
-wgpu-types = { git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
-naga = { git = "https://github.com/zed-industries/wgpu.git", rev = "357a0c56e0070480ad9daea5d2eaa83150b79e88" }
+wgpu = { path = "../sotf-3rdparties/wgpu/wgpu" }
+wgpu-core = { path = "../sotf-3rdparties/wgpu/wgpu-core" }
+wgpu-hal = { path = "../sotf-3rdparties/wgpu/wgpu-hal" }
+wgpu-types = { path = "../sotf-3rdparties/wgpu/wgpu-types" }
+naga = { path = "../sotf-3rdparties/wgpu/naga" }
 
 [profile.release]
 # `release` is the everyday optimised profile — used by CI, `just prod-*`,

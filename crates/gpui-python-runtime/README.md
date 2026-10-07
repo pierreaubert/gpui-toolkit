@@ -272,7 +272,8 @@ ticks only while work is active. Native transitions animate target properties,
 so Python does not need to send patches every frame.
 
 The `games_demo.py` example uses geometric Scene2D boards for Zip, Queens,
-Sudoku, and Tetris. Sudoku keeps a large keypad and selected-cell preview next
+Sudoku, Tetris, Chess, and Othello (one game module per file under
+`games_demo/`). Sudoku keeps a large keypad and selected-cell preview next
 to its board; the other boards expose semantic grid cells without drawing a
 widget button for each cell. Game cue commands go through the optional
 `GameCueAdapter` boundary. It accepts an already initialized `CueBackend`,
@@ -324,8 +325,9 @@ python3 scripts/python_games_smoke.py target/release/gpui-python-host
 ```
 
 It opens a separate native window with temporary presentation state, clicks
-Queens, Zip, Sudoku, and Tetris through GPUI, checks scene patches and live
-ticks, exercises two touch contacts, changes the palette, and closes its host.
+Queens, Zip, Sudoku, Chess, Othello, and Tetris through GPUI, checks scene
+patches and live ticks, exercises two touch contacts, changes the palette,
+and closes its host.
 The test fails on native session errors or Python stderr. Handler errors
 include the event, node, action, exception type, and exception message;
 the full traceback is captured in stderr and available through `status`.

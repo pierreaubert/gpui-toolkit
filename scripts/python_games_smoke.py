@@ -91,6 +91,15 @@ def exercise(api):
     request(api, {"command": "key", "surface": "sudoku-board", "phase": "up", "key": "5"})
     print("Sudoku: three GPUI cell clicks and native digit input passed")
 
+    state = select("chess", "chess-board")
+    for row, column in ((6, 4), (4, 4)):
+        state = cell_click(state, "chess-board", row, column)
+    print("Chess: GPUI piece select, e2-e4, and AI reply passed")
+
+    state = select("othello", "othello-board")
+    state = cell_click(state, "othello-board", 5, 3)
+    print("Othello: GPUI d3 placement and AI reply passed")
+
     state = select("tetris", "tetris-btn-start")
     state = window_click(state, "tetris-btn-start")
     state = wait(lambda current: current["revision"] > state["revision"])
@@ -106,7 +115,7 @@ def exercise(api):
     state = select("overview", "palette-light")
     window_click(state, "palette-light")
     state = status()
-    assert state["revision"] >= 12, state["revision"]
+    assert state["revision"] >= 15, state["revision"]
     assert not state["stderr"], state["stderr"]
     for bad_command in ({"command": "select", "section": "missing"},
                         {"command": "click", "surface": "missing", "x": 0, "y": 0}):

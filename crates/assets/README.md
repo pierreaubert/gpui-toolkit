@@ -3,9 +3,9 @@
 This directory is a shared asset bundle, not a Cargo crate. Its font paths are
 load-bearing: the consumers below embed the files with `include_bytes!`.
 
-- `crates/3rdparties/gpui_web/src/platform.rs` embeds all IBM Plex Sans and
+- `../sotf-3rdparties/gpui/crates/gpui_web/src/platform.rs` embeds all IBM Plex Sans and
   Lilex variants for the browser platform.
-- `crates/3rdparties/gpui/src/svg_renderer.rs` embeds the Regular IBM Plex
+- `../sotf-3rdparties/gpui/crates/gpui/src/svg_renderer.rs` embeds the Regular IBM Plex
   Sans and Lilex variants for SVG-renderer tests.
 
 Keep the `fonts/` directory structure and filenames stable, or update every

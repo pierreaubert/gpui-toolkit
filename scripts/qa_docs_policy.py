@@ -42,8 +42,8 @@ def check() -> list[str]:
     asset_markers = (
         "shared asset bundle, not a Cargo crate",
         "include_bytes!",
-        "crates/3rdparties/gpui_web/src/platform.rs",
-        "crates/3rdparties/gpui/src/svg_renderer.rs",
+        "../sotf-3rdparties/gpui/crates/gpui_web/src/platform.rs",
+        "../sotf-3rdparties/gpui/crates/gpui/src/svg_renderer.rs",
         "Font License 1.1",
     )
     if not asset_readme.is_file():

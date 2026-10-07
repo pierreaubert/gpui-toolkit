@@ -45,7 +45,7 @@ GENERATED_FFI_TEMPLATE_FILES = {
 }
 
 VENDORED_DIRS = (
-    "crates/3rdparties/",
+    "../sotf-3rdparties/gpui/crates/",
 )
 
 # Match Rust unsafe constructs, including Rust 2024 unsafe attributes, while

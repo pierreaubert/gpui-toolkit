@@ -52,7 +52,7 @@ uuid = { workspace = true, features = ["v5"] }
 env_logger = { workspace = true }
 
 [dev-dependencies]
-gpui = { package = "gpui-toolkit-gpui", path = "../3rdparties/gpui", features = ["test-support"] }
+gpui = { package = "gpui-toolkit-gpui", path = "../../../sotf-3rdparties/gpui/crates/gpui", features = ["test-support"] }
 
 # Apple-only deps (Objective-C runtime, Apple frameworks, font-kit)
 [target.'cfg(target_os = "macos")'.dependencies]

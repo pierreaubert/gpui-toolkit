@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Vendor Zed's GPUI crates into crates/3rdparties as history-free snapshots.
+"""Vendor Zed's GPUI crates into the shared sotf-3rdparties repository as history-free snapshots.
 
 Usage:
     python3 scripts/import_gpui_upstream.py --ref v1.9.0 --print-closure
@@ -23,7 +23,7 @@ EXCLUDED_CRATES = {"reqwest_client", "gpui_platform", "zlog", "ztracing", "ztrac
 # rewriting GPUI manifests, but omit their directories from the vendor set.
 EXTERNAL_ZED_CRATES = {"refineable", "derive_refineable", "gpui_shared_string", "collections", "gpui_util", "media"}
 EXCLUDED_DIRS = {"examples", "benches"}
-VENDOR_DIR = Path("crates/3rdparties")
+VENDOR_DIR = Path(__file__).resolve().parents[2] / "sotf-3rdparties" / "gpui" / "crates"
 GPUI_IMAGE_FEATURES = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"]
 CANON_KEY_ORDER = ["package", "version", "git", "tag", "rev", "branch",
                    "default-features", "features", "optional"]
@@ -441,7 +441,7 @@ def main(argv: list[str] | None = None) -> int:
         vendor_closure(selection, zdir, ctx, VENDOR_DIR, skip=set(args.skip))
         print("\n[patch.\"https://github.com/zed-industries/zed.git\"]")
         for name in closure:
-            print(f"{name} = {{ path = \"crates/3rdparties/{name}\" }}")
+            print(f"{name} = {{ path = \"../sotf-3rdparties/gpui/crates/{name}\" }}")
     return 0
 
 

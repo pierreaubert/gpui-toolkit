@@ -1,4 +1,4 @@
-"""Tests for the classic-games demo (zip, queens, sudoku, tetris)."""
+"""Tests for the classic-games demo (zip, queens, sudoku, tetris, chess, othello)."""
 import contextlib
 import importlib.util
 import io
@@ -97,7 +97,7 @@ class GamesDemoSpecTests(unittest.TestCase):
         spec = games.build_app().to_spec()
         self.assertEqual(
             [section["label"] for section in spec["sections"]],
-            ["Overview", "Zip", "Queens", "Sudoku", "Tetris"],
+            ["Overview", "Zip", "Queens", "Sudoku", "Tetris", "Chess", "Othello"],
         )
         json.dumps(spec)
 
@@ -124,6 +124,8 @@ class GamesDemoSpecTests(unittest.TestCase):
             (app.queens_game, "queens-board", "queens-count"),
             (app.sudoku_game, "sudoku-board", "sudoku-filled"),
             (app.tetris_game, "tetris-board", "tetris-score"),
+            (app.chess_game, "chess-board", "chess-to-move"),
+            (app.othello_game, "othello-board", "othello-to-move"),
         )
         for game, surface_id, metric_id in cases:
             children = game.section_node().to_spec()["children"]
@@ -170,6 +172,16 @@ class GamesDemoSpecTests(unittest.TestCase):
             "tetris-preview", "tetris-controls", "tetris-control-hold-left",
             "tetris-control-hold-right", "tetris-control-hold-down",
             "tetris-control-hold-rotate",
+            "chess-board", "chess-to-move", "chess-move", "chess-material",
+            "chess-badge", "chess-progress", "chess-status", "chess-fen",
+            "chess-moves", "chess-mode", "chess-difficulty", "chess-promotion",
+            "chess-btn-new", "chess-btn-undo", "chess-btn-flip",
+            "chess-btn-hint", "chess-btn-ai",
+            "othello-board", "othello-to-move", "othello-black", "othello-white",
+            "othello-badge", "othello-progress", "othello-status",
+            "othello-moves", "othello-mode", "othello-difficulty",
+            "othello-btn-new", "othello-btn-undo", "othello-btn-pass",
+            "othello-btn-hint", "othello-btn-ai",
         ):
             self.assertIn(node_id, ids)
 
@@ -839,6 +851,328 @@ class GamesAppDispatchTests(unittest.TestCase):
                                   {"value": "hard"})
         self.assertIn("patch", [message.get("type") for message in messages])
         self.assertEqual(app.sudoku_game.difficulty, "hard")
+
+    def test_chess_cell_round_trip_plays_human_move_and_ai_reply(self):
+        app = games.build_app()
+        _run_action(app, "chess_cell", "chess-cell-6-4")
+        self.assertEqual(app.chess_game.selected, (6, 4))
+        messages, _ = _run_action(app, "chess_cell", "chess-cell-4-4")
+        self.assertIn("patch", [message.get("type") for message in messages])
+        self.assertEqual(len(app.chess_game.match.history), 2)
+        self.assertEqual(app.chess_game.match.position.side, "w")
+
+    def test_othello_cell_round_trip_places_and_ai_replies(self):
+        app = games.build_app()
+        messages, _ = _run_action(app, "othello_cell", "othello-cell-5-3")
+        self.assertIn("patch", [message.get("type") for message in messages])
+        self.assertGreaterEqual(len(app.othello_game.match.history), 2)
+        self.assertEqual(app.othello_game.match.position.side, "B")
+
+
+def _play_uci(match, moves):
+    for uci in moves:
+        match.make_move(games.chess_move_from_uci(match, uci))
+    return match
+
+
+class ChessEngineTests(unittest.TestCase):
+    def test_start_position_has_twenty_moves_and_round_trips_fen(self):
+        match = games.ChessMatch()
+        self.assertEqual(len(match.legal_moves()), 20)
+        self.assertEqual(match.position.to_fen(), games.CHESS_START_FEN)
+        rebuilt = games.ChessPosition.from_fen(games.CHESS_START_FEN)
+        self.assertEqual(rebuilt.to_fen(), games.CHESS_START_FEN)
+        with self.assertRaises(ValueError):
+            games.ChessPosition.from_fen("not a fen")
+
+    def test_perft_depth_two_counts_400_nodes(self):
+        def perft(pos, depth):
+            if depth == 0:
+                return 1
+            total = 0
+            for move in pos.legal_moves():
+                undo = pos.make_move(move)
+                total += perft(pos, depth - 1)
+                pos.undo_move(move, undo)
+            return total
+
+        self.assertEqual(perft(games.ChessPosition.starting(), 2), 400)
+
+    def test_make_and_undo_restores_fen(self):
+        pos = games.ChessPosition.starting()
+        before = pos.to_fen()
+        for move in pos.legal_moves()[:8]:
+            undo = pos.make_move(move)
+            pos.undo_move(move, undo)
+            self.assertEqual(pos.to_fen(), before)
+
+    def test_fools_mate_is_checkmate_with_san(self):
+        match = _play_uci(games.ChessMatch(), ("f2f3", "e7e5", "g2g4", "d8h4"))
+        self.assertEqual(match.status, "checkmate")
+        self.assertEqual([san for _, san in match.history],
+                         ["f3", "e5", "g4", "Qh4#"])
+        self.assertEqual(match.result(), "0-1")
+        with self.assertRaises(ValueError):
+            match.make_move(games.ChessMove(0, 1))
+
+    def test_castling_generation_and_rights_update(self):
+        match = games.ChessMatch("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
+        castles = {move.uci() for move in match.legal_moves() if move.castling}
+        self.assertEqual(castles, {"e1g1", "e1c1"})
+        match.make_move(games.chess_move_from_uci(match, "e1g1"))
+        self.assertEqual(match.position.to_fen().split()[2], "kq")
+        self.assertEqual(
+            [san for _, san in match.history], ["O-O"])
+
+    def test_en_passant_capture_removes_pawn(self):
+        match = games.ChessMatch("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1")
+        captures = [move for move in match.legal_moves() if move.en_passant]
+        self.assertEqual([move.uci() for move in captures], ["e5d6"])
+        san = match.make_move(captures[0])
+        self.assertEqual(san, "exd6")
+        self.assertIsNone(match.position.board[games._chess_from_algebraic("d5")])
+
+    def test_promotion_generates_four_moves_with_san(self):
+        match = games.ChessMatch("4k3/1P6/8/8/8/8/8/4K3 w - - 0 1")
+        promos = sorted(move.uci() for move in match.legal_moves()
+                        if move.promotion)
+        self.assertEqual(promos, ["b7b8b", "b7b8n", "b7b8q", "b7b8r"])
+        san = match.make_move(games.chess_move_from_uci(match, "b7b8q"))
+        self.assertEqual(san, "b8=Q+")
+
+    def test_stalemate_and_draw_detection(self):
+        stalemate = games.ChessMatch("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1")
+        self.assertEqual(stalemate.status, "stalemate")
+        bare_kings = games.ChessMatch("4k3/8/8/8/8/8/8/4K3 w - - 0 1")
+        self.assertEqual(bare_kings.status, "draw")
+        self.assertEqual(bare_kings.draw_reason, "insufficient material")
+        fifty = games.ChessMatch("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 100 1")
+        self.assertEqual(fifty.status, "draw")
+        self.assertEqual(fifty.draw_reason, "fifty-move rule")
+        repetition = _play_uci(games.ChessMatch(),
+                             ("g1f3", "g8f6", "f3g1", "f6g8",
+                              "g1f3", "g8f6", "f3g1", "f6g8"))
+        self.assertEqual(repetition.status, "draw")
+        self.assertEqual(repetition.draw_reason, "threefold repetition")
+
+    def test_illegal_moves_and_uci_errors(self):
+        match = games.ChessMatch()
+        with self.assertRaises(ValueError):
+            match.make_move(games.ChessMove(12, 28))  # e2e5 jumps a pawn
+        with self.assertRaises(ValueError):
+            games.chess_move_from_uci(match, "e2e5")
+        with self.assertRaises(ValueError):
+            games.chess_move_from_uci(match, "bogus")
+        with self.assertRaises(ValueError):
+            games.chess_move_from_uci(match, "e7e8x")
+        with self.assertRaises(ValueError):
+            games.ChessMatch().undo_move()
+
+    def test_best_move_returns_legal_moves(self):
+        match = games.ChessMatch()
+        for difficulty in ("harmless", "easy"):
+            with self.subTest(difficulty=difficulty):
+                move, _score, _nodes = games.chess_best_move(
+                    match, difficulty, random.Random(3))
+                self.assertIn(move, match.legal_moves())
+        with self.assertRaises(ValueError):
+            games.chess_best_move(match, "grandmaster", random.Random())
+
+
+class ChessGameTests(unittest.TestCase):
+    def test_click_selects_and_moves_with_ai_reply(self):
+        game = games.ChessGame()
+        game.click(6, 4)
+        self.assertEqual(game.selected, (6, 4))
+        game.click(4, 4, random.Random(9))
+        self.assertIsNone(game.selected)
+        self.assertEqual(len(game.match.history), 2)
+        self.assertEqual(game.match.position.side, "w")
+
+    def test_two_player_mode_has_no_ai_reply(self):
+        game = games.ChessGame()
+        game.select_mode("two")
+        game.click(6, 4)
+        game.click(4, 4)
+        self.assertEqual(len(game.match.history), 1)
+        self.assertEqual(game.match.position.side, "b")
+
+    def test_illegal_clicks_are_rejected_without_state_change(self):
+        game = games.ChessGame()
+        game.click(3, 3)
+        self.assertIsNone(game.selected)
+        self.assertEqual(game.match.history, [])
+        game.click(6, 4)
+        game.click(6, 4)
+        self.assertIsNone(game.selected)
+
+    def test_promotion_picker_is_respected(self):
+        game = games.ChessGame()
+        game.match = games.ChessMatch("4k3/1P6/8/8/8/8/8/4K3 w - - 0 1")
+        game.select_mode("two")
+        game.select_promotion("N")
+        game.click(1, 1)
+        game.click(0, 1)
+        self.assertEqual(game.match.history[-1][1], "b8=N")
+
+    def test_checkmate_badge(self):
+        game = games.ChessGame()
+        game.select_mode("two")
+        _play_uci(game.match, ("f2f3", "e7e5", "g2g4", "d8h4"))
+        ops = game.status_ops()
+        badge = next(op for op in ops if op.get("id") == "chess-badge"
+                     and op.get("property") == "label")
+        self.assertIn("Checkmate", badge["value"])
+
+    def test_controls_and_selects(self):
+        game = games.ChessGame()
+        game.select_mode("two")
+        game.click(6, 4)
+        game.click(4, 4)
+        ops = game.control("undo", random.Random())
+        self.assertEqual(game.match.history, [])
+        self.assertTrue(any("Undid" in str(op.get("value", "")) for op in ops))
+        ops = game.control("flip", random.Random())
+        self.assertTrue(game.flipped)
+        self.assertTrue(any(op.get("op") == "replace" for op in ops))
+        ops = game.control("hint", random.Random(2))
+        self.assertIsNotNone(game.hint_move)
+        self.assertTrue(any("Hint" in str(op.get("value", "")) for op in ops))
+        game.control("ai", random.Random(2))
+        self.assertEqual(len(game.match.history), 1)
+        game.control("new", random.Random())
+        self.assertEqual(game.match.history, [])
+        with self.assertRaises(ValueError):
+            game.control("warp", random.Random())
+        with self.assertRaises(ValueError):
+            game.select_mode("correspondence")
+        with self.assertRaises(ValueError):
+            game.select_difficulty("grandmaster")
+        with self.assertRaises(ValueError):
+            game.select_promotion("K")
+
+
+def _othello_must_pass_match():
+    """White to move with no placement while Black can play a1."""
+    board = ["W"] * 64
+    board[0] = None
+    board[63] = "B"
+    match = games.OthelloMatch()
+    match.position = games.OthelloPosition(board, "W")
+    match._refresh_status()
+    return match
+
+
+class OthelloEngineTests(unittest.TestCase):
+    def test_start_position_has_four_placements(self):
+        match = games.OthelloMatch()
+        names = sorted(games._othello_name(sq)
+                       for sq in match.position.placements())
+        self.assertEqual(names, ["c4", "d3", "e6", "f5"])
+        self.assertEqual(match.counts(), (2, 2))
+        self.assertEqual(match.position.side, "B")
+
+    def test_d3_flips_one_disc(self):
+        match = games.OthelloMatch()
+        flips = match.place(19)
+        self.assertEqual(flips, 1)
+        self.assertEqual(match.counts(), (4, 1))
+        self.assertEqual(match.position.side, "W")
+
+    def test_illegal_placement_and_early_pass_raise(self):
+        match = games.OthelloMatch()
+        with self.assertRaises(ValueError):
+            match.place(0)  # a1 brackets nothing
+        with self.assertRaises(ValueError):
+            match.do_pass()
+
+    def test_must_pass_position(self):
+        match = _othello_must_pass_match()
+        self.assertEqual(match.status, "active")
+        self.assertEqual(match.position.placements(), [])
+        self.assertEqual(match.position.placements_for("B"), [0])
+        side = match.do_pass()
+        self.assertEqual(side, "W")
+        self.assertEqual(match.position.side, "B")
+        match.undo_move()
+        self.assertEqual(match.position.side, "W")
+
+    def test_full_selfplay_game_finishes(self):
+        match = games.OthelloMatch()
+        rng = random.Random(5)
+        plies = 0
+        while not match.is_game_over() and plies < 70:
+            move, _score, _nodes = games.othello_best_move(match, "easy", rng)
+            if move is None:
+                match.do_pass()
+            else:
+                match.place(move)
+            plies += 1
+        self.assertTrue(match.is_game_over())
+        black, white = match.counts()
+        if match.winner == "B":
+            self.assertGreater(black, white)
+        elif match.winner == "W":
+            self.assertGreater(white, black)
+        else:
+            self.assertEqual(black, white)
+
+    def test_best_move_is_legal_and_start_evaluates_symmetric(self):
+        match = games.OthelloMatch()
+        move, _score, _nodes = games.othello_best_move(
+            match, "easy", random.Random(1))
+        self.assertIn(move, match.position.placements())
+        self.assertEqual(games.othello_evaluate(games.OthelloPosition()), 0)
+        with self.assertRaises(ValueError):
+            games.othello_best_move(match, "grandmaster", random.Random())
+
+
+class OthelloGameTests(unittest.TestCase):
+    def test_click_places_and_ai_replies(self):
+        game = games.OthelloGame()
+        game.click(5, 3, random.Random(7))
+        self.assertGreaterEqual(len(game.match.history), 2)
+        self.assertEqual(game.match.position.side, "B")
+
+    def test_illegal_clicks_are_rejected_without_state_change(self):
+        game = games.OthelloGame()
+        game.click(0, 0)
+        self.assertEqual(game.match.history, [])
+        game.click(3, 3)  # occupied center
+        self.assertEqual(game.match.history, [])
+
+    def test_pass_control_flow(self):
+        game = games.OthelloGame()
+        ops = game.control("pass", random.Random())
+        self.assertTrue(any("not allowed" in str(op.get("value", ""))
+                            for op in ops))
+        game.match = _othello_must_pass_match()
+        game.select_mode("two")
+        game.control("pass", random.Random())
+        self.assertEqual(game.match.position.side, "B")
+
+    def test_controls_and_selects(self):
+        game = games.OthelloGame()
+        game.select_mode("two")
+        game.click(5, 3)
+        self.assertEqual(len(game.match.history), 1)
+        ops = game.control("undo", random.Random())
+        self.assertEqual(game.match.history, [])
+        self.assertTrue(any("Undid" in str(op.get("value", "")) for op in ops))
+        game.click(5, 3)
+        ops = game.control("hint", random.Random(4))
+        self.assertIsNotNone(game.hint_move)
+        self.assertTrue(any("Hint" in str(op.get("value", "")) for op in ops))
+        game.control("ai", random.Random(4))
+        self.assertEqual(len(game.match.history), 2)
+        game.control("new", random.Random())
+        self.assertEqual(game.match.history, [])
+        with self.assertRaises(ValueError):
+            game.control("warp", random.Random())
+        with self.assertRaises(ValueError):
+            game.select_mode("correspondence")
+        with self.assertRaises(ValueError):
+            game.select_difficulty("grandmaster")
 
 
 if __name__ == "__main__":

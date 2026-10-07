@@ -28,7 +28,7 @@ Existing showcase iOS/XcodeGen and Android/Gradle projects package the apps.
 
 ## Reproduce the image matrix
 
-The matrix covers four games, two themes, and four logical window sizes:
+The matrix covers six games, two themes, and four logical window sizes:
 390×844, 844×390, 900×1280, and 1280×900. Native macOS Metal painting uses
 CoreText and a 2× framebuffer. The harness resizes the layout viewport and
 checks board bounds before capturing each case.
@@ -44,7 +44,7 @@ Screenshot capture time is separate from CPU draw time. The manifest explicitly
 marks input-to-present latency as unmeasured. Fixtures and PPM diagnostics are
 generated locally and ignored; the fixture exporter is checked in.
 
-All 32 cases passed the bounds checks and visual review. With mobile builds
+The four-game baseline (32 cases) passed the bounds checks and visual review. With mobile builds
 idle, warm whole-window draw CPU p95 ranged from 1.56 to 5.22 ms. The eight
 Tetris cases exceeded the proposed 4 ms CPU target. These measurements include
 the full Python showcase layout and are not a surface-only paint benchmark or
@@ -54,7 +54,7 @@ an input-to-present measurement.
 
 | Check | Result |
 | --- | --- |
-| Python suite | 407 tests run; 45 skipped |
+| Python suite | 438 tests run; 45 skipped |
 | Rust runtime library | 200 tests passed |
 | Shared Scene2D | 27 unit, 3 component, 2 integration tests passed |
 | Native game controllers | 29 tests passed |

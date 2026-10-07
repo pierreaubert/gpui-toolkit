@@ -29,7 +29,8 @@ def export_games(output: Path) -> None:
         app = module.build_app()
         app.rng.seed(7)
         app.palette = palette
-        games = (app.zip_game, app.queens_game, app.sudoku_game, app.tetris_game)
+        games = (app.zip_game, app.queens_game, app.sudoku_game, app.tetris_game,
+                 app.chess_game, app.othello_game)
         for game in games:
             game.palette = palette
         # Include the path, crown, selection/candidates, locked blocks, ghost,
@@ -46,10 +47,18 @@ def export_games(output: Path) -> None:
         app.tetris_game.start(app.rng)
         app.tetris_game.hard_drop(app.rng)
         app.tetris_game.running = False
+        app.chess_game.select_mode("two")
+        for row, column in ((6, 4), (4, 4), (1, 4), (3, 4), (7, 6), (5, 5)):
+            app.chess_game.click(row, column)
+        app.othello_game.select_mode("two")
+        app.othello_game.click(5, 3)
+        head = min(app.othello_game.match.position.placements())
+        app.othello_game.click(*app.othello_game._sq_to_display(head))
         app.miniapp = replace(app.miniapp, initial_theme=palette)
         app.sections = [
             module.section(name, name.title(), game.section_node())
-            for name, game in zip(("zip", "queens", "sudoku", "tetris"), games)
+            for name, game in zip(
+                ("zip", "queens", "sudoku", "tetris", "chess", "othello"), games)
         ]
         document = app.to_spec()
         nodes: dict[str, dict] = {}

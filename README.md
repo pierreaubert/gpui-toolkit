@@ -88,7 +88,7 @@ This workspace is currently on the `0.9.x` GPUI toolkit line and vendors GPUI
 from Zed `v1.9.0`, as recorded in the GPUI snapshot provenance.
 
 The workspace uses local path dependencies for toolkit crates and history-free
-vendored GPUI platform snapshots under `crates/3rdparties/`; the source-origin
+vendored GPUI platform snapshots under `../sotf-3rdparties/gpui/crates/`; the source-origin
 gate rejects dependencies that still resolve from `zed-industries/zed.git`.
 
 ## Common Commands

@@ -32,7 +32,7 @@ constraints.
 
 ## Vendored code
 
-Changes below `crates/3rdparties/` must update that crate's `VENDORED.md` or
+Changes below `../sotf-3rdparties/gpui/crates/` must update that crate's `VENDORED.md` or
 `VENDORING.md`, the vendored-patch manifest, its owner/removal condition, and
 the recorded verification gate. Prefer changes that can be upstreamed.
 

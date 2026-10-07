@@ -5,10 +5,10 @@
 # `xcrun -sdk macosx ...` does not).
 #
 # Intercepts exactly the two SDK-scoped invocations issued by
-# crates/3rdparties/gpui_macos/build.rs and runs them with the cryptex
+# ../sotf-3rdparties/gpui/crates/gpui_macos/build.rs and runs them with the cryptex
 # binaries. Every other invocation passes through to the real xcrun, so
 # existing consumers keep working unchanged:
-#   - crates/3rdparties/media/build.rs (`xcrun --sdk macosx --show-sdk-path`)
+#   - ../sotf-3rdparties/gpui/crates/media/build.rs (`xcrun --sdk macosx --show-sdk-path`)
 #   - scripts/run_apple_simulator_smoke.sh (`xcrun simctl ...`)
 #
 # Usage (the file must be reachable as `xcrun` on PATH; symlink it):
