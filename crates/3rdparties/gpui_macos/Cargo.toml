@@ -48,7 +48,7 @@ image = { version = "0.25.1", default-features = false, features = ["bmp", "gif"
 itertools = "0.15.0"
 libc = "0.2"
 log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
-mach2 = "0.5"
+mach2 = "0.7"
 media = { workspace = true }
 metal = "0.33"
 objc = "0.2"
