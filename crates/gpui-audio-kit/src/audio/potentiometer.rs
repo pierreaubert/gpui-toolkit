@@ -76,6 +76,7 @@ pub struct Potentiometer {
     formatted_label: SharedString,
     /// Cached formatted value display (without unit).
     formatted_value_only: SharedString,
+    value_editor: Option<AnyElement>,
 }
 
 impl Potentiometer {
@@ -109,6 +110,7 @@ impl Potentiometer {
             aria_role: None,
             formatted_label: SharedString::default(),
             formatted_value_only: SharedString::default(),
+            value_editor: None,
         }
     }
 
@@ -121,6 +123,12 @@ impl Potentiometer {
     pub fn value(mut self, value: f64) -> Self {
         self.value = value;
         self.formatted_value_only = self.format_value_only();
+        self
+    }
+
+    /// Place an exact-value editor inside the dial without replacing its gestures.
+    pub fn value_editor(mut self, editor: impl IntoElement) -> Self {
+        self.value_editor = Some(editor.into_any_element());
         self
     }
 
@@ -573,7 +581,11 @@ impl Potentiometer {
         let tick_inner_radius = knob_size / 2.0;
         let major_tick_outer_radius = tick_inner_radius + 8.0;
         let label_radius = major_tick_outer_radius + 8.0;
-        let horizontal_label_gutter = 44.0;
+        let horizontal_label_gutter = if self.size == PotentiometerSize::Xs {
+            22.0
+        } else {
+            44.0
+        };
         let vertical_label_gutter = (label_radius - center + 10.0 + 1.5).ceil();
         DialMetrics {
             knob_size,
@@ -795,7 +807,13 @@ fn build_tick_lines(
 
 /// Major tick labels positioned around the dial, anchored away from the
 /// knob center by the same dead-zone rule as the inline render path.
-fn tick_label_divs(geometry: &PotentiometerTickGeometry, center: f32, color: Rgba) -> Vec<Div> {
+fn tick_label_divs(
+    geometry: &PotentiometerTickGeometry,
+    center: f32,
+    color: Rgba,
+    size: PotentiometerSize,
+    container_width: f32,
+) -> Vec<Div> {
     let char_w = 5.4_f32;
     let line_h = 10.0_f32;
     let dead_zone = 0.30_f32;
@@ -803,7 +821,11 @@ fn tick_label_divs(geometry: &PotentiometerTickGeometry, center: f32, color: Rgb
     geometry
         .labels
         .iter()
-        .map(|(label_text, label_x, label_y)| {
+        .enumerate()
+        .filter(|(index, _)| {
+            size != PotentiometerSize::Xs || *index == 0 || *index + 1 == geometry.labels.len()
+        })
+        .map(|(_, (label_text, label_x, label_y))| {
             let tick_angle = {
                 let dx = label_x - geometry.knob_offset_x - center;
                 let dy = label_y - geometry.knob_offset_y - center;
@@ -828,9 +850,16 @@ fn tick_label_divs(geometry: &PotentiometerTickGeometry, center: f32, color: Rgb
                 -line_h / 2.0
             };
 
+            let x = label_x + dx;
+            let x = if size == PotentiometerSize::Xs {
+                x.clamp(1.0, (container_width - text_w - 1.0).max(1.0))
+            } else {
+                x
+            };
+
             div()
                 .absolute()
-                .left(px(label_x + dx))
+                .left(px(x))
                 .top(px(label_y + dy))
                 .text_size(px(9.0))
                 .text_color(color)
@@ -1233,6 +1262,7 @@ fn build_knob_graphic(
     accent: Rgba,
     accent_muted: Rgba,
     value_str_only: SharedString,
+    value_editor: Option<AnyElement>,
     size: PotentiometerSize,
     knob_border_width: f32,
     knob_indicator_style: u8,
@@ -1248,7 +1278,13 @@ fn build_knob_graphic(
         knob_container.child(build_tick_lines(tick_geometry, metrics, palette, renderers));
 
     // Add cached tick labels as div children.
-    for label_div in tick_label_divs(tick_geometry, metrics.center, palette.major_tick) {
+    for label_div in tick_label_divs(
+        tick_geometry,
+        metrics.center,
+        palette.major_tick,
+        size,
+        metrics.container_width,
+    ) {
         knob_container = knob_container.child(label_div);
     }
 
@@ -1277,11 +1313,23 @@ fn build_knob_graphic(
         knob_indicator_style,
     ));
     let value_display_color = if selected { accent } else { palette.value };
-    knob = knob.child(build_value_display(
-        value_str_only,
-        value_display_color,
-        size,
-    ));
+    knob = if let Some(editor) = value_editor {
+        knob.child(
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(editor),
+        )
+    } else {
+        knob.child(build_value_display(
+            value_str_only,
+            value_display_color,
+            size,
+        ))
+    };
     knob_container = knob_container.child(knob);
     knob_container
 }
@@ -1391,6 +1439,7 @@ impl RenderOnce for Potentiometer {
             theme.accent,
             theme.accent_muted,
             value_str_only,
+            self.value_editor.take(),
             size,
             knob_border_width,
             knob_indicator_style,

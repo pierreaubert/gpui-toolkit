@@ -44,7 +44,7 @@ impl PotentiometerSize {
 
     pub(super) fn min_width(&self) -> f32 {
         match self {
-            Self::Xs => 120.0,
+            Self::Xs => 94.0,
             Self::Sm => 130.0,
             Self::Md => 150.0,
             Self::Lg => 170.0,

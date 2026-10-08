@@ -74,6 +74,7 @@ pub fn line(x: &[f64], y: &[f64]) -> LineChart {
         width: DEFAULT_WIDTH,
         height: DEFAULT_HEIGHT,
         chart_size: ChartSize::default(),
+        right_margin: None,
         x_scale_type: ScaleType::Linear,
         y_scale_type: ScaleType::Linear,
         x_range: None,

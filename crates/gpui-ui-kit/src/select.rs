@@ -20,8 +20,8 @@ use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    App, Div, ElementId, FocusHandle, FontWeight, MouseButton, SharedString, Subscription, Window,
-    deferred, div, px,
+    App, Div, ElementId, FocusHandle, FontWeight, MouseButton, ScrollHandle, SharedString,
+    Subscription, Window, deferred, div, px,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -30,6 +30,10 @@ thread_local! {
     static SELECT_FOCUS_HANDLES: RefCell<HashMap<ElementId, FocusHandle>> =
         RefCell::new(HashMap::new());
     static SELECT_FOCUS_SUBS: RefCell<HashMap<ElementId, Subscription>> =
+        RefCell::new(HashMap::new());
+    static SELECT_SCROLL_HANDLES: RefCell<HashMap<ElementId, ScrollHandle>> =
+        RefCell::new(HashMap::new());
+    static SELECT_OPEN_STATES: RefCell<HashMap<ElementId, bool>> =
         RefCell::new(HashMap::new());
 }
 
@@ -58,6 +62,7 @@ pub struct Select {
     disabled: bool,
     is_open: bool,
     highlighted_index: Option<usize>,
+    dropdown_max_height: f32,
     theme: Option<SelectTheme>,
     on_change: Option<Box<dyn Fn(&SharedString, &mut Window, &mut App) + 'static>>,
     on_toggle: Option<Box<dyn Fn(bool, &mut Window, &mut App) + 'static>>,
@@ -82,6 +87,7 @@ impl Select {
             disabled: false,
             is_open: false,
             highlighted_index: None,
+            dropdown_max_height: 200.0,
             theme: None,
             on_change: None,
             on_toggle: None,
@@ -166,6 +172,12 @@ impl Select {
     /// Set highlighted index (for keyboard navigation)
     pub fn highlighted_index(mut self, index: Option<usize>) -> Self {
         self.highlighted_index = index;
+        self
+    }
+
+    /// Maximum height of the open options list before it scrolls.
+    pub fn dropdown_max_height(mut self, height: f32) -> Self {
+        self.dropdown_max_height = height.max(1.0);
         self
     }
 
@@ -258,6 +270,13 @@ impl Select {
                     .clone()
             })
         });
+        let scroll_handle = SELECT_SCROLL_HANDLES.with(|handles| {
+            let mut handles = handles.borrow_mut();
+            if !handles.contains_key(&dropdown_id) && handles.len() >= MAX_SELECT_FOCUS_ENTRIES {
+                handles.clear();
+            }
+            handles.entry(dropdown_id.clone()).or_default().clone()
+        });
 
         // Borrow the global theme's font family in a scoped block so the
         // mutable `cx` usage in `on_focus_out` does not conflict.
@@ -337,6 +356,19 @@ impl Select {
             .position(|option| !option.disabled && Some(&option.value) == self.selected.as_ref())
             .or_else(|| self.options.iter().position(|option| !option.disabled));
         let current_highlight = self.highlighted_index;
+        let just_opened = SELECT_OPEN_STATES.with(|states| {
+            let mut states = states.borrow_mut();
+            if !states.contains_key(&dropdown_id) && states.len() >= MAX_SELECT_FOCUS_ENTRIES {
+                states.clear();
+            }
+            let was_open = states
+                .insert(dropdown_id.clone(), self.is_open)
+                .unwrap_or(false);
+            self.is_open && !was_open
+        });
+        if just_opened && let Some(index) = current_highlight.or(initial_highlight) {
+            scroll_handle.scroll_to_item(index);
+        }
         let highlighted_option = current_highlight
             .and_then(|idx| self.options.get(idx).map(|o| (o.value.clone(), o.disabled)));
 
@@ -372,6 +404,7 @@ impl Select {
                 let toggle_rc = on_toggle_rc.clone();
                 let change_rc = on_change_rc.clone();
                 let highlight_rc = on_highlight_rc.clone();
+                let scroll_for_keys = scroll_handle.clone();
                 trigger = trigger.on_key_down(move |event, window, cx| {
                     let handled = match event.keystroke.key.as_str() {
                         "space" | " " => {
@@ -430,6 +463,10 @@ impl Select {
                             };
                             if let Some(ref highlight_handler) = highlight_rc {
                                 highlight_handler(new_idx, window, cx);
+                            }
+                            if let Some(index) = new_idx {
+                                scroll_for_keys.scroll_to_item(index);
+                                window.refresh();
                             }
                             true
                         }
@@ -495,8 +532,9 @@ impl Select {
                 .border_color(theme.dropdown_border)
                 .rounded_md()
                 .shadow_lg()
-                .max_h(px(200.0))
+                .max_h(px(self.dropdown_max_height))
                 .overflow_y_scroll()
+                .track_scroll(&scroll_handle)
                 .py_1()
                 .occlude(); // Block mouse events from passing through
 

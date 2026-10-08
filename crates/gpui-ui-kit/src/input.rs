@@ -140,6 +140,7 @@ pub struct Input {
     placeholder: Option<SharedString>,
     label: Option<SharedString>,
     size: InputSize,
+    horizontal_padding: Option<gpui::Rems>,
     variant: InputVariant,
     disabled: bool,
     readonly: bool,
@@ -203,6 +204,7 @@ impl Input {
             placeholder: None,
             label: None,
             size: InputSize::default(),
+            horizontal_padding: None,
             variant: InputVariant::default(),
             disabled: false,
             readonly: false,
@@ -263,6 +265,12 @@ impl Input {
     /// Set input size
     pub fn size(mut self, size: InputSize) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Override horizontal padding for compact embedded editors.
+    pub fn horizontal_padding(mut self, padding: gpui::Rems) -> Self {
+        self.horizontal_padding = Some(padding);
         self
     }
 
@@ -1414,7 +1422,7 @@ impl Render for InputEntity {
             .flex()
             .items_center()
             .gap_2()
-            .px_3()
+            .px(props.horizontal_padding.unwrap_or(gpui::rems(0.75)))
             .py(py)
             .rounded_md()
             .border_1()

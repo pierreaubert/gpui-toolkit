@@ -246,6 +246,7 @@ pub struct LineChart {
     pub(super) width: f32,
     pub(super) height: f32,
     pub(super) chart_size: ChartSize,
+    pub(super) right_margin: Option<f64>,
     pub(super) x_scale_type: ScaleType,
     pub(super) y_scale_type: ScaleType,
     pub(super) x_range: Option<[f64; 2]>,
@@ -286,6 +287,19 @@ impl std::fmt::Debug for LineChart {
 }
 
 impl LineChart {
+    /// Set right-side plot padding when no secondary axis is present.
+    ///
+    /// Defaults to 20 pixels. Non-finite and negative values resolve to zero.
+    /// Secondary-axis charts retain the space required by their axis.
+    pub fn right_margin(mut self, pixels: f64) -> Self {
+        self.right_margin = Some(if pixels.is_finite() {
+            pixels.max(0.0)
+        } else {
+            0.0
+        });
+        self
+    }
+
     /// Select the high-level 2D renderer. Vello is the default when enabled.
     pub fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
         self.renderer_2d = renderer;
@@ -1188,7 +1202,11 @@ impl LineChart {
         };
         let margin_bottom = 30.0;
         let margin_top = 10.0;
-        let margin_right = if has_secondary_axis { 60.0 } else { 20.0 };
+        let margin_right = if has_secondary_axis {
+            60.0
+        } else {
+            self.right_margin.unwrap_or(20.0)
+        };
 
         // Calculate plot area (reserve space for title if present)
         let title_height = if self.title.is_some() {

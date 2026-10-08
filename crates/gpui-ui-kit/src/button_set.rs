@@ -19,6 +19,7 @@
 //! ```
 
 use crate::ComponentTheme;
+use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
 use crate::theme::{ThemeExt, glow_shadow};
 use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
 use gpui::{App, Div, ElementId, MouseButton, Rgba, SharedString, Stateful, Window, div, px};
@@ -112,6 +113,7 @@ impl ButtonSetOption {
 }
 
 /// A group of mutually exclusive buttons (segmented control)
+#[derive(IntoElement)]
 pub struct ButtonSet {
     id: ElementId,
     options: Vec<ButtonSetOption>,
@@ -176,7 +178,7 @@ impl ButtonSet {
     }
 
     /// Build into element
-    fn build(self, theme: &ButtonSetTheme) -> Stateful<Div> {
+    fn build(self, theme: &ButtonSetTheme, cx: &mut App) -> Stateful<Div> {
         let (px_val, py_val, text_size) = match self.size {
             ButtonSetSize::Xs => (px(6.0), px(2.0), "xs"),
             ButtonSetSize::Sm => (px(8.0), px(4.0), "sm"),
@@ -194,6 +196,7 @@ impl ButtonSet {
         let on_change_rc = self.on_change.map(std::rc::Rc::new);
         let num_options = self.options.len();
 
+        let group_id = self.id.clone();
         let mut container = div()
             .id(self.id)
             .flex()
@@ -216,8 +219,33 @@ impl ButtonSet {
                 (theme.bg, theme.text_color)
             };
 
+            let option_id: ElementId =
+                SharedString::from(format!("{group_id:?}-option-{idx}")).into();
+            let focus =
+                crate::Button::focus_handle_for(option_id.clone(), cx).tab_stop(!is_disabled);
+            cx.register_accessible(AccessibilityNode {
+                element_id: option_id.clone(),
+                label: option.label.clone(),
+                props: AriaProps::with_role(AriaRole::Radio)
+                    .state(AriaState::Checked(is_selected))
+                    .maybe_state(is_disabled, AriaState::Disabled),
+            });
+            let focus_color = theme.border_selected;
             let mut button = div()
-                .id(("buttonset", idx))
+                .id(option_id)
+                .key_context("ToolkitButton")
+                .track_focus_element(&focus)
+                .on_key_down(|event, window, cx| {
+                    if event.keystroke.key == "tab" {
+                        if event.keystroke.modifiers.shift {
+                            window.focus_prev(cx);
+                        } else {
+                            window.focus_next(cx);
+                        }
+                        cx.stop_propagation();
+                    }
+                })
+                .focus_visible(move |style| style.border_2().border_color(focus_color))
                 .flex_1() // Equal width for all buttons
                 .flex()
                 .items_center()
@@ -270,10 +298,21 @@ impl ButtonSet {
 
                 // Click handler
                 if let Some(ref handler) = on_change_rc {
-                    let handler = handler.clone();
-                    button = button.on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                        handler(&option_value, window, cx);
-                    });
+                    let mouse_handler = handler.clone();
+                    let key_handler = handler.clone();
+                    let key_value = option_value.clone();
+                    button = button
+                        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                            focus.focus(window, cx);
+                            mouse_handler(&option_value, window, cx);
+                            cx.stop_propagation();
+                        })
+                        .on_key_down(move |event, window, cx| {
+                            if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                                key_handler(&key_value, window, cx);
+                                cx.stop_propagation();
+                            }
+                        });
                 }
             }
 
@@ -301,16 +340,6 @@ impl RenderOnce for ButtonSet {
             .take()
             .unwrap_or_else(|| ButtonSetTheme::from(global_theme.as_ref()));
 
-        this.build(&theme)
-    }
-}
-
-impl IntoElement for ButtonSet {
-    type Element = Stateful<Div>;
-
-    fn into_element(self) -> Self::Element {
-        let mut this = self;
-        let theme = this.theme.take().unwrap_or_default();
-        this.build(&theme)
+        this.build(&theme, cx)
     }
 }

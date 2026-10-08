@@ -11,7 +11,7 @@ use gpui::prelude::{
 };
 use gpui::{
     AnyElement, App, ClickEvent, Div, ElementId, FocusHandle, KeyDownEvent, KeyboardClickEvent,
-    Pixels, Rgba, SharedString, Stateful, Window, div, px,
+    Pixels, Rgba, ScrollAnchor, SharedString, Stateful, Window, div, px,
 };
 use gpui_design::DesignSystem;
 use std::cell::RefCell;
@@ -22,6 +22,19 @@ use std::sync::Arc;
 thread_local! {
     static BUTTON_FOCUS_HANDLES: RefCell<HashMap<ElementId, FocusHandle>> =
         RefCell::new(HashMap::new());
+    static BUTTON_SCROLL_ANCHORS: RefCell<HashMap<ElementId, ScrollAnchor>> =
+        RefCell::new(HashMap::new());
+}
+
+fn set_button_scroll_anchor(id: &ElementId, anchor: Option<&ScrollAnchor>) {
+    BUTTON_SCROLL_ANCHORS.with(|anchors| {
+        let mut anchors = anchors.borrow_mut();
+        if let Some(anchor) = anchor {
+            anchors.insert(id.clone(), anchor.clone());
+        } else {
+            anchors.remove(id);
+        }
+    });
 }
 
 mod button_size;
@@ -54,9 +67,14 @@ pub struct Button {
     on_click: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
+    scroll_anchor: Option<ScrollAnchor>,
 }
 
 impl Button {
+    /// The stable focus handle used by a button with this ID.
+    pub fn focus_handle_for(id: impl Into<ElementId>, cx: &mut App) -> FocusHandle {
+        button_focus_handle(&id.into(), cx)
+    }
     /// Create a new button with a label
     pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Self {
         Self {
@@ -76,6 +94,7 @@ impl Button {
             on_click: None,
             aria_label: None,
             aria_role: None,
+            scroll_anchor: None,
         }
     }
 
@@ -88,6 +107,12 @@ impl Button {
     /// Set the button size
     pub fn size(mut self, size: ButtonSize) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Keep this button visible when keyboard navigation moves focus to it.
+    pub fn scroll_anchor(mut self, anchor: ScrollAnchor) -> Self {
+        self.scroll_anchor = Some(anchor);
         self
     }
 
@@ -369,6 +394,7 @@ impl RenderOnce for Button {
         // because those operations need `&mut App`.
         let design = crate::design::resolve_design(self.design.clone(), cx);
         let focus_handle = button_focus_handle(&self.id, cx).tab_stop(!self.disabled);
+        set_button_scroll_anchor(&self.id, self.scroll_anchor.as_ref());
 
         let global_theme = cx.theme();
         let theme = self
@@ -387,6 +413,9 @@ impl RenderOnce for Button {
 
         let mut el = div()
             .id(self.id.clone())
+            // Let host apps scope Enter/Space shortcuts away from a focused
+            // button so its own keyboard activation handler can run.
+            .key_context("ToolkitButton")
             .track_focus_element(&focus_handle)
             .on_key_down(|event: &gpui::KeyDownEvent, window, cx| {
                 if event.keystroke.key == "tab" {
@@ -394,6 +423,13 @@ impl RenderOnce for Button {
                         window.focus_prev(cx);
                     } else {
                         window.focus_next(cx);
+                    }
+                    if let Some(id) = window.focused_element_id(cx) {
+                        BUTTON_SCROLL_ANCHORS.with(|anchors| {
+                            if let Some(anchor) = anchors.borrow().get(&id) {
+                                anchor.scroll_into_view(window, cx);
+                            }
+                        });
                     }
                     cx.stop_propagation();
                 }
@@ -417,6 +453,10 @@ impl RenderOnce for Button {
             // Layered on top of the base border, so a focused button has a
             // 2px accent-colored ring distinct from its normal border_color.
             .focus_visible(|style| style.border_2().border_color(focus_ring_color));
+
+        if let Some(anchor) = self.scroll_anchor {
+            el = el.anchor_scroll(Some(anchor));
+        }
 
         // Apply text size based on button size
         el = match self.size {
@@ -477,6 +517,16 @@ impl RenderOnce for Button {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rack_anchor_is_removed_when_same_button_renders_without_it() {
+        let id: ElementId = "cms-graph-button".into();
+        let anchor = ScrollAnchor::for_handle(gpui::ScrollHandle::new());
+        set_button_scroll_anchor(&id, Some(&anchor));
+        BUTTON_SCROLL_ANCHORS.with(|anchors| assert!(anchors.borrow().contains_key(&id)));
+        set_button_scroll_anchor(&id, None);
+        BUTTON_SCROLL_ANCHORS.with(|anchors| assert!(!anchors.borrow().contains_key(&id)));
+    }
 
     #[test]
     fn secondary_buttons_draw_a_visible_border() {
