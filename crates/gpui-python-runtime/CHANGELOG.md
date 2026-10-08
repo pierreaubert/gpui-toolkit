@@ -2,6 +2,10 @@
 
 ## Features
 
+- Added retained IR nodes plus Python builders and showcase sections
+  for the new UI-kit components, including `CalendarNode`,
+  `PaginationNode`, and `ListNode`/`ListItemNode` with strict
+  validation (YYYY-MM-DD dates, 1 ≤ page ≤ total, non-blank rows).
 - Added `DatasetFrame::encode`/`decode` wire framing and
   `DatasetFrameStore::ingest_arrow_ipc` so numpy-backed Arrow IPC bytes
   ingest alongside JSON specs with header-first budget enforcement.

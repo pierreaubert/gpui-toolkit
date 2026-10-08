@@ -4,8 +4,9 @@ use clap::Parser;
 use gpui_component_lab::lab_ui::{ComponentLabCaptureReport, capture_component_lab_cases};
 use gpui_component_lab::lab_ui::{LabAppConfig, run_lab_app};
 use gpui_component_lab::{
-    ComponentLabConformanceReport, ComponentLabVisualDiffReport, ComponentLabVisualManifest,
-    builtin_story_registry, builtin_story_renderers, ensure_component_lab_conformance_passed,
+    COMPONENT_LAB_REPRESENTATIVE_PR_LIMIT, ComponentLabConformanceReport,
+    ComponentLabVisualDiffReport, ComponentLabVisualManifest, builtin_story_registry,
+    builtin_story_renderers, ensure_component_lab_conformance_passed,
     generate_component_lab_gallery, latest_rust_source_modified, load_story_documents,
     promote_component_lab_baselines, validate_component_lab_conformance,
 };
@@ -86,7 +87,7 @@ struct Args {
     #[arg(long)]
     visual_diff_markdown: Option<PathBuf>,
     /// Maximum diff cases; zero checks the full manifest.
-    #[arg(long, default_value_t = 200)]
+    #[arg(long, default_value_t = COMPONENT_LAB_REPRESENTATIVE_PR_LIMIT)]
     visual_diff_limit: usize,
     /// Zero-based shard selected from the diff subset.
     #[arg(long, default_value_t = 0)]
@@ -98,7 +99,7 @@ struct Args {
     #[arg(long)]
     visual_capture: bool,
     /// Maximum capture cases; zero captures the full manifest.
-    #[arg(long, default_value_t = 200)]
+    #[arg(long, default_value_t = COMPONENT_LAB_REPRESENTATIVE_PR_LIMIT)]
     visual_capture_limit: usize,
     /// Zero-based shard selected from the capture subset.
     #[arg(long, default_value_t = 0)]

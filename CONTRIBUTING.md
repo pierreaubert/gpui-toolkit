@@ -41,3 +41,12 @@ the recorded verification gate. Prefer changes that can be upstreamed.
 Pull requests should explain the problem, the chosen tradeoff, validation
 performed, platform limitations, and any visual changes. By contributing, you
 agree that your contribution is licensed under this repository's ISC license.
+
+## Self-review checklist (UI changes)
+
+1. The component matches its spectrum rung, family contract, and slot rules
+   in the [API conventions](docs/superpowers/2026-10-07-api-conventions.md).
+2. Props are demonstrated in a component-lab story; breaking prop changes
+   ship an `upgrade` migration note.
+3. Conventions, CLI `--help`, component catalog, and generated blocks are
+   updated in the same PR — docs stay in sync with code.

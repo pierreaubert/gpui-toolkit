@@ -1,0 +1,20 @@
+[package]
+name = "gpui-layout-expr"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Compact layout expression AST, parser, and validation for gpui-toolkit"
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[lib]
+name = "gpui_layout_expr"
+path = "src/lib.rs"

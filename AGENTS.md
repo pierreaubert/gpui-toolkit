@@ -20,8 +20,10 @@ The `gpui-toolkit` workspace contains several related crates for building GPUI a
 | `gpui-profiler` | Lightweight allocation profiling utilities for interactive UI hot paths | [README](gpui-profiler/README.md) |
 | `gpui-px` | High-level Plotly Express-style charting API, including unstructured `MeshPlot` | [README](gpui-px/README.md) |
 | `gpui-themes` | Theme editor and management infrastructure | [AGENTS.md](gpui-themes/AGENTS.md) |
-| `gpui-ui-kit` | Reusable UI components (buttons, forms, layout) with ARIA accessibility support | [lib.rs](gpui-ui-kit/src/lib.rs), [CLAUDE.md](gpui-ui-kit/CLAUDE.md) |
-| `gpui-ui-kit-macros` | Procedural macros for theme derivation | [README](gpui-ui-kit-macros/README.md) |
+| `gpui-ui-kit` | Reusable UI components (buttons, forms, layout) with ARIA accessibility support | [lib.rs](gpui-ui-kit/src/lib.rs), [AGENTS.md](crates/gpui-ui-kit/AGENTS.md) |
+| `gpui-ui-kit-macros` | Procedural macros for theme derivation and the `layout!` DSL | [README](gpui-ui-kit-macros/README.md) |
+| `gpui-toolkit-cli` | Unified `gpui-toolkit` binary: catalog, templates, themes, doctor, upgrade, layout tools | [README](README.md#toolkit-cli), [TUTORIAL](TUTORIAL.md) §15 |
+| `gpui-layout-expr` | Layout-expression AST, parser, validation, custom aliases (no GPUI deps) | [layout spec](docs/superpowers/2026-10-07-layout-expressions.md) |
 | `figma/` | Figma-to-GPUI design system rules and Code Connect mappings | [DESIGN_SYSTEM_RULES.md](figma/DESIGN_SYSTEM_RULES.md), [CODE_CONNECT_MAPPINGS.md](figma/CODE_CONNECT_MAPPINGS.md) |
 
 **Key Principle**: All crates use GPUI's native `div()`-based rendering, not HTML/SVG. Components return `impl IntoElement`.
@@ -33,6 +35,20 @@ and compute/reference kernels belong to `gpui-d3rs`; Python declarations and
 revisioned patches belong to `gpui-python-runtime`. Keep application-specific
 complex/vector/tensor projection and durable result storage outside these UI
 crates.
+
+## Toolkit CLI (for agents)
+
+Prefer the `gpui-toolkit` binary over reading sources when you need
+catalog facts: run `cargo run -p gpui-toolkit-cli -- manifest --json`
+for the full command surface (response types, exit codes, examples),
+then query with `--json` and branch on `type` / `ERR_*` codes, never
+on prose. Useful calls: `component <id> --props`, `search <query>`,
+`template <id> --skeleton`, `doctor` (CI gate, exits 1 on failure),
+`layout check '<expr>'`, and `upgrade --detect --dir <src>`.
+Project overrides live in `toolkit.toml` (custom layout components,
+tracker URL, extra upgrade rules). Before changing CLI behavior, read
+the [API conventions](docs/superpowers/2026-10-07-api-conventions.md)
+and keep envelopes, codes, and the manifest drift test in sync.
 
 ## Forms
 
@@ -173,7 +189,7 @@ just wasm-visual           # positional args: `just wasm-visual hello 8080 gpui-
 
 The browser target is WebGPU-only (Chrome/Edge 113+, Firefox 141+ on Windows,
 Safari 26+); design in
-[docs/superpowers/specs/2026-08-15-wasm-browser-target-design.md](docs/superpowers/specs/2026-08-15-wasm-browser-target-design.md).
+[docs/superpowers/2026-08-15-wasm-browser-target-design.md](docs/superpowers/2026-08-15-wasm-browser-target-design.md).
 wasm builds need nightly (`-Z build-std`), env-injected by the `just` recipes
 so the stable host toolchain is untouched. Visual QA baselines live at
 `qa/visual/wasm/baselines/`. The px showcase honors `PX_SHOWCASE_SECTION`

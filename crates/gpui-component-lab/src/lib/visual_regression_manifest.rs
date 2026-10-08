@@ -11,6 +11,15 @@ pub const COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION: u32 = 2;
 pub const COMPONENT_LAB_VISUAL_DIFF_SCHEMA_VERSION: u32 = 2;
 pub const COMPONENT_LAB_VISUAL_DIFF_REPORT_TYPE: &str = "gpui-component-lab-visual-diff";
 
+/// Default representative capture budget covering every registered story.
+///
+/// PR visual jobs select at most this many cases while keeping one capture
+/// per story. Lowering the budget below the story count silently drops the
+/// alphabetically last stories from default runs, so raise it whenever the
+/// registered story inventory grows past it. Release jobs pass an explicit
+/// zero limit (full manifest) and are unaffected.
+pub const COMPONENT_LAB_REPRESENTATIVE_PR_LIMIT: usize = 204;
+
 /// One deterministic screenshot capture expected by CI visual regression jobs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComponentLabVisualCase {

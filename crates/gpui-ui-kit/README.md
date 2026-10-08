@@ -33,7 +33,13 @@ gpui-ui-kit = { version = "0.6.12", git="https://github.com/pierreaubert/sotf/tr
 | `ContextMenu` | Right-click context menu with positioned backdrop and click-outside dismiss |
 | `Popover` | Floating panel with 8 placement options, backdrop dismiss, and theme factory |
 | `ConfirmDialog` | Confirmation prompt with Default/Destructive/Warning variants |
+| `Lightbox` | Display-only image overlay with caption and backdrop dismiss |
+| `HoverCard` | Text-only card shown next to a hovered target |
+| `Layer` | Minimal overlay container without stacking management |
 | `Tabs` | Tabbed navigation with Underline, Enclosed, and Pills variants |
+| `TopNav` | Top navigation bar with brand slot, items, and trailing actions |
+| `MobileNav` | Mobile bottom tab bar with parent-owned selection |
+| `Pagination` | Page-button control with ellipsis gaps and keyboard stepping |
 | `Toast` / `ToastContainer` | Notification toasts with positioning |
 
 ### Form Components
@@ -49,6 +55,14 @@ gpui-ui-kit = { version = "0.6.12", git="https://github.com/pierreaubert/sotf/tr
 | `ButtonSet` | Grouped button options for single selection |
 | `ColorPicker` | Color picker with palette and custom color input |
 | `Slider` | Horizontal slider with value display |
+| `DateRangeInput` | Date range field showing start/end bounds without range selection |
+| `TimeInput` | Clock-time field showing an optional `HH:MM` value without time selection |
+| `DateTimeInput` | Date-time field showing optional date and time parts without selection |
+| `FileInput` | File picker trigger row with chosen file name and browse activation |
+| `Tokenizer` | Multi-value token editor with removable chips |
+| `Field` | Shared label, control slot, and help or error text |
+| `FieldStatus` | Validation message with severity styling |
+| `Calendar` | Month-grid date picker with min/max bounds and keyboard selection |
 | `Wizard` | Multi-step wizard with navigation and step validation |
 
 ### Data Display
@@ -64,6 +78,15 @@ gpui-ui-kit = { version = "0.6.12", git="https://github.com/pierreaubert/sotf/tr
 | `QrCode` | QR code display with custom size, foreground, and background colors |
 | `KeyboardShortcutLabel` | Renders keyboard shortcuts as styled key caps (e.g., `⌘+K`) |
 | `EmptyState` | Placeholder for empty lists/containers with icon, title, description, and action |
+| `Chat` | Conversation transcript with role-based message bubbles |
+| `Markdown` | Small Markdown renderer for headings, code, lists, and quotes |
+| `Blockquote` | Styled quotation with an optional citation |
+| `Carousel` | Slide rotation with previous, next, and dot navigation |
+| `SelectableCard` | Card with selected state and click activation |
+| `Citation` | Standalone source reference with attribution |
+| `Timestamp` | Muted inline time label |
+| `MetadataList` | Label/value detail rows with dividers |
+| `List` | Static selectable rows with descriptions and keyboard navigation |
 | `Text` / `Heading` / `Code` / `Link` | Typography components |
 
 ### Large Data Surfaces
@@ -121,6 +144,7 @@ Each capture has stable baseline, actual, and diff artifact paths under
 | `Alert` / `InlineAlert` | Contextual feedback messages (Info, Success, Warning, Error) |
 | `SearchBar` | Search input with icon, clear button, and size variants |
 | `Tooltip` | Hover tooltips with placement options |
+| `Skeleton` | Loading placeholder with text, rectangle, and circle shapes |
 
 ### Layout
 
@@ -129,8 +153,14 @@ Each capture has stable baseline, actual, and diff artifact paths under
 | `VStack` / `HStack` | Vertical and horizontal stack layouts |
 | `Spacer` | Flexible spacer element |
 | `Divider` | Horizontal/vertical dividers with optional interactivity |
+| `Grid` | Fixed-column grid layout with design-system gaps |
+| `Center` | Single-child centering container with optional max width |
+| `AspectRatio` | Fixed aspect-ratio box with common ratio presets |
+| `Resizable` | User-resizable panel with edge/corner drag handles |
+| `VisuallyHidden` | Screen-reader-only content with skip-link focus reveal |
 | `PaneDivider` | Resizable pane divider for split views |
 | `Sidebar` | Collapsible side panel with left/right positioning, header, footer, and scrollable content |
+| `AppShell` | Application frame with header, sidebar, content, and footer slots |
 | `StatusBar` | Horizontal bar with left/center/right sections for top or bottom of window |
 | `Accordion` | Collapsible content panels |
 | `Breadcrumbs` | Navigation breadcrumbs |
@@ -415,6 +445,37 @@ Popover::new("device-picker")
     })
 ```
 
+### Lightbox
+
+```rust
+use gpui_ui_kit::Lightbox;
+
+Lightbox::new("artwork", "assets/painting.png")
+    .caption("Gallery preview")
+    .open(true)
+```
+
+### HoverCard
+
+```rust
+use gpui_ui_kit::{HoverCard, HoverCardPlacement};
+
+HoverCard::new("user-ada", "Ada Lovelace")
+    .description("First programmer, Analytical Engine.")
+    .placement(HoverCardPlacement::Right)
+    .open(true)
+```
+
+### Layer
+
+```rust
+use gpui_ui_kit::Layer;
+
+Layer::new("session-expired")
+    .open(true)
+    .child(div().child("Session expired."))
+```
+
 ### ConfirmDialog
 
 ```rust
@@ -453,6 +514,268 @@ StatusBar::new("footer")
     .left(div().child("Playing: Track 1"))
     .center(div().child("00:00 / 03:45"))
     .right(div().child("Vol: 80%"))
+```
+
+### AppShell
+
+```rust
+use gpui_ui_kit::{AppShell, AppShellSidebarSide};
+
+AppShell::new("app")
+    .header(div().child("Header"))
+    .sidebar(div().child("Sidebar"))
+    .sidebar_side(AppShellSidebarSide::Left)
+    .content(div().child("Main content"))
+    .footer(div().child("Footer"))
+```
+
+### TopNav
+
+```rust
+use gpui_ui_kit::{TopNav, TopNavItem, TopNavSize};
+
+TopNav::new("main-nav")
+    .brand(div().child("Acme"))
+    .item(TopNavItem::new("home", "Home").active(true))
+    .item(TopNavItem::new("docs", "Docs"))
+    .size(TopNavSize::Md)
+```
+
+### MobileNav
+
+```rust
+use gpui_ui_kit::{MobileNav, MobileNavItem};
+
+MobileNav::new("tabs")
+    .item(MobileNavItem::new("home", "Home").icon("H"))
+    .item(MobileNavItem::new("search", "Search").icon("S"))
+    .selected("home")
+    .on_select(|id, _window, _cx| {
+        // Store the selected tab id
+    })
+```
+
+### DateRangeInput
+
+```rust
+use gpui_ui_kit::{CalendarDate, DateRangeInput};
+
+DateRangeInput::new("stay")
+    .start(CalendarDate { year: 2026, month: 10, day: 1 })
+    .end(CalendarDate { year: 2026, month: 10, day: 7 })
+    .clearable(true)
+    .on_change(|start, end, _window, _cx| {
+        // Store the new bounds
+    })
+```
+
+### TimeInput
+
+```rust
+use gpui_ui_kit::{ClockTime, TimeInput};
+
+TimeInput::new("standup")
+    .value(ClockTime::new(9, 30).unwrap())
+    .clearable(true)
+    .on_change(|value, _window, _cx| {
+        // Store the new time
+    })
+```
+
+### DateTimeInput
+
+```rust
+use gpui_ui_kit::{CalendarDate, ClockTime, DateTimeInput};
+
+DateTimeInput::new("launch")
+    .date(CalendarDate { year: 2026, month: 10, day: 7 })
+    .time(ClockTime::new(9, 30).unwrap())
+    .on_change(|date, time, _window, _cx| {
+        // Store the new parts
+    })
+```
+
+### FileInput
+
+```rust
+use gpui_ui_kit::FileInput;
+
+FileInput::new("avatar-upload")
+    .file_name("portrait.png")
+    .accept(".png,.jpg")
+    .on_browse(|_window, _cx| {
+        // Open the native file picker
+    })
+```
+
+### Tokenizer
+
+```rust
+use gpui_ui_kit::Tokenizer;
+
+Tokenizer::new("tags")
+    .tokens(["drums", "bass"])
+    .on_remove(|index, _window, _cx| {
+        // Drop the token at index
+    })
+```
+
+### Field
+
+```rust
+use gpui_ui_kit::{Field, Tokenizer};
+
+Field::new("gain-field")
+    .label("Gain")
+    .required(true)
+    .child(Tokenizer::new("gain-control"))
+    .help("Applied before the limiter.")
+```
+
+### FieldStatus
+
+```rust
+use gpui_ui_kit::{FieldStatus, FieldStatusVariant};
+
+FieldStatus::new("gain-status", "Gain is required.")
+    .variant(FieldStatusVariant::Error)
+```
+
+### Skeleton
+
+```rust
+use gpui_ui_kit::{Skeleton, SkeletonSize, SkeletonVariant};
+
+Skeleton::new("profile-loading")
+    .variant(SkeletonVariant::Circular)
+    .size(SkeletonSize::Lg)
+```
+
+### Chat
+
+```rust
+use gpui_ui_kit::{Chat, ChatMessage};
+
+Chat::new("support-thread")
+    .message(ChatMessage::system("Ada joined the thread"))
+    .message(ChatMessage::user("Ada", "The nightly build failed."))
+    .message(ChatMessage::assistant("Queued a retry."))
+```
+
+### Markdown
+
+```rust
+use gpui_ui_kit::Markdown;
+
+Markdown::new("release-notes", "# Title\n\nShipped today.")
+```
+
+### Blockquote
+
+```rust
+use gpui_ui_kit::Blockquote;
+
+Blockquote::new("review", "Ship small, ship often.")
+    .cite("Release captain")
+```
+
+### Carousel
+
+```rust
+use gpui_ui_kit::{Carousel, CarouselSlide};
+
+Carousel::new("tour")
+    .slide(CarouselSlide::new("Fast", "Starts in milliseconds."))
+    .slide(CarouselSlide::new("Portable", "Runs on every target."))
+    .index(current)
+    .on_change(|next, _window, _cx| {
+        // Store `next` as the new index.
+    })
+```
+
+### SelectableCard
+
+```rust
+use gpui_ui_kit::SelectableCard;
+
+SelectableCard::new("plan-pro", "Pro")
+    .description("For teams shipping weekly.")
+    .selected(current == "pro")
+    .on_click(|_window, _cx| {
+        // Store the new selection.
+    })
+```
+
+### Citation
+
+```rust
+use gpui_ui_kit::{Citation, CitationVariant};
+
+Citation::new("ref-1", "Move slowly and fix things.")
+    .source("Maintenance handbook")
+    .variant(CitationVariant::Block)
+```
+
+### Timestamp
+
+```rust
+use gpui_ui_kit::Timestamp;
+
+Timestamp::new("edited-at", "Edited 2 hours ago")
+```
+
+### MetadataList
+
+```rust
+use gpui_ui_kit::{MetadataEntry, MetadataList};
+
+MetadataList::new("file-meta")
+    .entry(MetadataEntry::new("Author", "Ada"))
+    .entry(MetadataEntry::new("License", "MIT"))
+```
+
+### Calendar
+
+```rust
+use gpui_ui_kit::{Calendar, CalendarDate};
+
+Calendar::new("departure")
+    .visible(2026, 10)
+    .selected(CalendarDate::new(2026, 10, 7).unwrap())
+    .on_select(|date, _window, _cx| {
+        // Store `date` as the new selection.
+    })
+```
+
+### Pagination
+
+```rust
+use gpui_ui_kit::Pagination;
+
+Pagination::new("results")
+    .page(5)
+    .total_pages(12)
+    .on_change(|page, _window, _cx| {
+        // Fetch and show `page`.
+    })
+```
+
+### List
+
+```rust
+use gpui_ui_kit::{List, ListItem};
+
+List::new(
+    "servers",
+    vec![
+        ListItem::new("a", "Alpha").description("Primary region"),
+        ListItem::new("b", "Beta").disabled(true),
+    ],
+)
+.selected("a")
+.on_select(|id, _window, _cx| {
+    // Show details for `id`.
+})
 ```
 
 ### SearchBar

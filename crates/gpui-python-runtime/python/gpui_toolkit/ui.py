@@ -444,6 +444,68 @@ def menu_bar(
     })
 
 
+def app_shell(
+    *, id: str, header: Any = None, sidebar: Any = None, content: Any = None,
+    footer: Any = None, sidebar_side: str = "left", **props: Any,
+) -> Node:
+    """Compose header, sidebar, content, and footer slots into an app frame."""
+    return Node("app_shell", {
+        "id": id, "sidebar_side": sidebar_side,
+        "header": None if header is None else _spec(header),
+        "sidebar": None if sidebar is None else _spec(sidebar),
+        "content": None if content is None else _spec(content),
+        "footer": None if footer is None else _spec(footer), **props,
+    })
+
+
+@dataclass(frozen=True)
+class TopNavItem:
+    """One typed link in a top navigation bar."""
+
+    id: str
+    label: str
+    active: bool = False
+    disabled: bool = False
+
+    def to_spec(self) -> dict[str, Any]:
+        return {"id": self.id, "label": self.label, "active": self.active,
+                "disabled": self.disabled}
+
+
+def top_nav(
+    *, id: str, items: Sequence[TopNavItem], brand: str | None = None,
+    action: str | None = None, **props: Any,
+) -> Node:
+    """Render a top navigation bar with brand, links, and one select action."""
+    return Node("top_nav", {
+        "id": id, "brand": brand, "items": _children(items),
+        "action": action, **props,
+    })
+
+
+@dataclass(frozen=True)
+class MobileNavItem:
+    """One typed tab in a mobile bottom navigation bar."""
+
+    id: str
+    label: str
+    icon: str | None = None
+
+    def to_spec(self) -> dict[str, Any]:
+        return {"id": self.id, "label": self.label, "icon": self.icon}
+
+
+def mobile_nav(
+    *, id: str, items: Sequence[MobileNavItem], selected: str | None = None,
+    action: str | None = None, **props: Any,
+) -> Node:
+    """Render a mobile bottom tab bar with parent-owned selection."""
+    return Node("mobile_nav", {
+        "id": id, "items": _children(items), "selected": selected,
+        "action": action, **props,
+    })
+
+
 def popover(
     trigger: Any, *, id: str, content: Sequence[Any], placement: str = "bottom",
     width: float | None = None, show_backdrop: bool = True,
@@ -658,6 +720,287 @@ def toggle(*, id: str, value: bool, label: str, action: str | None = None,
                             "width": width, **props})
 
 
+def date_range_input(
+    *, id: str, start: str | None = None, end: str | None = None,
+    placeholder: str | None = None, disabled: bool = False, clearable: bool = False,
+    action: str | None = None, **props: Any,
+) -> Node:
+    """Render a start/end date field without interactive range selection."""
+    return Node("date_range_input", {
+        "id": id, "start": start, "end": end, "placeholder": placeholder,
+        "disabled": disabled, "clearable": clearable, "action": action, **props,
+    })
+
+
+def time_input(
+    *, id: str, value: str | None = None,
+    placeholder: str | None = None, disabled: bool = False, clearable: bool = False,
+    action: str | None = None, **props: Any,
+) -> Node:
+    """Render a clock-time field without interactive time selection."""
+    return Node("time_input", {
+        "id": id, "value": value, "placeholder": placeholder,
+        "disabled": disabled, "clearable": clearable, "action": action, **props,
+    })
+
+
+def date_time_input(
+    *, id: str, date: str | None = None, time: str | None = None,
+    placeholder: str | None = None, disabled: bool = False, clearable: bool = False,
+    action: str | None = None, **props: Any,
+) -> Node:
+    """Render a combined date and time field without interactive selection."""
+    return Node("date_time_input", {
+        "id": id, "date": date, "time": time, "placeholder": placeholder,
+        "disabled": disabled, "clearable": clearable, "action": action, **props,
+    })
+
+
+def file_input(
+    *, id: str, file_name: str | None = None, accept: str | None = None,
+    disabled: bool = False, action: str | None = None, **props: Any,
+) -> Node:
+    """Render a picker trigger row showing the chosen file name."""
+    return Node("file_input", {
+        "id": id, "file_name": file_name, "accept": accept,
+        "disabled": disabled, "action": action, **props,
+    })
+
+
+def tokenizer(
+    *, id: str, tokens: Sequence[str] = (),
+    placeholder: str | None = None, disabled: bool = False,
+    action: str | None = None, **props: Any,
+) -> Node:
+    """Render parent-owned values as removable token chips."""
+    return Node("tokenizer", {
+        "id": id, "tokens": [str(token) for token in tokens],
+        "placeholder": placeholder, "disabled": disabled,
+        "action": action, **props,
+    })
+
+
+@dataclass(frozen=True)
+class ChatMessage:
+    """One typed transcript entry with author, body, and role."""
+
+    body: str
+    author: str = ""
+    role: str = "user"
+
+    def to_spec(self) -> dict[str, Any]:
+        return {"author": self.author, "body": self.body, "role": self.role}
+
+
+def chat(
+    *, id: str, messages: Sequence[ChatMessage | dict[str, Any]] = (),
+    **props: Any,
+) -> Node:
+    """Render a conversation transcript with role-based bubbles."""
+    return Node("chat", {
+        "id": id, "messages": _children(messages), **props,
+    })
+
+
+def markdown(value: str, *, id: str | None = None, **props: Any) -> Node:
+    """Render Markdown source into headings, code, lists, and quotes."""
+    return Node("markdown", {"id": id, "source": value, **props})
+
+
+def blockquote(value: str, *, cite: str | None = None, id: str | None = None,
+               **props: Any) -> Node:
+    """Render a styled quotation with an optional citation."""
+    return Node("blockquote", {"id": id, "quote": value, "cite": cite, **props})
+
+
+@dataclass(frozen=True)
+class CarouselSlide:
+    """One titled slide with a short body."""
+
+    title: str
+    body: str = ""
+
+    def to_spec(self) -> dict[str, Any]:
+        return {"title": self.title, "body": self.body}
+
+
+def carousel(
+    slides: Sequence[CarouselSlide | dict[str, Any]] = (), *,
+    index: int = 0, id: str | None = None, change_action: str | None = None,
+    **props: Any,
+) -> Node:
+    """Render a slide rotation with previous, next, and dot navigation."""
+    return Node("carousel", {
+        "id": id, "slides": _children(slides), "index": index,
+        "change_action": change_action, **props,
+    })
+
+
+def selectable_card(
+    title: str, *, description: str | None = None, selected: bool = False,
+    disabled: bool = False, id: str | None = None, action: str | None = None,
+    **props: Any,
+) -> Node:
+    """Render a card with selected state and click activation."""
+    return Node("selectable_card", {
+        "id": id, "title": title, "description": description,
+        "selected": selected, "disabled": disabled, "action": action, **props,
+    })
+
+
+def citation(
+    value: str, *, source: str | None = None, variant: str = "inline",
+    id: str | None = None, **props: Any,
+) -> Node:
+    """Render a source reference with an optional attribution."""
+    return Node("citation", {
+        "id": id, "text": value, "source": source, "variant": variant, **props,
+    })
+
+
+def timestamp(value: str, *, id: str | None = None, **props: Any) -> Node:
+    """Render a muted inline time label."""
+    return Node("timestamp", {"id": id, "text": value, **props})
+
+
+@dataclass(frozen=True)
+class MetadataEntry:
+    """One label/value row in a metadata list."""
+
+    label: str
+    value: str = ""
+
+    def to_spec(self) -> dict[str, Any]:
+        return {"label": self.label, "value": self.value}
+
+
+def metadata_list(
+    entries: Sequence[MetadataEntry | dict[str, Any]] = (), *,
+    id: str | None = None, **props: Any,
+) -> Node:
+    """Render label/value detail rows with dividers."""
+    return Node("metadata_list", {
+        "id": id, "entries": _children(entries), **props,
+    })
+
+
+def field(
+    child: Any = None, *, id: str | None = None, label: str | None = None,
+    required: bool = False, help: str | None = None, error: str | None = None,
+    **props: Any,
+) -> Node:
+    """Wrap one control with a label and help or error text."""
+    return Node("field", {
+        "id": id, "label": label, "required": required, "help": help,
+        "error": error, "child": None if child is None else _spec(child),
+        **props,
+    })
+
+
+def field_status(
+    message: str, *, id: str | None = None, variant: str = "info",
+    **props: Any,
+) -> Node:
+    """Render a severity-styled validation message."""
+    return Node("field_status", {
+        "id": id, "message": message, "variant": variant, **props,
+    })
+
+
+def skeleton(
+    *, id: str | None = None, variant: str | None = None,
+    size: str | None = None, width: float | None = None,
+    height: float | None = None, **props: Any,
+) -> Node:
+    """Render a loading placeholder reserving content shape."""
+    return Node("skeleton", {
+        "id": id, "variant": variant, "size": size,
+        "width": width, "height": height, **props,
+    })
+
+
+def lightbox(
+    src: str, *, alt: str = "", caption: str | None = None,
+    id: str | None = None, **props: Any,
+) -> Node:
+    """Render a display-only image overlay with a caption."""
+    return Node("lightbox", {
+        "id": id, "src": src, "alt": alt, "caption": caption, **props,
+    })
+
+
+def hover_card(
+    title: str, *, description: str | None = None,
+    placement: str | None = None, size: str | None = None,
+    id: str | None = None, **props: Any,
+) -> Node:
+    """Render a text-only card next to a hovered target."""
+    return Node("hover_card", {
+        "id": id, "title": title, "description": description,
+        "placement": placement, "size": size, **props,
+    })
+
+
+def layer(
+    children: Iterable[Any] | None = None, *,
+    id: str | None = None, show_backdrop: bool = True,
+    **props: Any,
+) -> Node:
+    """Render a minimal overlay container without stacking management."""
+    return Node("layer", {
+        "id": id, "children": _children(children),
+        "show_backdrop": show_backdrop, **props,
+    })
+
+
+def calendar(
+    year: int, month: int, *,
+    id: str | None = None, selected: str | None = None,
+    min: str | None = None, max: str | None = None,
+    select_action: str | None = None, **props: Any,
+) -> Node:
+    """Render a month-grid calendar with YYYY-MM-DD selection and bounds."""
+    return Node("calendar", {
+        "id": id, "year": year, "month": month, "selected": selected,
+        "min": min, "max": max, "select_action": select_action, **props,
+    })
+
+
+def pagination(
+    page: int, total_pages: int, *,
+    id: str | None = None, siblings: int = 1,
+    change_action: str | None = None, **props: Any,
+) -> Node:
+    """Render page buttons with ellipsis gaps for long result sets."""
+    return Node("pagination", {
+        "id": id, "page": page, "total_pages": total_pages,
+        "siblings": siblings, "change_action": change_action, **props,
+    })
+
+
+def list_item(
+    id: str, label: str, *,
+    description: str | None = None, disabled: bool = False,
+) -> dict[str, Any]:
+    """Build one selectable list row."""
+    return {
+        "id": id, "label": label, "description": description,
+        "disabled": disabled,
+    }
+
+
+def list_view(
+    items: Sequence[dict[str, Any]], *,
+    id: str | None = None, selected: str | None = None,
+    select_action: str | None = None, **props: Any,
+) -> Node:
+    """Render a static selectable row list."""
+    return Node("list", {
+        "id": id, "items": list(items), "selected": selected,
+        "select_action": select_action, **props,
+    })
+
+
 def table(
     headers: Sequence[str] = (), rows: Sequence[Sequence[Any]] = (), *,
     id: str | None = None, columns: Sequence[dict[str, Any] | tuple[str, str]] = (),
@@ -700,6 +1043,62 @@ def divider(**props: Any) -> Node:
 
 def spacer(**props: Any) -> Node:
     return Node("spacer", props)
+
+
+def grid(
+    children: Sequence[Any], *, columns: int = 2, rows: int | None = None,
+    gap: float | None = None, **props: Any,
+) -> Node:
+    """Arrange children in a fixed-column grid."""
+    return Node("grid", {"columns": columns, "rows": rows, "gap": gap, **props}, children)
+
+
+def center(
+    children: Sequence[Any], *, max_width: float | None = None, **props: Any,
+) -> Node:
+    """Center children on both axes with an optional max width."""
+    return Node("center", {"max_width": max_width, **props}, children)
+
+
+def aspect_ratio(
+    children: Sequence[Any], *, ratio: float = 16.0 / 9.0, **props: Any,
+) -> Node:
+    """Constrain children to a width-over-height ratio."""
+    return Node("aspect_ratio", {"ratio": ratio, **props}, children)
+
+
+def resizable(
+    children: Sequence[Any], *, handle: str = "corner",
+    width: float | None = None, height: float | None = None,
+    min_width: float | None = None, min_height: float | None = None,
+    max_width: float | None = None, max_height: float | None = None,
+    **props: Any,
+) -> Node:
+    """Declare a user-resizable panel with size constraints."""
+    return Node(
+        "resizable",
+        {
+            "handle": handle,
+            "width": width,
+            "height": height,
+            "min_width": min_width,
+            "min_height": min_height,
+            "max_width": max_width,
+            "max_height": max_height,
+            **props,
+        },
+        children,
+    )
+
+
+def visually_hidden(
+    children: Sequence[Any], *, focusable: bool = False,
+    label: str | None = None, **props: Any,
+) -> Node:
+    """Hide children visually while exposing them to assistive technology."""
+    return Node(
+        "visually_hidden", {"focusable": focusable, "label": label, **props}, children,
+    )
 
 
 def scene3d(

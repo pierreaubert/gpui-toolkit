@@ -11,6 +11,7 @@ members = [
     "crates/gpui-hello-web",
     "crates/gpui-ios",
     "crates/gpui-keybinding",
+    "crates/gpui-layout-expr",
     "crates/gpui-miniapp",
     "crates/gpui-pretext",
     "crates/gpui-profiler",
@@ -23,6 +24,7 @@ members = [
     "crates/gpui-showcase/tvos",
     "crates/gpui-themes",
     "crates/gpui-toolkit",
+    "crates/gpui-toolkit-cli",
     "crates/gpui-ui-kit",
     "crates/gpui-showcase/ios",
     "crates/gpui-ui-kit-macros",
@@ -31,7 +33,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.9.31"
+version = "0.9.33"
 authors = ["Pierre F. Aubert pierre@spinorama.org"]
 description = "A toolkit to build portable and fast UI"
 edition = "2024"
@@ -88,6 +90,7 @@ gpui-design = { path = "crates/gpui-design", version = "0.9" }
 gpui-design-tools = { path = "crates/gpui-design-tools", version = "0.9" }
 gpui-ios = { path = "crates/gpui-ios", version = "0.9" }
 gpui-keybinding = { path = "crates/gpui-keybinding", version = "0.9" }
+gpui-layout-expr = { path = "crates/gpui-layout-expr", version = "0.9" }
 gpui-miniapp = { path = "crates/gpui-miniapp", version = "0.9" }
 gpui-pretext = { path = "crates/gpui-pretext", version = "0.9" }
 gpui-profiler = { path = "crates/gpui-profiler", version = "0.9" }
@@ -98,6 +101,7 @@ gpui-scaffolder = { path = "crates/gpui-scaffolder", version = "0.9" }
 gpui-showcase = { path = "crates/gpui-showcase", version = "0.9" }
 gpui-themes = { path = "crates/gpui-themes", version = "0.9" }
 gpui-toolkit = { path = "crates/gpui-toolkit", version = "0.9" }
+gpui-toolkit-cli = { path = "crates/gpui-toolkit-cli", version = "0.9" }
 gpui-ui-kit = { path = "crates/gpui-ui-kit", version = "0.9" }
 gpui-ui-kit-macros = { path = "crates/gpui-ui-kit-macros", version = "0.9" }
 

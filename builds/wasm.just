@@ -1,6 +1,6 @@
 # ----------------------------------------------------------------------
 # WASM / browser builds (WebGPU-only)
-# Design: docs/superpowers/specs/2026-08-15-wasm-browser-target-design.md
+# Design: docs/superpowers/2026-08-15-wasm-browser-target-design.md
 # wasm builds need nightly (-Z build-std + parking_lot/nightly), injected via
 # env so the stable host toolchain is untouched.
 # ----------------------------------------------------------------------

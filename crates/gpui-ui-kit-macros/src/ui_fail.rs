@@ -12,6 +12,7 @@
 //! streams, exactly what the proc macro receives.
 
 use super::derive::{derive_component_builder_impl, derive_component_theme_impl};
+use super::layout::layout_impl;
 use super::variant::derive_component_variant_impl;
 
 struct UiCase {
@@ -67,6 +68,7 @@ fn expand(case: &UiCase) -> String {
         "ComponentTheme" => derive_component_theme_impl(tokens).to_string(),
         "ComponentBuilder" | "FormField" => derive_component_builder_impl(tokens).to_string(),
         "ComponentVariant" => derive_component_variant_impl(tokens).to_string(),
+        "layout" => layout_impl(tokens).to_string(),
         other => panic!("{}: unknown derive `{other}`", case.file),
     }
 }

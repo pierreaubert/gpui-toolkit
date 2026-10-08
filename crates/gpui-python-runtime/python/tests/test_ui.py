@@ -76,6 +76,241 @@ class UiBuilderTests(unittest.TestCase):
         self.assertEqual(bar["items"][0]["items"][0]["id"], "quit")
         self.assertEqual(bar["active_menu"], "file")
 
+    def test_shell_and_navigation_keep_stable_contracts(self):
+        shell = ui.app_shell(
+            id="shell", sidebar_side="right",
+            header=ui.top_nav(
+                id="nav", brand="Demo", action="select_nav",
+                items=[ui.TopNavItem("home", "Home", active=True)],
+            ),
+            content=ui.text("Body"),
+            footer=ui.mobile_nav(
+                id="tabs", selected="home", action="select_tab",
+                items=[ui.MobileNavItem("home", "Home", icon="H")],
+            ),
+        ).to_spec()
+
+        self.assertEqual(shell["kind"], "app_shell")
+        self.assertEqual(shell["sidebar_side"], "right")
+        self.assertEqual(shell["header"]["kind"], "top_nav")
+        self.assertEqual(shell["header"]["items"][0]["id"], "home")
+        self.assertTrue(shell["header"]["items"][0]["active"])
+        self.assertEqual(shell["footer"]["kind"], "mobile_nav")
+        self.assertEqual(shell["footer"]["selected"], "home")
+        self.assertIsNone(shell["sidebar"])
+
+    def test_date_range_input_keeps_bounds_contract(self):
+        spec = ui.date_range_input(
+            id="stay", start="2026-10-01", end="2026-10-07",
+            clearable=True, action="change_range",
+        ).to_spec()
+
+        self.assertEqual(spec["kind"], "date_range_input")
+        self.assertEqual(spec["start"], "2026-10-01")
+        self.assertEqual(spec["end"], "2026-10-07")
+        self.assertTrue(spec["clearable"])
+
+    def test_time_input_keeps_value_contract(self):
+        spec = ui.time_input(
+            id="standup", value="09:30",
+            clearable=True, action="change_time",
+        ).to_spec()
+
+        self.assertEqual(spec["kind"], "time_input")
+        self.assertEqual(spec["value"], "09:30")
+        self.assertTrue(spec["clearable"])
+
+    def test_date_time_input_keeps_parts_contract(self):
+        spec = ui.date_time_input(
+            id="launch", date="2026-10-07", time="09:30",
+            action="change_datetime",
+        ).to_spec()
+
+        self.assertEqual(spec["kind"], "date_time_input")
+        self.assertEqual(spec["date"], "2026-10-07")
+        self.assertEqual(spec["time"], "09:30")
+
+    def test_chat_keeps_message_contract(self):
+        spec = ui.chat(
+            id="thread",
+            messages=[
+                ui.ChatMessage(body="Hi", author="Ada", role="user"),
+                {"author": "Bot", "body": "Hello", "role": "assistant"},
+            ],
+        ).to_spec()
+
+        self.assertEqual(spec["kind"], "chat")
+        self.assertEqual(len(spec["messages"]), 2)
+        self.assertEqual(spec["messages"][0]["role"], "user")
+        self.assertEqual(spec["messages"][1]["body"], "Hello")
+
+    def test_markdown_and_blockquote_keep_content_contract(self):
+        md = ui.markdown("# Title", id="notes").to_spec()
+        self.assertEqual(md["kind"], "markdown")
+        self.assertEqual(md["source"], "# Title")
+
+        quote = ui.blockquote("Ship it.", cite="Captain").to_spec()
+        self.assertEqual(quote["kind"], "blockquote")
+        self.assertEqual(quote["quote"], "Ship it.")
+        self.assertEqual(quote["cite"], "Captain")
+
+    def test_carousel_keeps_slide_contract(self):
+        spec = ui.carousel(
+            [
+                ui.CarouselSlide(title="Fast", body="Starts fast."),
+                {"title": "Portable", "body": "Runs anywhere."},
+            ],
+            index=1, id="tour", change_action="change_slide",
+        ).to_spec()
+
+        self.assertEqual(spec["kind"], "carousel")
+        self.assertEqual(spec["index"], 1)
+        self.assertEqual(spec["change_action"], "change_slide")
+        self.assertEqual(len(spec["slides"]), 2)
+        self.assertEqual(spec["slides"][0]["title"], "Fast")
+        self.assertEqual(spec["slides"][1]["body"], "Runs anywhere.")
+
+    def test_selectable_card_keeps_state_contract(self):
+        spec = ui.selectable_card(
+            "Pro", description="For teams.", selected=True,
+            id="plan-pro", action="pick_plan",
+        ).to_spec()
+
+        self.assertEqual(spec["kind"], "selectable_card")
+        self.assertEqual(spec["title"], "Pro")
+        self.assertEqual(spec["description"], "For teams.")
+        self.assertTrue(spec["selected"])
+        self.assertFalse(spec["disabled"])
+        self.assertEqual(spec["action"], "pick_plan")
+
+    def test_citation_timestamp_and_metadata_keep_contract(self):
+        quote = ui.citation(
+            "Move slowly.", source="Handbook", variant="block",
+        ).to_spec()
+        self.assertEqual(quote["kind"], "citation")
+        self.assertEqual(quote["text"], "Move slowly.")
+        self.assertEqual(quote["source"], "Handbook")
+        self.assertEqual(quote["variant"], "block")
+
+        stamp = ui.timestamp("Edited 2 hours ago").to_spec()
+        self.assertEqual(stamp["kind"], "timestamp")
+        self.assertEqual(stamp["text"], "Edited 2 hours ago")
+
+        spec = ui.metadata_list(
+            [
+                ui.MetadataEntry(label="Author", value="Ada"),
+                {"label": "License", "value": "MIT"},
+            ],
+            id="file-meta",
+        ).to_spec()
+        self.assertEqual(spec["kind"], "metadata_list")
+        self.assertEqual(len(spec["entries"]), 2)
+        self.assertEqual(spec["entries"][0]["label"], "Author")
+        self.assertEqual(spec["entries"][1]["value"], "MIT")
+
+    def test_file_input_keeps_name_contract(self):
+        spec = ui.file_input(
+            id="upload", file_name="portrait.png", accept=".png,.jpg",
+            action="browse_file",
+        ).to_spec()
+
+        self.assertEqual(spec["kind"], "file_input")
+        self.assertEqual(spec["file_name"], "portrait.png")
+        self.assertEqual(spec["accept"], ".png,.jpg")
+        self.assertFalse(spec["disabled"])
+        self.assertEqual(spec["action"], "browse_file")
+
+    def test_tokenizer_keeps_tokens_contract(self):
+        spec = ui.tokenizer(
+            id="tags", tokens=["drums", "bass"], action="remove_token",
+        ).to_spec()
+
+        self.assertEqual(spec["kind"], "tokenizer")
+        self.assertEqual(spec["tokens"], ["drums", "bass"])
+        self.assertEqual(spec["action"], "remove_token")
+
+    def test_field_wraps_child_with_labels(self):
+        spec = ui.field(
+            ui.tokenizer(id="gain-control", tokens=["-6 dB"]),
+            id="gain-field", label="Gain", required=True,
+            help="Applied before the limiter.",
+        ).to_spec()
+
+        self.assertEqual(spec["kind"], "field")
+        self.assertEqual(spec["label"], "Gain")
+        self.assertTrue(spec["required"])
+        self.assertEqual(spec["help"], "Applied before the limiter.")
+        self.assertIsNone(spec["error"])
+        self.assertEqual(spec["child"]["kind"], "tokenizer")
+
+    def test_field_status_and_skeleton_keep_contract(self):
+        status = ui.field_status(
+            "Gain is required.", variant="error",
+        ).to_spec()
+        self.assertEqual(status["kind"], "field_status")
+        self.assertEqual(status["message"], "Gain is required.")
+        self.assertEqual(status["variant"], "error")
+
+        bones = ui.skeleton(
+            variant="circular", size="lg", width=64.0,
+        ).to_spec()
+        self.assertEqual(bones["kind"], "skeleton")
+        self.assertEqual(bones["variant"], "circular")
+        self.assertEqual(bones["size"], "lg")
+        self.assertEqual(bones["width"], 64.0)
+
+    def test_lightbox_hover_card_and_layer_keep_contract(self):
+        viewer = ui.lightbox(
+            "assets/painting.png", caption="Gallery preview",
+        ).to_spec()
+        self.assertEqual(viewer["kind"], "lightbox")
+        self.assertEqual(viewer["src"], "assets/painting.png")
+        self.assertEqual(viewer["caption"], "Gallery preview")
+
+        card = ui.hover_card(
+            "Ada Lovelace", description="First programmer.",
+            placement="right", size="lg",
+        ).to_spec()
+        self.assertEqual(card["kind"], "hover_card")
+        self.assertEqual(card["title"], "Ada Lovelace")
+        self.assertEqual(card["placement"], "right")
+        self.assertEqual(card["size"], "lg")
+
+        overlay = ui.layer(
+            [ui.text("Session expired.")], id="notice",
+        ).to_spec()
+        self.assertEqual(overlay["kind"], "layer")
+        self.assertEqual(overlay["children"][0]["kind"], "text")
+        self.assertTrue(overlay["show_backdrop"])
+
+    def test_calendar_pagination_and_list_keep_contract(self):
+        month = ui.calendar(
+            2026, 10, id="departure", selected="2026-10-07",
+            select_action="pick-day",
+        ).to_spec()
+        self.assertEqual(month["kind"], "calendar")
+        self.assertEqual(month["year"], 2026)
+        self.assertEqual(month["month"], 10)
+        self.assertEqual(month["selected"], "2026-10-07")
+
+        pager = ui.pagination(
+            5, 12, id="results", change_action="turn-page",
+        ).to_spec()
+        self.assertEqual(pager["kind"], "pagination")
+        self.assertEqual(pager["page"], 5)
+        self.assertEqual(pager["total_pages"], 12)
+        self.assertEqual(pager["siblings"], 1)
+
+        rows = ui.list_view(
+            [ui.list_item("a", "Alpha", description="Primary"),
+             ui.list_item("b", "Beta", disabled=True)],
+            id="servers", selected="a", select_action="pick-row",
+        ).to_spec()
+        self.assertEqual(rows["kind"], "list")
+        self.assertEqual(rows["items"][0]["label"], "Alpha")
+        self.assertEqual(rows["items"][1]["disabled"], True)
+        self.assertEqual(rows["selected"], "a")
+
     def test_popover_retains_typed_trigger_and_content_slots(self):
         spec = ui.popover(
             ui.button("More", id="more"), id="more-popover",
@@ -272,6 +507,41 @@ class UiBuilderTests(unittest.TestCase):
         modal = ui.dialog(id="details", title="Details", content=[ui.text("Ready")], close_action="close").to_spec()
         self.assertEqual(modal["content"][0]["kind"], "text")
         self.assertEqual(modal["close_action"], "close")
+
+    def test_layout_primitives_preserve_native_contracts(self):
+        grid = ui.grid([ui.badge("Cell 1"), ui.badge("Cell 2")], columns=2, gap=8.0).to_spec()
+        self.assertEqual(grid["kind"], "grid")
+        self.assertEqual(grid["columns"], 2)
+        self.assertEqual(grid["gap"], 8.0)
+        self.assertEqual(grid["children"][1]["kind"], "badge")
+
+        centered = ui.center([ui.text("Centered")], max_width=280.0).to_spec()
+        self.assertEqual(centered["kind"], "center")
+        self.assertEqual(centered["max_width"], 280.0)
+        self.assertEqual(centered["children"][0]["kind"], "text")
+
+        ratio = ui.aspect_ratio([ui.text("16 : 9")], ratio=16.0 / 9.0).to_spec()
+        self.assertEqual(ratio["kind"], "aspect_ratio")
+        self.assertAlmostEqual(ratio["ratio"], 16.0 / 9.0)
+        self.assertEqual(ratio["children"][0]["kind"], "text")
+
+        panel = ui.resizable(
+            [ui.text("Drag my corner")], handle="corner", width=320.0, height=120.0,
+            min_width=160.0, min_height=80.0,
+        ).to_spec()
+        self.assertEqual(panel["kind"], "resizable")
+        self.assertEqual(panel["handle"], "corner")
+        self.assertEqual(panel["width"], 320.0)
+        self.assertEqual(panel["min_height"], 80.0)
+        self.assertEqual(panel["children"][0]["kind"], "text")
+
+        hidden = ui.visually_hidden(
+            [ui.text("Skip to content")], focusable=True, label="Skip link",
+        ).to_spec()
+        self.assertEqual(hidden["kind"], "visually_hidden")
+        self.assertTrue(hidden["focusable"])
+        self.assertEqual(hidden["label"], "Skip link")
+        self.assertEqual(hidden["children"][0]["kind"], "text")
 
 
 if __name__ == "__main__":

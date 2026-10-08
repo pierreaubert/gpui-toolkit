@@ -40,6 +40,7 @@ use proc_macro::TokenStream;
 
 mod builder_field;
 mod derive;
+pub(crate) mod layout;
 mod misc;
 mod prop_docs;
 mod variant;
@@ -67,4 +68,13 @@ pub fn derive_form_field(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(ComponentVariant, attributes(variant))]
 pub fn derive_component_variant(input: TokenStream) -> TokenStream {
     variant::derive_component_variant_impl(input.into()).into()
+}
+
+/// Expands a `layout!` token DSL to an element expression.
+///
+/// See `layout` for the syntax; unknown components, modifiers, and
+/// attrs fail at compile time with the offending span.
+#[proc_macro]
+pub fn layout(input: TokenStream) -> TokenStream {
+    layout::layout_impl(input.into()).into()
 }

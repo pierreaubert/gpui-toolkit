@@ -2,6 +2,13 @@
 
 ## Added
 
+- Registered lab stories for the 30 new UI-kit components (shell,
+  calendar, pagination, list, chat, markdown, carousel, hover card,
+  lightbox, and layout primitives, among others) and raised the
+  representative visual PR limit to cover the full 204-story registry.
+- Exposed `UI_KIT_EXPORTED_COMPONENT_STORIES` and
+  `UI_KIT_SHOWCASE_STORIES` so the toolkit CLI `doctor` coverage check
+  can resolve every exported story.
 - Added a `deep_link` module for shareable lab URLs, window recovery for
   crashed sidebars, preview caches, and a preview-kind classifier.
 

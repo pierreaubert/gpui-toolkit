@@ -14,6 +14,7 @@ crates:
 - `gpui-component-lab` for component conformance
 - `gpui-px` (simple) and `gpui-d3rs` (similar to d3js) for graphs
 - `gpui-python-runtime` for retained scene demos
+- `gpui-toolkit-cli` as the unified `gpui-toolkit` command line for all of the above
 
 The code snippets are intentionally small. For complete runnable examples, use
 the workspace recipes:
@@ -444,3 +445,112 @@ Use this loop for most feature work:
 6. Add component-lab coverage.
 7. Run `just examples`, then `just qa-gpui-obvious`.
 8. Use iOS/tvOS recipes only after desktop checks are green.
+
+## 15. Drive It From the CLI
+
+The `gpui-toolkit` binary wraps the catalog, templates, themes, health
+checks, and layout tools in one place. All examples below run from the
+workspace root; substitute the installed binary once you run
+`cargo install --path crates/gpui-toolkit-cli`. Append `--json` to any
+command for a typed `{apiVersion, type, data}` envelope, or `--dense`
+for token-efficient output.
+
+Bootstrap a project's agent docs with the component catalog:
+
+```bash
+cargo run -p gpui-toolkit-cli -- init --dir ./toolkit-dashboard
+```
+
+Look up components instead of guessing prop names:
+
+```bash
+cargo run -p gpui-toolkit-cli -- component --detail compact
+cargo run -p gpui-toolkit-cli -- component ui-kit.button --props
+cargo run -p gpui-toolkit-cli -- component ui-kit.button ui-kit.input --json
+cargo run -p gpui-toolkit-cli -- search button --limit 5
+```
+
+Start pages from templates rather than from scratch:
+
+```bash
+cargo run -p gpui-toolkit-cli -- template
+cargo run -p gpui-toolkit-cli -- template --all
+cargo run -p gpui-toolkit-cli -- template settings-page --skeleton
+cargo run -p gpui-toolkit-cli -- template settings-page --out ./toolkit-dashboard/src
+cargo run -p gpui-toolkit-cli -- template theme-custom --out ./toolkit-dashboard/src
+```
+
+Export theme tokens and keep them fresh in CI:
+
+```bash
+cargo run -p gpui-toolkit-cli -- theme list
+cargo run -p gpui-toolkit-cli -- theme build dark --out ./toolkit-dashboard/tokens
+cargo run -p gpui-toolkit-cli -- theme build dark --out ./toolkit-dashboard/tokens --check
+cargo run -p gpui-toolkit-cli -- theme targets dark --dense | head
+```
+
+Check the tree before trusting it, and report gaps when the toolkit is
+missing something:
+
+```bash
+cargo run -p gpui-toolkit-cli -- doctor
+cargo run -p gpui-toolkit-cli -- upgrade
+cargo run -p gpui-toolkit-cli -- upgrade --detect --dir ./toolkit-dashboard/src
+cargo run -p gpui-toolkit-cli -- gap-report --area component DateRangePicker
+```
+
+Sketch layouts as one-line expressions, then expand them to Rust:
+
+```bash
+cargo run -p gpui-toolkit-cli -- layout check 'V > (Tx"Hi" + B.primary"Go")'
+cargo run -p gpui-toolkit-cli -- layout expand 'V > (Tx"Hi" + B.primary"Go")' --function hero
+cargo run -p gpui-toolkit-cli -- layout grammar
+```
+
+Teach the CLI your project's vocabulary with a `toolkit.toml` file.
+Custom layout components behave like built-ins in `layout check` and
+`layout expand`, `issues_url` retargets `gap-report`, and extra
+`upgrade` rules extend `--detect`. Unknown tables and keys fail
+loudly, and `doctor` reports config health:
+
+```toml
+[project]
+issues_url = "https://github.com/acme/toolkit-dashboard/issues"
+
+[[layout.components]]
+name = "PrimaryButton"
+base = "B"
+modifier = "primary"
+
+[[upgrade.rules]]
+id = "no-legacy-color"
+pattern = "legacy_color("
+message = "Use theme tokens instead of legacy_color."
+```
+
+```bash
+cargo run -p gpui-toolkit-cli -- layout check 'PrimaryButton"Save"'
+cargo run -p gpui-toolkit-cli -- doctor --dir ./toolkit-dashboard
+```
+
+The same expressions work at compile time through the `layout!` macro
+from `gpui-ui-kit-macros`, with unknown components failing the build
+(the macro stays built-in-only: it cannot see `toolkit.toml`):
+
+```rust
+use gpui_ui_kit_macros::layout;
+
+let _hero = layout! {
+    V {
+        Tx "Hi",
+        B.primary("Go"),
+    }
+};
+```
+
+When a stock component almost fits, eject its source into your tree and
+customize it there:
+
+```bash
+cargo run -p gpui-toolkit-cli -- eject Button --into ./toolkit-dashboard/src/vendor
+```

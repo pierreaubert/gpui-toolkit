@@ -46,30 +46,42 @@ use gpui_python_runtime::session::{
 };
 use gpui_python_runtime::spec_cache::TypedSpecCache;
 use gpui_python_runtime::ui_ir::{
-    AccordionNode, AlertNode, AudioControlNode, AudioMeterNode, AudioSpectrumNode, BadgeNode,
-    BooleanInputNode, BreadcrumbsNode, ButtonNode, CardNode, ColorPickerNode, ConfirmDialogNode,
-    ContextMenuNode, DialogNode, EmptyStateNode, FormNode, ListEditorNode, MenuBarNode,
-    MenuItemNode, MenuNode, MeshPlotNode, MiniAppShellConfig, NumberInputNode, PathInputNode,
-    PopoverNode, ProgressNode, PxChartV2Node, PythonAppIr, Scene2DWidgetNode, Scene3dNode,
-    SectionHeaderNode, SelectNode, SimpleNode, SliderNode, SpinnerNode, StackNode, StepperNode,
-    TableNode, TableV2Node, TabsNode, TextInputNode, TextNode, ThinkingOrbNode, ToastNode,
-    TooltipNode, UiNode,
+    AccordionNode, AlertNode, AppShellNode, AspectRatioNode, AudioControlNode, AudioMeterNode,
+    AudioSpectrumNode, BadgeNode, BlockquoteNode, BooleanInputNode, BreadcrumbsNode, ButtonNode,
+    CalendarNode, CardNode, CarouselNode, CenterNode, ChatNode, CitationNode, ColorPickerNode,
+    ConfirmDialogNode, ContextMenuNode, DateRangeInputNode, DateTimeInputNode, DialogNode,
+    EmptyStateNode, FieldNode, FieldStatusNode, FileInputNode, FormNode, GridNode, HoverCardNode,
+    LayerNode, LightboxNode, ListEditorNode, ListNode, MarkdownNode, MenuBarNode, MenuItemNode,
+    MenuNode, MeshPlotNode, MetadataListNode, MiniAppShellConfig, MobileNavNode, NumberInputNode,
+    PaginationNode, PathInputNode, PopoverNode, ProgressNode, PxChartV2Node, PythonAppIr,
+    ResizableNode, Scene2DWidgetNode, Scene3dNode, SectionHeaderNode, SelectNode,
+    SelectableCardNode, SimpleNode, SkeletonNode, SliderNode, SpinnerNode, StackNode, StepperNode,
+    TableNode, TableV2Node, TabsNode, TextInputNode, TextNode, ThinkingOrbNode, TimeInputNode,
+    TimestampNode, ToastNode, TokenizerNode, TooltipNode, TopNavNode, UiNode, VisuallyHiddenNode,
 };
 use gpui_ui_kit::color::Color;
 use gpui_ui_kit::data_navigation::{DataNavigationAction, DataNavigationState};
 use gpui_ui_kit::theme::{Theme, ThemeExt, ThemeState, ThemeVariant};
 use gpui_ui_kit::thinking_orb::{engine as thinking_orb_engine, presets as thinking_orb_presets};
 use gpui_ui_kit::{
-    Alert, AlertVariant, BreadcrumbItem, BreadcrumbSeparator, Breadcrumbs, ColorPickerView,
-    ConfirmDialog, ConfirmDialogVariant, ContextMenu, Dialog, DialogSize, DragItem, DragList,
-    EmptyState, I18nState, Language, Menu, MenuBar, MenuBarItem, MenuItem, Popover,
-    PopoverPlacement, Toast, ToastVariant, TooltipPlacement, WithTooltip,
+    Alert, AlertVariant, AppShell, AppShellSidebarSide, Blockquote, BreadcrumbItem,
+    BreadcrumbSeparator, Breadcrumbs, Calendar, Carousel, CarouselSlide, Chat, ChatMessage,
+    Citation, CitationVariant, ColorPickerView, ConfirmDialog, ConfirmDialogVariant, ContextMenu,
+    DateRangeInput, DateTimeInput, Dialog, DialogSize, DragItem, DragList, EmptyState, Field,
+    FieldStatus, FieldStatusVariant, FileInput, HoverCard, HoverCardPlacement, HoverCardSize,
+    I18nState, Language, Layer, Lightbox, LightboxSize, List, ListItem, Markdown, Menu, MenuBar,
+    MenuBarItem, MenuItem, MetadataEntry, MetadataList, MobileNav, MobileNavItem, Pagination,
+    Popover, PopoverPlacement, SelectableCard, Skeleton, SkeletonSize, SkeletonVariant, TimeInput,
+    Timestamp, Toast, ToastVariant, Tokenizer, TooltipPlacement, TopNav, TopNavItem, WithTooltip,
     accordion::{Accordion, AccordionItem, AccordionMode},
+    chat::ChatRole,
     checkbox::Checkbox,
+    date_picker::CalendarDate,
     input::Input,
     number_input::NumberInput,
     select::Select,
     slider::Slider,
+    time_input::ClockTime,
     toggle::Toggle,
 };
 use gpui_ui_kit::{AriaProps, AriaRole, AriaState, apply_native_accessibility};
@@ -9011,6 +9023,9 @@ impl PythonIrShowcase {
             UiNode::Menu(node) => self.render_menu(node, cx),
             UiNode::MenuBar(node) => self.render_menu_bar(node, cx),
             UiNode::ContextMenu(node) => self.render_context_menu(node, cx),
+            UiNode::AppShell(node) => self.render_app_shell(node, theme, ds, cx),
+            UiNode::TopNav(node) => self.render_top_nav(node),
+            UiNode::MobileNav(node) => self.render_mobile_nav(node),
             UiNode::Popover(node) => self.render_popover(node, theme, ds, cx),
             UiNode::Tabs(node) => self.render_tabs(node, theme, ds, cx),
             UiNode::Stepper(node) => self.render_stepper(node, theme, ds),
@@ -9020,6 +9035,11 @@ impl PythonIrShowcase {
             UiNode::TableV2(node) => self.render_resource_table(node, theme, ds, cx),
             UiNode::Divider(node) => self.render_divider(node, theme),
             UiNode::Spacer(node) => self.render_spacer(node),
+            UiNode::Grid(node) => self.render_grid(node, theme, ds, cx),
+            UiNode::Center(node) => self.render_center(node, theme, ds, cx),
+            UiNode::AspectRatio(node) => self.render_aspect_ratio(node, theme, ds, cx),
+            UiNode::Resizable(node) => self.render_resizable(node, theme, ds, cx),
+            UiNode::VisuallyHidden(node) => self.render_visually_hidden(node, theme, ds, cx),
             UiNode::PxChartV2(node) => self.render_resource_chart(node, theme, ds, cx),
             UiNode::Scene2D(node) => self.render_scene2d(node, theme, ds),
             UiNode::Scene3d(node) => self.render_scene3d(node, theme, ds, cx),
@@ -9046,6 +9066,28 @@ impl PythonIrShowcase {
             UiNode::Checkbox(node) => self.render_checkbox(node, theme, ds),
             UiNode::Toggle(node) if !node.presentation.visible => div().into_any_element(),
             UiNode::Toggle(node) => self.render_toggle(node, theme, ds),
+            UiNode::DateRangeInput(node) => self.render_date_range_input(node),
+            UiNode::TimeInput(node) => self.render_time_input(node),
+            UiNode::DateTimeInput(node) => self.render_date_time_input(node),
+            UiNode::Chat(node) => self.render_chat(node),
+            UiNode::Markdown(node) => self.render_markdown(node),
+            UiNode::Blockquote(node) => self.render_blockquote(node),
+            UiNode::Carousel(node) => self.render_carousel(node),
+            UiNode::SelectableCard(node) => self.render_selectable_card(node),
+            UiNode::Citation(node) => self.render_citation(node),
+            UiNode::Timestamp(node) => self.render_timestamp(node),
+            UiNode::MetadataList(node) => self.render_metadata_list(node),
+            UiNode::FileInput(node) => self.render_file_input(node),
+            UiNode::Tokenizer(node) => self.render_tokenizer(node),
+            UiNode::Field(node) => self.render_field(node, theme, ds, cx),
+            UiNode::FieldStatus(node) => self.render_field_status(node),
+            UiNode::Skeleton(node) => self.render_skeleton(node),
+            UiNode::Lightbox(node) => self.render_lightbox(node),
+            UiNode::HoverCard(node) => self.render_hover_card(node),
+            UiNode::Layer(node) => self.render_layer(node, theme, ds, cx),
+            UiNode::Calendar(node) => self.render_calendar(node),
+            UiNode::Pagination(node) => self.render_pagination(node),
+            UiNode::List(node) => self.render_list(node),
         }
     }
 
@@ -11350,6 +11392,623 @@ impl PythonIrShowcase {
             rendered = rendered.child(div().absolute().top_full().left_0().mt_1().child(menu));
         }
         rendered.into_any_element()
+    }
+
+    fn render_app_shell(
+        &mut self,
+        node: &AppShellNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let on_right = matches!(
+            node.sidebar_side,
+            gpui_python_runtime::ui_ir::AppShellSidebarSide::Right
+        );
+        let mut shell = AppShell::new(stable_element_id(format_args!(
+            "python-app-shell-{}",
+            node.id
+        )))
+        .sidebar_side(if on_right {
+            AppShellSidebarSide::Right
+        } else {
+            AppShellSidebarSide::Left
+        });
+        if let Some(header) = &node.header {
+            shell = shell.header(self.render_node(header, theme, ds, cx));
+        }
+        if let Some(sidebar) = &node.sidebar {
+            shell = shell.sidebar(self.render_node(sidebar, theme, ds, cx));
+        }
+        if let Some(content) = &node.content {
+            shell = shell.content(self.render_node(content, theme, ds, cx));
+        }
+        if let Some(footer) = &node.footer {
+            shell = shell.footer(self.render_node(footer, theme, ds, cx));
+        }
+        shell.into_any_element()
+    }
+
+    fn render_top_nav(&self, node: &TopNavNode) -> AnyElement {
+        let mut nav = TopNav::new(stable_element_id(format_args!(
+            "python-top-nav-{}",
+            node.id
+        )));
+        if let Some(brand) = &node.brand {
+            nav = nav.brand(div().child(brand.clone()));
+        }
+        for item in &node.items {
+            let mut nav_item = TopNavItem::new(item.id.clone(), item.label.clone())
+                .active(item.active)
+                .disabled(item.disabled);
+            if let (Some(sink), Some(action)) = (
+                self.session.as_ref().map(|session| session.event_sink()),
+                node.action.clone(),
+            ) {
+                let node_id = node.id.clone();
+                let item_id = item.id.clone();
+                nav_item = nav_item.on_click(move |_, _| {
+                    let _ = sink.dispatch(
+                        node_id.clone(),
+                        "select",
+                        Some(action.clone()),
+                        serde_json::json!({"item_id": item_id}),
+                    );
+                });
+            }
+            nav = nav.item(nav_item);
+        }
+        nav.into_any_element()
+    }
+
+    fn render_mobile_nav(&self, node: &MobileNavNode) -> AnyElement {
+        let mut nav = MobileNav::new(stable_element_id(format_args!(
+            "python-mobile-nav-{}",
+            node.id
+        )));
+        for item in &node.items {
+            let mut tab = MobileNavItem::new(item.id.clone(), item.label.clone());
+            if let Some(icon) = &item.icon {
+                tab = tab.icon(icon.clone());
+            }
+            nav = nav.item(tab);
+        }
+        if let Some(selected) = &node.selected {
+            nav = nav.selected(selected.clone());
+        }
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            nav = nav.on_select(move |tab_id, _, _| {
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "select",
+                    Some(action.clone()),
+                    serde_json::json!({"item_id": tab_id.as_ref()}),
+                );
+            });
+        }
+        nav.into_any_element()
+    }
+
+    fn render_date_range_input(&self, node: &DateRangeInputNode) -> AnyElement {
+        let mut field = DateRangeInput::new(stable_element_id(format_args!(
+            "python-date-range-{}",
+            node.id
+        )));
+        if let Some(start) = node.start.as_deref().and_then(CalendarDate::parse_ymd) {
+            field = field.start(start);
+        }
+        if let Some(end) = node.end.as_deref().and_then(CalendarDate::parse_ymd) {
+            field = field.end(end);
+        }
+        if let Some(placeholder) = &node.placeholder {
+            field = field.placeholder(placeholder.clone());
+        }
+        field = field.disabled(node.disabled).clearable(node.clearable);
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            field = field.on_change(move |start, end, _, _| {
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "change",
+                    Some(action.clone()),
+                    serde_json::json!({
+                        "start": start.map(|date| date.to_ymd_string()),
+                        "end": end.map(|date| date.to_ymd_string()),
+                    }),
+                );
+            });
+        }
+        field.into_any_element()
+    }
+
+    fn render_time_input(&self, node: &TimeInputNode) -> AnyElement {
+        let mut field = TimeInput::new(stable_element_id(format_args!("python-time-{}", node.id)));
+        if let Some(value) = node.value.as_deref().and_then(ClockTime::parse_hm) {
+            field = field.value(value);
+        }
+        if let Some(placeholder) = &node.placeholder {
+            field = field.placeholder(placeholder.clone());
+        }
+        field = field.disabled(node.disabled).clearable(node.clearable);
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            field = field.on_change(move |value, _, _| {
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "change",
+                    Some(action.clone()),
+                    serde_json::json!({
+                        "value": value.map(|time| time.to_hm_string()),
+                    }),
+                );
+            });
+        }
+        field.into_any_element()
+    }
+
+    fn render_date_time_input(&self, node: &DateTimeInputNode) -> AnyElement {
+        let mut field = DateTimeInput::new(stable_element_id(format_args!(
+            "python-date-time-{}",
+            node.id
+        )));
+        if let Some(date) = node.date.as_deref().and_then(CalendarDate::parse_ymd) {
+            field = field.date(date);
+        }
+        if let Some(time) = node.time.as_deref().and_then(ClockTime::parse_hm) {
+            field = field.time(time);
+        }
+        if let Some(placeholder) = &node.placeholder {
+            field = field.placeholder(placeholder.clone());
+        }
+        field = field.disabled(node.disabled).clearable(node.clearable);
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            field = field.on_change(move |date, time, _, _| {
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "change",
+                    Some(action.clone()),
+                    serde_json::json!({
+                        "date": date.map(|date| date.to_ymd_string()),
+                        "time": time.map(|time| time.to_hm_string()),
+                    }),
+                );
+            });
+        }
+        field.into_any_element()
+    }
+
+    fn render_chat(&self, node: &ChatNode) -> AnyElement {
+        let mut chat = Chat::new(stable_element_id(format_args!("python-chat-{}", node.id)));
+        for message in &node.messages {
+            let role = match message.role.as_str() {
+                "assistant" => ChatRole::Assistant,
+                "system" => ChatRole::System,
+                _ => ChatRole::User,
+            };
+            chat = chat.message(ChatMessage {
+                author: message.author.clone().into(),
+                body: message.body.clone().into(),
+                role,
+            });
+        }
+        chat.into_any_element()
+    }
+
+    fn render_markdown(&self, node: &MarkdownNode) -> AnyElement {
+        Markdown::new(
+            stable_element_id(format_args!(
+                "python-markdown-{}",
+                node.id.clone().unwrap_or_else(|| "doc".to_string())
+            )),
+            node.source.clone(),
+        )
+        .into_any_element()
+    }
+
+    fn render_blockquote(&self, node: &BlockquoteNode) -> AnyElement {
+        let mut quote = Blockquote::new(
+            stable_element_id(format_args!(
+                "python-blockquote-{}",
+                node.id.clone().unwrap_or_else(|| "quote".to_string())
+            )),
+            node.quote.clone(),
+        );
+        if let Some(cite) = &node.cite {
+            quote = quote.cite(cite.clone());
+        }
+        quote.into_any_element()
+    }
+
+    fn render_carousel(&self, node: &CarouselNode) -> AnyElement {
+        let mut carousel = Carousel::new(stable_element_id(format_args!(
+            "python-carousel-{}",
+            node.id.clone().unwrap_or_else(|| "slides".to_string())
+        )))
+        .index(node.index);
+        for slide in &node.slides {
+            carousel = carousel.slide(CarouselSlide::new(slide.title.clone(), slide.body.clone()));
+        }
+        if let (Some(action), Some(sink), Some(node_id)) = (
+            node.change_action.clone(),
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.id.clone(),
+        ) {
+            carousel = carousel.on_change(move |index, _, _| {
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "change",
+                    Some(action.clone()),
+                    serde_json::json!({ "index": index }),
+                );
+            });
+        }
+        carousel.into_any_element()
+    }
+
+    fn render_selectable_card(&self, node: &SelectableCardNode) -> AnyElement {
+        let mut card = SelectableCard::new(
+            stable_element_id(format_args!(
+                "python-selectable-card-{}",
+                node.id.clone().unwrap_or_else(|| node.title.clone())
+            )),
+            node.title.clone(),
+        )
+        .selected(node.selected)
+        .disabled(node.disabled);
+        if let Some(description) = &node.description {
+            card = card.description(description.clone());
+        }
+        if let (Some(action), Some(sink), Some(node_id)) = (
+            node.action.clone(),
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.id.clone(),
+        ) {
+            card = card.on_click(move |_, _| {
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "click",
+                    Some(action.clone()),
+                    serde_json::json!({}),
+                );
+            });
+        }
+        card.into_any_element()
+    }
+
+    fn render_citation(&self, node: &CitationNode) -> AnyElement {
+        let mut citation = Citation::new(
+            stable_element_id(format_args!(
+                "python-citation-{}",
+                node.id.clone().unwrap_or_else(|| "ref".to_string())
+            )),
+            node.text.clone(),
+        );
+        if let Some(source) = &node.source {
+            citation = citation.source(source.clone());
+        }
+        if matches!(node.variant.as_deref(), Some("block")) {
+            citation = citation.variant(CitationVariant::Block);
+        }
+        citation.into_any_element()
+    }
+
+    fn render_timestamp(&self, node: &TimestampNode) -> AnyElement {
+        Timestamp::new(
+            stable_element_id(format_args!(
+                "python-timestamp-{}",
+                node.id.clone().unwrap_or_else(|| "stamp".to_string())
+            )),
+            node.text.clone(),
+        )
+        .into_any_element()
+    }
+
+    fn render_metadata_list(&self, node: &MetadataListNode) -> AnyElement {
+        let mut list = MetadataList::new(stable_element_id(format_args!(
+            "python-metadata-list-{}",
+            node.id.clone().unwrap_or_else(|| "meta".to_string())
+        )));
+        for entry in &node.entries {
+            list = list.entry(MetadataEntry::new(entry.label.clone(), entry.value.clone()));
+        }
+        list.into_any_element()
+    }
+
+    fn render_file_input(&self, node: &FileInputNode) -> AnyElement {
+        let mut input = FileInput::new(stable_element_id(format_args!(
+            "python-file-input-{}",
+            node.id
+        )));
+        if let Some(file_name) = &node.file_name {
+            input = input.file_name(file_name.clone());
+        }
+        if let Some(accept) = &node.accept {
+            input = input.accept(accept.clone());
+        }
+        input = input.disabled(node.disabled);
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            input = input.on_browse(move |_, _| {
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "browse",
+                    Some(action.clone()),
+                    serde_json::json!({}),
+                );
+            });
+        }
+        input.into_any_element()
+    }
+
+    fn render_tokenizer(&self, node: &TokenizerNode) -> AnyElement {
+        let mut tokens = Tokenizer::new(stable_element_id(format_args!(
+            "python-tokenizer-{}",
+            node.id
+        )))
+        .tokens(node.tokens.clone());
+        if let Some(placeholder) = &node.placeholder {
+            tokens = tokens.placeholder(placeholder.clone());
+        }
+        tokens = tokens.disabled(node.disabled);
+        if let (Some(sink), Some(action)) = (
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.action.clone(),
+        ) {
+            let node_id = node.id.clone();
+            tokens = tokens.on_remove(move |index, _, _| {
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "remove",
+                    Some(action.clone()),
+                    serde_json::json!({"index": index}),
+                );
+            });
+        }
+        tokens.into_any_element()
+    }
+
+    fn render_field(
+        &mut self,
+        node: &FieldNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mut field = Field::new(stable_element_id(format_args!(
+            "python-field-{}",
+            node.id.clone().unwrap_or_else(|| "field".to_string())
+        )));
+        if let Some(label) = &node.label {
+            field = field.label(label.clone());
+        }
+        field = field.required(node.required);
+        if let Some(help) = &node.help {
+            field = field.help(help.clone());
+        }
+        if let Some(error) = &node.error {
+            field = field.error(error.clone());
+        }
+        if let Some(child) = &node.child {
+            field = field.child(self.render_node(child, theme, ds, cx));
+        }
+        field.into_any_element()
+    }
+
+    fn render_field_status(&self, node: &FieldStatusNode) -> AnyElement {
+        let mut status = FieldStatus::new(
+            stable_element_id(format_args!(
+                "python-field-status-{}",
+                node.id.clone().unwrap_or_else(|| "status".to_string())
+            )),
+            node.message.clone(),
+        );
+        status = match node.variant.as_deref() {
+            Some("success") => status.variant(FieldStatusVariant::Success),
+            Some("warning") => status.variant(FieldStatusVariant::Warning),
+            Some("error") => status.variant(FieldStatusVariant::Error),
+            _ => status.variant(FieldStatusVariant::Info),
+        };
+        status.into_any_element()
+    }
+
+    fn render_skeleton(&self, node: &SkeletonNode) -> AnyElement {
+        let mut bones = Skeleton::new(stable_element_id(format_args!(
+            "python-skeleton-{}",
+            node.id.clone().unwrap_or_else(|| "bones".to_string())
+        )));
+        bones = match node.variant.as_deref() {
+            Some("rectangular") => bones.variant(SkeletonVariant::Rectangular),
+            Some("circular") => bones.variant(SkeletonVariant::Circular),
+            _ => bones.variant(SkeletonVariant::Text),
+        };
+        bones = match node.size.as_deref() {
+            Some("sm") => bones.size(SkeletonSize::Sm),
+            Some("lg") => bones.size(SkeletonSize::Lg),
+            _ => bones.size(SkeletonSize::Md),
+        };
+        if let Some(width) = node.width {
+            bones = bones.width(width);
+        }
+        if let Some(height) = node.height {
+            bones = bones.height(height);
+        }
+        bones.into_any_element()
+    }
+
+    fn render_lightbox(&self, node: &LightboxNode) -> AnyElement {
+        let mut viewer = Lightbox::new(
+            stable_element_id(format_args!(
+                "python-lightbox-{}",
+                node.id.clone().unwrap_or_else(|| "viewer".to_string())
+            )),
+            node.src.clone(),
+        )
+        .alt(node.alt.clone())
+        .open(true);
+        if let Some(caption) = &node.caption {
+            viewer = viewer.caption(caption.clone());
+        }
+        viewer.into_any_element()
+    }
+
+    fn render_hover_card(&self, node: &HoverCardNode) -> AnyElement {
+        let mut card = HoverCard::new(
+            stable_element_id(format_args!(
+                "python-hover-card-{}",
+                node.id.clone().unwrap_or_else(|| "card".to_string())
+            )),
+            node.title.clone(),
+        )
+        .open(true);
+        if let Some(description) = &node.description {
+            card = card.description(description.clone());
+        }
+        card = match node.placement.as_deref() {
+            Some("top") => card.placement(HoverCardPlacement::Top),
+            Some("left") => card.placement(HoverCardPlacement::Left),
+            Some("right") => card.placement(HoverCardPlacement::Right),
+            _ => card.placement(HoverCardPlacement::Bottom),
+        };
+        card = match node.size.as_deref() {
+            Some("sm") => card.size(HoverCardSize::Sm),
+            Some("lg") => card.size(HoverCardSize::Lg),
+            _ => card.size(HoverCardSize::Md),
+        };
+        card.into_any_element()
+    }
+
+    fn render_layer(
+        &mut self,
+        node: &LayerNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let content = div().flex().flex_col().children(
+            node.children
+                .iter()
+                .map(|child| self.render_node(child, theme, ds, cx)),
+        );
+        Layer::new(stable_element_id(format_args!(
+            "python-layer-{}",
+            node.id.clone().unwrap_or_else(|| "overlay".to_string())
+        )))
+        .open(true)
+        .show_backdrop(node.show_backdrop)
+        .child(content)
+        .into_any_element()
+    }
+
+    fn render_calendar(&self, node: &CalendarNode) -> AnyElement {
+        let mut calendar = Calendar::new(stable_element_id(format_args!(
+            "python-calendar-{}",
+            node.id.clone().unwrap_or_else(|| "month".to_string())
+        )))
+        .visible(node.year, node.month);
+        if let Some(selected) = node.selected.as_deref().and_then(CalendarDate::parse_ymd) {
+            calendar = calendar.selected(selected);
+        }
+        if let Some(min) = node.min.as_deref().and_then(CalendarDate::parse_ymd) {
+            calendar = calendar.min(min);
+        }
+        if let Some(max) = node.max.as_deref().and_then(CalendarDate::parse_ymd) {
+            calendar = calendar.max(max);
+        }
+        if let (Some(action), Some(sink), Some(node_id)) = (
+            node.select_action.clone(),
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.id.clone(),
+        ) {
+            calendar = calendar.on_select(move |date, _, _| {
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "select",
+                    Some(action.clone()),
+                    serde_json::json!({ "date": date.to_ymd_string() }),
+                );
+            });
+        }
+        calendar.into_any_element()
+    }
+
+    fn render_pagination(&self, node: &PaginationNode) -> AnyElement {
+        let mut pager = Pagination::new(stable_element_id(format_args!(
+            "python-pagination-{}",
+            node.id.clone().unwrap_or_else(|| "pages".to_string())
+        )))
+        .page(node.page)
+        .total_pages(node.total_pages)
+        .siblings(node.siblings);
+        if let (Some(action), Some(sink), Some(node_id)) = (
+            node.change_action.clone(),
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.id.clone(),
+        ) {
+            pager = pager.on_change(move |page, _, _| {
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "change",
+                    Some(action.clone()),
+                    serde_json::json!({ "page": page }),
+                );
+            });
+        }
+        pager.into_any_element()
+    }
+
+    fn render_list(&self, node: &ListNode) -> AnyElement {
+        let mut list = List::new(
+            stable_element_id(format_args!(
+                "python-list-{}",
+                node.id.clone().unwrap_or_else(|| "rows".to_string())
+            )),
+            node.items
+                .iter()
+                .map(|item| {
+                    let mut row =
+                        ListItem::new(item.id.clone(), item.label.clone()).disabled(item.disabled);
+                    if let Some(description) = &item.description {
+                        row = row.description(description.clone());
+                    }
+                    row
+                })
+                .collect(),
+        );
+        if let Some(selected) = &node.selected {
+            list = list.selected(selected.clone());
+        }
+        if let (Some(action), Some(sink), Some(node_id)) = (
+            node.select_action.clone(),
+            self.session.as_ref().map(|session| session.event_sink()),
+            node.id.clone(),
+        ) {
+            list = list.on_select(move |id, _, _| {
+                let _ = sink.dispatch(
+                    node_id.clone(),
+                    "select",
+                    Some(action.clone()),
+                    serde_json::json!({ "id": id.to_string() }),
+                );
+            });
+        }
+        list.into_any_element()
     }
 
     fn render_popover(
@@ -15128,6 +15787,123 @@ impl PythonIrShowcase {
 
     pub(super) fn render_spacer(&self, node: &SimpleNode) -> AnyElement {
         apply_size(div(), node.width.or(Some(1.0)), node.height.or(Some(1.0))).into_any_element()
+    }
+
+    pub(super) fn render_grid(
+        &mut self,
+        node: &GridNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let columns = u16::try_from(node.columns).unwrap_or(u16::MAX).max(1);
+        let mut grid = div()
+            .grid()
+            .grid_cols(columns)
+            .gap(px(node.gap.unwrap_or(ds.spacing.control_gap)))
+            .children(
+                node.children
+                    .iter()
+                    .map(|child| self.render_node(child, theme, ds, cx)),
+            );
+        if let Some(rows) = node.rows {
+            grid = grid.grid_rows(u16::try_from(rows).unwrap_or(u16::MAX).max(1));
+        }
+        apply_size(grid, node.width, node.height).into_any_element()
+    }
+
+    pub(super) fn render_center(
+        &mut self,
+        node: &CenterNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mut slot = div().flex().items_center().justify_center();
+        if let Some(max_width) = node.max_width {
+            slot = slot.max_w(px(max_width)).w_full();
+        }
+        let element = div().flex().items_center().justify_center().w_full().child(
+            slot.children(
+                node.children
+                    .iter()
+                    .map(|child| self.render_node(child, theme, ds, cx)),
+            ),
+        );
+        apply_size(element, node.width, node.height).into_any_element()
+    }
+
+    pub(super) fn render_aspect_ratio(
+        &mut self,
+        node: &AspectRatioNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .w_full()
+            .aspect_ratio(node.ratio.max(f32::MIN_POSITIVE))
+            .overflow_hidden()
+            .children(
+                node.children
+                    .iter()
+                    .map(|child| self.render_node(child, theme, ds, cx)),
+            )
+            .into_any_element()
+    }
+
+    pub(super) fn render_resizable(
+        &mut self,
+        node: &ResizableNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let mut panel = div().overflow_hidden().children(
+            node.children
+                .iter()
+                .map(|child| self.render_node(child, theme, ds, cx)),
+        );
+        if let Some(width) = node.width {
+            panel = panel.w(px(width));
+        }
+        if let Some(height) = node.height {
+            panel = panel.h(px(height));
+        }
+        if let Some(min_width) = node.min_width {
+            panel = panel.min_w(px(min_width));
+        }
+        if let Some(min_height) = node.min_height {
+            panel = panel.min_h(px(min_height));
+        }
+        if let Some(max_width) = node.max_width {
+            panel = panel.max_w(px(max_width));
+        }
+        if let Some(max_height) = node.max_height {
+            panel = panel.max_h(px(max_height));
+        }
+        panel.into_any_element()
+    }
+
+    pub(super) fn render_visually_hidden(
+        &mut self,
+        node: &VisuallyHiddenNode,
+        theme: &Theme,
+        ds: &DesignSystem,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .absolute()
+            .w(px(1.0))
+            .h(px(1.0))
+            .overflow_hidden()
+            .opacity(0.0)
+            .children(
+                node.children
+                    .iter()
+                    .map(|child| self.render_node(child, theme, ds, cx)),
+            )
+            .into_any_element()
     }
 
     fn render_scene2d(

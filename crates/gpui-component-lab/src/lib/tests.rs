@@ -21,6 +21,7 @@ use super::story_renderer_kind::StoryRendererKind;
 use super::types::StoryPropValue;
 use super::types::reload_live_preview_state;
 use super::visual_artifacts::{generate_component_lab_gallery, promote_component_lab_baselines};
+use super::visual_regression_manifest::COMPONENT_LAB_REPRESENTATIVE_PR_LIMIT;
 use super::visual_regression_manifest::{
     COMPONENT_LAB_VISUAL_DIFF_REPORT_TYPE, COMPONENT_LAB_VISUAL_DIFF_SCHEMA_VERSION,
     COMPONENT_LAB_VISUAL_MANIFEST_SCHEMA_VERSION, ComponentLabVisualCase,
@@ -346,7 +347,7 @@ fn representative_visual_subset_keeps_every_story_at_pr_limit() {
         "metal",
         2,
     );
-    let subset = manifest.representative_cases(200);
+    let subset = manifest.representative_cases(COMPONENT_LAB_REPRESENTATIVE_PR_LIMIT);
     let represented = subset
         .iter()
         .map(|case| case.story_id.as_str())
@@ -356,7 +357,7 @@ fn representative_visual_subset_keeps_every_story_at_pr_limit() {
         .map(|renderer| renderer.story_id.as_str())
         .collect::<BTreeSet<_>>();
 
-    assert_eq!(subset.len(), 200);
+    assert_eq!(subset.len(), COMPONENT_LAB_REPRESENTATIVE_PR_LIMIT);
     assert_eq!(represented, expected);
     assert!(subset.iter().any(|case| case.viewport_id == "mobile"));
     assert!(subset.iter().any(|case| case.theme_id == "material3"));

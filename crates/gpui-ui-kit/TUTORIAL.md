@@ -52,6 +52,13 @@ Common form components include:
 - `Select`
 - `Slider`
 - `ColorPickerView`
+- `DateRangeInput`
+- `TimeInput`
+- `DateTimeInput`
+- `FileInput`
+- `Tokenizer`
+- `Field`
+- `FieldStatus`
 
 Keep form state in your entity, update it from callbacks, and validate before
 committing changes to your application model.
@@ -61,7 +68,7 @@ committing changes to your application model.
 For application UI, combine:
 
 - `Menu`, `ContextMenu`, `CommandPalette`
-- `Tabs`, `Sidebar`, `Toolbar`, `StatusBar`
+- `Tabs`, `Sidebar`, `Toolbar`, `StatusBar`, `AppShell`, `TopNav`, `MobileNav`
 - `Dialog`, `ConfirmDialog`, `Popover`, `Toast`, `Notification`
 - `Table`, `TreeView`, `Wizard`, `WorkflowCanvas`
 
