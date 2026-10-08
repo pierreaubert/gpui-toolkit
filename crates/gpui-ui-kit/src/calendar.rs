@@ -282,9 +282,11 @@ impl Calendar {
     ) -> Stateful<Div> {
         let (year, month) = self.clamped_visible();
         let root_id = self.id.clone();
-        let mut root = div().id(self.id).flex().flex_col().gap(gpui::px(
-            design.spacing.control_gap,
-        ));
+        let mut root = div()
+            .id(self.id)
+            .flex()
+            .flex_col()
+            .gap(gpui::px(design.spacing.control_gap));
         root = match self.size {
             CalendarSize::Sm => root.text_xs(),
             CalendarSize::Md => root.text_sm(),
@@ -296,11 +298,7 @@ impl Calendar {
             CalendarSize::Lg => design.spacing.grid_unit * 5.0,
         };
 
-        let title = format!(
-            "{} {}",
-            MONTH_NAMES[usize::from(month - 1)],
-            year
-        );
+        let title = format!("{} {}", MONTH_NAMES[usize::from(month - 1)], year);
         let (prev_year, prev_month) = CalendarDate::step_month(year, month, -1);
         let (next_year, next_month) = CalendarDate::step_month(year, month, 1);
         let mut header = div()
@@ -460,8 +458,7 @@ impl Calendar {
             return sized().into_any_element();
         };
         let id = (root_id.clone(), SharedString::from(date.to_ymd_string()));
-        let in_bounds =
-            min.is_none_or(|min| date >= min) && max.is_none_or(|max| date <= max);
+        let in_bounds = min.is_none_or(|min| date >= min) && max.is_none_or(|max| date <= max);
         if !in_bounds {
             return sized()
                 .id(id)
@@ -480,11 +477,11 @@ impl Calendar {
         }
         if let Some(handler) = on_select {
             let select = handler.clone();
-            pad = pad.cursor_pointer().on_click(
-                move |_event: &ClickEvent, window, cx| {
+            pad = pad
+                .cursor_pointer()
+                .on_click(move |_event: &ClickEvent, window, cx| {
                     select(date, window, cx);
-                },
-            );
+                });
         }
         pad.child(date.day.to_string()).into_any_element()
     }

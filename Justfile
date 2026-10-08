@@ -714,6 +714,7 @@ qa-tvos-simulator udid='': showcase-tvos-build-sim
 		"{{udid}}"
 
 # Run both Apple simulator runtime/pixel gates.
+[group('qa')]
 qa-apple-simulators: qa-ios-simulator qa-tvos-simulator
 	@echo "iOS and tvOS simulator runtime evidence passed"
 

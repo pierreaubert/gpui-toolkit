@@ -22,7 +22,9 @@ use crate::ComponentTheme;
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole, AriaState};
 use crate::theme::{ThemeExt, glow_shadow};
 use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{App, Div, ElementId, MouseButton, Rgba, SharedString, Stateful, Window, div, px};
+use gpui::{
+    AnyElement, App, Div, ElementId, MouseButton, Rgba, SharedString, Stateful, Window, div, px,
+};
 
 /// Theme colors for button set styling
 #[derive(Debug, Clone, ComponentTheme)]
@@ -122,6 +124,7 @@ pub struct ButtonSet {
     disabled: bool,
     theme: Option<ButtonSetTheme>,
     on_change: Option<Box<dyn Fn(&SharedString, &mut Window, &mut App) + 'static>>,
+    option_wrapper: Option<Box<dyn Fn(usize, Stateful<Div>) -> AnyElement>>,
 }
 
 impl ButtonSet {
@@ -135,6 +138,7 @@ impl ButtonSet {
             disabled: false,
             theme: None,
             on_change: None,
+            option_wrapper: None,
         }
     }
 
@@ -174,6 +178,18 @@ impl ButtonSet {
         handler: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_change = Some(Box::new(handler));
+        self
+    }
+
+    /// Wrap rendered options without changing their interaction or focus behavior.
+    ///
+    /// The index corresponds to the option's position in `options`. Hosts can
+    /// attach observation or test instrumentation to individual segments.
+    pub fn option_wrapper(
+        mut self,
+        wrapper: impl Fn(usize, Stateful<Div>) -> AnyElement + 'static,
+    ) -> Self {
+        self.option_wrapper = Some(Box::new(wrapper));
         self
     }
 
@@ -324,7 +340,11 @@ impl ButtonSet {
             // Add label
             button = button.child(option.label);
 
-            container = container.child(button);
+            container = container.child(if let Some(wrapper) = &self.option_wrapper {
+                wrapper(idx, button)
+            } else {
+                button.into_any_element()
+            });
         }
 
         container

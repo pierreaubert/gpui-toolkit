@@ -280,9 +280,9 @@ impl List {
             let selected = self.selected.clone();
             root.on_key_down(move |event: &KeyDownEvent, window, cx| {
                 let target = match event.keystroke.key.as_str() {
-                    "down" => selected.as_ref().and_then(|current| {
-                        Self::neighbor(&items, current, 1)
-                    }),
+                    "down" => selected
+                        .as_ref()
+                        .and_then(|current| Self::neighbor(&items, current, 1)),
                     "up" => selected
                         .as_ref()
                         .and_then(|current| Self::neighbor(&items, current, -1)),

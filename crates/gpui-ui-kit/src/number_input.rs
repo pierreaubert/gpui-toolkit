@@ -388,6 +388,15 @@ impl NumberInputEntity {
                 } else {
                     (self.props.value - self.props.step).clamp(self.props.min, self.props.max)
                 };
+                // Commit and blur read the edit buffer, so it must follow a
+                // keyboard step instead of retaining the value before the step.
+                let formatted = state.format_value_str(
+                    new_value,
+                    self.props.decimals,
+                    self.props.unit.as_ref(),
+                );
+                state.text = formatted.to_string();
+                state.select_all();
                 drop(state);
                 self.emit_change(new_value, window, cx);
                 return;

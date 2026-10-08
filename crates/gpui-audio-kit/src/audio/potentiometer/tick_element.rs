@@ -288,10 +288,8 @@ fn build_tick_geometry(
                 } else {
                     format!("{tick_value:.0}").into()
                 }
-            } else if unit == "dB" {
-                format!("{tick_value:.0}").into()
-            } else if size == PotentiometerSize::Xs
-                && (tick_value - tick_value.round()).abs() < 0.05
+            } else if unit == "dB"
+                || (size == PotentiometerSize::Xs && (tick_value - tick_value.round()).abs() < 0.05)
             {
                 format!("{tick_value:.0}").into()
             } else {

@@ -522,9 +522,10 @@ mod tests {
         for patch in manifest.patches {
             assert!(!patch.name.is_empty());
             assert!(
-                patch
-                    .local_path
-                    .starts_with("../sotf-3rdparties/gpui/crates/")
+                patch.local_path.starts_with("../sotf-3rdparties/"),
+                "patch {} escapes the third-party root: {}",
+                patch.name,
+                patch.local_path
             );
             assert!(!patch.upstream.is_empty());
             assert!(!patch.upstream_base.is_empty());
@@ -597,30 +598,38 @@ mod tests {
 
     #[test]
     fn every_vendored_crate_dir_has_manifest_entry() {
-        let third_parties = repository_root().join("crates/3rdparties");
+        let repository = repository_root();
+        let third_parties = repository.join("../sotf-3rdparties");
+        // Vendored crates live at the third-party root (block, objc,
+        // zed-font-kit) and under gpui/crates; both roots hold
+        // provenance-bearing directories the manifest must cover.
+        let scan_roots = [third_parties.clone(), third_parties.join("gpui/crates")];
         let mut covered = std::collections::BTreeSet::new();
         let mut missing = Vec::new();
 
-        for entry in std::fs::read_dir(&third_parties).expect("read crates/3rdparties") {
-            let directory = entry.expect("3rdparties dir entry").path();
-            if !directory.is_dir() {
-                continue;
+        for scan_root in &scan_roots {
+            let entries = std::fs::read_dir(scan_root).expect("read vendored third-party dir");
+            for entry in entries {
+                let directory = entry.expect("3rdparties dir entry").path();
+                if !directory.is_dir() {
+                    continue;
+                }
+                let has_provenance = directory.join("VENDORING.md").is_file()
+                    || directory.join("VENDORED.md").is_file();
+                if !has_provenance {
+                    continue;
+                }
+                let name = directory
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .expect("utf-8 crate directory name")
+                    .to_string();
+                let known = vendored_patches().iter().any(|patch| patch.name == name);
+                if !known {
+                    missing.push(name.clone());
+                }
+                covered.insert(name);
             }
-            let has_provenance =
-                directory.join("VENDORING.md").is_file() || directory.join("VENDORED.md").is_file();
-            if !has_provenance {
-                continue;
-            }
-            let name = directory
-                .file_name()
-                .and_then(|name| name.to_str())
-                .expect("utf-8 crate directory name")
-                .to_string();
-            let known = vendored_patches().iter().any(|patch| patch.name == name);
-            if !known {
-                missing.push(name.clone());
-            }
-            covered.insert(name);
         }
 
         assert!(

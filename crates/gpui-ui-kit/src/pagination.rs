@@ -161,10 +161,7 @@ impl Pagination {
     }
 
     /// Set the handler called with the newly requested page.
-    pub fn on_change(
-        mut self,
-        handler: impl Fn(usize, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub fn on_change(mut self, handler: impl Fn(usize, &mut Window, &mut App) + 'static) -> Self {
         self.on_change = Some(Rc::new(handler));
         self
     }
@@ -280,15 +277,13 @@ impl Pagination {
                                 handler(number, window, cx);
                             },
                         );
-                        button = button.on_key_down(
-                            move |event: &KeyDownEvent, window, cx| {
-                                let key = event.keystroke.key.as_str();
-                                if key == "enter" || key == "space" {
-                                    key_handler(number, window, cx);
-                                    cx.stop_propagation();
-                                }
-                            },
-                        );
+                        button = button.on_key_down(move |event: &KeyDownEvent, window, cx| {
+                            let key = event.keystroke.key.as_str();
+                            if key == "enter" || key == "space" {
+                                key_handler(number, window, cx);
+                                cx.stop_propagation();
+                            }
+                        });
                     }
                     button.into_any_element()
                 }

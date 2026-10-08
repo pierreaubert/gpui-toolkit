@@ -52,6 +52,7 @@ pub struct Slider {
     min: f32,
     max: f32,
     step: Option<f32>,
+    scale: Scale,
     size: SliderSize,
     disabled: bool,
     show_value: bool,
@@ -79,6 +80,7 @@ impl Slider {
             min: 0.0,
             max: 100.0,
             step: None,
+            scale: Scale::Linear,
             size: SliderSize::default(),
             disabled: false,
             show_value: false,
@@ -152,6 +154,28 @@ impl Slider {
     pub fn step(mut self, step: f32) -> Self {
         self.step = Some(step);
         self
+    }
+
+    /// Use logarithmic positions while keeping values in their original units.
+    ///
+    /// Nonpositive ranges fall back to linear positions. This affects pointer,
+    /// scroll, and keyboard interaction; callbacks and accessibility retain
+    /// the configured value and range.
+    pub fn logarithmic(mut self, logarithmic: bool) -> Self {
+        self.scale = if logarithmic {
+            Scale::Logarithmic
+        } else {
+            Scale::Linear
+        };
+        self
+    }
+
+    fn effective_scale(&self) -> Scale {
+        if self.min > 0.0 {
+            self.scale
+        } else {
+            Scale::Linear
+        }
     }
 
     /// Set the slider size
@@ -249,7 +273,7 @@ impl Slider {
         InteractionConfig::horizontal(
             f64::from(self.min),
             f64::from(self.max),
-            Scale::Linear,
+            self.effective_scale(),
             self.width,
         )
     }
@@ -261,6 +285,7 @@ impl Slider {
             min: self.min,
             max: self.max,
             step: self.step,
+            scale: self.scale,
             size: self.size,
             disabled: self.disabled,
             show_value: self.show_value,
@@ -312,7 +337,7 @@ impl Slider {
 }
 
 impl RenderOnce for Slider {
-    fn render(mut self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         self.value = self.clamped_value();
 
         let native_label = self
@@ -350,19 +375,24 @@ impl RenderOnce for Slider {
         let disabled_label = theme.disabled_label;
         let disabled_fill = theme.disabled_fill;
 
-        let range = self.max - self.min;
-        let progress = if range > 0.0 {
-            (self.value - self.min) / range
-        } else {
-            0.0
-        };
+        let progress = self.effective_scale().value_to_normalized(
+            f64::from(self.value),
+            f64::from(self.min),
+            f64::from(self.max),
+        ) as f32;
 
         let fill_width = (width * progress).max(0.0);
         let thumb_left = (width * progress) - (thumb_size / 2.0);
         let thumb_id = ElementId::from((self.id.clone(), "thumb"));
         let value_label = format!("{:.1}", self.value);
 
-        let focus_handle = cx.focus_handle();
+        // Keep focus across value-driven panel redraws, like other stateful controls.
+        let focus_state = window.use_keyed_state(
+            ElementId::from((self.id.clone(), "slider-focus")),
+            cx,
+            |_, cx| cx.focus_handle(),
+        );
+        let focus_handle = focus_state.read(cx).clone();
         let mut container = div().flex().flex_col().gap_1();
 
         if self.label.is_some() || self.show_value {
@@ -389,6 +419,7 @@ impl RenderOnce for Slider {
 
         let mut track = div()
             .id(self.id.clone())
+            .key_context("SliderControl")
             .track_focus(&focus_handle)
             .focusable()
             .w(px(width))
