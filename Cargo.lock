@@ -2614,7 +2614,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-component-lab"
-version = "0.9.6"
+version = "0.9.8"
 dependencies = [
  "anyhow",
  "clap",
@@ -2755,7 +2755,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-layout-expr"
-version = "0.9.31"
+version = "0.9.33"
 
 [[package]]
 name = "gpui-miniapp"
@@ -2823,7 +2823,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-python-runtime"
-version = "0.9.31"
+version = "0.9.33"
 dependencies = [
  "arrow-array",
  "arrow-cast",
@@ -2856,7 +2856,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-release-gates"
-version = "0.9.31"
+version = "0.9.33"
 
 [[package]]
 name = "gpui-scaffolder"
@@ -2870,7 +2870,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-showcase"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "gpui-android",
  "gpui-audio-kit",
@@ -2939,7 +2939,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit"
-version = "0.9.31"
+version = "0.9.33"
 dependencies = [
  "gpui-au",
  "gpui-audio-kit",
@@ -2964,7 +2964,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit-cli"
-version = "0.9.31"
+version = "0.9.33"
 dependencies = [
  "clap",
  "gpui-component-lab",
@@ -3340,7 +3340,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit"
-version = "0.9.42"
+version = "0.9.43"
 dependencies = [
  "block2 0.6.2",
  "criterion",
@@ -3365,7 +3365,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit-macros"
-version = "0.9.7"
+version = "0.9.8"
 dependencies = [
  "gpui-layout-expr",
  "gpui-toolkit-gpui",

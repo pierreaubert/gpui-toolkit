@@ -2,6 +2,14 @@
 
 ## Added
 
+- Added 30 components: `app_shell`/`top_nav`/`mobile_nav`, `calendar`,
+  `date_range_input`/`time_input`/`date_time_input`, `chat`, `markdown`/
+  `blockquote`, `file_input`, `pagination`, `skeleton`, `field`/
+  `field_status`, `tokenizer`, `lightbox`, `carousel`, `hover_card`,
+  `grid`/`center`/`aspect_ratio`, `layer`, `visually_hidden`,
+  `selectable_card`, `metadata_list`, `citation`, `timestamp`,
+  `resizable`, and `list`, with themes, behavior-matrix rows, and i18n
+  labels for each.
 - Added `date_picker` and `scroll_area` components; extended `dialog`,
   `drag_list`, `input`, `i18n`, and `split_pane`.
 - Added a `validation` module (`ValidationError` for form validation).

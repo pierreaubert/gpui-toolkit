@@ -129,7 +129,7 @@ const NA: BehaviorStatus = BehaviorStatus::NotApplicable;
 const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
     ComponentBehaviorEntry {
         id: "actions",
-        components: "Button, IconButton, ButtonSet, Link, Toolbar",
+        components: "Button, IconButton, ButtonSet, Link, Toolbar, SelectableCard",
         component_ids: &[
             "Button",
             "IconButton",
@@ -137,6 +137,7 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
             "Link",
             "Toolbar",
             "Tag",
+            "SelectableCard",
         ],
         test_contracts: &[
             "tests/component_tests.rs",
@@ -156,7 +157,7 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
     },
     ComponentBehaviorEntry {
         id: "forms",
-        components: "Input, NumberInput, Select, Slider, Checkbox, Toggle, ColorPickerView, SearchBar",
+        components: "Input, NumberInput, Select, Slider, Checkbox, Toggle, ColorPickerView, SearchBar, DateRangeInput, TimeInput, DateTimeInput, FileInput, Tokenizer, Field, FieldStatus, Calendar",
         component_ids: &[
             "Input",
             "NumberInput",
@@ -166,6 +167,14 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
             "Toggle",
             "ColorPickerView",
             "SearchBar",
+            "DateRangeInput",
+            "TimeInput",
+            "DateTimeInput",
+            "FileInput",
+            "Tokenizer",
+            "Field",
+            "FieldStatus",
+            "Calendar",
         ],
         test_contracts: &[
             "tests/integration_tests.rs",
@@ -186,7 +195,7 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
     },
     ComponentBehaviorEntry {
         id: "overlays",
-        components: "Dialog, ConfirmDialog, Popover, ContextMenu, Menu, MenuBar, Tooltip",
+        components: "Dialog, ConfirmDialog, Popover, ContextMenu, Menu, MenuBar, Tooltip, Lightbox, HoverCard, Layer",
         component_ids: &[
             "Dialog",
             "ConfirmDialog",
@@ -199,6 +208,9 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
             "Toast",
             "ToastContainer",
             "LoadingOverlay",
+            "Lightbox",
+            "HoverCard",
+            "Layer",
         ],
         test_contracts: &[
             "tests/component_tests.rs",
@@ -219,7 +231,7 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
     },
     ComponentBehaviorEntry {
         id: "navigation",
-        components: "Tabs, Accordion, Breadcrumbs, Sidebar, Wizard, StepIndicator, FocusGroup",
+        components: "Tabs, Accordion, Breadcrumbs, Sidebar, Wizard, StepIndicator, FocusGroup, TopNav, MobileNav, Carousel, Pagination, List",
         component_ids: &[
             "Tabs",
             "Accordion",
@@ -230,6 +242,11 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
             "WizardNavigation",
             "StepIndicator",
             "FocusGroup",
+            "TopNav",
+            "MobileNav",
+            "Carousel",
+            "Pagination",
+            "List",
         ],
         test_contracts: &[
             "focus_integration_report",
@@ -347,8 +364,21 @@ const COMPONENT_BEHAVIOR_ENTRIES: &[ComponentBehaviorEntry] = &[
             "HStack",
             "Spacer",
             "Divider",
+            "Grid",
+            "Center",
+            "AspectRatio",
+            "Resizable",
+            "VisuallyHidden",
             "StatusBar",
             "Notification",
+            "AppShell",
+            "Chat",
+            "Markdown",
+            "Blockquote",
+            "Citation",
+            "Timestamp",
+            "MetadataList",
+            "Skeleton",
         ],
         test_contracts: &[
             "tests/component_tests.rs",

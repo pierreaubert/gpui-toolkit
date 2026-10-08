@@ -91,21 +91,23 @@ use gpui_showcase::showcase::{Showcase, ShowcaseSection};
 use gpui_ui_kit::qr::AnimatedQrCode;
 use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::{
-    Accordion, AccordionItem, Alert, Avatar, AvatarGroup, AvatarShape, AvatarSize, AvatarStatus,
-    Badge, BadgeDot, BadgeSize, BadgeVariant, BreadcrumbItem, Breadcrumbs, Button, ButtonSet,
-    ButtonSetOption, ButtonSize, ButtonVariant, Card, Checkbox, CheckboxSize, CircularProgress,
-    Code, Color, ColorPickerView, Column, CommandItem, CommandPalette, ConfirmDialog, ContextMenu,
-    DesignSystem, Dialog, DialogSize, Divider, DragItem, DragList, EmptyState, FocusDirection,
-    FocusGroup, HStack, Heading, IconButton, IconButtonSize, ImageView, InlineAlert, Input,
-    InputSize, KeyboardShortcutLabel, KeyboardShortcutSize, Link, LoadingDots, LoadingOverlay,
-    Menu, MenuBar, MenuBarItem, MenuItem, Notification, NumberInput, NumberInputSize, PaneDivider,
-    Popover, Port, PortDirection, Position, Progress, ProgressSize, QrCode, SearchBar,
-    SearchBarSize, Select, SelectOption, SelectSize, SettingsForm, SettingsRow, Sidebar, Slider,
-    Spacer, Spinner, SpinnerSize, SplitDirection, SplitPane, StatusBar, StepIndicator,
+    Accordion, AccordionItem, Alert, AspectRatio, AspectRatioPreset, Avatar, AvatarGroup,
+    AvatarShape, AvatarSize, AvatarStatus, Badge, BadgeDot, BadgeSize, BadgeVariant,
+    BreadcrumbItem, Breadcrumbs, Button, ButtonSet, ButtonSetOption, ButtonSize, ButtonVariant,
+    Card, Center, Checkbox, CheckboxSize, CircularProgress, Code, Color, ColorPickerView, Column,
+    CommandItem, CommandPalette, ConfirmDialog, ContextMenu, DesignSystem, Dialog, DialogSize,
+    Divider, DragItem, DragList, EmptyState, FocusDirection, FocusGroup, Grid, HStack, Heading,
+    IconButton, IconButtonSize, ImageView, InlineAlert, Input, InputSize, KeyboardShortcutLabel,
+    KeyboardShortcutSize, Link, LoadingDots, LoadingOverlay, Menu, MenuBar, MenuBarItem, MenuItem,
+    Notification, NumberInput, NumberInputSize, PaneDivider, Popover, Port, PortDirection,
+    Position, Progress, ProgressSize, QrCode, Resizable, ResizableHandle, SearchBar, SearchBarSize,
+    Select, SelectOption, SelectSize, SettingsForm, SettingsRow, Sidebar, Slider, Spacer, Spinner,
+    SpinnerSize, SplitDirection, SplitPane, StackSpacing, StatusBar, StepIndicator,
     StepIndicatorSize, StepItem, StepItemStatus, StepOrientation, StepStatus, TabItem, Table, Tabs,
     Tag, Text, TextSize, TextWeight, Toast, ToastContainer, ToastPosition, Toggle, ToggleSize,
-    ToggleStyle, Toolbar, ToolbarItem, Tooltip, TreeNode, TreeView, VStack, WithTooltip, Wizard,
-    WizardHeader, WizardNavigation, WizardVariant, WorkflowCanvas, WorkflowNode, WorkflowNodeData,
+    ToggleStyle, Toolbar, ToolbarItem, Tooltip, TreeNode, TreeView, VStack, VisuallyHidden,
+    WithTooltip, Wizard, WizardHeader, WizardNavigation, WizardVariant, WorkflowCanvas,
+    WorkflowNode, WorkflowNodeData,
 };
 use serde_json::json;
 use std::cell::RefCell;
@@ -450,14 +452,23 @@ pub(super) fn exported_story_family(story_id: &str) -> ExportedStoryFamily {
         | "ui-kit.alert"
         | "ui-kit.inline-alert"
         | "ui-kit.toast"
-        | "ui-kit.toast-container" => ExportedStoryFamily::Feedback,
+        | "ui-kit.toast-container"
+        | "ui-kit.selectable-card-component" => ExportedStoryFamily::Feedback,
         "ui-kit.checkbox"
         | "ui-kit.color-picker"
         | "ui-kit.input"
         | "ui-kit.number-input"
         | "ui-kit.select"
         | "ui-kit.slider"
-        | "ui-kit.toggle" => ExportedStoryFamily::Input,
+        | "ui-kit.toggle"
+        | "ui-kit.date-range-input-component"
+        | "ui-kit.time-input-component"
+        | "ui-kit.date-time-input-component"
+        | "ui-kit.file-input-component"
+        | "ui-kit.tokenizer-component"
+        | "ui-kit.field-component"
+        | "ui-kit.field-status-component"
+        | "ui-kit.calendar-component" => ExportedStoryFamily::Input,
         "ui-kit.avatar"
         | "ui-kit.avatar-group"
         | "ui-kit.badge"
@@ -489,9 +500,26 @@ pub(super) fn exported_story_family(story_id: &str) -> ExportedStoryFamily {
         | "ui-kit.hstack"
         | "ui-kit.spacer"
         | "ui-kit.divider"
-        | "ui-kit.status-bar-component" => ExportedStoryFamily::Display,
+        | "ui-kit.grid-component"
+        | "ui-kit.center-component"
+        | "ui-kit.aspect-ratio-component"
+        | "ui-kit.resizable-component"
+        | "ui-kit.visually-hidden-component"
+        | "ui-kit.status-bar-component"
+        | "ui-kit.app-shell-component"
+        | "ui-kit.chat-component"
+        | "ui-kit.markdown-component"
+        | "ui-kit.blockquote-component"
+        | "ui-kit.citation-component"
+        | "ui-kit.timestamp-component"
+        | "ui-kit.metadata-list-component"
+        | "ui-kit.skeleton-component"
+        | "ui-kit.list-component" => ExportedStoryFamily::Display,
         "ui-kit.accordion-component"
         | "ui-kit.breadcrumbs-component"
+        | "ui-kit.top-nav-component"
+        | "ui-kit.mobile-nav-component"
+        | "ui-kit.carousel-component"
         | "ui-kit.menu-component"
         | "ui-kit.menu-bar"
         | "ui-kit.dialog-component"
@@ -513,7 +541,11 @@ pub(super) fn exported_story_family(story_id: &str) -> ExportedStoryFamily {
         | "ui-kit.focus-group"
         | "ui-kit.workflow-port"
         | "ui-kit.workflow-canvas"
-        | "ui-kit.showcase-component" => ExportedStoryFamily::Navigation,
+        | "ui-kit.showcase-component"
+        | "ui-kit.lightbox-component"
+        | "ui-kit.hover-card-component"
+        | "ui-kit.layer-component"
+        | "ui-kit.pagination-component" => ExportedStoryFamily::Navigation,
         _ => ExportedStoryFamily::Unknown,
     }
 }
@@ -2701,6 +2733,37 @@ impl ComponentLab {
                 .child(Text::new("Above"))
                 .child(Divider::new())
                 .child(Text::new("Below"))
+                .into_any_element(),
+            "ui-kit.grid-component" => Grid::new(scoped("grid"))
+                .columns(2)
+                .gap(StackSpacing::Sm)
+                .children([
+                    Text::new(label.clone()),
+                    Text::new("Cell B"),
+                    Text::new("Cell C"),
+                    Text::new("Cell D"),
+                ])
+                .into_any_element(),
+            "ui-kit.center-component" => Center::new(scoped("center"))
+                .max_width(px(280.0))
+                .child(Text::new(label))
+                .into_any_element(),
+            "ui-kit.aspect-ratio-component" => AspectRatio::new(scoped("aspect-ratio"))
+                .preset(AspectRatioPreset::Widescreen)
+                .child(Text::new("16 : 9"))
+                .into_any_element(),
+            "ui-kit.resizable-component" => Resizable::new(scoped("resizable"))
+                .handle(ResizableHandle::Corner)
+                .width(px(320.0))
+                .height(px(120.0))
+                .min_width(px(160.0))
+                .min_height(px(80.0))
+                .child(Text::new("Drag my corner"))
+                .into_any_element(),
+            "ui-kit.visually-hidden-component" => VisuallyHidden::new(scoped("visually-hidden"))
+                .focusable(true)
+                .aria_label("Skip to preview")
+                .child(Text::new("Skip to preview"))
                 .into_any_element(),
             "ui-kit.status-bar-component" => StatusBar::new(scoped("status-bar"))
                 .left(Text::new(label))

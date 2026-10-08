@@ -101,6 +101,37 @@ impl Translations {
         t.insert((L, TranslationKey::SectionAccessibility), "Accessibility");
         t.insert((L, TranslationKey::SectionThinkingOrbs), "Thinking Orbs");
         t.insert((L, TranslationKey::SectionScene2d), "Scene2D");
+        t.insert((L, TranslationKey::SectionAppShell), "App Shell");
+        t.insert((L, TranslationKey::SectionTopNav), "Top Navigation");
+        t.insert((L, TranslationKey::SectionMobileNav), "Mobile Navigation");
+        t.insert(
+            (L, TranslationKey::SectionDateRangeInput),
+            "Date Range Input",
+        );
+        t.insert((L, TranslationKey::SectionTimeInput), "Time Input");
+        t.insert((L, TranslationKey::SectionDateTimeInput), "Date Time Input");
+        t.insert((L, TranslationKey::SectionChat), "Chat");
+        t.insert((L, TranslationKey::SectionMarkdown), "Markdown");
+        t.insert((L, TranslationKey::SectionBlockquote), "Blockquote");
+        t.insert((L, TranslationKey::SectionCarousel), "Carousel");
+        t.insert(
+            (L, TranslationKey::SectionSelectableCard),
+            "Selectable Card",
+        );
+        t.insert((L, TranslationKey::SectionCitation), "Citation");
+        t.insert((L, TranslationKey::SectionTimestamp), "Timestamp");
+        t.insert((L, TranslationKey::SectionMetadataList), "Metadata List");
+        t.insert((L, TranslationKey::SectionFileInput), "File Input");
+        t.insert((L, TranslationKey::SectionTokenizer), "Tokenizer");
+        t.insert((L, TranslationKey::SectionField), "Field");
+        t.insert((L, TranslationKey::SectionFieldStatus), "Field Status");
+        t.insert((L, TranslationKey::SectionSkeleton), "Skeleton");
+        t.insert((L, TranslationKey::SectionLightbox), "Lightbox");
+        t.insert((L, TranslationKey::SectionHoverCard), "Hover Card");
+        t.insert((L, TranslationKey::SectionLayer), "Layer");
+        t.insert((L, TranslationKey::SectionCalendar), "Calendar");
+        t.insert((L, TranslationKey::SectionPagination), "Pagination");
+        t.insert((L, TranslationKey::SectionList), "List");
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "Variants");
@@ -266,6 +297,40 @@ impl Translations {
             "Orbes de réflexion",
         );
         t.insert((L, TranslationKey::SectionScene2d), "Scène 2D");
+        t.insert((L, TranslationKey::SectionAppShell), "Cadre d'application");
+        t.insert((L, TranslationKey::SectionTopNav), "Navigation haute");
+        t.insert((L, TranslationKey::SectionMobileNav), "Navigation mobile");
+        t.insert((L, TranslationKey::SectionDateRangeInput), "Plage de dates");
+        t.insert((L, TranslationKey::SectionTimeInput), "Saisie horaire");
+        t.insert((L, TranslationKey::SectionDateTimeInput), "Date et heure");
+        t.insert((L, TranslationKey::SectionChat), "Discussion");
+        t.insert((L, TranslationKey::SectionMarkdown), "Markdown");
+        t.insert((L, TranslationKey::SectionBlockquote), "Citation");
+        t.insert((L, TranslationKey::SectionCarousel), "Carrousel");
+        t.insert(
+            (L, TranslationKey::SectionSelectableCard),
+            "Carte sélectionnable",
+        );
+        t.insert((L, TranslationKey::SectionCitation), "Référence");
+        t.insert((L, TranslationKey::SectionTimestamp), "Horodatage");
+        t.insert(
+            (L, TranslationKey::SectionMetadataList),
+            "Liste de métadonnées",
+        );
+        t.insert(
+            (L, TranslationKey::SectionFileInput),
+            "Sélecteur de fichier",
+        );
+        t.insert((L, TranslationKey::SectionTokenizer), "Jetons");
+        t.insert((L, TranslationKey::SectionField), "Champ");
+        t.insert((L, TranslationKey::SectionFieldStatus), "État du champ");
+        t.insert((L, TranslationKey::SectionSkeleton), "Squelette");
+        t.insert((L, TranslationKey::SectionLightbox), "Visionneuse");
+        t.insert((L, TranslationKey::SectionHoverCard), "Carte de survol");
+        t.insert((L, TranslationKey::SectionLayer), "Calque");
+        t.insert((L, TranslationKey::SectionCalendar), "Calendrier");
+        t.insert((L, TranslationKey::SectionPagination), "Pagination");
+        t.insert((L, TranslationKey::SectionList), "Liste");
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "Variantes");
@@ -413,6 +478,34 @@ impl Translations {
         );
         t.insert((L, TranslationKey::SectionThinkingOrbs), "Denk-Orbs");
         t.insert((L, TranslationKey::SectionScene2d), "2D-Szene");
+        t.insert((L, TranslationKey::SectionAppShell), "App-Rahmen");
+        t.insert((L, TranslationKey::SectionTopNav), "Obere Navigation");
+        t.insert((L, TranslationKey::SectionMobileNav), "Mobile Navigation");
+        t.insert((L, TranslationKey::SectionDateRangeInput), "Datumsbereich");
+        t.insert((L, TranslationKey::SectionTimeInput), "Uhrzeiteingabe");
+        t.insert(
+            (L, TranslationKey::SectionDateTimeInput),
+            "Datum und Uhrzeit",
+        );
+        t.insert((L, TranslationKey::SectionChat), "Chat");
+        t.insert((L, TranslationKey::SectionMarkdown), "Markdown");
+        t.insert((L, TranslationKey::SectionBlockquote), "Zitat");
+        t.insert((L, TranslationKey::SectionCarousel), "Karussell");
+        t.insert((L, TranslationKey::SectionSelectableCard), "Wählbare Karte");
+        t.insert((L, TranslationKey::SectionCitation), "Quellenangabe");
+        t.insert((L, TranslationKey::SectionTimestamp), "Zeitstempel");
+        t.insert((L, TranslationKey::SectionMetadataList), "Metadatenliste");
+        t.insert((L, TranslationKey::SectionFileInput), "Dateieingabe");
+        t.insert((L, TranslationKey::SectionTokenizer), "Tokenizer");
+        t.insert((L, TranslationKey::SectionField), "Feld");
+        t.insert((L, TranslationKey::SectionFieldStatus), "Feldstatus");
+        t.insert((L, TranslationKey::SectionSkeleton), "Skelett");
+        t.insert((L, TranslationKey::SectionLightbox), "Lightbox");
+        t.insert((L, TranslationKey::SectionHoverCard), "Hover-Karte");
+        t.insert((L, TranslationKey::SectionLayer), "Ebene");
+        t.insert((L, TranslationKey::SectionCalendar), "Kalender");
+        t.insert((L, TranslationKey::SectionPagination), "Paginierung");
+        t.insert((L, TranslationKey::SectionList), "Liste");
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "Varianten");
@@ -572,6 +665,43 @@ impl Translations {
             "Orbes de pensamiento",
         );
         t.insert((L, TranslationKey::SectionScene2d), "Escena 2D");
+        t.insert((L, TranslationKey::SectionAppShell), "Marco de aplicación");
+        t.insert((L, TranslationKey::SectionTopNav), "Navegación superior");
+        t.insert((L, TranslationKey::SectionMobileNav), "Navegación móvil");
+        t.insert(
+            (L, TranslationKey::SectionDateRangeInput),
+            "Rango de fechas",
+        );
+        t.insert((L, TranslationKey::SectionTimeInput), "Hora");
+        t.insert((L, TranslationKey::SectionDateTimeInput), "Fecha y hora");
+        t.insert((L, TranslationKey::SectionChat), "Chat");
+        t.insert((L, TranslationKey::SectionMarkdown), "Markdown");
+        t.insert((L, TranslationKey::SectionBlockquote), "Cita");
+        t.insert((L, TranslationKey::SectionCarousel), "Carrusel");
+        t.insert(
+            (L, TranslationKey::SectionSelectableCard),
+            "Tarjeta seleccionable",
+        );
+        t.insert((L, TranslationKey::SectionCitation), "Cita bibliográfica");
+        t.insert((L, TranslationKey::SectionTimestamp), "Marca de tiempo");
+        t.insert(
+            (L, TranslationKey::SectionMetadataList),
+            "Lista de metadatos",
+        );
+        t.insert(
+            (L, TranslationKey::SectionFileInput),
+            "Selección de archivo",
+        );
+        t.insert((L, TranslationKey::SectionTokenizer), "Tokens");
+        t.insert((L, TranslationKey::SectionField), "Campo");
+        t.insert((L, TranslationKey::SectionFieldStatus), "Estado del campo");
+        t.insert((L, TranslationKey::SectionSkeleton), "Esqueleto");
+        t.insert((L, TranslationKey::SectionLightbox), "Lightbox");
+        t.insert((L, TranslationKey::SectionHoverCard), "Tarjeta flotante");
+        t.insert((L, TranslationKey::SectionLayer), "Capa");
+        t.insert((L, TranslationKey::SectionCalendar), "Calendario");
+        t.insert((L, TranslationKey::SectionPagination), "Paginación");
+        t.insert((L, TranslationKey::SectionList), "Lista");
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "Variantes");
@@ -734,6 +864,34 @@ impl Translations {
         );
         t.insert((L, TranslationKey::SectionThinkingOrbs), "思考オーブ");
         t.insert((L, TranslationKey::SectionScene2d), "2D シーン");
+        t.insert((L, TranslationKey::SectionAppShell), "アプリシェル");
+        t.insert((L, TranslationKey::SectionTopNav), "トップナビゲーション");
+        t.insert(
+            (L, TranslationKey::SectionMobileNav),
+            "モバイルナビゲーション",
+        );
+        t.insert((L, TranslationKey::SectionDateRangeInput), "日付範囲入力");
+        t.insert((L, TranslationKey::SectionTimeInput), "時刻入力");
+        t.insert((L, TranslationKey::SectionDateTimeInput), "日時入力");
+        t.insert((L, TranslationKey::SectionChat), "チャット");
+        t.insert((L, TranslationKey::SectionMarkdown), "マークダウン");
+        t.insert((L, TranslationKey::SectionBlockquote), "引用");
+        t.insert((L, TranslationKey::SectionCarousel), "カルーセル");
+        t.insert((L, TranslationKey::SectionSelectableCard), "選択カード");
+        t.insert((L, TranslationKey::SectionCitation), "引用文献");
+        t.insert((L, TranslationKey::SectionTimestamp), "タイムスタンプ");
+        t.insert((L, TranslationKey::SectionMetadataList), "メタデータリスト");
+        t.insert((L, TranslationKey::SectionFileInput), "ファイル入力");
+        t.insert((L, TranslationKey::SectionTokenizer), "トークナイザー");
+        t.insert((L, TranslationKey::SectionField), "フィールド");
+        t.insert((L, TranslationKey::SectionFieldStatus), "フィールド状態");
+        t.insert((L, TranslationKey::SectionSkeleton), "スケルトン");
+        t.insert((L, TranslationKey::SectionLightbox), "ライトボックス");
+        t.insert((L, TranslationKey::SectionHoverCard), "ホバーカード");
+        t.insert((L, TranslationKey::SectionLayer), "レイヤー");
+        t.insert((L, TranslationKey::SectionCalendar), "カレンダー");
+        t.insert((L, TranslationKey::SectionPagination), "ページネーション");
+        t.insert((L, TranslationKey::SectionList), "リスト");
 
         // Labels
         t.insert((L, TranslationKey::LabelVariants), "バリエーション");

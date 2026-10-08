@@ -1,5 +1,43 @@
 # What is new in 0.9
 
+## 0.9.33
+
+### Feature: unified `gpui-toolkit` CLI for humans and agents
+
+One binary now covers the component catalog, page/block/theme templates,
+theme token export, `doctor` health checks, `upgrade` migration notes with
+deprecated-pattern detection, and layout expression tools. Every command
+honors `--json` with typed envelopes and stable `ERR_*` codes, and
+`manifest --json` is a self-describing surface for coding agents.
+
+```bash
+cargo install --path crates/gpui-toolkit-cli
+gpui-toolkit manifest --json | head -c 300
+gpui-toolkit doctor            # CI gate, exits 1 on failure
+gpui-toolkit component Button --props
+```
+
+Project overrides live in `toolkit.toml` (custom layout components,
+tracker URL, extra upgrade rules).
+
+### Feature: layout expressions and the `layout!` macro
+
+Sketch widget trees as one-liners (`V > (Tx"Hi" + B.primary"Go")`),
+validate/expand them with `layout check` / `layout expand`, or build them
+at compile time with `layout!` from `gpui-ui-kit-macros` — unknown names
+fail the build with the offending span. See TUTORIAL §15.
+
+### Feature: 30 new UI-kit components
+
+AppShell/TopNav/MobileNav, Calendar, DateRange/Time/DateTime inputs, Chat,
+Markdown/Blockquote, FileInput, Pagination, Skeleton, Field/FieldStatus,
+Tokenizer, Lightbox, Carousel, HoverCard, Grid/Center/AspectRatio, Layer,
+VisuallyHidden, SelectableCard, MetadataList, Citation, Timestamp,
+Resizable, and List — each with gallery stories, Python bindings, and
+showcase sections. (Banner, BottomSheet, AvatarGroup, StatusDot, and
+CodeBlock needs were already covered by Alert, SwipePanel, Avatar,
+BadgeDot, and Code::block, so no new modules were added for those.)
+
 ## 0.9.10
 
 ### Feature: integrated with Vello with 2d plots ; benefit is that all

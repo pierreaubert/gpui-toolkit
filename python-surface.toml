@@ -18112,6 +18112,9 @@ path = "crates/gpui-ios"
 id = "gpui-keybinding"
 path = "crates/gpui-keybinding"
 [[inventory.crate]]
+id = "gpui-layout-expr"
+path = "crates/gpui-layout-expr"
+[[inventory.crate]]
 id = "gpui-miniapp"
 path = "crates/gpui-miniapp"
 [[inventory.crate]]
@@ -18138,6 +18141,9 @@ path = "crates/gpui-themes"
 [[inventory.crate]]
 id = "gpui-toolkit"
 path = "crates/gpui-toolkit"
+[[inventory.crate]]
+id = "gpui-toolkit-cli"
+path = "crates/gpui-toolkit-cli"
 [[inventory.crate]]
 id = "gpui-ui-kit"
 path = "crates/gpui-ui-kit"

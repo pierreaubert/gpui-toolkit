@@ -3,8 +3,10 @@
 use gpui::{App, Window};
 use gpui_design::{DesignExt, DesignPlatform};
 
+pub mod mobile_nav;
 pub mod momentum;
 
+pub use mobile_nav::{MobileNav, MobileNavItem, MobileNavSize, MobileNavTheme};
 pub use momentum::{MomentumDelta, MomentumScroller, VelocityTracker};
 
 /// Edge insets in visual order.

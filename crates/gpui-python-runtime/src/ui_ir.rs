@@ -646,6 +646,9 @@ pub enum UiNode {
     Menu(MenuNode),
     MenuBar(MenuBarNode),
     ContextMenu(ContextMenuNode),
+    AppShell(AppShellNode),
+    TopNav(TopNavNode),
+    MobileNav(MobileNavNode),
     Popover(PopoverNode),
     Tabs(TabsNode),
     Stepper(StepperNode),
@@ -668,8 +671,35 @@ pub enum UiNode {
     PathInput(PathInputNode),
     Checkbox(BooleanInputNode),
     Toggle(BooleanInputNode),
+    DateRangeInput(DateRangeInputNode),
+    TimeInput(TimeInputNode),
+    DateTimeInput(DateTimeInputNode),
+    Chat(ChatNode),
+    Markdown(MarkdownNode),
+    Blockquote(BlockquoteNode),
+    Carousel(CarouselNode),
+    SelectableCard(SelectableCardNode),
+    Citation(CitationNode),
+    Timestamp(TimestampNode),
+    MetadataList(MetadataListNode),
+    FileInput(FileInputNode),
+    Tokenizer(TokenizerNode),
+    Field(FieldNode),
+    FieldStatus(FieldStatusNode),
+    Skeleton(SkeletonNode),
+    Lightbox(LightboxNode),
+    HoverCard(HoverCardNode),
+    Layer(LayerNode),
+    Calendar(CalendarNode),
+    Pagination(PaginationNode),
+    List(ListNode),
     Divider(SimpleNode),
     Spacer(SimpleNode),
+    Grid(GridNode),
+    Center(CenterNode),
+    AspectRatio(AspectRatioNode),
+    Resizable(ResizableNode),
+    VisuallyHidden(VisuallyHiddenNode),
     /// Removed v1 chart document. Deserialization is retained only to return a
     /// Resource-backed gpui-px declaration; payload values travel separately.
     PxChartV2(PxChartV2Node),
@@ -694,6 +724,11 @@ impl UiNode {
                 }
                 Ok(())
             }
+            Self::Grid(node) => node.validate(),
+            Self::Center(node) => node.validate(),
+            Self::AspectRatio(node) => node.validate(),
+            Self::Resizable(node) => node.validate(),
+            Self::VisuallyHidden(node) => node.validate(),
             Self::Form(node) => node.validate(),
             Self::Button(node) => node.validate(),
             Self::Breadcrumbs(node) => node.validate(),
@@ -706,6 +741,9 @@ impl UiNode {
             Self::Menu(node) => node.validate(),
             Self::MenuBar(node) => node.validate(),
             Self::ContextMenu(node) => node.validate(),
+            Self::AppShell(node) => node.validate(),
+            Self::TopNav(node) => node.validate(),
+            Self::MobileNav(node) => node.validate(),
             Self::Popover(node) => node.validate(),
             Self::Tabs(node) => node.validate(),
             Self::Accordion(node) => node.validate(),
@@ -730,6 +768,28 @@ impl UiNode {
             Self::ColorPicker(node) => node.validate(),
             Self::PathInput(node) => node.validate(),
             Self::Checkbox(node) | Self::Toggle(node) => node.validate(),
+            Self::DateRangeInput(node) => node.validate(),
+            Self::TimeInput(node) => node.validate(),
+            Self::DateTimeInput(node) => node.validate(),
+            Self::Chat(node) => node.validate(),
+            Self::Markdown(node) => node.validate(),
+            Self::Blockquote(node) => node.validate(),
+            Self::Carousel(node) => node.validate(),
+            Self::SelectableCard(node) => node.validate(),
+            Self::Citation(node) => node.validate(),
+            Self::Timestamp(node) => node.validate(),
+            Self::MetadataList(node) => node.validate(),
+            Self::FileInput(node) => node.validate(),
+            Self::Tokenizer(node) => node.validate(),
+            Self::Field(node) => node.validate(),
+            Self::FieldStatus(node) => node.validate(),
+            Self::Skeleton(node) => node.validate(),
+            Self::Lightbox(node) => node.validate(),
+            Self::HoverCard(node) => node.validate(),
+            Self::Layer(node) => node.validate(),
+            Self::Calendar(node) => node.validate(),
+            Self::Pagination(node) => node.validate(),
+            Self::List(node) => node.validate(),
             _ => Ok(()),
         }
     }
@@ -752,6 +812,152 @@ pub struct StackNode {
     pub gap: Option<f32>,
     pub width: Option<f32>,
     pub height: Option<f32>,
+}
+
+fn default_grid_columns() -> u32 {
+    2
+}
+
+/// Fixed-column grid layout declaration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GridNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default = "default_grid_columns")]
+    pub columns: u32,
+    #[serde(default)]
+    pub rows: Option<u32>,
+    #[serde(default)]
+    pub children: Vec<UiNode>,
+    pub gap: Option<f32>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+}
+
+impl GridNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.columns == 0 {
+            return Err(UiIrError::InvalidPatch {
+                message: "grid columns must be at least 1".into(),
+            });
+        }
+        if self.rows == Some(0) {
+            return Err(UiIrError::InvalidPatch {
+                message: "grid rows must be at least 1".into(),
+            });
+        }
+        for child in &self.children {
+            child.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// Single-child centering container declaration.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CenterNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub children: Vec<UiNode>,
+    pub max_width: Option<f32>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+}
+
+impl CenterNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        for child in &self.children {
+            child.validate()?;
+        }
+        Ok(())
+    }
+}
+
+fn default_aspect_ratio() -> f32 {
+    16.0 / 9.0
+}
+
+/// Fixed aspect-ratio box declaration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AspectRatioNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default = "default_aspect_ratio")]
+    pub ratio: f32,
+    #[serde(default)]
+    pub children: Vec<UiNode>,
+}
+
+impl AspectRatioNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if !self.ratio.is_finite() || self.ratio <= 0.0 {
+            return Err(UiIrError::InvalidPatch {
+                message: "aspect ratio must be a positive finite number".into(),
+            });
+        }
+        for child in &self.children {
+            child.validate()?;
+        }
+        Ok(())
+    }
+}
+
+fn default_resizable_handle() -> String {
+    "corner".into()
+}
+
+/// User-resizable panel declaration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResizableNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub children: Vec<UiNode>,
+    #[serde(default = "default_resizable_handle")]
+    pub handle: String,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+    pub min_width: Option<f32>,
+    pub min_height: Option<f32>,
+    pub max_width: Option<f32>,
+    pub max_height: Option<f32>,
+}
+
+impl ResizableNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if !matches!(self.handle.as_str(), "right" | "bottom" | "corner") {
+            return Err(UiIrError::InvalidPatch {
+                message: "resizable handle must be right, bottom, or corner".into(),
+            });
+        }
+        for child in &self.children {
+            child.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// Screen-reader-only content declaration.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct VisuallyHiddenNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub children: Vec<UiNode>,
+    #[serde(default)]
+    pub focusable: bool,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+impl VisuallyHiddenNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        for child in &self.children {
+            child.validate()?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -845,6 +1051,26 @@ fn child_contains_id(node: &UiNode, target: &str) -> bool {
             .children
             .iter()
             .any(|child| child_contains_id(child, target)),
+        UiNode::Grid(grid) => grid
+            .children
+            .iter()
+            .any(|child| child_contains_id(child, target)),
+        UiNode::Center(center) => center
+            .children
+            .iter()
+            .any(|child| child_contains_id(child, target)),
+        UiNode::AspectRatio(ratio) => ratio
+            .children
+            .iter()
+            .any(|child| child_contains_id(child, target)),
+        UiNode::Resizable(resizable) => resizable
+            .children
+            .iter()
+            .any(|child| child_contains_id(child, target)),
+        UiNode::VisuallyHidden(hidden) => hidden
+            .children
+            .iter()
+            .any(|child| child_contains_id(child, target)),
         UiNode::Form(form) => {
             form.id == target
                 || form
@@ -879,6 +1105,39 @@ fn child_contains_id(node: &UiNode, target: &str) -> bool {
         UiNode::MenuBar(menu_bar) => menu_bar.items.iter().any(|item| {
             item.id == target || item.items.iter().any(|menu_item| menu_item.id == target)
         }),
+        UiNode::AppShell(shell) => [&shell.header, &shell.sidebar, &shell.content, &shell.footer]
+            .iter()
+            .filter_map(|slot| slot.as_ref())
+            .any(|child| child_contains_id(child, target)),
+        UiNode::TopNav(nav) => nav.items.iter().any(|item| item.id == target),
+        UiNode::MobileNav(nav) => nav.items.iter().any(|item| item.id == target),
+        UiNode::DateRangeInput(input) => input.id == target,
+        UiNode::TimeInput(input) => input.id == target,
+        UiNode::DateTimeInput(input) => input.id == target,
+        UiNode::Chat(chat) => chat.id == target,
+        UiNode::FileInput(input) => input.id == target,
+        UiNode::Tokenizer(tokens) => tokens.id == target,
+        UiNode::Field(field) => {
+            field.id.as_deref() == Some(target)
+                || field
+                    .child
+                    .as_ref()
+                    .is_some_and(|child| child_contains_id(child, target))
+        }
+        UiNode::FieldStatus(status) => status.id.as_deref() == Some(target),
+        UiNode::Skeleton(bones) => bones.id.as_deref() == Some(target),
+        UiNode::Lightbox(viewer) => viewer.id.as_deref() == Some(target),
+        UiNode::HoverCard(card) => card.id.as_deref() == Some(target),
+        UiNode::Layer(layer) => {
+            layer.id.as_deref() == Some(target)
+                || layer
+                    .children
+                    .iter()
+                    .any(|child| child_contains_id(child, target))
+        }
+        UiNode::Calendar(calendar) => calendar.id.as_deref() == Some(target),
+        UiNode::Pagination(pager) => pager.id.as_deref() == Some(target),
+        UiNode::List(list) => list.id.as_deref() == Some(target),
         UiNode::TextInput(input) => input.id == target,
         UiNode::NumberInput(input) => input.id == target,
         UiNode::Slider(slider) => slider.id == target,
@@ -1445,6 +1704,866 @@ impl MenuBarNode {
         }
         Ok(())
     }
+}
+
+/// Edge the retained shell sidebar hugs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppShellSidebarSide {
+    #[default]
+    Left,
+    Right,
+}
+
+/// Retained application frame with header, sidebar, content, and footer slots.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppShellNode {
+    pub id: String,
+    #[serde(default)]
+    pub sidebar_side: AppShellSidebarSide,
+    #[serde(default)]
+    pub header: Option<Box<UiNode>>,
+    #[serde(default)]
+    pub sidebar: Option<Box<UiNode>>,
+    #[serde(default)]
+    pub content: Option<Box<UiNode>>,
+    #[serde(default)]
+    pub footer: Option<Box<UiNode>>,
+}
+
+impl AppShellNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "app shell requires a stable ID".into(),
+            });
+        }
+        for child in [&self.header, &self.sidebar, &self.content, &self.footer]
+            .into_iter()
+            .flatten()
+        {
+            child.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// One link in a retained top navigation bar.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TopNavItemNode {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default)]
+    pub disabled: bool,
+}
+
+/// Retained top navigation bar with brand, items, and one select action.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TopNavNode {
+    pub id: String,
+    #[serde(default)]
+    pub brand: Option<String>,
+    #[serde(default)]
+    pub items: Vec<TopNavItemNode>,
+    #[serde(default)]
+    pub action: Option<String>,
+}
+
+impl TopNavNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "top nav requires a stable ID".into(),
+            });
+        }
+        let mut ids = std::collections::HashSet::new();
+        for item in &self.items {
+            if item.id.trim().is_empty() || item.label.trim().is_empty() || !ids.insert(&item.id) {
+                return Err(UiIrError::InvalidPatch {
+                    message: "top nav IDs and labels must be unique and non-empty".into(),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One tab in a retained mobile navigation bar.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MobileNavItemNode {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+}
+
+/// Retained mobile bottom tab bar with parent-owned selection.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MobileNavNode {
+    pub id: String,
+    #[serde(default)]
+    pub items: Vec<MobileNavItemNode>,
+    #[serde(default)]
+    pub selected: Option<String>,
+    #[serde(default)]
+    pub action: Option<String>,
+}
+
+impl MobileNavNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() || self.items.is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "mobile nav requires an ID and at least one tab".into(),
+            });
+        }
+        let mut ids = std::collections::HashSet::new();
+        for item in &self.items {
+            if item.id.trim().is_empty() || item.label.trim().is_empty() || !ids.insert(&item.id) {
+                return Err(UiIrError::InvalidPatch {
+                    message: "mobile nav IDs and labels must be unique and non-empty".into(),
+                });
+            }
+        }
+        if self
+            .selected
+            .as_ref()
+            .is_some_and(|selected| !ids.contains(selected))
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "selected tab is not declared by this mobile nav".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Retained date range field showing start/end bounds without range selection.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DateRangeInputNode {
+    pub id: String,
+    #[serde(default)]
+    pub start: Option<String>,
+    #[serde(default)]
+    pub end: Option<String>,
+    #[serde(default)]
+    pub placeholder: Option<String>,
+    #[serde(default)]
+    pub disabled: bool,
+    #[serde(default)]
+    pub clearable: bool,
+    #[serde(default)]
+    pub action: Option<String>,
+}
+
+impl DateRangeInputNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "date range input requires a stable ID".into(),
+            });
+        }
+        for bound in [self.start.as_ref(), self.end.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            if !is_ymd_date(bound) {
+                return Err(UiIrError::InvalidPatch {
+                    message: "date range bounds must use YYYY-MM-DD".into(),
+                });
+            }
+        }
+        if let (Some(start), Some(end)) = (self.start.as_ref(), self.end.as_ref())
+            && start > end
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "date range start must not fall after the end".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Retained clock-time field showing an `HH:MM` value without time selection.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TimeInputNode {
+    pub id: String,
+    #[serde(default)]
+    pub value: Option<String>,
+    #[serde(default)]
+    pub placeholder: Option<String>,
+    #[serde(default)]
+    pub disabled: bool,
+    #[serde(default)]
+    pub clearable: bool,
+    #[serde(default)]
+    pub action: Option<String>,
+}
+
+impl TimeInputNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "time input requires a stable ID".into(),
+            });
+        }
+        if let Some(value) = self.value.as_ref()
+            && !is_hm_time(value)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "time input value must use HH:MM".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Retained date-time field showing date and time parts without selection.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DateTimeInputNode {
+    pub id: String,
+    #[serde(default)]
+    pub date: Option<String>,
+    #[serde(default)]
+    pub time: Option<String>,
+    #[serde(default)]
+    pub placeholder: Option<String>,
+    #[serde(default)]
+    pub disabled: bool,
+    #[serde(default)]
+    pub clearable: bool,
+    #[serde(default)]
+    pub action: Option<String>,
+}
+
+impl DateTimeInputNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "date time input requires a stable ID".into(),
+            });
+        }
+        if let Some(date) = self.date.as_ref()
+            && !is_ymd_date(date)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "date time date part must use YYYY-MM-DD".into(),
+            });
+        }
+        if let Some(time) = self.time.as_ref()
+            && !is_hm_time(time)
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "date time time part must use HH:MM".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// One retained chat transcript entry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatMessageNode {
+    #[serde(default)]
+    pub author: String,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub role: String,
+}
+
+impl ChatMessageNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if !matches!(self.role.as_str(), "user" | "assistant" | "system") {
+            return Err(UiIrError::InvalidPatch {
+                message: "chat message role must be user, assistant, or system".into(),
+            });
+        }
+        if self.body.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "chat message body is empty".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Retained conversation transcript with role-based bubbles.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChatNode {
+    pub id: String,
+    #[serde(default)]
+    pub messages: Vec<ChatMessageNode>,
+}
+
+impl ChatNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "chat requires a stable ID".into(),
+            });
+        }
+        for message in &self.messages {
+            message.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// Retained Markdown source rendered into blocks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MarkdownNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub source: String,
+}
+
+impl MarkdownNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.source.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "markdown source is empty".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Retained quotation with an optional citation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockquoteNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub quote: String,
+    #[serde(default)]
+    pub cite: Option<String>,
+}
+
+impl BlockquoteNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.quote.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "blockquote quote is empty".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// One titled slide inside a carousel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CarouselSlideNode {
+    pub title: String,
+    #[serde(default)]
+    pub body: String,
+}
+
+impl CarouselSlideNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.title.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "carousel slide title is empty".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Retained slide rotation with a parent-owned index.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CarouselNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub slides: Vec<CarouselSlideNode>,
+    #[serde(default)]
+    pub index: usize,
+    #[serde(default)]
+    pub change_action: Option<String>,
+}
+
+impl CarouselNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        for slide in &self.slides {
+            slide.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// Retained card with selected state and click activation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SelectableCardNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub title: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub selected: bool,
+    #[serde(default)]
+    pub disabled: bool,
+    #[serde(default)]
+    pub action: Option<String>,
+}
+
+impl SelectableCardNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.title.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "selectable card title is empty".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Retained source reference with attribution.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CitationNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub text: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub variant: Option<String>,
+}
+
+impl CitationNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.text.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "citation text is empty".into(),
+            });
+        }
+        if let Some(variant) = &self.variant
+            && !matches!(variant.as_str(), "inline" | "block")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "citation variant must be inline or block".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Retained muted time label.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TimestampNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub text: String,
+}
+
+impl TimestampNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.text.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "timestamp text is empty".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// One label/value row inside a metadata list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MetadataEntryNode {
+    pub label: String,
+    #[serde(default)]
+    pub value: String,
+}
+
+impl MetadataEntryNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.label.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "metadata entry label is empty".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Retained label/value detail list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MetadataListNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub entries: Vec<MetadataEntryNode>,
+}
+
+impl MetadataListNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        for entry in &self.entries {
+            entry.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// Retained file picker trigger row.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FileInputNode {
+    pub id: String,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    #[serde(default)]
+    pub accept: Option<String>,
+    #[serde(default)]
+    pub disabled: bool,
+    #[serde(default)]
+    pub action: Option<String>,
+}
+
+impl FileInputNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "file input requires a stable ID".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Retained multi-value token editor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TokenizerNode {
+    pub id: String,
+    #[serde(default)]
+    pub tokens: Vec<String>,
+    #[serde(default)]
+    pub placeholder: Option<String>,
+    #[serde(default)]
+    pub disabled: bool,
+    #[serde(default)]
+    pub action: Option<String>,
+}
+
+impl TokenizerNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.id.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "tokenizer requires a stable ID".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Retained field wrapper with one control slot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub help: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub child: Option<Box<UiNode>>,
+}
+
+impl FieldNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if let Some(child) = &self.child {
+            child.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// Retained validation message with severity styling.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FieldStatusNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub message: String,
+    #[serde(default)]
+    pub variant: Option<String>,
+}
+
+impl FieldStatusNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.message.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "field status message is empty".into(),
+            });
+        }
+        if let Some(variant) = self.variant.as_deref()
+            && !matches!(variant, "info" | "success" | "warning" | "error")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "field status variant must be info, success, warning, or error".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Retained loading placeholder reserving content shape.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SkeletonNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub variant: Option<String>,
+    #[serde(default)]
+    pub size: Option<String>,
+    #[serde(default)]
+    pub width: Option<f32>,
+    #[serde(default)]
+    pub height: Option<f32>,
+}
+
+impl SkeletonNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if let Some(variant) = self.variant.as_deref()
+            && !matches!(variant, "text" | "rectangular" | "circular")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "skeleton variant must be text, rectangular, or circular".into(),
+            });
+        }
+        if let Some(size) = self.size.as_deref()
+            && !matches!(size, "sm" | "md" | "lg")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "skeleton size must be sm, md, or lg".into(),
+            });
+        }
+        for dimension in [self.width, self.height].into_iter().flatten() {
+            if dimension.is_nan() || dimension <= 0.0 {
+                return Err(UiIrError::InvalidPatch {
+                    message: "skeleton dimensions must be positive".into(),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Retained display-only image overlay with a caption.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LightboxNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub src: String,
+    #[serde(default)]
+    pub alt: String,
+    #[serde(default)]
+    pub caption: Option<String>,
+}
+
+impl LightboxNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.src.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "lightbox src is empty".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Retained text-only card shown next to a target.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HoverCardNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub title: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub placement: Option<String>,
+    #[serde(default)]
+    pub size: Option<String>,
+}
+
+impl HoverCardNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.title.trim().is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "hover card title is empty".into(),
+            });
+        }
+        if let Some(placement) = self.placement.as_deref()
+            && !matches!(placement, "top" | "bottom" | "left" | "right")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "hover card placement must be top, bottom, left, or right".into(),
+            });
+        }
+        if let Some(size) = self.size.as_deref()
+            && !matches!(size, "sm" | "md" | "lg")
+        {
+            return Err(UiIrError::InvalidPatch {
+                message: "hover card size must be sm, md, or lg".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Retained minimal overlay container with owned children.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayerNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub children: Vec<UiNode>,
+    #[serde(default = "default_true")]
+    pub show_backdrop: bool,
+}
+
+impl LayerNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        for child in &self.children {
+            child.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// Retained month-grid calendar with an optional selection and bounds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CalendarNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub year: i32,
+    pub month: u8,
+    #[serde(default)]
+    pub selected: Option<String>,
+    #[serde(default)]
+    pub min: Option<String>,
+    #[serde(default)]
+    pub max: Option<String>,
+    #[serde(default)]
+    pub select_action: Option<String>,
+}
+
+impl CalendarNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if !(1..=9999).contains(&self.year) || !(1..=12).contains(&self.month) {
+            return Err(UiIrError::InvalidPatch {
+                message: "calendar needs a year 1-9999 and a month 1-12".into(),
+            });
+        }
+        for date in [&self.selected, &self.min, &self.max].into_iter().flatten() {
+            if !is_ymd_date(date) {
+                return Err(UiIrError::InvalidPatch {
+                    message: "calendar dates must use YYYY-MM-DD".into(),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Retained page-button control for long result sets.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaginationNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub page: usize,
+    pub total_pages: usize,
+    #[serde(default = "default_pagination_siblings")]
+    pub siblings: usize,
+    #[serde(default)]
+    pub change_action: Option<String>,
+}
+
+fn default_pagination_siblings() -> usize {
+    1
+}
+
+impl PaginationNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.total_pages < 1 || self.page < 1 || self.page > self.total_pages {
+            return Err(UiIrError::InvalidPatch {
+                message: "pagination needs total_pages >= 1 with 1 <= page <= total".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// One retained list row: stable id, label, and optional description.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ListItemNode {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub disabled: bool,
+}
+
+/// Retained static selectable row list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ListNode {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub items: Vec<ListItemNode>,
+    #[serde(default)]
+    pub selected: Option<String>,
+    #[serde(default)]
+    pub select_action: Option<String>,
+}
+
+impl ListNode {
+    fn validate(&self) -> Result<(), UiIrError> {
+        if self.items.is_empty() {
+            return Err(UiIrError::InvalidPatch {
+                message: "list needs at least one row".into(),
+            });
+        }
+        for item in &self.items {
+            if item.id.trim().is_empty() || item.label.trim().is_empty() {
+                return Err(UiIrError::InvalidPatch {
+                    message: "list rows need non-blank ids and labels".into(),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Whether `value` looks like a `HH:MM` clock time.
+fn is_hm_time(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 5 || bytes[2] != b':' {
+        return false;
+    }
+    if !(bytes[0..2].iter().all(u8::is_ascii_digit) && bytes[3..5].iter().all(u8::is_ascii_digit)) {
+        return false;
+    }
+    let hour: u32 = value[0..2].parse().unwrap_or(24);
+    let minute: u32 = value[3..5].parse().unwrap_or(60);
+    hour <= 23 && minute <= 59
+}
+
+/// Whether `value` looks like a `YYYY-MM-DD` calendar date.
+fn is_ymd_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    let digits = |range: std::ops::Range<usize>| bytes[range].iter().all(u8::is_ascii_digit);
+    if !(digits(0..4) && digits(5..7) && digits(8..10)) {
+        return false;
+    }
+    let month: u32 = value[5..7].parse().unwrap_or(0);
+    let day: u32 = value[8..10].parse().unwrap_or(0);
+    (1..=12).contains(&month) && (1..=31).contains(&day)
 }
 
 /// One semantic item in a native menu or context menu.
@@ -3886,6 +5005,41 @@ mod tests {
     }
 
     #[test]
+    fn layout_primitives_validate_children_and_constraints() {
+        let app = app_with_content(serde_json::json!({
+            "kind": "vstack",
+            "children": [
+                {"kind": "grid", "columns": 2, "gap": 8.0, "children": [
+                    {"kind": "text", "text": "a"},
+                    {"kind": "text", "text": "b"},
+                ]},
+                {"kind": "center", "max_width": 280.0, "children": [
+                    {"kind": "text", "text": "centered"},
+                ]},
+                {"kind": "aspect_ratio", "ratio": 1.7777, "children": [
+                    {"kind": "text", "text": "16:9"},
+                ]},
+                {"kind": "resizable", "handle": "corner", "width": 320.0,
+                 "children": [{"kind": "text", "text": "panel"}]},
+                {"kind": "visually_hidden", "focusable": true, "children": [
+                    {"kind": "text", "text": "skip"},
+                ]},
+            ]
+        }));
+        app.validate().expect("layout primitives validate");
+
+        assert_invalid_content(serde_json::json!({"kind": "grid", "columns": 0}));
+        assert_invalid_content(serde_json::json!({"kind": "grid", "columns": 2, "rows": 0}));
+        assert_invalid_content(serde_json::json!({"kind": "aspect_ratio", "ratio": 0.0}));
+        assert_invalid_content(serde_json::json!({"kind": "resizable", "handle": "diagonal"}));
+        assert_invalid_content(serde_json::json!({
+            "kind": "grid",
+            "columns": 2,
+            "children": [{"kind": "grid", "columns": 0}],
+        }));
+    }
+
+    #[test]
     fn scene2d_patch_commits_in_revision_order_and_app_transactions_are_atomic() {
         let mut app = app_with_content(serde_json::json!({
             "kind": "scene2d",
@@ -5216,6 +6370,280 @@ mod tests {
     }
 
     #[test]
+    fn validates_shell_and_navigation_nodes() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "app_shell", "id": "shell", "sidebar_side": "right",
+                "header": {"kind": "top_nav", "id": "nav", "brand": "Demo",
+                    "items": [{"id": "home", "label": "Home", "active": true}]},
+                "content": {"kind": "text", "text": "Body"},
+                "footer": {"kind": "mobile_nav", "id": "tabs", "selected": "home",
+                    "items": [{"id": "home", "label": "Home", "icon": "H"}]}
+            }}]
+        }))
+        .unwrap();
+        app.validate().unwrap();
+
+        let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "mobile_nav", "id": "tabs", "selected": "unknown",
+                "items": [{"id": "home", "label": "Home"}]
+            }}]
+        }))
+        .unwrap();
+        assert!(matches!(
+            invalid.validate(),
+            Err(UiIrError::InvalidPatch { .. })
+        ));
+    }
+
+    #[test]
+    fn validates_date_range_input_bounds() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "date_range_input", "id": "stay",
+                "start": "2026-10-01", "end": "2026-10-07", "clearable": true
+            }}]
+        }))
+        .unwrap();
+        app.validate().unwrap();
+
+        for content in [
+            serde_json::json!({"kind": "date_range_input", "id": "stay", "start": "10/01/2026"}),
+            serde_json::json!({"kind": "date_range_input", "id": "stay",
+                "start": "2026-10-07", "end": "2026-10-01"}),
+        ] {
+            let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+                "title": "Demo",
+                "sections": [{"id": "main", "label": "Main", "content": content}]
+            }))
+            .unwrap();
+            assert!(matches!(
+                invalid.validate(),
+                Err(UiIrError::InvalidPatch { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn validates_time_and_datetime_values() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [
+                {"id": "a", "label": "A", "content": {
+                    "kind": "time_input", "id": "standup", "value": "09:30"
+                }},
+                {"id": "b", "label": "B", "content": {
+                    "kind": "date_time_input", "id": "launch",
+                    "date": "2026-10-07", "time": "09:30"
+                }},
+            ]
+        }))
+        .unwrap();
+        app.validate().unwrap();
+
+        for content in [
+            serde_json::json!({"kind": "time_input", "id": "standup", "value": "9:30"}),
+            serde_json::json!({"kind": "time_input", "id": "standup", "value": "24:00"}),
+            serde_json::json!({"kind": "date_time_input", "id": "launch", "date": "10/07/2026"}),
+            serde_json::json!({"kind": "date_time_input", "id": "launch", "time": "nope"}),
+        ] {
+            let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+                "title": "Demo",
+                "sections": [{"id": "main", "label": "Main", "content": content}]
+            }))
+            .unwrap();
+            assert!(matches!(
+                invalid.validate(),
+                Err(UiIrError::InvalidPatch { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn validates_chat_markdown_and_blockquote_content() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [
+                {"id": "a", "label": "A", "content": {
+                    "kind": "chat", "id": "thread",
+                    "messages": [
+                        {"author": "Ada", "body": "Hi", "role": "user"},
+                        {"author": "Bot", "body": "Hello", "role": "assistant"},
+                    ]
+                }},
+                {"id": "b", "label": "B", "content": {
+                    "kind": "markdown", "source": "# Title"
+                }},
+                {"id": "c", "label": "C", "content": {
+                    "kind": "blockquote", "quote": "Ship it.", "cite": "Captain"
+                }},
+            ]
+        }))
+        .unwrap();
+        app.validate().unwrap();
+
+        for content in [
+            serde_json::json!({"kind": "chat", "id": "thread",
+                "messages": [{"author": "Ada", "body": "Hi", "role": "owner"}]}),
+            serde_json::json!({"kind": "chat", "id": "thread",
+                "messages": [{"author": "Ada", "body": "  ", "role": "user"}]}),
+            serde_json::json!({"kind": "markdown", "source": "   "}),
+            serde_json::json!({"kind": "blockquote", "quote": ""}),
+        ] {
+            let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+                "title": "Demo",
+                "sections": [{"id": "main", "label": "Main", "content": content}]
+            }))
+            .unwrap();
+            assert!(matches!(
+                invalid.validate(),
+                Err(UiIrError::InvalidPatch { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn validates_overlay_preview_nodes() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [
+                {"id": "a", "label": "A", "content": {
+                    "kind": "lightbox", "src": "assets/painting.png",
+                    "caption": "Gallery preview"
+                }},
+                {"id": "b", "label": "B", "content": {
+                    "kind": "hover_card", "title": "Ada",
+                    "placement": "right", "size": "lg"
+                }},
+                {"id": "c", "label": "C", "content": {
+                    "kind": "layer",
+                    "children": [{"kind": "text", "text": "Hi"}]
+                }},
+            ]
+        }))
+        .unwrap();
+        app.validate().unwrap();
+
+        for content in [
+            serde_json::json!({"kind": "lightbox", "src": "   "}),
+            serde_json::json!({"kind": "hover_card", "title": ""}),
+            serde_json::json!({"kind": "hover_card", "title": "Ada", "placement": "center"}),
+            serde_json::json!({"kind": "hover_card", "title": "Ada", "size": "xl"}),
+        ] {
+            let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+                "title": "Demo",
+                "sections": [{"id": "main", "label": "Main", "content": content}]
+            }))
+            .unwrap();
+            assert!(matches!(
+                invalid.validate(),
+                Err(UiIrError::InvalidPatch { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn validates_content_rotation_and_detail_nodes() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [
+                {"id": "a", "label": "A", "content": {
+                    "kind": "carousel", "index": 1,
+                    "slides": [
+                        {"title": "Fast", "body": "Starts fast."},
+                        {"title": "Portable", "body": "Runs anywhere."},
+                    ]
+                }},
+                {"id": "b", "label": "B", "content": {
+                    "kind": "selectable_card", "title": "Pro",
+                    "description": "For teams.", "selected": true,
+                }},
+                {"id": "c", "label": "C", "content": {
+                    "kind": "citation", "text": "Move slowly.",
+                    "source": "Handbook", "variant": "block",
+                }},
+                {"id": "d", "label": "D", "content": {
+                    "kind": "timestamp", "text": "Edited 2 hours ago"
+                }},
+                {"id": "e", "label": "E", "content": {
+                    "kind": "metadata_list",
+                    "entries": [{"label": "Author", "value": "Ada"}]
+                }},
+            ]
+        }))
+        .unwrap();
+        app.validate().unwrap();
+
+        for content in [
+            serde_json::json!({"kind": "carousel",
+                "slides": [{"title": "  ", "body": "Empty title"}]}),
+            serde_json::json!({"kind": "selectable_card", "title": ""}),
+            serde_json::json!({"kind": "citation", "text": "  "}),
+            serde_json::json!({"kind": "citation",
+                "text": "Move slowly.", "variant": "sideways"}),
+            serde_json::json!({"kind": "timestamp", "text": ""}),
+            serde_json::json!({"kind": "metadata_list",
+                "entries": [{"label": "", "value": "Ada"}]}),
+        ] {
+            let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+                "title": "Demo",
+                "sections": [{"id": "main", "label": "Main", "content": content}]
+            }))
+            .unwrap();
+            assert!(matches!(
+                invalid.validate(),
+                Err(UiIrError::InvalidPatch { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn validates_calendar_pagination_and_list_nodes() {
+        let app: PythonAppIr = serde_json::from_value(serde_json::json!({
+            "title": "Demo",
+            "sections": [{"id": "main", "label": "Main", "content": {
+                "kind": "vstack", "children": [
+                    {"kind": "calendar", "id": "departure", "year": 2026, "month": 10,
+                     "selected": "2026-10-07", "select_action": "pick-day"},
+                    {"kind": "pagination", "id": "results", "page": 5, "total_pages": 12,
+                     "change_action": "turn-page"},
+                    {"kind": "list", "id": "servers", "selected": "a", "select_action": "pick-row",
+                     "items": [
+                        {"id": "a", "label": "Alpha", "description": "Primary"},
+                        {"id": "b", "label": "Beta", "disabled": true},
+                    ]},
+                ]
+            }}]
+        }))
+        .unwrap();
+        app.validate().unwrap();
+
+        for content in [
+            serde_json::json!({"kind": "calendar", "year": 2026, "month": 13}),
+            serde_json::json!({"kind": "calendar", "year": 2026, "month": 10,
+                "selected": "Oct 7"}),
+            serde_json::json!({"kind": "pagination", "page": 0, "total_pages": 4}),
+            serde_json::json!({"kind": "pagination", "page": 5, "total_pages": 4}),
+            serde_json::json!({"kind": "list", "items": []}),
+            serde_json::json!({"kind": "list", "items": [{"id": "", "label": "No id"}]}),
+        ] {
+            let invalid: PythonAppIr = serde_json::from_value(serde_json::json!({
+                "title": "Demo",
+                "sections": [{"id": "main", "label": "Main", "content": content}]
+            }))
+            .unwrap();
+            assert!(matches!(
+                invalid.validate(),
+                Err(UiIrError::InvalidPatch { .. })
+            ));
+        }
+    }
+
+    #[test]
     fn validates_native_confirmation_dialog_actions() {
         let app: PythonAppIr = serde_json::from_value(serde_json::json!({
             "title": "Demo",
@@ -5728,5 +7156,267 @@ mod tests {
         for content in invalid {
             assert_invalid_content(content);
         }
+    }
+
+    #[test]
+    fn new_input_and_feedback_nodes_validate_ids_and_value_contracts() {
+        let app = app_with_content(serde_json::json!({
+            "kind": "vstack",
+            "children": [
+                {"kind": "file_input", "id": "resume", "file_name": "cv.pdf",
+                 "accept": ".pdf", "action": "upload"},
+                {"kind": "tokenizer", "id": "tags", "tokens": ["rust"],
+                 "placeholder": "Add tag", "action": "retokenize"},
+                {"kind": "field", "id": "name-field", "label": "Name",
+                 "required": true, "help": "Your name",
+                 "child": {"kind": "text", "text": "Ada"}},
+                {"kind": "field_status", "id": "name-status",
+                 "message": "Looks good", "variant": "success"},
+                {"kind": "skeleton", "id": "loading", "variant": "rectangular",
+                 "size": "md", "width": 240.0, "height": 16.0},
+                {"kind": "confirm_dialog", "id": "quit", "message": "Quit?"},
+            ]
+        }));
+        app.validate().expect("new input nodes validate");
+
+        let invalid = [
+            serde_json::json!({"kind": "app_shell", "id": ""}),
+            serde_json::json!({"kind": "top_nav", "id": "  ", "items": []}),
+            serde_json::json!({"kind": "top_nav", "id": "n", "items": [
+                {"id": "a", "label": "A"}, {"id": "a", "label": "B"}]}),
+            serde_json::json!({"kind": "top_nav", "id": "n", "items": [
+                {"id": "", "label": "A"}]}),
+            serde_json::json!({"kind": "mobile_nav", "id": "", "items": []}),
+            serde_json::json!({"kind": "mobile_nav", "id": "tabs", "items": []}),
+            serde_json::json!({"kind": "mobile_nav", "id": "tabs", "items": [
+                {"id": "a", "label": "A"}, {"id": "a", "label": "B"}]}),
+            serde_json::json!({"kind": "date_range_input", "id": ""}),
+            serde_json::json!({"kind": "time_input", "id": ""}),
+            serde_json::json!({"kind": "time_input", "id": "t", "value": "ab:cd"}),
+            serde_json::json!({"kind": "date_time_input", "id": ""}),
+            serde_json::json!({"kind": "date_time_input", "id": "d", "date": "20ab-01-01"}),
+            serde_json::json!({"kind": "chat", "id": ""}),
+            serde_json::json!({"kind": "file_input", "id": "  "}),
+            serde_json::json!({"kind": "tokenizer", "id": ""}),
+            serde_json::json!({"kind": "field", "id": "f",
+                "child": {"kind": "grid", "columns": 0}}),
+            serde_json::json!({"kind": "field_status", "message": "  "}),
+            serde_json::json!({"kind": "field_status", "message": "m", "variant": "bogus"}),
+            serde_json::json!({"kind": "skeleton", "variant": "oval"}),
+            serde_json::json!({"kind": "skeleton", "size": "xl"}),
+            serde_json::json!({"kind": "skeleton", "width": -4.0}),
+        ];
+        for content in invalid {
+            assert_invalid_content(content);
+        }
+    }
+
+    #[test]
+    fn new_layout_nodes_apply_documented_serde_defaults() {
+        let grid: UiNode = serde_json::from_value(serde_json::json!({
+            "kind": "grid", "children": [{"kind": "text", "text": "a"}]
+        }))
+        .unwrap();
+        let UiNode::Grid(grid) = grid else {
+            panic!("expected grid node");
+        };
+        assert_eq!(grid.columns, 2);
+
+        let ratio: UiNode = serde_json::from_value(serde_json::json!({
+            "kind": "aspect_ratio", "children": [{"kind": "text", "text": "a"}]
+        }))
+        .unwrap();
+        let UiNode::AspectRatio(ratio) = ratio else {
+            panic!("expected aspect ratio node");
+        };
+        assert!((ratio.ratio - 16.0 / 9.0).abs() < f32::EPSILON);
+
+        let resizable: UiNode = serde_json::from_value(serde_json::json!({
+            "kind": "resizable", "children": [{"kind": "text", "text": "a"}]
+        }))
+        .unwrap();
+        let UiNode::Resizable(resizable) = resizable else {
+            panic!("expected resizable node");
+        };
+        assert_eq!(resizable.handle, "corner");
+    }
+
+    #[test]
+    fn child_contains_id_traverses_new_layout_and_component_nodes() {
+        let fixtures = [
+            (
+                serde_json::json!({"kind": "grid",
+                    "children": [{"kind": "time_input", "id": "target"}]}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "center",
+                    "children": [{"kind": "time_input", "id": "target"}]}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "aspect_ratio",
+                    "children": [{"kind": "time_input", "id": "target"}]}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "resizable",
+                    "children": [{"kind": "time_input", "id": "target"}]}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "visually_hidden",
+                    "children": [{"kind": "time_input", "id": "target"}]}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "app_shell", "id": "shell",
+                    "content": {"kind": "time_input", "id": "target"}}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "top_nav", "id": "nav",
+                    "items": [{"id": "target", "label": "T"}]}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "mobile_nav", "id": "tabs",
+                    "items": [{"id": "target", "label": "T"}]}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "date_range_input", "id": "target"}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "time_input", "id": "target"}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "date_time_input", "id": "target"}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "chat", "id": "target"}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "file_input", "id": "target"}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "tokenizer", "id": "target"}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "field", "id": "target"}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "field",
+                    "child": {"kind": "time_input", "id": "target"}}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "field_status", "id": "target", "message": "m"}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "skeleton", "id": "target"}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "lightbox", "id": "target", "src": "x.png"}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "hover_card", "id": "target", "title": "T"}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "layer", "id": "target"}),
+                "target",
+            ),
+            (
+                serde_json::json!({"kind": "layer",
+                    "children": [{"kind": "time_input", "id": "target"}]}),
+                "target",
+            ),
+        ];
+        for (fixture, target) in fixtures {
+            let node: UiNode = serde_json::from_value(fixture).unwrap();
+            assert!(child_contains_id(&node, target));
+        }
+        let shell: UiNode = serde_json::from_value(serde_json::json!({
+            "kind": "app_shell", "id": "shell",
+            "content": {"kind": "time_input", "id": "other"}
+        }))
+        .unwrap();
+        assert!(!child_contains_id(&shell, "target"));
+    }
+
+    #[test]
+    fn scene2d_replace_commits_and_patch_ops_reject_wrong_targets() {
+        use crate::scene2d::Scene2DScene;
+
+        let scene = |revision: u32| {
+            serde_json::json!({
+                "version": 1,
+                "revision": revision,
+                "view_box": {"x": 0.0, "y": 0.0, "width": 32.0, "height": 32.0},
+                "nodes": [],
+                "input": {"pointer": true, "continuous": false, "capture": true, "keyboard": true}
+            })
+        };
+        let mut app = app_with_content(serde_json::json!({
+            "kind": "scene2d",
+            "id": "board",
+            "scene": scene(1),
+        }));
+        app.validate().expect("initial Scene2D app validates");
+
+        let next: Scene2DScene =
+            serde_json::from_value(scene(2)).expect("decode replacement scene");
+        app.apply_patch_ops(&[crate::session::PatchOp::Scene2DReplace {
+            id: "board".into(),
+            scene: next,
+        }])
+        .expect("scene replacement commits");
+        let UiNode::Scene2D(node) = app.sections[0].content.clone() else {
+            panic!("expected Scene2D app node");
+        };
+        assert_eq!(node.scene.revision, 2);
+
+        let mut leaf =
+            app_with_content(serde_json::json!({"kind": "text", "id": "leaf", "text": "x"}));
+        let delta: crate::scene2d::Scene2DPatch = serde_json::from_value(serde_json::json!({
+            "base_revision": 1,
+            "revision": 2,
+            "upsert": []
+        }))
+        .expect("decode Scene2D delta");
+        assert!(
+            leaf.apply_patch_ops(&[crate::session::PatchOp::Scene2DPatch {
+                id: "leaf".into(),
+                patch: delta,
+            }])
+            .is_err()
+        );
+        let replacement: Scene2DScene =
+            serde_json::from_value(scene(2)).expect("decode replacement scene");
+        assert!(
+            leaf.apply_patch_ops(&[crate::session::PatchOp::Scene2DReplace {
+                id: "leaf".into(),
+                scene: replacement,
+            }])
+            .is_err()
+        );
+        assert!(
+            leaf.apply_patch_ops(&[crate::session::PatchOp::Reorder {
+                parent_id: "leaf".into(),
+                child_ids: Vec::new(),
+            }])
+            .is_err()
+        );
     }
 }

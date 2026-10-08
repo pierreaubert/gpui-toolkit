@@ -38,6 +38,33 @@
 - Enforced safe Rust across portable first-party crates and documented the
   remaining reviewed native FFI boundaries.
 
+### Tooling
+
+- Added the unified `gpui-toolkit` CLI (`gpui-toolkit-cli`): component
+  catalog queries with batch reads, page/block/theme templates, theme
+  token export, `doctor` health checks, `upgrade` migration notes plus
+  deprecated-pattern detection, `toolkit.toml` project configuration,
+  and a self-describing JSON manifest. Every command honors `--json`
+  with typed envelopes and stable `ERR_*` codes.
+- Added `gpui-layout-expr`: a compact layout-expression language
+  (`V > (Tx"Hi" + B.primary"Save")`) with parser, registry validation,
+  project aliases, CLI check/expand, and the compile-time `layout!`
+  proc macro in `gpui-ui-kit-macros`.
+
+### Components
+
+- Added 30 UI-kit components: AppShell/TopNav/MobileNav shell family,
+  Calendar, DateRangeInput/TimeInput/DateTimeInput, Chat, Markdown/
+  Blockquote, FileInput, Pagination, Skeleton, Field/FieldStatus,
+  Tokenizer, Lightbox, Carousel, HoverCard, Grid/Center/AspectRatio
+  layout primitives, Layer, VisuallyHidden, SelectableCard,
+  MetadataList, Citation, Timestamp, Resizable, and List. Each ships
+  with theme coverage, behavior-matrix rows, i18n labels, lab stories,
+  showcase sections, and Python bindings. Banner, BottomSheet,
+  AvatarGroup, StatusDot, and CodeBlock were already covered by
+  existing equivalents (Alert, SwipePanel, Avatar, BadgeDot,
+  Code::block).
+
 ## 0.9.7 - 2026-08-07
 
 ### Python Surface

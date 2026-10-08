@@ -1,5 +1,12 @@
 # Unreleased
 
+## Added
+
+- Added the `layout!` proc macro: compile-time layout expressions
+  (`V { H { B.primary("Save") #save } }`) parsed with `syn` into the
+  shared `gpui-layout-expr` AST, quoting the same element chains as
+  the CLI expander, with unknown components failing the build.
+
 ## Refactored
 
 - Normalized formatting in the `ComponentVariant` derive; no behavior

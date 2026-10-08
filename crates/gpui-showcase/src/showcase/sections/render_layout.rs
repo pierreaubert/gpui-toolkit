@@ -418,6 +418,120 @@ impl Showcase {
                     )
                     .child(self.render_pane_divider_demo(cx)),
             )
+            // Grid
+            .child(
+                VStack::new()
+                    .spacing(StackSpacing::Sm)
+                    .child(Text::new("Grid").weight(TextWeight::Medium))
+                    .child(
+                        Text::new("Fixed-column grid with design-system gaps")
+                            .size(TextSize::Sm)
+                            .color(theme.text_muted),
+                    )
+                    .child(
+                        Grid::new("layout-grid")
+                            .columns(3)
+                            .gap(StackSpacing::Sm)
+                            .children((1..=6).map(|index| {
+                                div()
+                                    .p_3()
+                                    .bg(theme.surface_hover)
+                                    .rounded_md()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(Text::new(format!("Cell {index}")).size(TextSize::Sm))
+                            })),
+                    ),
+            )
+            // Center
+            .child(
+                VStack::new()
+                    .spacing(StackSpacing::Sm)
+                    .child(Text::new("Center").weight(TextWeight::Medium))
+                    .child(
+                        div()
+                            .w(px(500.0))
+                            .h(px(140.0))
+                            .bg(theme.surface)
+                            .rounded_md()
+                            .child(
+                                Center::new("layout-center").max_width(px(280.0)).child(
+                                    div().p_3().bg(theme.accent).rounded_md().child(
+                                        Text::new("Centered content").color(theme.background),
+                                    ),
+                                ),
+                            ),
+                    ),
+            )
+            // AspectRatio
+            .child(
+                VStack::new()
+                    .spacing(StackSpacing::Sm)
+                    .child(Text::new("Aspect Ratio").weight(TextWeight::Medium))
+                    .child(
+                        div().w(px(320.0)).child(
+                            AspectRatio::new("layout-aspect")
+                                .preset(AspectRatioPreset::Widescreen)
+                                .aria_label("16:9 preview")
+                                .child(
+                                    div()
+                                        .size_full()
+                                        .bg(theme.surface_hover)
+                                        .rounded_md()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .child(Text::new("16 : 9").size(TextSize::Sm)),
+                                ),
+                        ),
+                    ),
+            )
+            // Resizable
+            .child(
+                VStack::new()
+                    .spacing(StackSpacing::Sm)
+                    .child(Text::new("Resizable").weight(TextWeight::Medium))
+                    .child(
+                        Text::new("Drag the corner handle to resize the panel")
+                            .size(TextSize::Sm)
+                            .color(theme.text_muted),
+                    )
+                    .child(
+                        Resizable::new("layout-resizable")
+                            .handle(ResizableHandle::Corner)
+                            .width(px(320.0))
+                            .height(px(120.0))
+                            .min_width(px(160.0))
+                            .min_height(px(80.0))
+                            .aria_label("Resizable demo panel")
+                            .child(
+                                div()
+                                    .size_full()
+                                    .p_3()
+                                    .bg(theme.surface)
+                                    .rounded_md()
+                                    .child(Text::new("Drag my corner").size(TextSize::Sm)),
+                            ),
+                    ),
+            )
+            // VisuallyHidden
+            .child(
+                VStack::new()
+                    .spacing(StackSpacing::Sm)
+                    .child(Text::new("Visually Hidden").weight(TextWeight::Medium))
+                    .child(
+                        Text::new("Screen-reader-only content. Tab here to reveal the skip link.")
+                            .size(TextSize::Sm)
+                            .color(theme.text_muted),
+                    )
+                    .child(
+                        VisuallyHidden::new("layout-skip-link")
+                            .focusable(true)
+                            .aria_label("Skip to layout demos")
+                            .child(Text::new("Skip to layout demos")),
+                    ),
+            )
     }
 
     pub(crate) fn render_pane_divider_demo(&self, cx: &mut Context<Self>) -> impl IntoElement {

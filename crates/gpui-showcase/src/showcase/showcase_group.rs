@@ -77,10 +77,23 @@ impl ShowcaseGroup {
                 ShowcaseSection::Badges,
                 ShowcaseSection::Tag,
                 ShowcaseSection::KeyboardShortcut,
+                ShowcaseSection::Markdown,
+                ShowcaseSection::Blockquote,
+                ShowcaseSection::Citation,
+                ShowcaseSection::Timestamp,
+                ShowcaseSection::MetadataList,
             ],
             ShowcaseGroup::FormControls => &[
                 ShowcaseSection::FormControls,
                 ShowcaseSection::SettingsForm,
+                ShowcaseSection::DateRangeInput,
+                ShowcaseSection::TimeInput,
+                ShowcaseSection::DateTimeInput,
+                ShowcaseSection::FileInput,
+                ShowcaseSection::Tokenizer,
+                ShowcaseSection::Field,
+                ShowcaseSection::FieldStatus,
+                ShowcaseSection::Calendar,
                 ShowcaseSection::Accessibility,
             ],
             ShowcaseGroup::Navigation => &[
@@ -88,8 +101,11 @@ impl ShowcaseGroup {
                 ShowcaseSection::ContextMenu,
                 ShowcaseSection::CommandPalette,
                 ShowcaseSection::Tabs,
+                ShowcaseSection::TopNav,
+                ShowcaseSection::MobileNav,
                 ShowcaseSection::Breadcrumbs,
                 ShowcaseSection::SearchBar,
+                ShowcaseSection::Pagination,
             ],
             ShowcaseGroup::Feedback => &[
                 ShowcaseSection::Alerts,
@@ -100,6 +116,7 @@ impl ShowcaseGroup {
                 ShowcaseSection::ThinkingOrbs,
                 ShowcaseSection::LoadingOverlay,
                 ShowcaseSection::EmptyState,
+                ShowcaseSection::Skeleton,
             ],
             ShowcaseGroup::DataDisplay => &[
                 ShowcaseSection::Table,
@@ -107,15 +124,23 @@ impl ShowcaseGroup {
                 ShowcaseSection::Avatars,
                 ShowcaseSection::TreeView,
                 ShowcaseSection::DragList,
+                ShowcaseSection::Chat,
+                ShowcaseSection::Carousel,
+                ShowcaseSection::SelectableCard,
+                ShowcaseSection::List,
             ],
             ShowcaseGroup::Overlays => &[
                 ShowcaseSection::Dialog,
                 ShowcaseSection::ConfirmDialog,
                 ShowcaseSection::Popover,
                 ShowcaseSection::Tooltips,
+                ShowcaseSection::Lightbox,
+                ShowcaseSection::HoverCard,
+                ShowcaseSection::Layer,
             ],
             ShowcaseGroup::LayoutAndStructure => &[
                 ShowcaseSection::Layout,
+                ShowcaseSection::AppShell,
                 ShowcaseSection::SplitPane,
                 ShowcaseSection::Sidebar,
                 ShowcaseSection::StatusBar,
@@ -151,13 +176,26 @@ Icon Buttons are compact, icon-only variants for toolbars and tight spaces where
 Text renders styled inline or block text. \
 Badges are small status indicators (counts, labels) typically attached to other elements. \
 Tags are removable, categorical labels for filtering and tagging content. \
-Keyboard Shortcuts display key combinations like Cmd+S."
+Keyboard Shortcuts display key combinations like Cmd+S. \
+Markdown renders headings, code, lists, and quotes from source text. \
+Blockquote styles a quotation with an optional citation. \
+Citation is a standalone source reference, inline or stacked. \
+Timestamp is a muted time label for edited-at style metadata. \
+Metadata List aligns label/value detail rows with dividers."
             }
 
             ShowcaseGroup::FormControls => {
                 "\
 Form Controls are individual input primitives (toggles, checkboxes, sliders, selects, number inputs). \
-Settings Form composes multiple form controls into a labeled, grouped settings page with sections and descriptions."
+Settings Form composes multiple form controls into a labeled, grouped settings page with sections and descriptions. \
+Date Range Input displays a start/end date pair with an optional clear affordance; it offers no calendar popup. \
+Time Input displays a clock time with the same display-only contract. \
+Date Time Input displays a combined date and time pair. \
+File Input is a picker trigger row showing the chosen file name and firing browse activation. \
+Tokenizer renders multi-value tokens as removable chips. \
+Field wraps one control with a label, required marker, and help or error text. \
+Field Status is a severity-styled validation message. \
+Calendar is a month grid with day picking and keyboard selection."
             }
 
             ShowcaseGroup::Navigation => {
@@ -166,8 +204,11 @@ Menu is a bare dropdown panel of items you position yourself (used inside MenuBa
 Context Menu wraps Menu with absolute positioning at the cursor and a click-outside-to-dismiss backdrop (right-click menus). \
 Command Palette is a searchable, filterable command list triggered by a keyboard shortcut. \
 Tabs switch between views in a fixed set. \
+Top Nav is a horizontal bar with brand, links, and trailing actions. \
+Mobile Nav is a bottom tab bar with parent-owned selection. \
 Breadcrumbs show hierarchical location for drill-down navigation. \
-Search Bar provides a text input with search-specific affordances (icon, clear button)."
+Search Bar provides a text input with search-specific affordances (icon, clear button). \
+Pagination is a page-button window with ellipsis gaps for long result sets."
             }
 
             ShowcaseGroup::Feedback => {
@@ -179,7 +220,8 @@ Progress shows determinate completion (0-100%). \
 Spinners show indeterminate loading with no known duration. \
 Thinking Orbs render animated dotted-sphere status indicators with an adjustable point density. \
 Loading Overlay covers a region with a spinner and optional message, blocking interaction. \
-Empty State is a placeholder shown when a list or view has no data."
+Empty State is a placeholder shown when a list or view has no data. \
+Skeleton reserves the shape of loading content with text, rectangle, or circle placeholders."
             }
 
             ShowcaseGroup::DataDisplay => {
@@ -188,7 +230,11 @@ Table displays structured rows and columns with sorting and selection. \
 Cards are flexible content containers for preview or summary information. \
 Avatars represent users or entities with images or initials. \
 Tree View shows hierarchical, expandable data (file trees, nested lists). \
-Drag List is an orderable list where items can be reordered by dragging."
+Drag List is an orderable list where items can be reordered by dragging. \
+Chat is a conversation transcript with role-based message bubbles. \
+Carousel rotates titled slides with previous, next, and dot navigation. \
+Selectable Card is a card with selected state and click activation. \
+List is a static selectable row list with descriptions and keyboard navigation."
             }
 
             ShowcaseGroup::Overlays => {
@@ -196,12 +242,16 @@ Drag List is an orderable list where items can be reordered by dragging."
 Dialog is a general-purpose modal overlay for complex content (forms, detail views). \
 Confirm Dialog is a focused, pre-built dialog for yes/no confirmation prompts with variant styling (info, warning, danger). \
 Popover is a non-modal floating panel anchored to a trigger element (menus, pickers). \
-Tooltips are small, hover-triggered text hints that describe an element."
+Tooltips are small, hover-triggered text hints that describe an element. \
+Lightbox is a display-only image overlay with a caption. \
+Hover Card is a text-only card shown next to a hovered target. \
+Layer is a minimal overlay container with no stacking management."
             }
 
             ShowcaseGroup::LayoutAndStructure => {
                 "\
 Layout provides flex/grid containers and spacing primitives (VStack, HStack, Divider). \
+App Shell is a slot frame composing a header, sidebar, content, and footer without product opinions. \
 Split Pane divides a region into resizable panels with a draggable divider. \
 Sidebar is a fixed or collapsible side panel for navigation or tools. \
 Status Bar is a narrow bar at the window bottom for status information. \

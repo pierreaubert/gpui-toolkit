@@ -434,6 +434,11 @@ NATIVE_SECTION_ORDER = (
     ("drag-list", "Drag List"), ("command-palette", "Command Palette"),
     ("accessibility", "Accessibility"), ("audio-visuals", "Audio Visuals"),
     ("thinking-orbs", "Thinking Orbs"),
+    ("app-shell", "App Shell"), ("top-nav", "Top Nav"),
+    ("mobile-nav", "Mobile Nav"), ("date-range-input", "Date Range Input"),
+    ("file-input", "File Input"), ("tokenizer", "Tokenizer"),
+    ("field", "Field"), ("field-status", "Field Status"),
+    ("skeleton", "Skeleton"),
 )
 
 
@@ -461,7 +466,7 @@ def native_demo_sections() -> list:
     fallback = {
         "avatars": ui.hstack([ui.card([ui.heading("AP", level=2), ui.text("Ada Parker")]), ui.card([ui.heading("ML", level=2), ui.text("Morgan Lee")])], gap=16.0),
         "cards": ui.wrap([ui.card([ui.heading("Project", level=2), ui.text("A flexible content surface.")]), ui.card([ui.metric("Measurements", 24)])], gap=16.0),
-        "layout": ui.vstack([ui.hstack([ui.badge("Start"), ui.badge("Center"), ui.badge("End")], gap=12.0), ui.divider(), ui.text("VStack, HStack, Wrap, spacer, and divider are all wheel primitives.")], gap=16.0),
+        "layout": ui.vstack([ui.hstack([ui.badge("Start"), ui.badge("Center"), ui.badge("End")], gap=12.0), ui.divider(), ui.text("VStack, HStack, Wrap, spacer, and divider are all wheel primitives."), ui.grid([ui.badge("Cell 1"), ui.badge("Cell 2"), ui.badge("Cell 3"), ui.badge("Cell 4")], columns=2, gap=8.0), ui.center([ui.text("Centered content")], max_width=280.0), ui.aspect_ratio([ui.text("16 : 9")], ratio=16.0 / 9.0), ui.resizable([ui.text("Drag my corner")], handle="corner", width=320.0, height=120.0, min_width=160.0, min_height=80.0), ui.visually_hidden([ui.text("Skip to layout demos")], focusable=True, label="Skip to layout demos")], gap=16.0),
         "icon-buttons": ui.hstack([ui.button("＋"), ui.button("⌕"), ui.button("⚙")], gap=12.0),
         "toasts": ui.vstack([ui.toast(id="showcase-toast", title="Saved", message="The project was saved successfully.", variant="success", duration_secs=None)], gap=12.0),
         "wizard": ui.vstack([ui.stepper(id="showcase-wizard", steps=["Choose", "Configure", "Finish"], active=1), ui.card([ui.heading("Configure", level=2), ui.text("A Python-authored wizard step.")])], gap=16.0),
@@ -534,6 +539,7 @@ def component_sections() -> list:
                 ui.select(id="showcase-preset", label="Preset", value="balanced", options=[("balanced", "Balanced"), ("fast", "Fast"), ("quality", "Quality")], width=220.0),
                 ui.checkbox(id="showcase-enabled", value=True, label="Enable processing"),
                 ui.toggle(id="showcase-monitor", value=False, label="Monitor output"),
+                ui.date_range_input(id="showcase-stay", start="2026-10-01", end="2026-10-07", clearable=True),
             ], gap=18.0),
         ], gap=20.0)),
         section("breadcrumbs", "Breadcrumbs", ui.vstack([
@@ -550,6 +556,137 @@ def component_sections() -> list:
             ui.tabs(["Overview", "Details", "History"], id="showcase-tabs", active=0),
             ui.card([ui.text("The active tab is declared by the Python app.")]),
         ], gap=20.0)),
+        section("app-shell", "App Shell", ui.vstack([
+            ui.section_header("App Shell", "Frame slots with top and mobile navigation."),
+            ui.app_shell(id="showcase-shell",
+                header=ui.top_nav(id="showcase-shell-nav", brand="Showcase", items=[ui.TopNavItem(id="overview", label="Overview", active=True), ui.TopNavItem(id="details", label="Details")]),
+                content=ui.text("Slot content renders between the navigation regions."),
+                footer=ui.mobile_nav(id="showcase-shell-tabs", selected="home", items=[ui.MobileNavItem(id="home", label="Home", icon="H"), ui.MobileNavItem(id="search", label="Search", icon="S")])),
+        ], gap=20.0)),
+        section("top-nav", "Top Nav", ui.vstack([
+            ui.section_header("Top Nav", "Brand, links, and trailing actions with active states."),
+            ui.top_nav(id="showcase-top-nav", brand="Showcase", action="select_top_nav",
+                items=[ui.TopNavItem(id="overview", label="Overview", active=True), ui.TopNavItem(id="details", label="Details"), ui.TopNavItem(id="archived", label="Archived", disabled=True)]),
+        ], gap=20.0)),
+        section("mobile-nav", "Mobile Nav", ui.vstack([
+            ui.section_header("Mobile Nav", "Bottom tabs with parent-owned selection."),
+            ui.mobile_nav(id="showcase-mobile-nav", selected="search", action="select_mobile_tab",
+                items=[ui.MobileNavItem(id="home", label="Home", icon="H"), ui.MobileNavItem(id="search", label="Search", icon="S"), ui.MobileNavItem(id="library", label="Library")]),
+        ], gap=20.0)),
+        section("date-range-input", "Date Range Input", ui.vstack([
+            ui.section_header("Date Range Input", "Start and end bounds without a calendar popup."),
+            ui.date_range_input(id="showcase-range", start="2026-10-01", end="2026-10-07", clearable=True, action="change_range"),
+            ui.date_range_input(id="showcase-range-empty", placeholder="Pick dates"),
+        ], gap=14.0)),
+        section("time-input", "Time Input", ui.vstack([
+            ui.section_header("Time Input", "Clock-time value without a time picker."),
+            ui.time_input(id="showcase-time", value="09:30", clearable=True, action="change_time"),
+            ui.time_input(id="showcase-time-empty", placeholder="Pick time"),
+        ], gap=14.0)),
+        section("date-time-input", "Date Time Input", ui.vstack([
+            ui.section_header("Date Time Input", "Combined date and time without pickers."),
+            ui.date_time_input(id="showcase-datetime", date="2026-10-07", time="09:30", clearable=True, action="change_datetime"),
+            ui.date_time_input(id="showcase-datetime-empty", placeholder="Pick date and time"),
+        ], gap=14.0)),
+        section("chat", "Chat", ui.vstack([
+            ui.section_header("Chat", "Conversation transcript with role-based bubbles."),
+            ui.chat(id="showcase-chat", messages=[
+                ui.ChatMessage(body="Ada joined the thread", role="system"),
+                ui.ChatMessage(body="The nightly build failed.", author="Ada", role="user"),
+                ui.ChatMessage(body="Queued a retry.", author="Bot", role="assistant"),
+            ]),
+        ], gap=14.0)),
+        section("markdown", "Markdown", ui.vstack([
+            ui.section_header("Markdown", "Headings, code, lists, and quotes from source text."),
+            ui.markdown("# Release notes\n\nShipped today.\n\n- Fast startup\n\n> Thanks!"),
+        ], gap=14.0)),
+        section("blockquote", "Blockquote", ui.vstack([
+            ui.section_header("Blockquote", "Styled quotation with an optional citation."),
+            ui.blockquote("Ship small, ship often.", cite="Release captain"),
+        ], gap=14.0)),
+        section("carousel", "Carousel", ui.vstack([
+            ui.section_header("Carousel", "Slide rotation with dot navigation."),
+            ui.carousel([
+                ui.CarouselSlide(title="Fast startup", body="First paint in milliseconds."),
+                ui.CarouselSlide(title="Portable themes", body="One theme, every target."),
+            ], id="showcase-carousel", change_action="change_slide"),
+        ], gap=14.0)),
+        section("selectable-card", "Selectable Card", ui.vstack([
+            ui.section_header("Selectable Card", "Cards with selected state and activation."),
+            ui.selectable_card("Pro", description="For teams shipping weekly.", id="showcase-card-pro", selected=True, action="pick_plan"),
+            ui.selectable_card("Legacy", description="No longer available.", disabled=True),
+        ], gap=14.0)),
+        section("citation", "Citation", ui.vstack([
+            ui.section_header("Citation", "Source references with attribution."),
+            ui.citation("Move slowly and fix things.", source="Maintenance handbook"),
+            ui.citation("Make it work, make it right, make it fast.", source="Engineering notes", variant="block"),
+        ], gap=14.0)),
+        section("timestamp", "Timestamp", ui.vstack([
+            ui.section_header("Timestamp", "Muted time labels for metadata."),
+            ui.timestamp("Edited 2 hours ago"),
+            ui.timestamp("2026-10-07 09:30"),
+        ], gap=14.0)),
+        section("metadata-list", "Metadata List", ui.vstack([
+            ui.section_header("Metadata List", "Label/value detail rows."),
+            ui.metadata_list([
+                ui.MetadataEntry(label="Author", value="Ada"),
+                ui.MetadataEntry(label="License", value="MIT"),
+            ], id="showcase-metadata"),
+        ], gap=14.0)),
+        section("file-input", "File Input", ui.vstack([
+            ui.section_header("File Input", "Picker trigger rows with file names."),
+            ui.file_input(id="showcase-file", file_name="portrait.png", accept=".png,.jpg", action="browse_file"),
+            ui.file_input(id="showcase-file-empty"),
+        ], gap=14.0)),
+        section("tokenizer", "Tokenizer", ui.vstack([
+            ui.section_header("Tokenizer", "Multi-value tokens as removable chips."),
+            ui.tokenizer(id="showcase-tokens", tokens=["drums", "bass"], action="remove_token"),
+            ui.tokenizer(id="showcase-tokens-empty", placeholder="Add stems..."),
+        ], gap=14.0)),
+        section("field", "Field", ui.vstack([
+            ui.section_header("Field", "Shared label and help or error text."),
+            ui.field(ui.tokenizer(id="showcase-field-control", tokens=["-6 dB"]), id="showcase-field", label="Gain", help="Applied before the limiter."),
+            ui.field(ui.file_input(id="showcase-field-file"), id="showcase-field-required", label="Output file", required=True, error="An output file is required."),
+        ], gap=14.0)),
+        section("field-status", "Field Status", ui.vstack([
+            ui.section_header("Field Status", "Severity-styled validation messages."),
+            ui.field_status("Gain staging saved.", variant="success"),
+            ui.field_status("An output file is required.", variant="error"),
+        ], gap=14.0)),
+        section("skeleton", "Skeleton", ui.vstack([
+            ui.section_header("Skeleton", "Placeholders reserving content shape."),
+            ui.skeleton(variant="text", size="md"),
+            ui.skeleton(variant="rectangular", size="md"),
+            ui.skeleton(variant="circular", size="lg"),
+        ], gap=14.0)),
+        section("lightbox", "Lightbox", ui.vstack([
+            ui.section_header("Lightbox", "Display-only image overlay with a caption."),
+            ui.lightbox("assets/painting.png", caption="Gallery preview"),
+        ], gap=14.0)),
+        section("hover-card", "Hover Card", ui.vstack([
+            ui.section_header("Hover Card", "Text-only cards next to targets."),
+            ui.hover_card("Ada Lovelace", description="First programmer.", placement="right"),
+        ], gap=14.0)),
+        section("layer", "Layer", ui.vstack([
+            ui.section_header("Layer", "Minimal overlay container."),
+            ui.layer([ui.text("Session expired.")], id="showcase-layer"),
+        ], gap=14.0)),
+        section("calendar", "Calendar", ui.vstack([
+            ui.section_header("Calendar", "Month grid with day picking."),
+            ui.calendar(2026, 10, id="showcase-calendar", selected="2026-10-07",
+                        select_action="pick-day"),
+        ], gap=14.0)),
+        section("pagination", "Pagination", ui.vstack([
+            ui.section_header("Pagination", "Page windows for long results."),
+            ui.pagination(5, 12, id="showcase-pagination", change_action="turn-page"),
+        ], gap=14.0)),
+        section("list", "List", ui.vstack([
+            ui.section_header("List", "Selectable static rows."),
+            ui.list_view([
+                ui.list_item("servers-a", "Alpha", description="Primary region"),
+                ui.list_item("servers-b", "Beta", disabled=True),
+            ], id="showcase-list", selected="servers-a", select_action="pick-row"),
+        ], gap=14.0)),
         section("alerts", "Alerts", ui.vstack([
             ui.section_header("Alerts", "Persistent inline feedback."),
             ui.alert("The analysis needs a calibration file before it can run.", id="showcase-warning", title="Configuration needed", variant="warning"),

@@ -34,7 +34,10 @@ pub mod confirm_dialog;
 pub mod context_menu;
 pub mod dialog;
 pub mod focus;
+pub mod hover_card;
 pub mod icon_button;
+pub mod layer;
+pub mod lightbox;
 pub mod menu;
 pub mod popover;
 pub mod tabs;
@@ -43,33 +46,51 @@ pub mod toast;
 pub mod size;
 
 // Form components
+pub mod calendar;
 pub mod checkbox;
 pub mod color;
 pub mod color_picker;
 pub mod combobox;
 pub mod date_picker;
+pub mod date_range_input;
+pub mod date_time_input;
+pub mod field;
+pub mod field_status;
+pub mod file_input;
 pub mod input;
 pub mod number_input;
 pub mod radio_group;
 pub mod select;
 pub mod slider;
+pub mod time_input;
 pub mod toggle;
+pub mod tokenizer;
 
 // Data display
 pub mod avatar;
 pub mod badge;
+pub mod blockquote;
+pub mod carousel;
+pub mod chat;
+pub mod citation;
 pub mod collection_diff;
 pub mod data_navigation;
 pub mod empty_state;
 pub mod image_view;
 pub mod keyboard_shortcut_label;
+pub mod list;
+pub mod markdown;
+pub mod metadata_list;
 pub mod progress;
 pub mod qr;
+pub mod selectable_card;
+pub mod skeleton;
 pub mod spinner;
 pub mod step_indicator;
 pub mod table;
 pub mod text;
 pub mod thinking_orb;
+pub mod timestamp;
 
 // Feedback
 pub mod alert;
@@ -80,18 +101,26 @@ pub mod validation;
 
 // Navigation
 pub mod accordion;
+pub mod app_shell;
 pub mod breadcrumbs;
+pub mod pagination;
+pub mod top_nav;
 pub mod wizard;
 
 // Layout
+pub mod aspect_ratio;
+pub mod center;
+pub mod grid;
 pub mod loading_overlay;
 pub mod pane_divider;
+pub mod resizable;
 pub mod settings_form;
 pub mod sidebar;
 pub mod split_pane;
 pub mod stack;
 pub mod status_bar;
 pub mod swipe_panel;
+pub mod visually_hidden;
 
 // Tier 3 components
 pub mod command_palette;
@@ -117,14 +146,20 @@ pub use card::{Card, SlotFactory};
 pub use confirm_dialog::{ConfirmDialog, ConfirmDialogTheme, ConfirmDialogVariant};
 pub use context_menu::{ContextMenu, ContextMenuTheme};
 pub use dialog::{Dialog, DialogSize, DialogSlotFactory, DialogTheme};
+pub use hover_card::{HoverCard, HoverCardPlacement, HoverCardSize, HoverCardTheme};
+pub use layer::{Layer, LayerTheme};
+pub use lightbox::{Lightbox, LightboxSize, LightboxTheme};
 pub use popover::{Popover, PopoverPlacement, PopoverSlotFactory, PopoverTheme};
 // Navigation
 pub use accordion::{
     Accordion, AccordionItem, AccordionMode, AccordionOrientation, AccordionTheme,
 };
+pub use app_shell::{AppShell, AppShellSidebarSide, AppShellTheme};
 pub use breadcrumbs::{BreadcrumbItem, BreadcrumbSeparator, Breadcrumbs};
 pub use menu::{Menu, MenuBar, MenuBarItem, MenuItem, MenuTheme, menu_bar_button};
+pub use pagination::{PageItem, Pagination, PaginationSize, PaginationTheme};
 pub use tabs::{IconFactory, TabItem, TabVariant, Tabs, TabsTheme};
+pub use top_nav::{TopNav, TopNavItem, TopNavSize, TopNavTheme};
 pub use wizard::{
     StepStatus, Wizard, WizardHeader, WizardNavigation, WizardStep, WizardTheme, WizardVariant,
 };
@@ -160,6 +195,7 @@ pub use alert::{Alert, AlertVariant, InlineAlert};
 pub use data_navigation::{DataNavigationAction, DataNavigationState, DataVirtualWindow, move_key};
 pub use toast::{Toast, ToastContainer, ToastPosition, ToastVariant};
 // Form
+pub use calendar::{Calendar, CalendarSize, CalendarTheme};
 pub use checkbox::{Checkbox, CheckboxSize, CheckboxTheme};
 pub use color::Color;
 pub use color_picker::{ColorPickerMode, ColorPickerView};
@@ -167,6 +203,11 @@ pub use combobox::{
     Combobox, ComboboxOption, ComboboxSize, ComboboxTheme, default_combobox_filter,
 };
 pub use date_picker::{CalendarDate, DatePicker};
+pub use date_range_input::{DateRangeInput, DateRangeInputSize, DateRangeInputTheme};
+pub use date_time_input::{DateTimeInput, DateTimeInputSize, DateTimeInputTheme};
+pub use field::{Field, FieldTheme};
+pub use field_status::{FieldStatus, FieldStatusTheme, FieldStatusVariant};
+pub use file_input::{FileInput, FileInputSize, FileInputTheme};
 pub use input::{
     Input, InputSize, InputTheme, InputValidator, InputVariant, cleanup_input_state,
     cleanup_stale_input_states, clear_all_input_states, input_state_count, is_input_editing,
@@ -180,15 +221,26 @@ pub use radio_group::{
 };
 pub use select::{Select, SelectOption, SelectSize, SelectTheme};
 pub use slider::{Slider, SliderSize, SliderTheme};
+pub use time_input::{ClockTime, TimeInput, TimeInputSize, TimeInputTheme};
 pub use toggle::{Toggle, ToggleSize, ToggleStyle, ToggleTheme};
+pub use tokenizer::{Tokenizer, TokenizerSize, TokenizerTheme};
 // Data display
 pub use avatar::{Avatar, AvatarGroup, AvatarShape, AvatarSize, AvatarStatus};
 pub use badge::{Badge, BadgeDot, BadgeSize, BadgeVariant};
+pub use blockquote::{Blockquote, BlockquoteSize, BlockquoteTheme};
+pub use carousel::{Carousel, CarouselSize, CarouselSlide, CarouselTheme};
+pub use chat::{Chat, ChatMessage, ChatRole, ChatSize, ChatTheme};
+pub use citation::{Citation, CitationSize, CitationTheme, CitationVariant};
 pub use empty_state::EmptyState;
 pub use image_view::{ImageFit, ImageView, ImageViewTheme};
 pub use keyboard_shortcut_label::{KeyboardShortcutLabel, KeyboardShortcutSize};
+pub use list::{List, ListItem, ListSize, ListTheme};
+pub use markdown::{Markdown, MarkdownBlock, MarkdownSize, MarkdownTheme, parse_markdown};
+pub use metadata_list::{MetadataEntry, MetadataList, MetadataListSize, MetadataListTheme};
 pub use progress::{CircularProgress, Progress, ProgressSize, ProgressVariant};
 pub use qr::{AnimatedQrCode, QrCode, QrCodeError, QrCodeLimits};
+pub use selectable_card::{SelectableCard, SelectableCardSize, SelectableCardTheme};
+pub use skeleton::{Skeleton, SkeletonSize, SkeletonTheme, SkeletonVariant};
 pub use spinner::{LoadingDots, Spinner, SpinnerSize};
 pub use step_indicator::{
     StepIndicator, StepIndicatorSize, StepIndicatorTheme, StepItem, StepItemStatus, StepOrientation,
@@ -201,13 +253,18 @@ pub use thinking_orb::engine::ModeKey;
 pub use thinking_orb::presets::{OrbSize, OrbState, Preset, Resolved, resolve_preset};
 #[cfg(feature = "vello")]
 pub use thinking_orb::{FrameStats, ThinkingOrb};
+pub use timestamp::{Timestamp, TimestampSize, TimestampTheme};
 // Feedback
 pub use scroll_area::{ScrollArea, ScrollAxis};
 pub use search_bar::{SearchBar, SearchBarSize, SearchBarTheme};
 pub use tooltip::{Tooltip, TooltipPlacement, WithTooltip};
 // Layout
+pub use aspect_ratio::{AspectRatio, AspectRatioPreset, AspectRatioTheme};
+pub use center::{Center, CenterTheme};
+pub use grid::{Grid, GridTheme};
 pub use loading_overlay::{LoadingOverlay, LoadingOverlayTheme};
 pub use pane_divider::{CollapseDirection, PaneDivider, PaneDividerTheme};
+pub use resizable::{Resizable, ResizableHandle, ResizableTheme};
 pub use settings_form::{SettingsForm, SettingsFormTheme, SettingsRow};
 pub use sidebar::{Sidebar, SidebarSide, SidebarSlotFactory, SidebarTheme};
 pub use split_pane::{SplitDirection, SplitPane, SplitPaneTheme};
@@ -216,6 +273,7 @@ pub use stack::{
     VStack,
 };
 pub use swipe_panel::{SwipePanel, SwipePanelAnchor, SwipePanelState};
+pub use visually_hidden::{VisuallyHidden, VisuallyHiddenTheme};
 // Status bar
 pub use status_bar::{StatusBar, StatusBarPosition, StatusBarTheme};
 // Animation
@@ -243,8 +301,9 @@ pub use behavior_matrix::{
 };
 pub use collection_diff::{CollectionPatch, diff_by_key, is_content_only_update};
 pub use mobile::{
-    ContextPreview, DynamicTypePolicy, EdgeInsets, MomentumDelta, MomentumScroller,
-    PullToRefreshState, SwipeAction, SwipeDirection, VelocityTracker, WaveformScrubber, is_mobile,
+    ContextPreview, DynamicTypePolicy, EdgeInsets, MobileNav, MobileNavItem, MobileNavSize,
+    MobileNavTheme, MomentumDelta, MomentumScroller, PullToRefreshState, SwipeAction,
+    SwipeDirection, VelocityTracker, WaveformScrubber, is_mobile,
 };
 pub use validation::{Validate, ValidationError};
 // Theme and i18n

@@ -13,8 +13,8 @@ use gpui_ui_kit::theme::ThemeExt;
 use gpui_ui_kit::wizard::StepStatus;
 use gpui_ui_kit::workflow::{WorkflowCanvas, WorkflowGraph};
 use gpui_ui_kit::{
-    AnimatedQrCode, Divider, Heading, PaginationState, Scene2DState, Sidebar, SidebarSide,
-    SortDirection, SortState, Text,
+    AnimatedQrCode, CalendarDate, Divider, Heading, PaginationState, Scene2DState, Sidebar,
+    SidebarSide, SortDirection, SortState, Text,
 };
 use std::collections::HashSet;
 use std::sync::OnceLock;
@@ -257,6 +257,18 @@ pub struct Showcase {
     pub buttonset_disabled_demo: SharedString,
     // Tabs state
     pub selected_tab: usize,
+    // Carousel state
+    pub carousel_index: usize,
+    // Selectable card state
+    pub selected_card: SharedString,
+    // Calendar state
+    pub calendar_year: i32,
+    pub calendar_month: u8,
+    pub calendar_selected: Option<CalendarDate>,
+    // Pagination state
+    pub pagination_page: usize,
+    // List state
+    pub selected_list_item: SharedString,
     // Accordion states
     pub accordion_vertical_single: Vec<SharedString>,
     pub accordion_vertical_multiple: Vec<SharedString>,
@@ -384,6 +396,13 @@ impl Showcase {
             buttonset_toggle_lg: "on".into(),
             buttonset_disabled_demo: "a".into(),
             selected_tab: 0,
+            carousel_index: 0,
+            selected_card: "pro".into(),
+            calendar_year: 2026,
+            calendar_month: 10,
+            calendar_selected: CalendarDate::new(2026, 10, 7),
+            pagination_page: 5,
+            selected_list_item: "servers-a".into(),
             accordion_vertical_single: vec!["v-single-1".into()],
             accordion_vertical_multiple: vec!["v-multi-1".into(), "v-multi-2".into()],
             accordion_horizontal_single: vec!["h-single-1".into()],
@@ -764,6 +783,39 @@ impl Showcase {
             ShowcaseSection::Accessibility => {
                 self.render_accessibility_section(cx).into_any_element()
             }
+            ShowcaseSection::AppShell => self.render_app_shell_section(cx).into_any_element(),
+            ShowcaseSection::TopNav => self.render_top_nav_section(cx).into_any_element(),
+            ShowcaseSection::MobileNav => self.render_mobile_nav_section(cx).into_any_element(),
+            ShowcaseSection::DateRangeInput => {
+                self.render_date_range_input_section(cx).into_any_element()
+            }
+            ShowcaseSection::TimeInput => self.render_time_input_section(cx).into_any_element(),
+            ShowcaseSection::DateTimeInput => {
+                self.render_date_time_input_section(cx).into_any_element()
+            }
+            ShowcaseSection::Chat => self.render_chat_section(cx).into_any_element(),
+            ShowcaseSection::Markdown => self.render_markdown_section(cx).into_any_element(),
+            ShowcaseSection::Blockquote => self.render_blockquote_section(cx).into_any_element(),
+            ShowcaseSection::Carousel => self.render_carousel_section(cx).into_any_element(),
+            ShowcaseSection::SelectableCard => {
+                self.render_selectable_card_section(cx).into_any_element()
+            }
+            ShowcaseSection::Citation => self.render_citation_section(cx).into_any_element(),
+            ShowcaseSection::Timestamp => self.render_timestamp_section(cx).into_any_element(),
+            ShowcaseSection::MetadataList => {
+                self.render_metadata_list_section(cx).into_any_element()
+            }
+            ShowcaseSection::FileInput => self.render_file_input_section(cx).into_any_element(),
+            ShowcaseSection::Tokenizer => self.render_tokenizer_section(cx).into_any_element(),
+            ShowcaseSection::Field => self.render_field_section(cx).into_any_element(),
+            ShowcaseSection::FieldStatus => self.render_field_status_section(cx).into_any_element(),
+            ShowcaseSection::Skeleton => self.render_skeleton_section(cx).into_any_element(),
+            ShowcaseSection::Lightbox => self.render_lightbox_section(cx).into_any_element(),
+            ShowcaseSection::HoverCard => self.render_hover_card_section(cx).into_any_element(),
+            ShowcaseSection::Layer => self.render_layer_section(cx).into_any_element(),
+            ShowcaseSection::Calendar => self.render_calendar_section(cx).into_any_element(),
+            ShowcaseSection::Pagination => self.render_pagination_section(cx).into_any_element(),
+            ShowcaseSection::List => self.render_list_section(cx).into_any_element(),
             // These section roots determine their size from their rendered
             // children. A default cached refinement reserves no layout space,
             // making the entire demo invisible while it still paints.
