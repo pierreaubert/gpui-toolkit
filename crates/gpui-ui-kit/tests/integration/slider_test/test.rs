@@ -4,14 +4,96 @@ use super::slider_scroll_wheel_view::SliderScrollWheelView;
 use super::slider_test_view::SliderTestView;
 use super::slider_value_change_view::SliderValueChangeView;
 use gpui::{
-    Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, ScrollDelta,
-    ScrollWheelEvent, Styled, TestAppContext, TouchPhase, VisualTestContext, Window, div, point,
+    Context, InteractiveElement, IntoElement, Modifiers, MouseButton, ParentElement, Render,
+    ScrollDelta, ScrollWheelEvent, Styled, TestAppContext, TouchPhase, VisualTestContext, Window,
+    div, point,
 };
 use gpui_ui_kit::slider::{Slider, SliderSize};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Ordinary wheel input navigates; Alt/Option wheel input edits the slider.
+#[gpui::test]
+async fn test_slider_alt_scroll_preserves_parent_navigation(cx: &mut TestAppContext) {
+    struct ScrollView {
+        value: Rc<RefCell<f32>>,
+        changes: Arc<AtomicUsize>,
+        parent_scrolls: Arc<AtomicUsize>,
+    }
+
+    impl Render for ScrollView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let value = self.value.clone();
+            let changes = self.changes.clone();
+            let parent_scrolls = self.parent_scrolls.clone();
+            div()
+                .size_full()
+                .on_scroll_wheel(move |_, _, _| {
+                    parent_scrolls.fetch_add(1, Ordering::SeqCst);
+                })
+                .child(
+                    Slider::new("alt-scroll-slider")
+                        .value(*self.value.borrow())
+                        .min(0.0)
+                        .max(100.0)
+                        .scroll_requires_alt(true)
+                        .on_change(move |next, _, _| {
+                            *value.borrow_mut() = next;
+                            changes.fetch_add(1, Ordering::SeqCst);
+                        }),
+                )
+        }
+    }
+
+    let value = Rc::new(RefCell::new(50.0));
+    let changes = Arc::new(AtomicUsize::new(0));
+    let parent_scrolls = Arc::new(AtomicUsize::new(0));
+    let window = cx.add_window({
+        let value = value.clone();
+        let changes = changes.clone();
+        let parent_scrolls = parent_scrolls.clone();
+        move |_, _| ScrollView {
+            value,
+            changes,
+            parent_scrolls,
+        }
+    });
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    // The minimal view places the slider at the window origin. Positive
+    // callback assertions below prove that this point reaches its real track.
+    let position = point(gpui::px(100.0), gpui::px(10.0));
+
+    cx.simulate_event(ScrollWheelEvent {
+        position,
+        delta: ScrollDelta::Lines(point(1.0, 0.0)),
+        modifiers: Modifiers::default(),
+        touch_phase: TouchPhase::Moved,
+    });
+    cx.run_until_parked();
+    assert_eq!(*value.borrow(), 50.0);
+    assert_eq!(changes.load(Ordering::SeqCst), 0);
+    assert_eq!(parent_scrolls.load(Ordering::SeqCst), 1);
+
+    cx.simulate_event(ScrollWheelEvent {
+        position,
+        delta: ScrollDelta::Lines(point(1.0, 0.0)),
+        modifiers: Modifiers {
+            alt: true,
+            ..Modifiers::default()
+        },
+        touch_phase: TouchPhase::Moved,
+    });
+    cx.run_until_parked();
+    assert!(
+        *value.borrow() > 50.0,
+        "Alt/Option wheel must edit the value"
+    );
+    assert_eq!(changes.load(Ordering::SeqCst), 1);
+    assert_eq!(parent_scrolls.load(Ordering::SeqCst), 1);
+}
 
 #[gpui::test]
 async fn test_slider_renders(cx: &mut TestAppContext) {

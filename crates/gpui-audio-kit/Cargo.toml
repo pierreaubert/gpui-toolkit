@@ -29,6 +29,7 @@ gpui = { workspace = true }
 gpui-d3rs = { workspace = true, default-features = false, features = ["gpui"] }
 gpui-design = { workspace = true, features = ["gpui"] }
 gpui-ui-kit = { workspace = true }
+web-time = "1.1"
 
 [dev-dependencies]
 gpui = { version = "0.2.3",  package = "sotf-gpui-toolkit-gpui", git = "https://github.com/pierreaubert/sotf-3rdparties", features = ["test-support"] }

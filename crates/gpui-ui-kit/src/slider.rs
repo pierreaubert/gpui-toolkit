@@ -56,6 +56,7 @@ pub struct Slider {
     size: SliderSize,
     disabled: bool,
     show_value: bool,
+    scroll_requires_alt: bool,
     label: Option<SharedString>,
     width: f32,
     on_change: Option<Rc<dyn Fn(f32, &mut Window, &mut App) + 'static>>,
@@ -84,6 +85,7 @@ impl Slider {
             size: SliderSize::default(),
             disabled: false,
             show_value: false,
+            scroll_requires_alt: false,
             label: None,
             width: 200.0,
             on_change: None,
@@ -109,6 +111,20 @@ impl Slider {
     /// Override the default ARIA role (Slider)
     pub fn aria_role(mut self, role: AriaRole) -> Self {
         self.aria_role = Some(role);
+        self
+    }
+
+    /// Require Alt/Option for wheel edits, allowing ordinary scrolling through the control.
+    ///
+    /// Defaults to false. Drag and keyboard interaction are unaffected.
+    ///
+    /// # Examples
+    /// ```
+    /// use gpui_ui_kit::Slider;
+    /// let slider = Slider::new("scrollable-parameter").scroll_requires_alt(true);
+    /// ```
+    pub fn scroll_requires_alt(mut self, required: bool) -> Self {
+        self.scroll_requires_alt = required;
         self
     }
 
@@ -289,6 +305,7 @@ impl Slider {
             size: self.size,
             disabled: self.disabled,
             show_value: self.show_value,
+            scroll_requires_alt: self.scroll_requires_alt,
             label: self.label.clone(),
             width: self.width,
             on_change: None,
@@ -485,6 +502,7 @@ impl RenderOnce for Slider {
             let config_drag = self.interaction_config();
             let config_drag_end = self.interaction_config();
             let config_scroll = self.interaction_config();
+            let scroll_requires_alt = self.scroll_requires_alt;
             let config_key = self.interaction_config();
             let on_change_down = self.on_change.clone();
             let on_change_drag = self.on_change.clone();
@@ -558,7 +576,9 @@ impl RenderOnce for Slider {
                     cx.stop_propagation();
                 })
                 .on_scroll_wheel(move |event, window, cx| {
-                    cx.stop_propagation();
+                    if scroll_requires_alt && !event.modifiers.alt {
+                        return;
+                    }
                     if let Some(value) = handle_scroll(
                         &event.delta,
                         &event.modifiers,
@@ -566,6 +586,7 @@ impl RenderOnce for Slider {
                         &config_scroll,
                     ) && let Some(ref handler) = on_change_scroll
                     {
+                        cx.stop_propagation();
                         handler(snap_scroll.snap_value(value as f32), window, cx);
                     }
                 })

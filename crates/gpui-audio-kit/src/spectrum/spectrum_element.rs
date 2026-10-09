@@ -6,7 +6,9 @@ use std::cell::RefCell;
 use std::panic;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Instant;
+// std Instant panics on wasm32-unknown-unknown ("time not implemented");
+// web-time backs it with the JS clock there and std elsewhere.
+use web_time::Instant;
 
 struct SpectrumPaintState {
     scratch: Vec<f32>,

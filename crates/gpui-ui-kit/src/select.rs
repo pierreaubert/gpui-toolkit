@@ -17,7 +17,8 @@ use crate::accessibility::{
 };
 use crate::theme::ThemeExt;
 use gpui::prelude::{
-    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
+    FluentBuilder, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    StatefulInteractiveElement, Styled,
 };
 use gpui::{
     App, Div, ElementId, FocusHandle, FontWeight, MouseButton, ScrollHandle, SharedString,
@@ -63,6 +64,7 @@ pub struct Select {
     is_open: bool,
     highlighted_index: Option<usize>,
     dropdown_max_height: f32,
+    width: Option<f32>,
     theme: Option<SelectTheme>,
     on_change: Option<Box<dyn Fn(&SharedString, &mut Window, &mut App) + 'static>>,
     on_toggle: Option<Box<dyn Fn(bool, &mut Window, &mut App) + 'static>>,
@@ -88,6 +90,7 @@ impl Select {
             is_open: false,
             highlighted_index: None,
             dropdown_max_height: 200.0,
+            width: None,
             theme: None,
             on_change: None,
             on_toggle: None,
@@ -121,6 +124,22 @@ impl Select {
     /// If omitted, the select retains its own handle by element ID.
     pub fn focus_handle(mut self, handle: FocusHandle) -> Self {
         self.focus_handle = Some(handle);
+        self
+    }
+
+    /// Set the trigger width in pixels, overriding its default minimum.
+    ///
+    /// Use this for constrained table or controller cells. Nonfinite widths are
+    /// ignored; negative widths are clamped to zero. The popup retains its own
+    /// content sizing and is at least as wide as the trigger.
+    ///
+    /// # Examples
+    /// ```
+    /// use gpui_ui_kit::Select;
+    /// let select = Select::new("compact-choice").width(96.0);
+    /// ```
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = width.is_finite().then_some(width.max(0.0));
         self
     }
 
@@ -305,8 +324,10 @@ impl Select {
             .items_center()
             .justify_between()
             .px_3()
+            .when(self.width.is_some(), gpui::Styled::px_1)
             .py(py)
-            .min_w(px(120.0))
+            .min_w(px(self.width.unwrap_or(120.0)))
+            .when_some(self.width, |trigger, width| trigger.w(px(width)))
             .bg(theme.trigger_bg)
             .border_1()
             .border_color(border_color)
