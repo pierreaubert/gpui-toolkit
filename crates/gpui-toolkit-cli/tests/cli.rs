@@ -620,6 +620,17 @@ fn layout_expand_matches_fixture() {
 }
 
 #[test]
+fn layout_expand_matches_styled_fixture() {
+    use gpui_layout_expr::CustomComponents;
+    use gpui_toolkit_cli::layout_expand;
+
+    let expr = "V[spacing=lg] > (Hd\"Analytics\"[level=2] + H[g2] > (Tx.lg\"$42k\" + Tx.sm\"Revenue\"[weight=bold muted]))";
+    let unit = layout_expand(expr, Some("fixture_styled"), &CustomComponents::empty()).unwrap();
+    let fixture = include_str!("fixtures/expanded_fixture_styled.rs").replace("\r\n", "\n");
+    assert_eq!(unit, fixture);
+}
+
+#[test]
 fn templates_carry_valid_layout_headers() {
     use gpui_layout_expr::CustomComponents;
     use gpui_toolkit_cli::{TEMPLATES, layout_check, template_show};
@@ -632,11 +643,11 @@ fn templates_carry_valid_layout_headers() {
         }
         let header = shown.source.lines().next().unwrap();
         let expr = header
-            .strip_prefix("// LAYOUT (")
+            .strip_prefix("// XLE (")
             .and_then(|rest| rest.strip_suffix(')'))
-            .unwrap_or_else(|| panic!("{}: malformed LAYOUT header", entry.id));
+            .unwrap_or_else(|| panic!("{}: malformed XLE header", entry.id));
         let checked = layout_check(expr, &builtin)
-            .unwrap_or_else(|error| panic!("{}: invalid LAYOUT header: {error}", entry.id));
+            .unwrap_or_else(|error| panic!("{}: invalid XLE header: {error}", entry.id));
         assert!(checked.nodes > 1, "{}: header is trivial", entry.id);
     }
 }

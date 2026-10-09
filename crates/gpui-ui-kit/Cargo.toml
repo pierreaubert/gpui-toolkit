@@ -68,7 +68,7 @@ tokio = []
 urlencoding = []
 
 [dev-dependencies]
-gpui = { package = "gpui-toolkit-gpui", path = "../../../sotf-3rdparties/gpui/crates/gpui", features = ["test-support"] }
+gpui = { version = "0.2.3",  package = "sotf-gpui-toolkit-gpui", git = "https://github.com/pierreaubert/sotf-3rdparties", features = ["test-support"] }
 rqrr = { workspace = true }
 criterion = { workspace = true }
 gpui-profiler = { path = "../gpui-profiler", features = ["global-allocator"] }

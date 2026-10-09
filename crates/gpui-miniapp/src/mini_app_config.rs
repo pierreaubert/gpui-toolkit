@@ -1,4 +1,5 @@
 use gpui::*;
+use gpui_design::DesignLanguage;
 use gpui_ui_kit::i18n::Language;
 use gpui_ui_kit::theme::ThemeVariant;
 use std::path::PathBuf;
@@ -24,6 +25,10 @@ pub struct MiniAppConfig {
     pub with_i18n: bool,
     /// Initial theme variant
     pub initial_theme: ThemeVariant,
+    /// Initial design language, overriding the platform default.
+    ///
+    /// `None` (default) keeps [`DesignSystem::platform_default`](gpui_design::DesignSystem::platform_default).
+    pub initial_design: Option<DesignLanguage>,
     /// Resolve the initial theme from the OS appearance and track changes.
     ///
     /// When true (default), the app starts with the platform-native theme
@@ -58,6 +63,7 @@ impl MiniAppConfig {
             with_theme: false,
             with_i18n: false,
             initial_theme: ThemeVariant::default(),
+            initial_design: None,
             follow_system_theme: true,
             initial_language: Language::default(),
             state_file: None,
@@ -114,6 +120,15 @@ impl MiniAppConfig {
     pub fn initial_theme(mut self, theme: ThemeVariant) -> Self {
         self.initial_theme = theme;
         self.follow_system_theme = false;
+        self
+    }
+
+    /// Set an explicit initial design language, if any.
+    ///
+    /// `None` keeps the platform default; `Some` overrides it for the
+    /// whole app lifetime.
+    pub fn initial_design(mut self, language: Option<DesignLanguage>) -> Self {
+        self.initial_design = language;
         self
     }
 

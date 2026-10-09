@@ -114,6 +114,25 @@ pub(super) fn decode_query_component(value: &str) -> Option<String> {
     String::from_utf8(decoded).ok()
 }
 
+/// Map a raw `style=` query value to a design language.
+///
+/// Returns `None` for missing or unknown values so callers keep the
+/// platform default. Pure over strings so unit tests cover it on every
+/// platform; the wasm entry points feed it `web_query_param("style")`.
+pub fn design_language_from_param(value: Option<&str>) -> Option<gpui_design::DesignLanguage> {
+    let value = value.unwrap_or_default().to_ascii_lowercase();
+    if value.is_empty() {
+        return None;
+    }
+    gpui_design::DesignLanguage::from_id(value.as_str())
+}
+
+/// Resolve the optional `style=` query parameter used by generated demo URLs.
+#[cfg(target_family = "wasm")]
+pub fn web_initial_design_style() -> Option<gpui_design::DesignLanguage> {
+    design_language_from_param(web_query_param("style").as_deref())
+}
+
 /// Resolve the optional `theme=` query parameter used by generated demo URLs.
 #[cfg(target_family = "wasm")]
 pub fn web_initial_theme() -> gpui_ui_kit::theme::ThemeVariant {

@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
+from repo_paths import display_path, within_repo
+
 
 SCHEMA_VERSION = 1
 REPORT_TYPE = "gpui-mesh-plot-cross-adapter-visual-diff"
@@ -71,12 +73,10 @@ def _resolve_artifact_path(manifest_path: Path, repo_root: Path, path_text: str)
         image = manifest_path.parent / image_path
     else:
         image = repo_root / image_path
-    try:
-        image.resolve().relative_to(repo_root.resolve())
-    except ValueError as error:
+    if not within_repo(repo_root, image.resolve()):
         raise VisualCompareError(
             f"capture artifact escapes the repository: {path_text!r}"
-        ) from error
+        )
     return image
 
 
@@ -392,14 +392,8 @@ def compare_manifests(
             {
                 "id": case_id,
                 "artifact_kind": left_artifact.kind,
-                "left_path": left_artifact.path
-                .resolve()
-                .relative_to(repo_root.resolve())
-                .as_posix(),
-                "right_path": right_artifact.path
-                .resolve()
-                .relative_to(repo_root.resolve())
-                .as_posix(),
+                "left_path": display_path(left_artifact.path, repo_root),
+                "right_path": display_path(right_artifact.path, repo_root),
                 **result,
             }
         )

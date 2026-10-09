@@ -10,7 +10,10 @@
 
 // Rust guideline compliant 2026-02-21
 
-use super::{ComponentKind, LayoutNode, ValidationError, button_variant_ident, component_kind};
+use super::{
+    ComponentKind, LayoutNode, ValidationError, button_variant_ident, component_kind,
+    text_size_ident,
+};
 use std::fmt::{Display, Formatter};
 
 impl ComponentKind {
@@ -30,6 +33,7 @@ impl ComponentKind {
             Self::Button => "B",
             Self::Input => "I",
             Self::Text => "Tx",
+            Self::Heading => "Hd",
             Self::Div => "D",
         }
     }
@@ -42,7 +46,7 @@ pub struct CustomComponent {
     pub name: String,
     /// Built-in kind this alias expands to.
     pub base: ComponentKind,
-    /// Preset dot modifier, if any (buttons only).
+    /// Preset dot modifier, if any (buttons and text only).
     pub modifier: Option<String>,
 }
 
@@ -113,17 +117,16 @@ impl CustomComponents {
                 )));
             }
             if let Some(modifier) = &spec.modifier {
-                if spec.base != ComponentKind::Button {
+                let known = match spec.base {
+                    ComponentKind::Button => button_variant_ident(modifier).is_some(),
+                    ComponentKind::Text => text_size_ident(modifier).is_some(),
+                    _ => false,
+                };
+                if !known {
                     return Err(fail(format!(
-                        "custom component '{}' presets a modifier on '{}', which takes none",
+                        "custom component '{}' presets unknown modifier '.{modifier}' for '{}'",
                         spec.name,
                         spec.base.canonical_name()
-                    )));
-                }
-                if button_variant_ident(modifier).is_none() {
-                    return Err(fail(format!(
-                        "custom component '{}' presets unknown button modifier '.{modifier}'",
-                        spec.name
                     )));
                 }
             }
@@ -295,6 +298,9 @@ mod tests {
             .unwrap_err();
         CustomComponents::new(vec![spec("Alias", ComponentKind::Button, Some("fancy"))])
             .unwrap_err();
+        CustomComponents::new(vec![spec("Alias", ComponentKind::Text, Some("lg"))]).unwrap();
+        CustomComponents::new(vec![spec("Alias", ComponentKind::Text, Some("fancy"))]).unwrap_err();
+        CustomComponents::new(vec![spec("Alias", ComponentKind::Heading, Some("h2"))]).unwrap_err();
     }
 
     #[test]

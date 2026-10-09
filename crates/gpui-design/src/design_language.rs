@@ -50,7 +50,7 @@ impl DesignLanguage {
 
     pub fn from_id(value: &str) -> Option<Self> {
         match value {
-            "macos" | "apple_hig_macos" => Some(Self::Macos),
+            "macos" | "apple_hig_macos" | "apple" => Some(Self::Macos),
             "apple_hig" => Some(Self::AppleHig),
             "material3" => Some(Self::Material3),
             "fluent" => Some(Self::Fluent),

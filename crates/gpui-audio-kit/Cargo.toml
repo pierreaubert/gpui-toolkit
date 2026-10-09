@@ -31,7 +31,7 @@ gpui-design = { workspace = true, features = ["gpui"] }
 gpui-ui-kit = { workspace = true }
 
 [dev-dependencies]
-gpui = { package = "gpui-toolkit-gpui", path = "../../../sotf-3rdparties/gpui/crates/gpui", features = ["test-support"] }
+gpui = { version = "0.2.3",  package = "sotf-gpui-toolkit-gpui", git = "https://github.com/pierreaubert/sotf-3rdparties", features = ["test-support"] }
 gpui-miniapp = { path = "../gpui-miniapp" }
 gpui-profiler = { path = "../gpui-profiler", features = ["global-allocator"] }
 

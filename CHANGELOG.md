@@ -50,6 +50,10 @@
   (`V > (Tx"Hi" + B.primary"Save")`) with parser, registry validation,
   project aliases, CLI check/expand, and the compile-time `layout!`
   proc macro in `gpui-ui-kit-macros`.
+- Demo gallery: the contact-sheet index is replaced by one featured
+  example rendered across every theme and design style, and each
+  gallery card links to a seeded random theme/style demo variant via
+  the new `?style=` web query.
 
 ### Components
 

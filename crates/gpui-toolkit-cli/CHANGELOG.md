@@ -2,6 +2,9 @@
 
 ## Added
 
+- Extended `layout check`/`expand` with headings, styled text, and
+  stack spacing/gaps; template structural headers renamed from
+  `// LAYOUT (...)` to Astryx-compatible `// XLE (...)`.
 - Initial release: unified agent-ready `gpui-toolkit` CLI. Commands
   cover the component catalog (`component` with batch reads, `search`),
   page/block/theme templates, theme token export and freshness checks,

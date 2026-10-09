@@ -1,4 +1,4 @@
-// LAYOUT (V > Tx"Title")
+// XLE (V > Tx"Title")
 //! Empty page template, emitted by `gpui-toolkit template empty-page`.
 //!
 //! Content-only: wrap in your own app shell and navigation. Hidden from

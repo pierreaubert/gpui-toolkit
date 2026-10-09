@@ -1,4 +1,4 @@
-// LAYOUT (V > (Tx"Dashboard" + (H > (V > Tx"$42k" + Tx"Revenue") + (V > Tx"128" + Tx"Orders")) + B.primary"New report"#dashboard-new))
+// XLE (V > (Tx"Dashboard" + (H > (V > Tx"$42k" + Tx"Revenue") + (V > Tx"128" + Tx"Orders")) + B.primary"New report"#dashboard-new))
 //! Dashboard page template, emitted by `gpui-toolkit template dashboard-page`.
 //!
 //! Content-only: wrap in your own app shell and navigation.

@@ -81,8 +81,16 @@ def check() -> list[str]:
 
     gpui_dependency = cargo["workspace"]["dependencies"]["gpui"]
     gpui_revision = gpui_dependency.get("tag")
-    if gpui_revision is None and (gpui_path := gpui_dependency.get("path")):
-        vendored = ROOT / gpui_path / "VENDORED.md"
+    snapshot_dir: pathlib.Path | None = None
+    if gpui_path := gpui_dependency.get("path"):
+        snapshot_dir = ROOT / gpui_path
+    elif "git" in gpui_dependency:
+        # Git-sourced snapshot: the consolidated checkout mirrors the same
+        # tree at the sibling location, which carries the VENDORED.md
+        # provenance record with the upstream base ref.
+        snapshot_dir = ROOT / "../sotf-3rdparties/gpui/crates/gpui"
+    if gpui_revision is None and snapshot_dir is not None:
+        vendored = snapshot_dir / "VENDORED.md"
         if vendored.is_file():
             revision = re.search(
                 r"^- Base ref:\s*(\S+)\s*$", vendored.read_text(), re.MULTILINE

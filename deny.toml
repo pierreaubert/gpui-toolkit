@@ -63,6 +63,10 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = [
+    # Consolidated snapshot repository for the history-free vendored GPUI
+    # platform crates (renamed sotf-* packages); replaces the former
+    # sibling path dependencies and per-crate Zed git remotes.
+    "https://github.com/pierreaubert/sotf-3rdparties",
     "https://github.com/proptest-rs/proptest",
     "https://github.com/zed-industries/scap",
     "https://github.com/zed-industries/wgpu.git",

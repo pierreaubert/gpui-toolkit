@@ -21773,6 +21773,22 @@ disposition = "non-consumer"
 tests = ["crates/gpui-python-runtime/python/tests/test_ui.py"]
 
 [[capability]]
+id = "gpui-layout-expr.generated-behavior"
+rust_path = "gpui_layout_expr"
+python_path = "gpui_toolkit.layout"
+disposition = "non-consumer"
+rationale = "Layout expressions and the layout! macro are compile-time Rust authoring tools; Python declares the same trees through gpui_toolkit.ui nodes, so the parser/registry surface has no Python consumer."
+tests = ["crates/gpui-python-runtime/python/tests/test_layout.py"]
+
+[[capability]]
+id = "gpui-toolkit-cli.tooling"
+rust_path = "gpui_toolkit_cli"
+python_path = "gpui_toolkit.tooling"
+disposition = "non-consumer"
+rationale = "The toolkit CLI is a developer command-line binary (catalog, templates, doctor, upgrade, layout check); it is invoked from shells and agent harnesses, not imported by Python applications."
+tests = ["crates/gpui-python-runtime/python/tests/test_tooling.py"]
+
+[[capability]]
 id = "gpui-toolkit.aggregate-host"
 rust_path = "gpui_toolkit"
 python_path = "gpui_toolkit"

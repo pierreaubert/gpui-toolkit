@@ -4,6 +4,8 @@
 
 - Added `DensityTier` with density/RTL-aware spacing fields, fluid type
   ramps, Material 3 opacities, and CSS/Tailwind token emitters.
+- Added `DesignLanguage::from_id` with an `apple` alias for the Apple
+  HIG design language (unknown ids fall back to the platform default).
 
 ## Refactored
 

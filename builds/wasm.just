@@ -86,20 +86,21 @@ wasm-build-site:
 			exit 1
 		fi
 	}
-	# The Pages project is mounted at /gpui-toolkit; Trunk otherwise emits
-	# root-relative assets that resolve to the account site instead.
+	# The gallery site is served from the domain root
+	# (https://gpui-toolkit.spinorama.org/), so each app owns a root-relative
+	# route; Trunk otherwise emits different prefixes per serve/build context.
 	cd crates/gpui-hello-web
-	env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk build --release --public-url /gpui-toolkit/hello/ --dist ../../target/demo-site/hello
-	assert_wasm_public_url ../../target/demo-site/hello /gpui-toolkit/hello/
+	env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk build --release --public-url /hello/ --dist ../../target/demo-site/hello
+	assert_wasm_public_url ../../target/demo-site/hello /hello/
 	cd ../gpui-showcase
-	env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk build --release --public-url /gpui-toolkit/showcase/ --dist ../../target/demo-site/showcase
-	assert_wasm_public_url ../../target/demo-site/showcase /gpui-toolkit/showcase/
+	env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk build --release --public-url /showcase/ --dist ../../target/demo-site/showcase
+	assert_wasm_public_url ../../target/demo-site/showcase /showcase/
 	cd ../gpui-px
-	env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk build --release --public-url /gpui-toolkit/px/ --dist ../../target/demo-site/px
-	assert_wasm_public_url ../../target/demo-site/px /gpui-toolkit/px/
+	env -u NO_COLOR RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort trunk build --release --public-url /px/ --dist ../../target/demo-site/px
+	assert_wasm_public_url ../../target/demo-site/px /px/
 
 # Capture every query-addressable showcase section, then generate thumbnails,
-# contact sheets, manifest.json, and the static gallery index.
+# featured theme/style variants, manifest.json, and the static gallery index.
 [group('wasm')]
 wasm-gallery only="":
 	#!/usr/bin/env bash

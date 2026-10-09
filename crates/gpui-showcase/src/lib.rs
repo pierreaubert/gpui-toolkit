@@ -22,5 +22,7 @@ pub fn run_showcase() {
         .with_i18n(true);
     #[cfg(target_family = "wasm")]
     let config = config.initial_theme(gpui_miniapp::web_initial_theme());
+    #[cfg(target_family = "wasm")]
+    let config = config.initial_design(gpui_miniapp::web_initial_design_style());
     gpui_miniapp::MiniApp::run(config, |cx| cx.new(Showcase::new));
 }

@@ -57,7 +57,7 @@ lint: lint-host
 
 [group('lint')]
 lint-host:
- RUST_MIN_STACK=33554432 {{cargo}} clippy --workspace --all-targets {{features}} -- -D warnings -A clippy::chunks_exact_to_as_chunks -A clippy::needless_late_init -A clippy::obfuscated_if_else -A clippy::let_and_return -A clippy::unnecessary_cast -A clippy::items_after_test_module -A clippy::type_complexity -A clippy::collapsible_if -A clippy::collapsible_match -A clippy::enum_variant_names -A clippy::needless_borrow -A clippy::op_ref -A clippy::ptr_arg -A clippy::too_many_arguments -A clippy::unwrap_or_default
+		RUST_MIN_STACK=33554432 {{cargo}} clippy --workspace --all-targets {{features}} -- -D warnings -A clippy::chunks_exact_to_as_chunks -A clippy::needless_late_init -A clippy::obfuscated_if_else -A clippy::let_and_return -A clippy::unnecessary_cast -A clippy::items_after_test_module -A clippy::type_complexity -A clippy::collapsible_if -A clippy::collapsible_match -A clippy::enum_variant_names -A clippy::needless_borrow -A clippy::op_ref -A clippy::ptr_arg -A clippy::too_many_arguments -A clippy::unwrap_or_default
 
 [group('lint')]
 lint-all: lint-host lint-ios-rust
@@ -73,6 +73,9 @@ test-examples:
 	@echo "Building gpui-ui-kit examples..."
 	{{cargo}} build --examples -p gpui-ui-kit {{features}}
 	@echo "All gpui-ui-kit examples compiled successfully"
+
+alias test := ntest
+alias tests := ntest
 
 [group('test')]
 ntest:
@@ -601,8 +604,8 @@ ios-device: showcase-build-device
 # ----------------------------------------------------------------------
 #
 # tvOS is a Tier 3 Rust target and requires nightly with rust-src:
-#   rustup toolchain install nightly
-#   rustup component add rust-src --toolchain nightly
+#	rustup toolchain install nightly
+#	rustup component add rust-src --toolchain nightly
 
 alias tvos-rust-sim := showcase-tvos-rust-sim
 alias tvos-rust-device := showcase-tvos-rust-device
@@ -728,11 +731,11 @@ tvos-device: showcase-tvos-build-device
 # ----------------------------------------------------------------------
 #
 # Android requires the Rust Android target plus cargo-ndk:
-#   rustup target add aarch64-linux-android
-#   {{cargo}} install cargo-ndk
-#   sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+#	rustup target add aarch64-linux-android
+#	{{cargo}} install cargo-ndk
+#	sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
 # Build an APK with:
-#   just android-apk
+#	just android-apk
 
 alias android-rust := showcase-android-rust
 alias android-check := showcase-android-check
@@ -800,6 +803,13 @@ qa-android-emulator serial='': showcase-android-apk
 		target/qa/platform/android-emulator/accessibility.xml \
 		"{{serial}}"
 
+# Deterministic named color-scale CVD regression screen. Manual rendered CVD
+# review remains a separate reference-host/product gate.
+[group('qa')]
+qa-mesh-cvd-color-scale:
+	@echo "Running MeshPlot color-vision-deficiency regression..."
+	{{cargo}} test -p gpui-px --lib color_scale::tests::named_scales_remain_distinguishable_under_cvd_simulations
+
 # ----------------------------------------------------------------------
 # MAINTENANCE
 # ----------------------------------------------------------------------
@@ -823,7 +833,7 @@ update-pre-commit:
 
 [group('maintenance')]
 xcode:
-        xcodebuild -downloadComponent MetalToolchain
+		xcodebuild -downloadComponent MetalToolchain
 
 # ----------------------------------------------------------------------
 # DOWNLOAD
@@ -833,9 +843,4 @@ xcode:
 download-once:
 	wget -q -O crates/gpui-d3rs/bin/showcase/data/land-50m.json https://cdn.jsdelivr.net/npm/world-atlas@2/land-50m.json
 	wget -q -O crates/gpui-d3rs/bin/showcase/data/counties-albers-10m.json https://cdn.jsdelivr.net/npm/us-atlas@3/counties-albers-10m.json
-# Deterministic named color-scale CVD regression screen. Manual rendered CVD
-# review remains a separate reference-host/product gate.
-[group('qa')]
-qa-mesh-cvd-color-scale:
-	@echo "Running MeshPlot color-vision-deficiency regression..."
-	{{cargo}} test -p gpui-px --lib color_scale::tests::named_scales_remain_distinguishable_under_cvd_simulations
+

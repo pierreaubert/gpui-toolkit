@@ -187,7 +187,7 @@ impl MiniApp {
             }
 
             // Always set design system global (platform-appropriate defaults)
-            cx.set_global(DesignSystemState::new());
+            cx.set_global(Self::initial_design_state(&config_rc));
 
             // Initialize accessibility tree
             cx.set_global(AccessibilityTree::new());
@@ -286,7 +286,7 @@ impl MiniApp {
             }
 
             // Always set design system global (platform-appropriate defaults)
-            cx.set_global(DesignSystemState::new());
+            cx.set_global(Self::initial_design_state(&configs[0]));
 
             // Initialize accessibility tree
             cx.set_global(AccessibilityTree::new());
@@ -737,6 +737,15 @@ impl MiniApp {
             state
         } else {
             ThemeState::with_variant(config.initial_theme)
+        }
+    }
+
+    /// Resolve the starting design system, honoring an explicit config
+    /// override and falling back to the platform default.
+    fn initial_design_state(config: &MiniAppConfig) -> DesignSystemState {
+        match config.initial_design {
+            Some(language) => DesignSystemState::with_system(DesignSystem::for_language(language)),
+            None => DesignSystemState::new(),
         }
     }
 

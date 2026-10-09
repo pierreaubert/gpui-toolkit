@@ -1,4 +1,4 @@
-// LAYOUT (V > (Tx"Settings" + I#settings-name[label="Display name"] + I#settings-email[label="Email"] + (H > B.primary"Save"#settings-save + B"Cancel"#settings-cancel)))
+// XLE (V > (Tx"Settings" + I#settings-name[label="Display name"] + I#settings-email[label="Email"] + (H > B.primary"Save"#settings-save + B"Cancel"#settings-cancel)))
 //! Settings page template, emitted by `gpui-toolkit template settings-page`.
 //!
 //! Content-only: wrap in your own app shell and navigation.

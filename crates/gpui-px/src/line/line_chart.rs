@@ -1506,7 +1506,10 @@ impl LineChart {
                     y_axis_config = y_axis_config.with_title(label.clone());
                 }
 
-                let mut x_axis_config = AxisConfig::bottom().with_design(&design).with_ticks(20);
+                let mut x_axis_config = AxisConfig::bottom()
+                    .with_design(&design)
+                    // Budget room for a signed numeric label and its neighbors.
+                    .with_ticks(((plot_width / 56.0) as usize).clamp(2, 20));
                 if let Some(ref label) = self.x_label {
                     x_axis_config = x_axis_config.with_title(label.clone());
                 }
@@ -1595,7 +1598,10 @@ impl LineChart {
                     y_axis_config = y_axis_config.with_title(label.clone());
                 }
 
-                let mut x_axis_config = AxisConfig::bottom().with_design(&design).with_ticks(20);
+                let mut x_axis_config = AxisConfig::bottom()
+                    .with_design(&design)
+                    // Budget room for a signed numeric label and its neighbors.
+                    .with_ticks(((plot_width / 56.0) as usize).clamp(2, 20));
                 if let Some(ref label) = self.x_label {
                     x_axis_config = x_axis_config.with_title(label.clone());
                 }

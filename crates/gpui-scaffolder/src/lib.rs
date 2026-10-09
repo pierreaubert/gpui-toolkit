@@ -8,7 +8,7 @@ use std::path::{Component, Path, PathBuf};
 
 const GPUI_VERSION: &str = "0.2.2";
 const GPUI_ZED_TAG: &str = "v1.9.0";
-const SCAFFOLD_TEMPLATE_VERSION: &str = "1";
+const SCAFFOLD_TEMPLATE_VERSION: &str = "2";
 /// Name of the only scaffold template shipped today. Custom templates are a
 /// future extension; [`ScaffoldFlags`] reserves the selection slot already.
 pub const DEFAULT_TEMPLATE: &str = "default";
@@ -106,8 +106,6 @@ struct DependencyPaths {
     ui_kit: PathBuf,
     ios: PathBuf,
     android: PathBuf,
-    block: PathBuf,
-    zed_font_kit: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -354,10 +352,6 @@ fn create_scaffold_directories(
 /// Derive toolkit and shared fork dependency paths relative to the scaffold.
 fn toolkit_dependency_paths(app_dir: &Path, toolkit_root: &Path) -> DependencyPaths {
     let base = relative_path(app_dir, toolkit_root);
-    let shared_forks = toolkit_root
-        .parent()
-        .unwrap_or(toolkit_root)
-        .join("sotf-3rdparties");
     // Joining onto "." would produce "./crates/..." while the direct walk
     // produces "crates/..."; normalize so both spellings agree exactly.
     let join = |sub: &str| {
@@ -372,8 +366,6 @@ fn toolkit_dependency_paths(app_dir: &Path, toolkit_root: &Path) -> DependencyPa
         ui_kit: join("crates/gpui-ui-kit"),
         ios: join("crates/gpui-ios"),
         android: join("crates/gpui-android"),
-        block: relative_path(app_dir, &shared_forks.join("block")),
-        zed_font_kit: relative_path(app_dir, &shared_forks.join("zed-font-kit")),
     }
 }
 
@@ -765,17 +757,11 @@ log = "0.4"
         ));
     }
 
-    manifest.push_str(&format!(
-        r#"
-[patch."https://github.com/zed-industries/font-kit"]
-zed-font-kit = {{ path = "{zed_font_kit_path}" }}
-
-[patch.crates-io]
-block = {{ path = "{block_path}" }}
-"#,
-        block_path = cargo_path(&dependencies.block),
-        zed_font_kit_path = cargo_path(&dependencies.zed_font_kit),
-    ));
+    // No [patch] tables: the sotf-3rdparties crates publish under renamed
+    // sotf-* package names, and Cargo requires a patch entry to carry the
+    // patched crate's name, so renamed crates cannot patch upstream names.
+    // Scaffolded apps resolve block/font-kit from crates.io; the local GPUI
+    // closure used by compile-smoke tests carries its own sotf-* path deps.
     manifest
 }
 
@@ -1616,16 +1602,15 @@ mod tests {
         assert!(manifest.contains("gpui-android"));
         assert!(manifest.contains("android-activity"));
         assert!(manifest.contains("android_logger"));
-        assert!(manifest.contains("[patch.\"https://github.com/zed-industries/font-kit\"]"));
-        assert!(manifest.contains("zed-font-kit"));
-        assert!(manifest.contains("sotf-3rdparties/zed-font-kit"));
-        assert!(!manifest.contains("../sotf-3rdparties/gpui/crates/zed-font-kit"));
-        assert!(manifest.contains("[patch.crates-io]"));
         assert!(manifest.contains("zune-core = \"=0.5.1\""));
         assert!(manifest.contains("libc = \"=0.2.189\""));
-        assert!(manifest.contains("block"));
-        assert!(manifest.contains("sotf-3rdparties/block"));
-        assert!(!manifest.contains("../sotf-3rdparties/gpui/crates/block"));
+        // Renamed sotf-* crates cannot patch upstream names, so the template
+        // carries no [patch] tables; scaffolded apps resolve block/font-kit
+        // from crates.io.
+        assert!(!manifest.contains("[patch."));
+        assert!(!manifest.contains("[patch.crates-io]"));
+        assert!(!manifest.contains("zed-font-kit"));
+        assert!(!manifest.contains("sotf-3rdparties/block"));
 
         let metadata: toml::Value = toml::from_str(&fs::read_to_string(
             scaffolded.app_dir.join("gpui-scaffold.toml"),
@@ -1804,10 +1789,57 @@ mod tests {
         Ok(())
     }
 
-    /// Keep compile-smoke tests offline without changing the published
-    /// scaffold template: generated apps intentionally point at the public
-    /// Zed tag, while this test-only replacement redirects that dependency to
-    /// the workspace's namespaced vendored GPUI crate.
+    /// Render the scaffold's test-only `gpui` dependency line from the
+    /// workspace's own `gpui` spec. A path workspace keeps the canonicalized
+    /// snapshot path; a git workspace reuses the exact git remote so Cargo
+    /// unifies the renamed package instead of building path and git copies
+    /// side by side (duplicate `gpui` crates break every shared trait impl).
+    fn local_gpui_dependency(
+        toolkit_root: &Path,
+        workspace_gpui: &toml::Table,
+    ) -> Result<String> {
+        let mut parts = Vec::new();
+        if let Some(package) = workspace_gpui
+            .get("package")
+            .and_then(toml::Value::as_str)
+        {
+            parts.push(format!(r#"package = "{}""#, toml_string(package)));
+        }
+        if let Some(path) = workspace_gpui.get("path").and_then(toml::Value::as_str) {
+            let absolute = toolkit_root.join(path).canonicalize().with_context(|| {
+                format!("workspace gpui path dependency does not exist: {path}")
+            })?;
+            parts.push(format!(r#"path = "{}""#, cargo_path(&absolute)));
+            return Ok(format!("gpui = {{ {} }}", parts.join(", ")));
+        }
+        let git = workspace_gpui
+            .get("git")
+            .and_then(toml::Value::as_str)
+            .context("workspace gpui dependency must declare a path or git source")?;
+        parts.push(format!(r#"git = "{}""#, toml_string(git)));
+        for key in ["version", "rev", "tag", "branch"] {
+            if let Some(value) = workspace_gpui.get(key).and_then(toml::Value::as_str) {
+                parts.push(format!(r#"{key} = "{}""#, toml_string(value)));
+            }
+        }
+        if let Some(default_features) = workspace_gpui
+            .get("default-features")
+            .and_then(toml::Value::as_bool)
+        {
+            parts.push(format!("default-features = {default_features}"));
+        }
+        Ok(format!("gpui = {{ {} }}", parts.join(", ")))
+    }
+
+    /// Keep compile-smoke tests resolving against the local workspace without
+    /// changing the published scaffold template: generated apps intentionally
+    /// point at the public Zed tag, while this test-only replacement redirects
+    /// that dependency to the workspace's renamed (sotf-*) vendored GPUI crate
+    /// using the workspace's own path or git spec, so the scaffolded app and
+    /// the path-based toolkit crates share a single `gpui` source. Any
+    /// crates.io patches still declared by the local workspace manifest are
+    /// inherited; the git flow additionally relies on Cargo's cached git
+    /// checkout when resolving offline.
     fn patch_scaffold_for_local_workspace(manifest_path: &Path) -> Result<()> {
         let toolkit_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
@@ -1816,34 +1848,42 @@ mod tests {
         let crates_io_patches = workspace_manifest
             .get("patch")
             .and_then(|patch| patch.get("crates-io"))
+            .and_then(toml::Value::as_table);
+        let workspace_gpui = workspace_manifest
+            .get("workspace")
+            .and_then(|workspace| workspace.get("dependencies"))
+            .and_then(|dependencies| dependencies.get("gpui"))
             .and_then(toml::Value::as_table)
-            .context("workspace must define crates.io patches")?;
+            .context("workspace manifest must declare a gpui dependency")?;
 
         let mut manifest = fs::read_to_string(manifest_path)?;
         let generated_gpui = format!(
             r#"gpui = {{ version = "{GPUI_VERSION}", git = "https://github.com/zed-industries/zed.git", tag = "{GPUI_ZED_TAG}" }}"#
         );
-        let local_gpui = toolkit_root
-            .join("../sotf-3rdparties/gpui/crates/gpui")
-            .canonicalize()?;
-        let local_gpui = format!(
-            r#"gpui = {{ package = "gpui-toolkit-gpui", path = "{}" }}"#,
-            cargo_path(&local_gpui),
-        );
+        let local_gpui = local_gpui_dependency(&toolkit_root, workspace_gpui)?;
         if !manifest.contains(&generated_gpui) {
             bail!("generated scaffold must contain the expected GPUI Git dependency");
         }
         manifest = manifest.replace(&generated_gpui, &local_gpui);
 
+        let inherited: Vec<(&String, &toml::Value)> = crates_io_patches
+            .map(|table| table.iter().collect())
+            .unwrap_or_default();
+        if inherited.is_empty() {
+            fs::write(manifest_path, manifest)?;
+            return Ok(());
+        }
         let generated_manifest: toml::Value = toml::from_str(&manifest)?;
         let existing_patches = generated_manifest
             .get("patch")
             .and_then(|patch| patch.get("crates-io"))
-            .and_then(toml::Value::as_table)
-            .context("generated scaffold must define crates.io patches")?;
+            .and_then(toml::Value::as_table);
         manifest.push_str("\n# Test-only patches inherited from the local workspace.\n");
-        for (name, dependency) in crates_io_patches {
-            if existing_patches.contains_key(name) {
+        if existing_patches.is_none() {
+            manifest.push_str("[patch.crates-io]\n");
+        }
+        for (name, dependency) in inherited {
+            if existing_patches.is_some_and(|table| table.contains_key(name)) {
                 continue;
             }
 
@@ -1933,7 +1973,14 @@ mod tests {
 
     #[test]
     fn generated_gpui_tag_matches_vendored_revision() -> Result<()> {
-        let vendored = include_str!("../../../../sotf-3rdparties/gpui/crates/gpui/VENDORED.md");
+        // Runtime read: the snapshot provenance lives in the sibling
+        // sotf-3rdparties checkout, which a clean source archive does not
+        // contain, so it cannot be an include_str! asset (see
+        // scripts/qa_embedded_assets.py).
+        let vendored_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../sotf-3rdparties/gpui/crates/gpui/VENDORED.md");
+        let vendored = fs::read_to_string(&vendored_path)
+            .with_context(|| format!("read {}", vendored_path.display()))?;
         let vendored_ref = vendored
             .lines()
             .find_map(|line| line.strip_prefix("- Base ref: "))
@@ -2036,8 +2083,6 @@ mod tests {
             ui_kit: Path::new("/tmp/ui-kit").to_path_buf(),
             ios: Path::new("/tmp/ios").to_path_buf(),
             android: Path::new("/tmp/android").to_path_buf(),
-            block: Path::new("/tmp/block").to_path_buf(),
-            zed_font_kit: Path::new("/tmp/zed-font-kit").to_path_buf(),
         };
         let toml = cargo_toml(&names, &dependencies, &ScaffoldFlags::default());
         assert!(toml.contains("name = \"demo-app\""));
@@ -2046,8 +2091,6 @@ mod tests {
         assert!(toml.contains("/tmp/ui-kit"));
         assert!(toml.contains("/tmp/ios"));
         assert!(toml.contains("/tmp/android"));
-        assert!(toml.contains("/tmp/block"));
-        assert!(toml.contains("/tmp/zed-font-kit"));
     }
 
     #[test]
@@ -2550,17 +2593,6 @@ mod tests {
             assert_eq!(
                 dependencies.android,
                 relative_path(from, &root.join("crates/gpui-android"))
-            );
-            assert_eq!(
-                dependencies.block,
-                relative_path(from, &root.parent().unwrap().join("sotf-3rdparties/block"))
-            );
-            assert_eq!(
-                dependencies.zed_font_kit,
-                relative_path(
-                    from,
-                    &root.parent().unwrap().join("sotf-3rdparties/zed-font-kit")
-                )
             );
         }
     }

@@ -17,6 +17,8 @@ import tarfile
 from pathlib import Path
 from typing import Iterable
 
+from repo_paths import within_repo
+
 from mesh_wgpu_manifest import (
     COMPARISON_IDS,
     WgpuManifestError,
@@ -130,7 +132,9 @@ MESH_PLOT_BENCHMARK_WORKLOADS = {
         ("mesh_plot_retained_picking", "revolved_bvh_pick"),
     ),
 }
-MESH_PLOT_BASELINE_MARKER = "px-mesh-plot"
+# Capture IDs URL-escape story IDs (`~2e` for `.`, `~5f` for `_`), so the
+# `px.mesh_plot` story prefix appears escaped in archive member names.
+MESH_PLOT_BASELINE_MARKER = "px~2emesh~5fplot"
 
 OPTIONAL_ARTIFACTS = (
     "target/qa/visual/component-lab-capture.md",
@@ -360,7 +364,6 @@ def validate_mesh_plot_visual_capture(
             "cases, zero failures, and a passing capture run"
         )
 
-    root_resolved = root.resolve()
     capture_ids: set[str] = set()
     actual_paths: set[Path] = set()
     for case in cases:
@@ -381,12 +384,10 @@ def validate_mesh_plot_visual_capture(
                 "with actual_path entries"
             )
         candidate = (root / actual_path_text).resolve()
-        try:
-            candidate.relative_to(root_resolved)
-        except ValueError as error:
+        if not within_repo(root, candidate):
             raise EvidenceError(
                 f"MeshPlot actual capture path escapes the repository: {actual_path_text}"
-            ) from error
+            )
         if "actual" not in candidate.parts or not candidate.is_file():
             raise EvidenceError(f"missing MeshPlot local actual capture: {actual_path_text}")
         capture_ids.add(capture_id)
@@ -755,7 +756,6 @@ def validate_mesh_plot_product_visual(
     if not isinstance(cases, list) or len(cases) != len(MESH_PLOT_PRODUCT_CASE_IDS):
         raise EvidenceError("MeshPlot product visual manifest must contain four cases")
 
-    root_resolved = root.resolve()
     seen_ids: set[str] = set()
     seen_paths: set[Path] = set()
     decoded: dict[str, tuple[int, int, bytes]] = {}
@@ -796,10 +796,13 @@ def validate_mesh_plot_product_visual(
         )
         if not image.is_file() or image.stat().st_size == 0:
             raise EvidenceError(f"missing MeshPlot product image: {path_text}")
+        if not within_repo(root, image.resolve()):
+            raise EvidenceError(
+                f"invalid MeshPlot product image {path_text}: escapes the repository"
+            )
         try:
-            image.resolve().relative_to(root_resolved)
             decoded[case_id] = _decode_png(image)
-        except (ValueError, VisualCompareError) as error:
+        except VisualCompareError as error:
             raise EvidenceError(f"invalid MeshPlot product image {path_text}: {error}") from error
         if decoded[case_id][0:2] != (1200, 800):
             raise EvidenceError(f"MeshPlot product case {case_id} has unexpected dimensions")
@@ -1287,10 +1290,8 @@ def _safe_repo_artifact_path(
     ):
         raise EvidenceError(f"{description} contains an unsafe path: {path_text!r}")
     resolved = ((base or root) / candidate).resolve()
-    try:
-        resolved.relative_to(root.resolve())
-    except ValueError as error:
-        raise EvidenceError(f"{description} escapes the repository: {path_text!r}") from error
+    if not within_repo(root, resolved):
+        raise EvidenceError(f"{description} escapes the repository: {path_text!r}")
     return resolved
 
 
@@ -1304,12 +1305,10 @@ def validate_mesh_plot_cross_adapter_visual(
 
     path = report_path or root / MESH_PLOT_CROSS_ADAPTER_VISUAL_ARTIFACT
     if report_path is not None:
-        try:
-            path.resolve().relative_to(root.resolve())
-        except ValueError as error:
+        if not within_repo(root, path.resolve()):
             raise EvidenceError(
                 f"cross-adapter visual report escapes the repository: {path}"
-            ) from error
+            )
     if not path.is_file():
         if require_report:
             raise EvidenceError(

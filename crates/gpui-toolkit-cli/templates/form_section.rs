@@ -1,4 +1,4 @@
-// LAYOUT (V > (I#form-name[label="Name"] + I#form-email[label="Email"]))
+// XLE (V > (I#form-name[label="Name"] + I#form-email[label="Email"]))
 //! Form block template, emitted by `gpui-toolkit template form-section`.
 //!
 //! Reusable block: embed in any page layout.

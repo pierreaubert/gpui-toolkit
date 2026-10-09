@@ -2,7 +2,7 @@
   "schema_version": 1,
   "title": "GPUI Toolkit demos",
   "description": "Generated snapshots and live WebGPU demos for the GPUI Toolkit showcase applications.",
-  "public_base_url": "https://pierreaubert.github.io/gpui-toolkit/",
+  "public_base_url": "https://gpui-toolkit.spinorama.org/",
   "apps": [
     {
       "id": "showcase",

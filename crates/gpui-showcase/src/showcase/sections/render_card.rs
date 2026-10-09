@@ -36,11 +36,10 @@ impl Showcase {
                         Card::new()
                             .header(Heading::h3("Simple Card"))
                             .content(
-                                VStack::new()
-                                    .spacing(StackSpacing::Sm)
-                                    .child(Text::new("* Feature one"))
-                                    .child(Text::new("* Feature two"))
-                                    .child(Text::new("* Feature three")),
+                                Markdown::new(
+                                    "card-features",
+                                    "- Feature one\n- Feature two\n- Feature three",
+                                ),
                             )
                             .style(|d| d.w(px(250.0))),
                     ),

@@ -10,6 +10,7 @@ host.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -22,6 +23,29 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CATALOG = REPO_ROOT / "docs/demos/catalog.json"
 DEFAULT_OUTPUT = REPO_ROOT / "target/demo-site"
 DEFAULT_CAPTURE_ROOT = REPO_ROOT / "target/qa/wasm-gallery"
+
+# Must match `web_initial_theme` in crates/gpui-miniapp/src/misc.rs.
+THEME_VALUES = [
+    "dark",
+    "light",
+    "midnight",
+    "forest",
+    "black-and-white",
+    "onyx",
+    "carbon-white",
+    "carbon-gray-10",
+    "carbon-gray-90",
+    "carbon-gray-100",
+]
+
+# Subset of `DesignLanguage::from_id` shown in the featured matrix.
+STYLE_VALUES = ["apple", "material3", "fluent", "neutral"]
+
+
+def seeded_pick(entry_id: str, values: list[str]) -> str:
+    """Deterministically pick one value per entry id (stable rebuilds)."""
+    digest = hashlib.md5(entry_id.encode("utf-8")).hexdigest()
+    return values[int(digest, 16) % len(values)]
 
 
 def load_catalog(path: Path) -> dict:
@@ -72,12 +96,17 @@ def entries_for(catalog: dict, manifests: dict[str, dict]) -> list[dict]:
                 section = capture["section"]
                 viewport = capture["viewport_id"]
                 renderer_query = capture.get("renderer_query", "")
-                live_params = {"section": section, "theme": "dark"}
+                entry_id = f"{app_id}-{capture['id']}"
+                live_theme = seeded_pick(entry_id, THEME_VALUES)
+                live_style = seeded_pick(f"{entry_id}/style", STYLE_VALUES)
+                live_params = {"section": section, "theme": live_theme, "style": live_style}
                 if renderer_query:
                     live_params["renderer"] = renderer_query
                 entries.append(
                     {
-                        "id": f"{app_id}-{capture['id']}",
+                        "id": entry_id,
+                        "live_theme": live_theme,
+                        "live_style": live_style,
                         "app_id": app_id,
                         "app_title": app["title"],
                         "app_description": app["description"],
@@ -127,6 +156,50 @@ def entries_for(catalog: dict, manifests: dict[str, dict]) -> list[dict]:
     return entries
 
 
+def featured_variants(catalog: dict, entries: list[dict]) -> list[dict]:
+    """Build the themed top section from one featured example.
+
+    Uses the first featured catalog id resolving to a captured section
+    (falling back to the first captured section), rendered once per
+    theme at neutral style plus once per style at dark theme. Variant
+    captures carry their own theme/style so tiles match their links.
+    """
+    by_id = {entry["id"]: entry for entry in entries}
+    base = next(
+        (by_id[entry_id] for entry_id in catalog.get("featured", []) if entry_id in by_id and by_id[entry_id].get("section")),
+        None,
+    )
+    if base is None:
+        base = next((entry for entry in entries if entry.get("section")), None)
+    if base is None:
+        return []
+    variants = []
+    themed = [(theme, "neutral", "theme") for theme in THEME_VALUES]
+    styled = [("dark", style, "style") for style in STYLE_VALUES]
+    for theme, style, kind in themed + styled:
+        variant_id = f"{base['id']}--{kind}--{theme if kind == 'theme' else style}"
+        slug = f"{base['section']}--{theme}--{style}"
+        params = {"section": base["section"], "theme": theme, "style": style}
+        if base.get("renderer_query"):
+            params["renderer"] = base["renderer_query"]
+        variants.append(
+            {
+                **base,
+                "id": variant_id,
+                "variant_kind": kind,
+                "variant_label": theme if kind == "theme" else style,
+                "live_theme": theme,
+                "live_style": style,
+                "capture_theme": theme,
+                "capture_style": style,
+                "image": f"snapshots/{base['app_id']}/{base['viewport_id']}/{slug}.png",
+                "thumbnail": f"thumbnails/{base['app_id']}/{base['viewport_id']}/{slug}.webp",
+                "live_url": f"{base['live_url'].split('?')[0]}?{urlencode(params)}",
+            }
+        )
+    return variants
+
+
 def parse_urls(values: list[str]) -> dict[str, str]:
     urls = {}
     for value in values:
@@ -158,11 +231,13 @@ def capture_entries(
         if not base_url:
             failures.append(f"{entry['id']}: no URL supplied for {app_id}")
             continue
-        query_params = {"section": entry["section"], "theme": "dark"}
+        query_params = {"section": entry["section"], "theme": entry.get("capture_theme", "dark")}
+        if entry.get("capture_style"):
+            query_params["style"] = entry["capture_style"]
         if entry.get("renderer_query"):
             query_params["renderer"] = entry["renderer_query"]
         query = urlencode(query_params)
-        output = output_root / app_id / entry["viewport_id"] / f"{entry['section']}.png"
+        output = output_root / Path(entry["image"]).relative_to("snapshots")
         output.parent.mkdir(parents=True, exist_ok=True)
         report = capture(
             f"{base_url}/?{query}",
@@ -196,7 +271,7 @@ def copy_images(entries: list[dict], capture_root: Path, output: Path) -> int:
         if entry.get("source_image"):
             source = REPO_ROOT / entry["source_image"]
         else:
-            source = capture_root / entry["app_id"] / entry["viewport_id"] / f"{entry['section']}.png"
+            source = capture_root / Path(entry["image"]).relative_to("snapshots")
         if source.exists():
             shutil.copy2(source, destination)
             entry["available"] = True
@@ -210,7 +285,7 @@ def build_thumbnails(entries: list[dict], output: Path) -> None:
     try:
         from PIL import Image
     except ImportError:
-        print("warning: Pillow unavailable; skipping thumbnails and contact sheets", file=sys.stderr)
+        print("warning: Pillow unavailable; skipping thumbnails", file=sys.stderr)
         return
 
     for entry in entries:
@@ -224,46 +299,10 @@ def build_thumbnails(entries: list[dict], output: Path) -> None:
             image.convert("RGB").save(destination, "WEBP", quality=84, method=6)
 
 
-def build_contact_sheets(entries: list[dict], output: Path) -> list[str]:
-    try:
-        from PIL import Image, ImageDraw
-    except ImportError:
-        return []
-
-    sheet_paths = []
-    for app_id in sorted({entry["app_id"] for entry in entries}):
-        app_entries = [entry for entry in entries if entry["app_id"] == app_id and entry.get("available")]
-        if not app_entries:
-            continue
-        for sheet_index in range(0, len(app_entries), 12):
-            batch = app_entries[sheet_index : sheet_index + 12]
-            card_width, card_height = 360, 270
-            sheet = Image.new("RGB", (card_width * 4, card_height * 3), (24, 24, 32))
-            draw = ImageDraw.Draw(sheet)
-            for index, entry in enumerate(batch):
-                source = output / entry["image"]
-                with Image.open(source) as image:
-                    image = image.convert("RGB")
-                    image.thumbnail((card_width - 20, card_height - 48), Image.Resampling.LANCZOS)
-                    x = (index % 4) * card_width + (card_width - image.width) // 2
-                    y = (index // 4) * card_height + 8
-                    sheet.paste(image, (x, y))
-                draw.text(
-                    ((index % 4) * card_width + 8, (index // 4 + 1) * card_height - 30),
-                    f"{entry['section_label']} · {entry['viewport_id']}",
-                    fill=(240, 240, 245),
-                )
-            path = output / "contact-sheets" / f"{app_id}-{sheet_index // 12 + 1:03d}.png"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            sheet.save(path, "PNG", optimize=True)
-            sheet_paths.append(str(path.relative_to(output)))
-    return sheet_paths
-
-
-def write_site(catalog: dict, entries: list[dict], output: Path, sheets: list[str]) -> None:
+def write_site(catalog: dict, entries: list[dict], output: Path) -> None:
     output.mkdir(parents=True, exist_ok=True)
     (output / "manifest.json").write_text(
-        json.dumps({"catalog": catalog, "entries": entries, "contact_sheets": sheets}, indent=2) + "\n",
+        json.dumps({"catalog": catalog, "entries": entries}, indent=2) + "\n",
         encoding="utf-8",
     )
     (output / "_headers").write_text(
@@ -273,19 +312,25 @@ def write_site(catalog: dict, entries: list[dict], output: Path, sheets: list[st
         encoding="utf-8",
     )
 
+    base_entries = [entry for entry in entries if "variant_kind" not in entry]
+    variants = [entry for entry in entries if "variant_kind" in entry]
     featured_ids = set(catalog.get("featured", []))
-    featured = [entry for entry in entries if entry["id"] in featured_ids]
-    cards = featured + [entry for entry in entries if entry not in featured]
-    rendered_cards = []
-    for entry in cards:
+    featured = [entry for entry in base_entries if entry["id"] in featured_ids]
+    cards = featured + [entry for entry in base_entries if entry not in featured]
+
+    def media_for(entry: dict) -> str:
         image_path = output / entry["thumbnail"]
         if not image_path.exists():
             image_path = output / entry["image"]
-        media = (
-            f'<img loading="lazy" src="{escape(str(image_path.relative_to(output)))}" alt="{escape(entry["app_title"] + " — " + entry["section_label"])}">'
-            if image_path.exists()
-            else '<div class="placeholder">Capture pending</div>'
+        if not image_path.exists():
+            return '<div class="placeholder">Capture pending</div>'
+        return (
+            f'<img loading="lazy" src="{escape(str(image_path.relative_to(output)))}" '
+            f'alt="{escape(entry["app_title"] + " — " + entry["section_label"])}">'
         )
+
+    rendered_cards = []
+    for entry in cards:
         live = (
             f'<a class="live" href="{escape(entry["live_url"])}">Open live demo ↗</a>'
             if entry.get("live_url")
@@ -296,18 +341,40 @@ def write_site(catalog: dict, entries: list[dict], output: Path, sheets: list[st
             if entry.get("source_url")
             else ""
         )
+        variant = (
+            f' <span class="variant" title="Live demo opens with this theme and design style">'
+            f'{escape(entry["live_theme"])} · {escape(entry["live_style"])}</span>'
+            if entry.get("live_theme")
+            else ""
+        )
         availability = "" if entry.get("available") else " missing"
         rendered_cards.append(
             f'<article class="card{availability}" data-search="{escape((entry["app_title"] + " " + entry["section_label"] + " " + entry["group"]).lower())}">'
-            f'<a class="image" href="{escape(entry["image"])}">{media}</a>'
+            f'<a class="image" href="{escape(entry["image"])}">{media_for(entry)}</a>'
             f'<div class="meta"><p class="eyebrow">{escape(entry["app_title"])} · {escape(entry["viewport_label"])}</p>'
-            f'<h2>{escape(entry["section_label"])}</h2><p>{escape(entry["app_description"])}</p>{live} {source}</div></article>'
+            f'<h2>{escape(entry["section_label"])}</h2><p>{escape(entry["app_description"])}</p>{live}{variant} {source}</div></article>'
         )
 
-    sheets_html = "".join(
-        f'<a href="{escape(path)}"><img loading="lazy" src="{escape(path)}" alt="Contact sheet {index + 1}"></a>'
-        for index, path in enumerate(sheets)
-    )
+    def variant_tile(entry: dict) -> str:
+        return (
+            f'<a class="tile" href="{escape(entry["live_url"])}">'
+            f'<span class="tile-image">{media_for(entry)}</span>'
+            f'<span class="tile-label">{escape(entry["variant_label"])}</span></a>'
+        )
+
+    theme_tiles = "".join(variant_tile(entry) for entry in variants if entry["variant_kind"] == "theme")
+    style_tiles = "".join(variant_tile(entry) for entry in variants if entry["variant_kind"] == "style")
+    if variants:
+        base_title = f'{escape(variants[0]["app_title"])} — {escape(variants[0]["section_label"])}'
+        featured_html = (
+            f'<section class="featured"><h2>One example, every theme and style</h2>'
+            f'<p class="count">{base_title}, captured once per theme at neutral style, '
+            f"then once per design style at dark theme. Click a tile to open it live.</p>"
+            f'<h3>Themes</h3><div class="tiles">{theme_tiles}</div>'
+            f'<h3>Design styles</h3><div class="tiles">{style_tiles}</div></section>'
+        )
+    else:
+        featured_html = ""
     html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -324,13 +391,18 @@ def write_site(catalog: dict, entries: list[dict], output: Path, sheets: list[st
     .card {{ overflow:hidden; background:rgba(28,27,40,.9); border:1px solid #393448; border-radius:16px; box-shadow:0 12px 36px rgba(0,0,0,.2); }} .card.missing {{ opacity:.5; }}
     .image {{ display:block; aspect-ratio: 4 / 3; background:#0a0a0f; }} .image img {{ width:100%; height:100%; object-fit:contain; display:block; }} .placeholder {{ height:100%; display:grid; place-items:center; color:#8e879c; font-size:.9rem; }}
     .meta {{ padding:16px 18px 18px; }} .eyebrow {{ color:#b6a4ef; font-size:.75rem; text-transform:uppercase; letter-spacing:.08em; }} h2 {{ margin:5px 0 8px; font-size:1.3rem; }} .meta p {{ color:#c8c1d4; line-height:1.4; }}
-    .live, .source {{ color:#d7c9ff; font-weight:600; margin-right:12px; }} .sheets {{ display:flex; gap:14px; overflow:auto; margin:16px 0 42px; }} .sheets img {{ width:360px; border-radius:12px; border:1px solid #393448; }}
+    .live, .source {{ color:#d7c9ff; font-weight:600; margin-right:12px; }} .variant {{ color:#8e879c; font-size:.8rem; }}
+    .featured {{ margin:8px 0 42px; }} .featured h2 {{ font-size:1.6rem; margin:0 0 6px; }} .featured h3 {{ font-size:.8rem; text-transform:uppercase; letter-spacing:.08em; color:#b6a4ef; margin:20px 0 10px; }}
+    .tiles {{ display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:12px; }}
+    .tile {{ display:block; background:rgba(28,27,40,.9); border:1px solid #393448; border-radius:12px; overflow:hidden; text-decoration:none; }} .tile:hover {{ border-color:#6f6391; }}
+    .tile-image {{ display:block; aspect-ratio: 8 / 5; background:#0a0a0f; }} .tile-image img {{ width:100%; height:100%; object-fit:cover; display:block; }} .tile-image .placeholder {{ height:100%; }}
+    .tile-label {{ display:block; padding:8px 12px 10px; color:#d7c9ff; font-size:.85rem; font-weight:600; }}
     .count {{ color:#aaa2b9; }}
   </style>
 </head>
 <body>
-  <header><p class="eyebrow">GPUI Toolkit · generated gallery</p><h1>{escape(catalog['title'])}</h1><p>{escape(catalog['description'])}</p><p class="count">{len(entries)} catalog entries · generated from Rust showcase inventories</p></header>
-  <section><h2>Contact sheets</h2><div class="sheets">{sheets_html or '<p class="count">Run the capture job to generate contact sheets.</p>'}</div></section>
+  <header><p class="eyebrow">GPUI Toolkit · generated gallery</p><h1>{escape(catalog['title'])}</h1><p>{escape(catalog['description'])}</p><p class="count">{len(base_entries)} catalog entries · generated from Rust showcase inventories</p></header>
+  {featured_html}
   <div class="toolbar"><input id="search" type="search" placeholder="Filter demos…" aria-label="Filter demos"><span id="count" class="count"></span></div>
   <main id="gallery" class="grid">{"".join(rendered_cards)}</main>
   <script>
@@ -346,7 +418,8 @@ def write_site(catalog: dict, entries: list[dict], output: Path, sheets: list[st
 
 def write_readme_snippet(catalog: dict, entries: list[dict], path: Path) -> None:
     base = catalog["public_base_url"].rstrip("/") + "/"
-    featured = {entry["id"]: entry for entry in entries}
+    base_entries = [entry for entry in entries if "variant_kind" not in entry]
+    featured = {entry["id"]: entry for entry in base_entries}
     lines = [
         "<!-- BEGIN GENERATED DEMO GALLERY -->",
         "## Explore the toolkit",
@@ -369,7 +442,7 @@ def write_readme_snippet(catalog: dict, entries: list[dict], path: Path) -> None
         )
     lines.extend(
         [
-            f"[Browse all {len(entries)} generated snapshots and live demos →]({base})",
+            f"[Browse all {len(base_entries)} generated snapshots and live demos →]({base})",
             "<!-- END GENERATED DEMO GALLERY -->",
             "",
         ]
@@ -399,6 +472,7 @@ def main() -> int:
     catalog = load_catalog(args.catalog.resolve())
     manifests = app_manifests(catalog)
     entries = entries_for(catalog, manifests)
+    entries.extend(featured_variants(catalog, entries))
 
     if args.capture:
         urls = parse_urls(args.url)
@@ -418,11 +492,11 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=True)
     copied = copy_images(entries, args.capture_root.resolve(), output)
     build_thumbnails(entries, output)
-    sheets = build_contact_sheets(entries, output)
-    write_site(catalog, entries, output, sheets)
+    write_site(catalog, entries, output)
     if args.readme_snippet:
         write_readme_snippet(catalog, entries, args.readme_snippet.resolve())
-    print(f"wrote {output} ({len(entries)} entries, {copied} images, {len(sheets)} contact sheets)")
+    base_count = sum(1 for entry in entries if "variant_kind" not in entry)
+    print(f"wrote {output} ({base_count} entries, {copied} images)")
     return 0
 
 

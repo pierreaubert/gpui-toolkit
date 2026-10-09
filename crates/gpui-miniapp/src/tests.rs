@@ -5,6 +5,7 @@ use super::mini_app_config::MiniAppConfig;
 use super::mini_app_shell::MiniAppShell;
 use super::misc::current_platform;
 use super::misc::decode_query_component;
+use super::misc::design_language_from_param;
 use gpui::{Menu, MenuItem, px, size};
 use gpui_design::DesignLanguage;
 use gpui_ui_kit::i18n::Language;
@@ -32,6 +33,37 @@ fn query_components_percent_decode_utf8_and_reject_malformed_escapes() {
     );
     assert_eq!(decode_query_component("bad%2"), None);
     assert_eq!(decode_query_component("bad%zz"), None);
+}
+
+#[test]
+fn style_param_maps_to_design_language_case_insensitively() {
+    assert_eq!(design_language_from_param(None), None);
+    assert_eq!(design_language_from_param(Some("")), None);
+    assert_eq!(
+        design_language_from_param(Some("material3")),
+        Some(DesignLanguage::Material3)
+    );
+    assert_eq!(
+        design_language_from_param(Some("Fluent")),
+        Some(DesignLanguage::Fluent)
+    );
+    assert_eq!(
+        design_language_from_param(Some("apple")),
+        Some(DesignLanguage::Macos)
+    );
+    assert_eq!(
+        design_language_from_param(Some("neutral")),
+        Some(DesignLanguage::Neutral)
+    );
+    assert_eq!(design_language_from_param(Some("comic-sans")), None);
+}
+
+#[test]
+fn mini_app_config_defaults_to_platform_design() {
+    let config = MiniAppConfig::new("test");
+    assert_eq!(config.initial_design, None);
+    let config = config.initial_design(Some(DesignLanguage::Carbon));
+    assert_eq!(config.initial_design, Some(DesignLanguage::Carbon));
 }
 
 fn find_submenu<'a>(menu: &'a Menu, name: &str) -> &'a Menu {

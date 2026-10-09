@@ -507,6 +507,16 @@ cargo run -p gpui-toolkit-cli -- layout expand 'V > (Tx"Hi" + B.primary"Go")' --
 cargo run -p gpui-toolkit-cli -- layout grammar
 ```
 
+The syntax follows Astryx XLE conventions: text size is a modifier
+(`Tx.lg"$42k"`), heading level an attr (`Hd"Analytics"[level=2]`), and
+stack gaps use fused `gN` attrs (`V[g6]`, N×4px, alongside the explicit
+`spacing=` form). Text also takes `weight` and `muted`, so a styled
+header reads:
+
+```bash
+cargo run -p gpui-toolkit-cli -- layout check 'V[g6] > (Hd"Analytics"[level=2] + H[g2] > Tx.lg"$42k")'
+```
+
 Teach the CLI your project's vocabulary with a `toolkit.toml` file.
 Custom layout components behave like built-ins in `layout check` and
 `layout expand`, `issues_url` retargets `gap-report`, and extra
@@ -546,7 +556,44 @@ let _hero = layout! {
         B.primary("Go"),
     }
 };
+
+let _styled = layout! {
+    V[g6] {
+        Hd "Analytics" [level = "2"],
+        H[g2] {
+            Tx.lg "$42k",
+            Tx.sm "Revenue" [weight = "bold", muted],
+        },
+    }
+};
 ```
+
+What the macro saves, side by side. With `layout!`:
+
+```rust
+let _hero = layout! {
+    V {
+        Tx "Hi",
+        B.primary("Go"),
+    }
+};
+```
+
+Without (the same tree `layout expand` emits for
+`V > (Tx"Hi" + B.primary"Go")`, wrapped for readability):
+
+```rust
+use gpui::div;
+use gpui_ui_kit::{Button, ButtonVariant, VStack};
+
+let _hero = VStack::new()
+    .child(div().child("Hi"))
+    .child(Button::new("layout-0", "Go").variant(ButtonVariant::Primary));
+```
+
+The macro form drops the imports, the constructor names, the auto id,
+and the closing-paren accounting; on invalid input the build fails at
+the offending token instead of mid-frame.
 
 When a stock component almost fits, eject its source into your tree and
 customize it there:

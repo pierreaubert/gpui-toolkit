@@ -22,7 +22,10 @@
 
 // Rust guideline compliant 2026-02-21
 
-use gpui_layout_expr::{LayoutAttr, LayoutNode, button_variant_ident, validate_layout};
+use gpui_layout_expr::{
+    LayoutAttr, LayoutNode, button_variant_ident, heading_level_of, stack_spacing_of,
+    text_size_ident, text_weight_ident, validate_layout,
+};
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
@@ -273,20 +276,65 @@ fn emit_single(node: &LayoutNode, emitter: &mut MacroEmitter) -> TokenStream2 {
     }
     let mut expr = match kind {
         gpui_layout_expr::ComponentKind::VStack => {
-            quote! { ::gpui_ui_kit::VStack::new() }
+            let mut expr = quote! { ::gpui_ui_kit::VStack::new() };
+            if let Some(spacing) = stack_spacing_of(node) {
+                let spacing = Ident::new(spacing, Span::call_site());
+                expr.extend(quote! { .spacing(::gpui_ui_kit::StackSpacing::#spacing) });
+            }
+            expr
         }
         gpui_layout_expr::ComponentKind::HStack => {
-            quote! { ::gpui_ui_kit::HStack::new() }
+            let mut expr = quote! { ::gpui_ui_kit::HStack::new() };
+            if let Some(spacing) = stack_spacing_of(node) {
+                let spacing = Ident::new(spacing, Span::call_site());
+                expr.extend(quote! { .spacing(::gpui_ui_kit::StackSpacing::#spacing) });
+            }
+            expr
         }
         gpui_layout_expr::ComponentKind::Div => {
             emitter.uses_div = true;
             quote! { ::gpui::div() }
         }
         gpui_layout_expr::ComponentKind::Text => {
-            emitter.uses_div = true;
             let text = node.payload.as_deref().expect("validated payload");
             let text = LitStr::new(text, Span::call_site());
-            quote! { ::gpui::div().child(#text) }
+            let size = node
+                .modifier
+                .as_deref()
+                .map(|modifier| text_size_ident(modifier).expect("validated modifier"));
+            let weight = node.attrs.iter().find_map(|attr| {
+                if attr.key != "weight" {
+                    return None;
+                }
+                attr.value
+                    .as_deref()
+                    .map(|weight| text_weight_ident(weight).expect("validated attr"))
+            });
+            let muted = node.attrs.iter().any(|attr| attr.key == "muted");
+            if size.is_none() && weight.is_none() && !muted {
+                emitter.uses_div = true;
+                quote! { ::gpui::div().child(#text) }
+            } else {
+                let mut expr = quote! { ::gpui_ui_kit::Text::new(#text) };
+                if let Some(weight) = weight {
+                    let weight = Ident::new(weight, Span::call_site());
+                    expr.extend(quote! { .weight(::gpui_ui_kit::TextWeight::#weight) });
+                }
+                if let Some(size) = size {
+                    let size = Ident::new(size, Span::call_site());
+                    expr.extend(quote! { .size(::gpui_ui_kit::TextSize::#size) });
+                }
+                if muted {
+                    expr.extend(quote! { .muted(true) });
+                }
+                expr
+            }
+        }
+        gpui_layout_expr::ComponentKind::Heading => {
+            let text = node.payload.as_deref().expect("validated payload");
+            let text = LitStr::new(text, Span::call_site());
+            let level = Ident::new(heading_level_of(node), Span::call_site());
+            quote! { ::gpui_ui_kit::Heading::#level(#text) }
         }
         gpui_layout_expr::ComponentKind::Button => {
             let id = emitter.resolve_id(node.id.as_ref());

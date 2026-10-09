@@ -7,6 +7,10 @@
 - Added `run_multi` (one window per config, shared actions/menus) and
   signature-guarded `refresh_menus` that skips rebuilds with unchanged
   checked states.
+- Added `MiniAppConfig::initial_design` plus `?style=` web query support
+  so embeds can force a design language (`apple`, `material3`,
+  `fluent`, `neutral`, ...); unknown or empty values keep the platform
+  default.
 
 ## New
 

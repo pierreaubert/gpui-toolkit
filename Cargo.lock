@@ -570,6 +570,8 @@ dependencies = [
 [[package]]
 name = "async-task"
 version = "4.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b75356056920673b02621b35afd0f7dda9306d03c79a30f5c56c44cf256e3de"
 
 [[package]]
 name = "async-trait"
@@ -768,6 +770,8 @@ checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
 [[package]]
 name = "block"
 version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d8c1fef690941d3e7788d328517591fecc684c084084702d6ff1641e993699a"
 
 [[package]]
 name = "block-buffer"
@@ -1202,15 +1206,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "collections"
-version = "0.1.0"
-dependencies = [
- "gpui_util",
- "indexmap",
- "rustc-hash 2.1.3",
-]
-
-[[package]]
 name = "color"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1466,28 +1461,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cosmic-text"
-version = "0.19.0"
-dependencies = [
- "bitflags 2.13.2",
- "fontdb",
- "harfrust 0.5.2",
- "linebender_resource_handle",
- "log",
- "rangemap",
- "rustc-hash 2.1.3",
- "self_cell",
- "skrifa 0.40.0",
- "smol_str",
- "swash",
- "sys-locale",
- "unicode-bidi",
- "unicode-linebreak",
- "unicode-script",
- "unicode-segmentation",
-]
-
-[[package]]
 name = "cpubits"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1668,34 +1641,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e1ee323c1275374f7e612d3724d12707079fb6a2117349fe144def656f5a880"
 dependencies = [
  "robust",
-]
-
-[[package]]
-name = "derive_more"
-version = "2.1.2"
-dependencies = [
- "derive_more-impl",
-]
-
-[[package]]
-name = "derive_more-impl"
-version = "2.1.2"
-dependencies = [
- "convert_case",
- "proc-macro2",
- "quote",
- "rustc_version",
- "syn 2.0.119",
- "unicode-xid",
-]
-
-[[package]]
-name = "derive_refineable"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]
@@ -2102,8 +2047,10 @@ dependencies = [
 [[package]]
 name = "fontconfig-parser"
 version = "0.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbc773e24e02d4ddd8395fd30dc147524273a83e54e0f312d986ea30de5f5646"
 dependencies = [
- "roxmltree",
+ "roxmltree 0.20.0",
 ]
 
 [[package]]
@@ -2543,8 +2490,6 @@ dependencies = [
  "android_logger",
  "anyhow",
  "futures",
- "gpui-toolkit-gpui",
- "gpui-toolkit-gpui-wgpu",
  "jni",
  "libc",
  "log",
@@ -2556,6 +2501,8 @@ dependencies = [
  "rustc-hash 2.1.3",
  "serde_json",
  "smallvec",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-gpui-toolkit-gpui-wgpu",
  "uuid",
 ]
 
@@ -2569,17 +2516,17 @@ dependencies = [
  "core-text",
  "env_logger",
  "futures",
- "gpui-toolkit-gpui",
- "gpui-toolkit-gpui-wgpu",
  "log",
- "objc",
  "parking_lot",
  "pathfinder_geometry",
  "raw-window-handle",
  "smallvec",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-gpui-toolkit-gpui-wgpu",
+ "sotf-objc",
+ "sotf-wgpu",
+ "sotf-zed-font-kit",
  "uuid",
- "wgpu",
- "zed-font-kit",
 ]
 
 [[package]]
@@ -2590,8 +2537,8 @@ dependencies = [
  "gpui-design",
  "gpui-miniapp",
  "gpui-profiler",
- "gpui-toolkit-gpui",
  "gpui-ui-kit",
+ "sotf-gpui-toolkit-gpui",
 ]
 
 [[package]]
@@ -2603,13 +2550,13 @@ dependencies = [
  "gpui-ios",
  "gpui-pretext",
  "gpui-profiler",
- "gpui-toolkit-gpui",
- "gpui-toolkit-gpui-linux",
- "gpui-toolkit-gpui-macos",
- "gpui-toolkit-gpui-windows",
  "proptest",
  "serde",
  "serde_json",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-gpui-toolkit-gpui-linux",
+ "sotf-gpui-toolkit-gpui-macos",
+ "sotf-gpui-toolkit-gpui-windows",
 ]
 
 [[package]]
@@ -2626,13 +2573,13 @@ dependencies = [
  "gpui-profiler",
  "gpui-px",
  "gpui-showcase",
- "gpui-toolkit-gpui",
- "gpui-toolkit-gpui-macos",
  "gpui-ui-kit",
  "image",
  "serde",
  "serde_json",
  "shlex 1.3.0",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-gpui-toolkit-gpui-macos",
  "tempfile",
 ]
 
@@ -2651,9 +2598,6 @@ dependencies = [
  "gpui-design",
  "gpui-miniapp",
  "gpui-profiler",
- "gpui-toolkit-gpui",
- "gpui-toolkit-gpui-macos",
- "gpui-toolkit-gpui-wgpu",
  "gpui-ui-kit",
  "image",
  "kurbo",
@@ -2661,7 +2605,6 @@ dependencies = [
  "math-delaunay",
  "metal",
  "ndarray",
- "objc",
  "parley",
  "peniko",
  "pollster",
@@ -2671,23 +2614,27 @@ dependencies = [
  "serde_json",
  "smallvec",
  "smol",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-gpui-toolkit-gpui-macos",
+ "sotf-gpui-toolkit-gpui-wgpu",
+ "sotf-objc",
+ "sotf-vello",
+ "sotf-wgpu",
  "thiserror 2.0.21",
  "tokio",
  "urlencoding",
- "vello",
  "vello_cpu",
  "wasm-bindgen-futures",
  "web-time",
- "wgpu",
 ]
 
 [[package]]
 name = "gpui-design"
 version = "0.9.7"
 dependencies = [
- "gpui-toolkit-gpui",
  "serde",
  "serde_json",
+ "sotf-gpui-toolkit-gpui",
 ]
 
 [[package]]
@@ -2707,8 +2654,8 @@ name = "gpui-hello-web"
 version = "0.1.2"
 dependencies = [
  "gpui-miniapp",
- "gpui-toolkit-gpui",
  "js-sys",
+ "sotf-gpui-toolkit-gpui",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
@@ -2727,19 +2674,19 @@ dependencies = [
  "criterion",
  "futures",
  "gpui-profiler",
- "gpui-toolkit-gpui",
- "gpui-toolkit-gpui-wgpu",
  "log",
- "objc",
  "parking_lot",
  "pathfinder_geometry",
  "raw-window-handle",
  "serde_json",
  "smallvec",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-gpui-toolkit-gpui-wgpu",
+ "sotf-objc",
+ "sotf-wgpu",
+ "sotf-zed-font-kit",
  "tempfile",
  "uuid",
- "wgpu",
- "zed-font-kit",
 ]
 
 [[package]]
@@ -2748,9 +2695,9 @@ version = "0.9.7"
 dependencies = [
  "criterion",
  "gpui-profiler",
- "gpui-toolkit-gpui",
  "serde",
  "serde_json",
+ "sotf-gpui-toolkit-gpui",
 ]
 
 [[package]]
@@ -2766,13 +2713,13 @@ dependencies = [
  "gpui-builder",
  "gpui-design",
  "gpui-ios",
- "gpui-toolkit-gpui",
- "gpui-toolkit-gpui-linux",
- "gpui-toolkit-gpui-macos",
- "gpui-toolkit-gpui-web",
- "gpui-toolkit-gpui-windows",
  "gpui-ui-kit",
  "libsqlite3-sys",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-gpui-toolkit-gpui-linux",
+ "sotf-gpui-toolkit-gpui-macos",
+ "sotf-gpui-toolkit-gpui-web",
+ "sotf-gpui-toolkit-gpui-windows",
  "web-sys",
  "web-time",
 ]
@@ -2808,12 +2755,12 @@ dependencies = [
  "gpui-design",
  "gpui-miniapp",
  "gpui-profiler",
- "gpui-toolkit-gpui",
- "gpui-toolkit-gpui-macos",
- "gpui-toolkit-gpui-wgpu",
  "gpui-ui-kit",
  "image",
  "reqwest",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-gpui-toolkit-gpui-macos",
+ "sotf-gpui-toolkit-gpui-wgpu",
  "thiserror 2.0.21",
  "tokio",
  "urlencoding",
@@ -2841,8 +2788,6 @@ dependencies = [
  "gpui-px",
  "gpui-scaffolder",
  "gpui-themes",
- "gpui-toolkit-gpui",
- "gpui-toolkit-gpui-macos",
  "gpui-ui-kit",
  "libc",
  "memmap2",
@@ -2850,6 +2795,8 @@ dependencies = [
  "security-framework",
  "serde",
  "serde_json",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-gpui-toolkit-gpui-macos",
  "tempfile",
  "thiserror 2.0.21",
 ]
@@ -2880,10 +2827,10 @@ dependencies = [
  "gpui-ios",
  "gpui-miniapp",
  "gpui-profiler",
- "gpui-toolkit-gpui",
  "gpui-ui-kit",
  "serde",
  "serde_json",
+ "sotf-gpui-toolkit-gpui",
  "wasm-bindgen",
  "web-time",
 ]
@@ -2896,9 +2843,9 @@ dependencies = [
  "android_logger",
  "gpui-android",
  "gpui-showcase",
- "gpui-toolkit-gpui",
  "gpui-ui-kit",
  "log",
+ "sotf-gpui-toolkit-gpui",
 ]
 
 [[package]]
@@ -2907,10 +2854,10 @@ version = "0.8.0"
 dependencies = [
  "gpui-ios",
  "gpui-showcase",
- "gpui-toolkit-gpui",
  "gpui-ui-kit",
  "log",
  "oslog",
+ "sotf-gpui-toolkit-gpui",
 ]
 
 [[package]]
@@ -2919,10 +2866,10 @@ version = "0.8.0"
 dependencies = [
  "gpui-ios",
  "gpui-showcase",
- "gpui-toolkit-gpui",
  "gpui-ui-kit",
  "log",
  "oslog",
+ "sotf-gpui-toolkit-gpui",
 ]
 
 [[package]]
@@ -2931,10 +2878,10 @@ version = "0.9.8"
 dependencies = [
  "gpui-design",
  "gpui-miniapp",
- "gpui-toolkit-gpui",
  "gpui-ui-kit",
  "serde",
  "serde_json",
+ "sotf-gpui-toolkit-gpui",
 ]
 
 [[package]]
@@ -2970,372 +2917,12 @@ dependencies = [
  "gpui-component-lab",
  "gpui-layout-expr",
  "gpui-themes",
- "gpui-toolkit-gpui",
  "gpui-ui-kit",
  "serde",
  "serde_json",
+ "sotf-gpui-toolkit-gpui",
  "tempfile",
  "toml 1.1.6+spec-1.1.0",
-]
-
-[[package]]
-name = "gpui-toolkit-gpui"
-version = "0.2.3"
-dependencies = [
- "accesskit",
- "anyhow",
- "async-channel",
- "async-task",
- "backtrace",
- "bitflags 2.13.2",
- "block",
- "cbindgen",
- "chrono",
- "cocoa 0.26.0",
- "cocoa-foundation 0.2.0",
- "collections",
- "core-foundation 0.10.1",
- "core-foundation-sys",
- "core-graphics 0.24.0",
- "core-text",
- "core-video",
- "ctor",
- "derive_more",
- "embed-resource",
- "etagere",
- "foreign-types",
- "futures",
- "futures-concurrency",
- "getrandom 0.3.4",
- "gpui-toolkit-gpui-macros",
- "gpui-toolkit-http-client",
- "gpui-toolkit-scheduler",
- "gpui-toolkit-sum-tree",
- "gpui-toolkit-util-macros",
- "gpui_shared_string",
- "gpui_util",
- "heapless",
- "image",
- "inventory",
- "itertools 0.15.0",
- "log",
- "lyon",
- "mach2",
- "media",
- "metal",
- "num_cpus",
- "objc",
- "parking",
- "parking_lot",
- "pathfinder_geometry",
- "pin-project",
- "pollster",
- "profiling",
- "proptest",
- "rand 0.9.5",
- "raw-window-handle",
- "refineable",
- "regex",
- "resvg",
- "schemars",
- "seahash",
- "serde",
- "serde_json",
- "slotmap",
- "smallvec",
- "stacksafe",
- "strum",
- "taffy",
- "thiserror 2.0.21",
- "ttf-parser",
- "url",
- "usvg",
- "uuid",
- "waker-fn",
- "web-time",
- "windows 0.62.2",
- "zed-font-kit",
- "zed-scap",
-]
-
-[[package]]
-name = "gpui-toolkit-gpui-linux"
-version = "0.1.0"
-dependencies = [
- "accesskit",
- "accesskit_unix",
- "anyhow",
- "as-raw-xcb-connection",
- "ashpd",
- "bitflags 2.13.2",
- "bytemuck",
- "calloop",
- "calloop-wayland-source",
- "collections",
- "filedescriptor",
- "futures",
- "gpui-toolkit-gpui",
- "gpui-toolkit-gpui-wgpu",
- "gpui-toolkit-http-client",
- "gpui_util",
- "image",
- "itertools 0.15.0",
- "libc",
- "log",
- "oo7",
- "open",
- "parking_lot",
- "pathfinder_geometry",
- "pollster",
- "profiling",
- "raw-window-handle",
- "smallvec",
- "smol",
- "strum",
- "swash",
- "url",
- "uuid",
- "wayland-backend",
- "wayland-client",
- "wayland-cursor",
- "wayland-protocols",
- "wayland-protocols-plasma",
- "wayland-protocols-wlr",
- "x11-clipboard",
- "x11rb",
- "xkbcommon",
- "zed-scap",
- "zed-xim",
-]
-
-[[package]]
-name = "gpui-toolkit-gpui-macos"
-version = "0.1.2"
-dependencies = [
- "accesskit",
- "accesskit_macos",
- "anyhow",
- "async-task",
- "block",
- "cbindgen",
- "cocoa 0.26.0",
- "collections",
- "core-foundation 0.10.1",
- "core-foundation-sys",
- "core-graphics 0.24.0",
- "core-text",
- "core-video",
- "ctor",
- "derive_more",
- "dispatch2",
- "etagere",
- "foreign-types",
- "futures",
- "gpui-toolkit-gpui",
- "gpui_util",
- "image",
- "itertools 0.15.0",
- "libc",
- "log",
- "mach2",
- "media",
- "metal",
- "objc",
- "objc2 0.6.4",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "parking_lot",
- "pathfinder_geometry",
- "raw-window-handle",
- "semver",
- "smallvec",
- "strum",
- "uuid",
- "zed-font-kit",
-]
-
-[[package]]
-name = "gpui-toolkit-gpui-macros"
-version = "0.1.0"
-dependencies = [
- "heck 0.5.0",
- "proc-macro2",
- "quote",
- "syn 3.0.6",
-]
-
-[[package]]
-name = "gpui-toolkit-gpui-web"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "console_error_panic_hook",
- "futures",
- "gpui-toolkit-gpui",
- "gpui-toolkit-gpui-wgpu",
- "gpui-toolkit-http-client",
- "js-sys",
- "log",
- "parking_lot",
- "raw-window-handle",
- "smallvec",
- "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm_thread",
- "web-sys",
- "web-time",
-]
-
-[[package]]
-name = "gpui-toolkit-gpui-wgpu"
-version = "0.1.2"
-dependencies = [
- "anyhow",
- "bytemuck",
- "collections",
- "cosmic-text",
- "etagere",
- "gpui-toolkit-gpui",
- "gpui_util",
- "image",
- "itertools 0.15.0",
- "js-sys",
- "log",
- "parking_lot",
- "pollster",
- "profiling",
- "raw-window-handle",
- "smallvec",
- "swash",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "wgpu",
- "zed-font-kit",
-]
-
-[[package]]
-name = "gpui-toolkit-gpui-windows"
-version = "0.1.2"
-dependencies = [
- "anyhow",
- "collections",
- "etagere",
- "futures",
- "gpui-toolkit-gpui",
- "gpui-toolkit-util",
- "image",
- "itertools 0.15.0",
- "log",
- "parking_lot",
- "rand 0.10.3",
- "raw-window-handle",
- "smallvec",
- "uuid",
- "windows 0.62.2",
- "windows-core 0.62.2",
- "windows-numerics 0.3.1",
- "windows-registry",
-]
-
-[[package]]
-name = "gpui-toolkit-http-client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-compression",
- "bytes",
- "derive_more",
- "futures",
- "http",
- "http-body",
- "log",
- "parking_lot",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "url",
-]
-
-[[package]]
-name = "gpui-toolkit-perf"
-version = "0.1.0"
-dependencies = [
- "collections",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "gpui-toolkit-scheduler"
-version = "0.1.0"
-dependencies = [
- "async-task",
- "backtrace",
- "chrono",
- "futures",
- "parking_lot",
- "rand 0.9.5",
- "web-time",
-]
-
-[[package]]
-name = "gpui-toolkit-sum-tree"
-version = "0.1.0"
-dependencies = [
- "heapless",
- "log",
- "rayon",
- "tracing",
-]
-
-[[package]]
-name = "gpui-toolkit-util"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "async-fs",
- "async_zip",
- "collections",
- "command-fds",
- "dirs",
- "dunce",
- "futures",
- "futures-lite",
- "globset",
- "gpui_util",
- "itertools 0.15.0",
- "libc",
- "log",
- "mach2",
- "nix",
- "percent-encoding",
- "regex",
- "rust-embed",
- "schemars",
- "serde",
- "serde_json",
- "serde_json_lenient",
- "shlex 1.3.0",
- "smol",
- "take-until",
- "tempfile",
- "tendril",
- "unicase",
- "url",
- "walkdir",
- "which",
- "windows 0.62.2",
-]
-
-[[package]]
-name = "gpui-toolkit-util-macros"
-version = "0.1.0"
-dependencies = [
- "gpui-toolkit-perf",
- "quote",
- "syn 3.0.6",
 ]
 
 [[package]]
@@ -3349,16 +2936,16 @@ dependencies = [
  "gpui-design",
  "gpui-miniapp",
  "gpui-profiler",
- "gpui-toolkit-gpui",
  "gpui-ui-kit-macros",
  "image",
  "libm",
- "objc",
  "qrcode",
  "rqrr",
  "serde",
  "serde_json",
  "smol",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-objc",
  "uuid",
  "web-time",
 ]
@@ -3368,30 +2955,12 @@ name = "gpui-ui-kit-macros"
 version = "0.9.8"
 dependencies = [
  "gpui-layout-expr",
- "gpui-toolkit-gpui",
  "gpui-ui-kit",
  "proc-macro2",
  "quote",
  "serde_json",
+ "sotf-gpui-toolkit-gpui",
  "syn 3.0.6",
-]
-
-[[package]]
-name = "gpui_shared_string"
-version = "0.1.0"
-dependencies = [
- "schemars",
- "serde",
- "smol_str",
-]
-
-[[package]]
-name = "gpui_util"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "log",
- "which",
 ]
 
 [[package]]
@@ -3689,7 +3258,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core 0.57.0",
 ]
 
 [[package]]
@@ -3876,7 +3445,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "525e9ff3e1a4be2fbea1fdf0e98686a6d98b4d8f937e1bf7402245af1909e8c3"
 dependencies = [
  "byteorder-lite",
- "quick-error",
+ "quick-error 2.0.1",
 ]
 
 [[package]]
@@ -4428,20 +3997,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "media"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bindgen",
- "core-foundation 0.10.1",
- "core-video",
- "ctor",
- "foreign-types",
- "metal",
- "objc",
-]
-
-[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4561,7 +4116,9 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "naga"
-version = "29.0.3"
+version = "29.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2bf919621e7975acb27d881bae2fb993e0d45c8e0446e85e6272971e00dc8df"
 dependencies = [
  "arrayvec",
  "bit-set 0.9.1",
@@ -4578,7 +4135,6 @@ dependencies = [
  "num-traits",
  "once_cell",
  "rustc-hash 1.1.0",
- "spirv",
  "thiserror 2.0.21",
  "unicode-ident",
 ]
@@ -4803,6 +4359,8 @@ dependencies = [
 [[package]]
 name = "objc"
 version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "915b1b472bc21c53464d6c8461c9d3af805ba1ef837e1cac254428f4a77177b1"
 dependencies = [
  "malloc_buf",
  "objc_exception",
@@ -5033,39 +4591,6 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
-
-[[package]]
-name = "oo7"
-version = "0.7.0"
-dependencies = [
- "aes",
- "ashpd",
- "async-fs",
- "async-io",
- "async-lock",
- "blocking",
- "cbc",
- "cipher",
- "digest",
- "endi",
- "futures-lite",
- "futures-util",
- "getrandom 0.4.3",
- "hkdf",
- "hmac",
- "md-5",
- "num",
- "num-bigint-dig",
- "pbkdf2",
- "serde",
- "serde_bytes",
- "sha2",
- "subtle",
- "zbus",
- "zbus_macros",
- "zeroize",
- "zvariant",
-]
 
 [[package]]
 name = "oorandom"
@@ -5548,6 +5073,8 @@ dependencies = [
 [[package]]
 name = "psm"
 version = "0.1.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4dcd034599e63b970727f70d79e02d62390a4a84f7c6b827c27c46d5ac3fa622"
 dependencies = [
  "ar_archive_writer",
  "cc",
@@ -5624,6 +5151,12 @@ checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 dependencies = [
  "image",
 ]
+
+[[package]]
+name = "quick-error"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
 name = "quick-error"
@@ -5930,13 +5463,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "refineable"
-version = "0.1.0"
-dependencies = [
- "derive_refineable",
-]
-
-[[package]]
 name = "regex"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6057,6 +5583,12 @@ name = "robust"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e27ee8bb91ca0adcf0ecb116293afa12d393f9c2b9b9cd54d33e8078fe19839"
+
+[[package]]
+name = "roxmltree"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
 
 [[package]]
 name = "roxmltree"
@@ -6238,9 +5770,11 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 [[package]]
 name = "rusty-fork"
 version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc6bf79ff24e648f6da1f8d1f011e9cac26491b619e6b9280f2b47f1774e6ee2"
 dependencies = [
  "fnv",
- "quick-error",
+ "quick-error 1.2.3",
  "tempfile",
  "wait-timeout",
 ]
@@ -6658,6 +6192,804 @@ dependencies = [
 ]
 
 [[package]]
+name = "sotf-collections"
+version = "0.1.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "indexmap",
+ "rustc-hash 2.1.3",
+ "sotf-gpui_util",
+]
+
+[[package]]
+name = "sotf-cosmic-text"
+version = "0.19.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "bitflags 2.13.2",
+ "fontdb",
+ "harfrust 0.5.2",
+ "linebender_resource_handle",
+ "log",
+ "rangemap",
+ "rustc-hash 2.1.3",
+ "self_cell",
+ "skrifa 0.40.0",
+ "smol_str",
+ "swash",
+ "sys-locale",
+ "unicode-bidi",
+ "unicode-linebreak",
+ "unicode-script",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "sotf-derive_more"
+version = "2.1.2"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "sotf-derive_more-impl",
+]
+
+[[package]]
+name = "sotf-derive_more-impl"
+version = "2.1.2"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "convert_case",
+ "proc-macro2",
+ "quote",
+ "rustc_version",
+ "syn 2.0.119",
+ "unicode-xid",
+]
+
+[[package]]
+name = "sotf-derive_refineable"
+version = "0.1.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "sotf-gpui-toolkit-gpui"
+version = "0.2.3"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "accesskit",
+ "anyhow",
+ "async-channel",
+ "async-task",
+ "backtrace",
+ "bitflags 2.13.2",
+ "block",
+ "cbindgen",
+ "chrono",
+ "cocoa 0.26.0",
+ "cocoa-foundation 0.2.0",
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "core-graphics 0.24.0",
+ "core-text",
+ "core-video",
+ "ctor",
+ "embed-resource",
+ "etagere",
+ "foreign-types",
+ "futures",
+ "futures-concurrency",
+ "getrandom 0.3.4",
+ "heapless",
+ "image",
+ "inventory",
+ "itertools 0.15.0",
+ "log",
+ "lyon",
+ "mach2",
+ "metal",
+ "num_cpus",
+ "objc",
+ "parking",
+ "parking_lot",
+ "pathfinder_geometry",
+ "pin-project",
+ "pollster",
+ "profiling",
+ "proptest",
+ "rand 0.9.5",
+ "raw-window-handle",
+ "regex",
+ "resvg",
+ "schemars",
+ "seahash",
+ "serde",
+ "serde_json",
+ "slotmap",
+ "smallvec",
+ "sotf-collections",
+ "sotf-derive_more",
+ "sotf-gpui-toolkit-gpui-macros",
+ "sotf-gpui-toolkit-http-client",
+ "sotf-gpui-toolkit-scheduler",
+ "sotf-gpui-toolkit-sum-tree",
+ "sotf-gpui-toolkit-util-macros",
+ "sotf-gpui_shared_string",
+ "sotf-gpui_util",
+ "sotf-media",
+ "sotf-refineable",
+ "sotf-zed-font-kit",
+ "sotf-zed-scap",
+ "stacksafe",
+ "strum",
+ "taffy",
+ "thiserror 2.0.21",
+ "ttf-parser",
+ "url",
+ "usvg",
+ "uuid",
+ "waker-fn",
+ "web-time",
+ "windows 0.62.2",
+]
+
+[[package]]
+name = "sotf-gpui-toolkit-gpui-linux"
+version = "0.1.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "accesskit",
+ "accesskit_unix",
+ "anyhow",
+ "as-raw-xcb-connection",
+ "ashpd",
+ "bitflags 2.13.2",
+ "bytemuck",
+ "calloop",
+ "calloop-wayland-source",
+ "filedescriptor",
+ "futures",
+ "image",
+ "itertools 0.15.0",
+ "libc",
+ "log",
+ "open",
+ "parking_lot",
+ "pathfinder_geometry",
+ "pollster",
+ "profiling",
+ "raw-window-handle",
+ "smallvec",
+ "smol",
+ "sotf-collections",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-gpui-toolkit-gpui-wgpu",
+ "sotf-gpui-toolkit-http-client",
+ "sotf-gpui_util",
+ "sotf-oo7",
+ "sotf-zed-scap",
+ "sotf-zed-xim",
+ "strum",
+ "swash",
+ "url",
+ "uuid",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-cursor",
+ "wayland-protocols",
+ "wayland-protocols-plasma",
+ "wayland-protocols-wlr",
+ "x11-clipboard",
+ "x11rb",
+ "xkbcommon",
+]
+
+[[package]]
+name = "sotf-gpui-toolkit-gpui-macos"
+version = "0.1.2"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "accesskit",
+ "accesskit_macos",
+ "anyhow",
+ "async-task",
+ "block",
+ "cbindgen",
+ "cocoa 0.26.0",
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "core-graphics 0.24.0",
+ "core-text",
+ "core-video",
+ "ctor",
+ "dispatch2",
+ "etagere",
+ "foreign-types",
+ "futures",
+ "image",
+ "itertools 0.15.0",
+ "libc",
+ "log",
+ "mach2",
+ "metal",
+ "objc",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "parking_lot",
+ "pathfinder_geometry",
+ "raw-window-handle",
+ "semver",
+ "smallvec",
+ "sotf-collections",
+ "sotf-derive_more",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-gpui_util",
+ "sotf-media",
+ "sotf-zed-font-kit",
+ "strum",
+ "uuid",
+]
+
+[[package]]
+name = "sotf-gpui-toolkit-gpui-macros"
+version = "0.1.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "sotf-gpui-toolkit-gpui-web"
+version = "0.1.1"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "anyhow",
+ "console_error_panic_hook",
+ "futures",
+ "js-sys",
+ "log",
+ "parking_lot",
+ "raw-window-handle",
+ "smallvec",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-gpui-toolkit-gpui-wgpu",
+ "sotf-gpui-toolkit-http-client",
+ "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm_thread",
+ "web-sys",
+ "web-time",
+]
+
+[[package]]
+name = "sotf-gpui-toolkit-gpui-wgpu"
+version = "0.1.2"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "etagere",
+ "image",
+ "itertools 0.15.0",
+ "js-sys",
+ "log",
+ "parking_lot",
+ "pollster",
+ "profiling",
+ "raw-window-handle",
+ "smallvec",
+ "sotf-collections",
+ "sotf-cosmic-text",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-gpui_util",
+ "sotf-wgpu",
+ "sotf-zed-font-kit",
+ "swash",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "sotf-gpui-toolkit-gpui-windows"
+version = "0.1.2"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "anyhow",
+ "etagere",
+ "futures",
+ "image",
+ "itertools 0.15.0",
+ "log",
+ "parking_lot",
+ "rand 0.10.3",
+ "raw-window-handle",
+ "smallvec",
+ "sotf-collections",
+ "sotf-gpui-toolkit-gpui",
+ "sotf-gpui-toolkit-util",
+ "uuid",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+ "windows-numerics 0.3.1",
+ "windows-registry",
+]
+
+[[package]]
+name = "sotf-gpui-toolkit-http-client"
+version = "0.1.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "anyhow",
+ "async-compression",
+ "bytes",
+ "futures",
+ "http",
+ "http-body",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "sotf-derive_more",
+ "url",
+]
+
+[[package]]
+name = "sotf-gpui-toolkit-perf"
+version = "0.1.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sotf-collections",
+]
+
+[[package]]
+name = "sotf-gpui-toolkit-scheduler"
+version = "0.1.0"
+dependencies = [
+ "async-task",
+ "backtrace",
+ "chrono",
+ "futures",
+ "parking_lot",
+ "rand 0.9.5",
+ "web-time",
+]
+
+[[package]]
+name = "sotf-gpui-toolkit-sum-tree"
+version = "0.1.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "heapless",
+ "log",
+ "rayon",
+ "tracing",
+]
+
+[[package]]
+name = "sotf-gpui-toolkit-util"
+version = "0.1.1"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "anyhow",
+ "async-fs",
+ "async_zip",
+ "command-fds",
+ "dirs",
+ "dunce",
+ "futures",
+ "futures-lite",
+ "globset",
+ "itertools 0.15.0",
+ "libc",
+ "log",
+ "mach2",
+ "nix",
+ "percent-encoding",
+ "regex",
+ "rust-embed",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_json_lenient",
+ "shlex 1.3.0",
+ "smol",
+ "sotf-collections",
+ "sotf-gpui_util",
+ "take-until",
+ "tempfile",
+ "tendril",
+ "unicase",
+ "url",
+ "walkdir",
+ "which",
+ "windows 0.62.2",
+]
+
+[[package]]
+name = "sotf-gpui-toolkit-util-macros"
+version = "0.1.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "quote",
+ "sotf-gpui-toolkit-perf",
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "sotf-gpui_shared_string"
+version = "0.1.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "schemars",
+ "serde",
+ "smol_str",
+]
+
+[[package]]
+name = "sotf-gpui_util"
+version = "0.1.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "anyhow",
+ "log",
+ "which",
+]
+
+[[package]]
+name = "sotf-media"
+version = "0.1.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "anyhow",
+ "bindgen",
+ "core-foundation 0.10.1",
+ "core-video",
+ "ctor",
+ "foreign-types",
+ "metal",
+ "objc",
+]
+
+[[package]]
+name = "sotf-naga"
+version = "29.0.3"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "arrayvec",
+ "bit-set 0.9.1",
+ "bitflags 2.13.2",
+ "cfg-if",
+ "cfg_aliases",
+ "codespan-reporting",
+ "half",
+ "hashbrown 0.16.1",
+ "hexf-parse",
+ "indexmap",
+ "libm",
+ "log",
+ "num-traits",
+ "once_cell",
+ "rustc-hash 1.1.0",
+ "spirv",
+ "thiserror 2.0.21",
+ "unicode-ident",
+]
+
+[[package]]
+name = "sotf-objc"
+version = "0.2.7"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "malloc_buf",
+]
+
+[[package]]
+name = "sotf-oo7"
+version = "0.7.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "aes",
+ "ashpd",
+ "async-fs",
+ "async-io",
+ "async-lock",
+ "blocking",
+ "cbc",
+ "cipher",
+ "digest",
+ "endi",
+ "futures-lite",
+ "futures-util",
+ "getrandom 0.4.3",
+ "hkdf",
+ "hmac",
+ "md-5",
+ "num",
+ "num-bigint-dig",
+ "pbkdf2",
+ "serde",
+ "serde_bytes",
+ "sha2",
+ "subtle",
+ "zbus",
+ "zbus_macros",
+ "zeroize",
+ "zvariant",
+]
+
+[[package]]
+name = "sotf-refineable"
+version = "0.1.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "sotf-derive_refineable",
+]
+
+[[package]]
+name = "sotf-vello"
+version = "0.10.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "bytemuck",
+ "futures-intrusive",
+ "log",
+ "peniko",
+ "png",
+ "skrifa 0.44.0",
+ "sotf-wgpu",
+ "static_assertions",
+ "thiserror 2.0.21",
+ "vello_encoding",
+ "vello_shaders",
+]
+
+[[package]]
+name = "sotf-wgpu"
+version = "29.0.3"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "arrayvec",
+ "bitflags 2.13.2",
+ "bytemuck",
+ "cfg-if",
+ "cfg_aliases",
+ "document-features",
+ "hashbrown 0.16.1",
+ "js-sys",
+ "log",
+ "parking_lot",
+ "portable-atomic",
+ "profiling",
+ "raw-window-handle",
+ "smallvec",
+ "sotf-naga",
+ "sotf-wgpu-core",
+ "sotf-wgpu-hal",
+ "sotf-wgpu-types",
+ "static_assertions",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "sotf-wgpu-core"
+version = "29.0.3"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "arrayvec",
+ "bit-set 0.9.1",
+ "bit-vec 0.9.1",
+ "bitflags 2.13.2",
+ "bytemuck",
+ "cfg_aliases",
+ "document-features",
+ "hashbrown 0.16.1",
+ "indexmap",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "portable-atomic",
+ "profiling",
+ "raw-window-handle",
+ "rustc-hash 1.1.0",
+ "smallvec",
+ "sotf-naga",
+ "sotf-wgpu-core-deps-apple",
+ "sotf-wgpu-core-deps-emscripten",
+ "sotf-wgpu-core-deps-windows-linux-android",
+ "sotf-wgpu-hal",
+ "sotf-wgpu-naga-bridge",
+ "sotf-wgpu-types",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "sotf-wgpu-core-deps-apple"
+version = "29.0.3"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "sotf-wgpu-hal",
+]
+
+[[package]]
+name = "sotf-wgpu-core-deps-emscripten"
+version = "29.0.3"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "sotf-wgpu-hal",
+]
+
+[[package]]
+name = "sotf-wgpu-core-deps-windows-linux-android"
+version = "29.0.3"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "sotf-wgpu-hal",
+]
+
+[[package]]
+name = "sotf-wgpu-hal"
+version = "29.0.3"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "android_system_properties",
+ "arrayvec",
+ "ash",
+ "bit-set 0.9.1",
+ "bitflags 2.13.2",
+ "block2 0.6.2",
+ "bytemuck",
+ "cfg-if",
+ "cfg_aliases",
+ "glow",
+ "glutin_wgl_sys",
+ "gpu-allocator",
+ "gpu-descriptor",
+ "hashbrown 0.16.1",
+ "js-sys",
+ "khronos-egl",
+ "libc",
+ "libloading",
+ "log",
+ "ndk-sys",
+ "objc2 0.6.4",
+ "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
+ "objc2-metal 0.3.2",
+ "objc2-quartz-core 0.3.2",
+ "once_cell",
+ "ordered-float",
+ "parking_lot",
+ "portable-atomic",
+ "portable-atomic-util",
+ "profiling",
+ "range-alloc",
+ "raw-window-handle",
+ "raw-window-metal",
+ "renderdoc-sys",
+ "smallvec",
+ "sotf-naga",
+ "sotf-wgpu-naga-bridge",
+ "sotf-wgpu-types",
+ "thiserror 2.0.21",
+ "wasm-bindgen",
+ "wayland-sys",
+ "web-sys",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+ "windows-result 0.4.1",
+]
+
+[[package]]
+name = "sotf-wgpu-naga-bridge"
+version = "29.0.3"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "sotf-naga",
+ "sotf-wgpu-types",
+]
+
+[[package]]
+name = "sotf-wgpu-types"
+version = "29.0.3"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "bitflags 2.13.2",
+ "bytemuck",
+ "js-sys",
+ "log",
+ "raw-window-handle",
+ "web-sys",
+]
+
+[[package]]
+name = "sotf-xim-ctext"
+version = "0.3.0"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "encoding_rs",
+]
+
+[[package]]
+name = "sotf-xim-parser"
+version = "0.2.1"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "bitflags 2.13.2",
+]
+
+[[package]]
+name = "sotf-zed-font-kit"
+version = "0.14.1-zed"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "bitflags 2.13.2",
+ "byteorder",
+ "core-foundation 0.10.1",
+ "core-graphics 0.24.0",
+ "core-text",
+ "dirs",
+ "dwrote",
+ "float-ord",
+ "freetype-sys",
+ "lazy_static",
+ "libc",
+ "log",
+ "pathfinder_geometry",
+ "pathfinder_simd",
+ "walkdir",
+ "winapi",
+ "yeslogic-fontconfig-sys",
+]
+
+[[package]]
+name = "sotf-zed-scap"
+version = "0.0.8-zed"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "anyhow",
+ "cocoa 0.25.0",
+ "core-graphics-helmer-fork",
+ "log",
+ "objc",
+ "rand 0.8.8",
+ "screencapturekit",
+ "screencapturekit-sys",
+ "sysinfo",
+ "tao-core-video-sys",
+ "windows 0.61.3",
+ "windows-capture",
+ "x11",
+ "xcb",
+]
+
+[[package]]
+name = "sotf-zed-xim"
+version = "0.4.0-zed"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#48b03d195d36c2741b004f3837f1d03cea6d6a08"
+dependencies = [
+ "ahash",
+ "hashbrown 0.14.5",
+ "log",
+ "sotf-xim-ctext",
+ "sotf-xim-parser",
+ "x11rb",
+]
+
+[[package]]
 name = "spirv"
 version = "0.4.0+sdk-1.4.341.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7070,7 +7402,7 @@ dependencies = [
  "fax",
  "flate2",
  "half",
- "quick-error",
+ "quick-error 2.0.1",
  "weezl",
  "zune-jpeg",
 ]
@@ -7493,7 +7825,7 @@ dependencies = [
  "kurbo",
  "log",
  "pico-args",
- "roxmltree",
+ "roxmltree 0.21.1",
  "simplecss",
  "siphasher",
  "skrifa 0.44.0",
@@ -7578,25 +7910,6 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
-
-[[package]]
-name = "vello"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af76ceb17b2869be23598baef40a9c8db4de86b87c60510c3bc245559275a617"
-dependencies = [
- "bytemuck",
- "futures-intrusive",
- "log",
- "peniko",
- "png",
- "skrifa 0.44.0",
- "static_assertions",
- "thiserror 2.0.21",
- "vello_encoding",
- "vello_shaders",
- "wgpu",
-]
 
 [[package]]
 name = "vello_common"
@@ -7967,158 +8280,6 @@ name = "weezl"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
-
-[[package]]
-name = "wgpu"
-version = "29.0.3"
-dependencies = [
- "arrayvec",
- "bitflags 2.13.2",
- "bytemuck",
- "cfg-if",
- "cfg_aliases",
- "document-features",
- "hashbrown 0.16.1",
- "js-sys",
- "log",
- "naga",
- "parking_lot",
- "portable-atomic",
- "profiling",
- "raw-window-handle",
- "smallvec",
- "static_assertions",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "wgpu-core",
- "wgpu-hal",
- "wgpu-types",
-]
-
-[[package]]
-name = "wgpu-core"
-version = "29.0.3"
-dependencies = [
- "arrayvec",
- "bit-set 0.9.1",
- "bit-vec 0.9.1",
- "bitflags 2.13.2",
- "bytemuck",
- "cfg_aliases",
- "document-features",
- "hashbrown 0.16.1",
- "indexmap",
- "log",
- "naga",
- "once_cell",
- "parking_lot",
- "portable-atomic",
- "profiling",
- "raw-window-handle",
- "rustc-hash 1.1.0",
- "smallvec",
- "thiserror 2.0.21",
- "wgpu-core-deps-apple",
- "wgpu-core-deps-emscripten",
- "wgpu-core-deps-windows-linux-android",
- "wgpu-hal",
- "wgpu-naga-bridge",
- "wgpu-types",
-]
-
-[[package]]
-name = "wgpu-core-deps-apple"
-version = "29.0.3"
-dependencies = [
- "wgpu-hal",
-]
-
-[[package]]
-name = "wgpu-core-deps-emscripten"
-version = "29.0.3"
-dependencies = [
- "wgpu-hal",
-]
-
-[[package]]
-name = "wgpu-core-deps-windows-linux-android"
-version = "29.0.3"
-dependencies = [
- "wgpu-hal",
-]
-
-[[package]]
-name = "wgpu-hal"
-version = "29.0.3"
-dependencies = [
- "android_system_properties",
- "arrayvec",
- "ash",
- "bit-set 0.9.1",
- "bitflags 2.13.2",
- "block2 0.6.2",
- "bytemuck",
- "cfg-if",
- "cfg_aliases",
- "glow",
- "glutin_wgl_sys",
- "gpu-allocator",
- "gpu-descriptor",
- "hashbrown 0.16.1",
- "js-sys",
- "khronos-egl",
- "libc",
- "libloading",
- "log",
- "naga",
- "ndk-sys",
- "objc2 0.6.4",
- "objc2-core-foundation",
- "objc2-foundation 0.3.2",
- "objc2-metal 0.3.2",
- "objc2-quartz-core 0.3.2",
- "once_cell",
- "ordered-float",
- "parking_lot",
- "portable-atomic",
- "portable-atomic-util",
- "profiling",
- "range-alloc",
- "raw-window-handle",
- "raw-window-metal",
- "renderdoc-sys",
- "smallvec",
- "thiserror 2.0.21",
- "wasm-bindgen",
- "wayland-sys",
- "web-sys",
- "wgpu-naga-bridge",
- "wgpu-types",
- "windows 0.62.2",
- "windows-core 0.62.2",
- "windows-result 0.4.1",
-]
-
-[[package]]
-name = "wgpu-naga-bridge"
-version = "29.0.3"
-dependencies = [
- "naga",
- "wgpu-types",
-]
-
-[[package]]
-name = "wgpu-types"
-version = "29.0.3"
-dependencies = [
- "bitflags 2.13.2",
- "bytemuck",
- "js-sys",
- "log",
- "raw-window-handle",
- "web-sys",
-]
 
 [[package]]
 name = "which"
@@ -8635,20 +8796,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "163b33ed8786455e2fa5d72f554057ce3f3182425434f756cd39c99839d88e23"
 
 [[package]]
-name = "xim-ctext"
-version = "0.3.0"
-dependencies = [
- "encoding_rs",
-]
-
-[[package]]
-name = "xim-parser"
-version = "0.2.1"
-dependencies = [
- "bitflags 2.13.2",
-]
-
-[[package]]
 name = "xkbcommon"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8822,61 +8969,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1afec51604565183aeb5c54c20aeab286120d4e4460f7f76e3e8bb8c0d99473"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "zed-font-kit"
-version = "0.14.1-zed"
-dependencies = [
- "bitflags 2.13.2",
- "byteorder",
- "core-foundation 0.10.1",
- "core-graphics 0.24.0",
- "core-text",
- "dirs",
- "dwrote",
- "float-ord",
- "freetype-sys",
- "lazy_static",
- "libc",
- "log",
- "pathfinder_geometry",
- "pathfinder_simd",
- "walkdir",
- "winapi",
- "yeslogic-fontconfig-sys",
-]
-
-[[package]]
-name = "zed-scap"
-version = "0.0.8-zed"
-dependencies = [
- "anyhow",
- "cocoa 0.25.0",
- "core-graphics-helmer-fork",
- "log",
- "objc",
- "rand 0.8.8",
- "screencapturekit",
- "screencapturekit-sys",
- "sysinfo",
- "tao-core-video-sys",
- "windows 0.61.3",
- "windows-capture",
- "x11",
- "xcb",
-]
-
-[[package]]
-name = "zed-xim"
-version = "0.4.0-zed"
-dependencies = [
- "ahash",
- "hashbrown 0.14.5",
- "log",
- "x11rb",
- "xim-ctext",
- "xim-parser",
 ]
 
 [[package]]

@@ -13,8 +13,8 @@ use crate::error_codes::{ErrorCode, ToolkitError};
 use crate::init::is_plain_file_name;
 use gpui_layout_expr::{
     ComponentKind, CustomComponents, LayoutNode, button_variant_ident, canonical_layout,
-    column_for_offset, component_kind, layout_node_count, parse_layout, resolve_layout,
-    validate_layout,
+    column_for_offset, component_kind, heading_level_of, layout_node_count, parse_layout,
+    resolve_layout, stack_spacing_of, text_size_ident, text_weight_ident, validate_layout,
 };
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -340,6 +340,11 @@ struct Emitter {
     vstack: bool,
     hstack: bool,
     div: bool,
+    heading: bool,
+    text: bool,
+    text_weight: bool,
+    text_size: bool,
+    spacing: bool,
 }
 
 impl Emitter {
@@ -373,11 +378,26 @@ fn render_unit(root: &LayoutNode, name: &str) -> String {
     if emitter.variant {
         kit.push("ButtonVariant");
     }
+    if emitter.heading {
+        kit.push("Heading");
+    }
     if emitter.hstack {
         kit.push("HStack");
     }
     if emitter.input {
         kit.push("Input");
+    }
+    if emitter.spacing {
+        kit.push("StackSpacing");
+    }
+    if emitter.text {
+        kit.push("Text");
+    }
+    if emitter.text_size {
+        kit.push("TextSize");
+    }
+    if emitter.text_weight {
+        kit.push("TextWeight");
     }
     if emitter.vstack {
         kit.push("VStack");
@@ -414,20 +434,69 @@ fn emit_single(node: &LayoutNode, emitter: &mut Emitter) -> String {
     match kind {
         ComponentKind::VStack => {
             emitter.vstack = true;
-            format!("VStack::new(){chained}")
+            let mut expr = String::from("VStack::new()");
+            if let Some(spacing) = stack_spacing_of(node) {
+                emitter.spacing = true;
+                expr.push_str(&format!(".spacing(StackSpacing::{spacing})"));
+            }
+            expr.push_str(&chained);
+            expr
         }
         ComponentKind::HStack => {
             emitter.hstack = true;
-            format!("HStack::new(){chained}")
+            let mut expr = String::from("HStack::new()");
+            if let Some(spacing) = stack_spacing_of(node) {
+                emitter.spacing = true;
+                expr.push_str(&format!(".spacing(StackSpacing::{spacing})"));
+            }
+            expr.push_str(&chained);
+            expr
         }
         ComponentKind::Div => {
             emitter.div = true;
             format!("div(){chained}")
         }
         ComponentKind::Text => {
-            emitter.div = true;
             let text = escape_rust_string(node.payload.as_deref().unwrap_or_default());
-            format!("div().child(\"{text}\"){chained}")
+            let size = node
+                .modifier
+                .as_deref()
+                .map(|modifier| text_size_ident(modifier).expect("validated modifier"));
+            let weight = node.attrs.iter().find_map(|attr| {
+                if attr.key != "weight" {
+                    return None;
+                }
+                attr.value
+                    .as_deref()
+                    .map(|weight| text_weight_ident(weight).expect("validated attr"))
+            });
+            let muted = node.attrs.iter().any(|attr| attr.key == "muted");
+            if size.is_none() && weight.is_none() && !muted {
+                emitter.div = true;
+                format!("div().child(\"{text}\"){chained}")
+            } else {
+                emitter.text = true;
+                let mut expr = format!("Text::new(\"{text}\")");
+                if let Some(weight) = weight {
+                    emitter.text_weight = true;
+                    expr.push_str(&format!(".weight(TextWeight::{weight})"));
+                }
+                if let Some(size) = size {
+                    emitter.text_size = true;
+                    expr.push_str(&format!(".size(TextSize::{size})"));
+                }
+                if muted {
+                    expr.push_str(".muted(true)");
+                }
+                expr.push_str(&chained);
+                expr
+            }
+        }
+        ComponentKind::Heading => {
+            emitter.heading = true;
+            let text = escape_rust_string(node.payload.as_deref().unwrap_or_default());
+            let level = heading_level_of(node);
+            format!("Heading::{level}(\"{text}\"){chained}")
         }
         ComponentKind::Button => {
             emitter.button = true;

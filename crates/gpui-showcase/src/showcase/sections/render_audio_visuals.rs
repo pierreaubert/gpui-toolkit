@@ -114,24 +114,17 @@ impl Render for AudioVisuals {
                     .gap_2()
                     .child(Text::new("Default constructors"))
                     .child(
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .gap_4()
+                        HStack::new()
+                            .spacing(StackSpacing::Lg)
+                            .wrap(true)
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child("Spectrum")
+                                Field::new("audio-field-spectrum")
+                                    .label("Spectrum")
                                     .child(default_spectrum),
                             )
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child("Meters")
+                                Field::new("audio-field-meters")
+                                    .label("Meters")
                                     .child(default_meters),
                             )
                             .child(
@@ -144,19 +137,13 @@ impl Render for AudioVisuals {
                                     .child(default_horizontal),
                             )
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child("Potentiometer")
+                                Field::new("audio-field-pot")
+                                    .label("Potentiometer")
                                     .child(default_pot),
                             )
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child("Volume knob")
+                                Field::new("audio-field-volume")
+                                    .label("Volume knob")
                                     .child(default_volume),
                             ),
                     ),
@@ -168,40 +155,27 @@ impl Render for AudioVisuals {
                     .gap_2()
                     .child(Text::new("Renderer QA matrix"))
                     .child(
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .gap_4()
+                        Grid::new("audio-qa-matrix")
+                            .columns(2)
+                            .gap(StackSpacing::Lg)
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child("Vello · CPU")
+                                Field::new("audio-field-matrix-cpu-spectrum")
+                                    .label("Vello · CPU")
                                     .child(cpu_spectrum),
                             )
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child("Legacy")
+                                Field::new("audio-field-matrix-legacy-spectrum")
+                                    .label("Legacy")
                                     .child(legacy_spectrum),
                             )
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child("Vello · CPU")
+                                Field::new("audio-field-matrix-cpu-knob")
+                                    .label("Vello · CPU")
                                     .child(cpu_knob),
                             )
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .child("Legacy")
+                                Field::new("audio-field-matrix-legacy-knob")
+                                    .label("Legacy")
                                     .child(legacy_knob),
                             ),
                     ),

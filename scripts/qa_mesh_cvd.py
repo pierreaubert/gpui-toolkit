@@ -20,6 +20,7 @@ from qa_release_evidence import (
     MESH_PLOT_PRODUCT_VISUAL_ARTIFACT,
     _safe_repo_artifact_path,
 )
+from repo_paths import within_repo
 
 
 OUTPUT_ARTIFACT = "target/qa/visual/mesh-plot-cvd.json"
@@ -174,8 +175,10 @@ def main(argv: list[str] | None = None) -> int:
     product_path = (args.product_manifest or root / MESH_PLOT_PRODUCT_VISUAL_ARTIFACT).resolve()
     output = (args.output if args.output.is_absolute() else root / args.output).resolve()
     try:
-        product_path.relative_to(root)
-        output.relative_to(root)
+        if not within_repo(root, product_path):
+            raise ValueError(f"product manifest escapes the repository: {product_path}")
+        if not within_repo(root, output):
+            raise ValueError(f"CVD report escapes the repository: {output}")
         report = build_report(root, product_path)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

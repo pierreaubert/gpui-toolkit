@@ -10,6 +10,8 @@ import sys
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
+from repo_paths import within_repo
+
 
 SCHEMA_VERSION = 1
 RENDERER = "wgpu-headless"
@@ -105,7 +107,6 @@ def validate_manifest(
 
     expected_ids = set(CASE_IDS)
     seen_ids: set[str] = set()
-    root = repo_root.resolve()
     for case in cases:
         if not isinstance(case, dict):
             raise WgpuManifestError("WGPU visual manifest contains a malformed case")
@@ -124,12 +125,10 @@ def validate_manifest(
         if not isinstance(path_text, str):
             raise WgpuManifestError(f"WGPU visual case {case_id} has no image path")
         image = _relative_image_path(path, repo_root, path_text)
-        try:
-            image.resolve().relative_to(root)
-        except ValueError as error:
+        if not within_repo(repo_root, image.resolve()):
             raise WgpuManifestError(
                 f"WGPU visual case {case_id} image escapes the repository"
-            ) from error
+            )
         opaque_pixels = case.get("opaque_pixels")
         if (
             not isinstance(opaque_pixels, int)

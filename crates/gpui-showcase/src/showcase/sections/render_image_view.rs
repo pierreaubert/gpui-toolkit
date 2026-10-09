@@ -60,46 +60,31 @@ impl Showcase {
                 HStack::new()
                     .spacing(StackSpacing::Md)
                     .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(Text::new("Cover").size(TextSize::Xs))
-                            .child(
-                                ImageView::new("img-cover")
-                                    .width(px(120.0))
-                                    .height(px(80.0))
-                                    .fit(ImageFit::Cover)
-                                    .show_border(true),
-                            ),
+                        Field::new("img-cover-field").label("Cover").child(
+                            ImageView::new("img-cover")
+                                .width(px(120.0))
+                                .height(px(80.0))
+                                .fit(ImageFit::Cover)
+                                .show_border(true),
+                        ),
                     )
                     .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(Text::new("Contain").size(TextSize::Xs))
-                            .child(
-                                ImageView::new("img-contain")
-                                    .width(px(120.0))
-                                    .height(px(80.0))
-                                    .fit(ImageFit::Contain)
-                                    .show_border(true),
-                            ),
+                        Field::new("img-contain-field").label("Contain").child(
+                            ImageView::new("img-contain")
+                                .width(px(120.0))
+                                .height(px(80.0))
+                                .fit(ImageFit::Contain)
+                                .show_border(true),
+                        ),
                     )
                     .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(Text::new("Fill").size(TextSize::Xs))
-                            .child(
-                                ImageView::new("img-fill")
-                                    .width(px(120.0))
-                                    .height(px(80.0))
-                                    .fit(ImageFit::Fill)
-                                    .show_border(true),
-                            ),
+                        Field::new("img-fill-field").label("Fill").child(
+                            ImageView::new("img-fill")
+                                .width(px(120.0))
+                                .height(px(80.0))
+                                .fit(ImageFit::Fill)
+                                .show_border(true),
+                        ),
                     )
                     .build(),
             )

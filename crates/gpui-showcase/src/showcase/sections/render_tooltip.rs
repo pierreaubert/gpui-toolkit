@@ -3,7 +3,6 @@ use super::prelude::*;
 impl Showcase {
     pub(crate) fn render_tooltip_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let section_title = cx.t(TranslationKey::SectionTooltips);
-        let theme = cx.theme();
         let entity = self.weak_entity_handle();
         let hovered = self.tooltip_hovered;
 
@@ -40,28 +39,13 @@ impl Showcase {
             let is_shown = hovered == Some(id);
             let entity_clone = entity.clone();
 
-            let trigger = div()
-                .id(SharedString::from(format!("tooltip-trigger-{id}")))
-                .px_4()
-                .py_2()
-                .bg(if is_shown {
-                    theme.accent
+            let trigger = Button::new(SharedString::from(format!("tooltip-trigger-{id}")), label)
+                .variant(if is_shown {
+                    ButtonVariant::Primary
                 } else {
-                    theme.surface
+                    ButtonVariant::Secondary
                 })
-                .border_1()
-                .border_color(if is_shown { theme.accent } else { theme.border })
-                .rounded_md()
-                .cursor_pointer()
-                .text_sm()
-                .text_color(if is_shown {
-                    rgba(0xffffffff)
-                } else {
-                    theme.text_primary
-                })
-                .hover(|s| s.bg(theme.surface_hover))
-                .child(label)
-                .on_mouse_up(MouseButton::Left, move |_event, _window, cx| {
+                .on_click(move |_window, cx| {
                     entity_clone.update(cx, |this, cx| {
                         if this.tooltip_hovered == Some(id) {
                             this.tooltip_hovered = None;

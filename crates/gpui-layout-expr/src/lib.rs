@@ -40,7 +40,9 @@ pub use registry::{
 };
 #[doc(inline)]
 pub use validate::{
-    ComponentKind, ValidationError, button_variant_ident, component_kind, validate_layout,
+    ComponentKind, ValidationError, button_variant_ident, component_kind, gap_spacing_ident,
+    heading_level_ident, heading_level_of, stack_spacing_ident, stack_spacing_of, text_size_ident,
+    text_weight_ident, validate_layout,
 };
 
 /// One parsed layout node.
@@ -90,11 +92,17 @@ children. `*N` repeats (N >= 1); explicit `#id` may not repeat.
 
 nodes: V (VStack), H (HStack), B (Button, label payload required),
   I (Input, attrs: label, placeholder, value), Tx (text, payload
-  required), D (plain div). Button modifiers: primary, secondary,
-  destructive, ghost, outline. Auto ids (`layout-N`) fill in where no
-  `#id` is given.
+  required), Hd (heading, payload required), D (plain div).
+  Button modifiers: primary, secondary, destructive, ghost, outline.
+  Text size modifier: xs, sm, md, lg, xl, xxl (Tx.lg\"Hi\").
+  Text attrs: weight (light, normal, medium, semibold, bold), muted
+  flag. Heading attr: level (1-4, default 1). Stack attr: spacing
+  (none, xs, sm, md, lg, xl, xxl) or fused Astryx-style gap gN
+  (N×4px; g0, g1, g2, g4, g6, g8). Auto ids (`layout-N`) fill in
+  where no `#id` is given.
 
 examples:
   V > (Tx\"Hi\" + B.primary\"Save\"#save)
   H > (I#name[label=\"Name\"] + B\"Go\")
+  V[g6] > (Hd\"Analytics\"[level=2] + H[g2] > Tx.lg\"$42k\")
 ";

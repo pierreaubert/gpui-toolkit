@@ -24,11 +24,7 @@ impl Showcase {
                     .overflow_hidden()
                     .relative()
                     .child(
-                        div()
-                            .size_full()
-                            .flex()
-                            .items_center()
-                            .justify_center()
+                        Center::new("loading-behind-msg")
                             .child(Text::new("Content behind overlay").muted(true)),
                     )
                     .child(
@@ -50,11 +46,7 @@ impl Showcase {
                     .overflow_hidden()
                     .relative()
                     .child(
-                        div()
-                            .size_full()
-                            .flex()
-                            .items_center()
-                            .justify_center()
+                        Center::new("loading-behind-sub")
                             .child(Text::new("Background content").muted(true)),
                     )
                     .child(
@@ -77,11 +69,7 @@ impl Showcase {
                     .overflow_hidden()
                     .relative()
                     .child(
-                        div()
-                            .size_full()
-                            .flex()
-                            .items_center()
-                            .justify_center()
+                        Center::new("loading-behind-min")
                             .child(Text::new("Loading...").muted(true)),
                     )
                     .child(LoadingOverlay::new("overlay-min")),

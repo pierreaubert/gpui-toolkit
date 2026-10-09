@@ -78,7 +78,7 @@ def perf_fixture() -> dict[str, object]:
 
 
 MESH_PLOT_BASELINE_IDS = tuple(
-    f"px-mesh-plot-fixture-{index:02d}"
+    f"px~2emesh~5fplot-fixture-{index:02d}"
     for index in range(MESH_PLOT_VERSIONED_BASELINE_COUNT)
 )
 WGPU_CASE_IDS = ("mesh", "smooth", "cell", "wireframe", "isoline", "revolve")

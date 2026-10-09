@@ -457,6 +457,8 @@ _ENTRIES = (
     ('gpui-python-runtime.resources', 'opaque', 'gpui_toolkit.resources.ResourceStore'),
     ('gpui-python-runtime.events', 'event', 'gpui_toolkit.events.Event'),
     ('gpui-ui-kit-macros.generated-behavior', 'non-consumer', 'gpui_toolkit.ui'),
+    ('gpui-layout-expr.generated-behavior', 'non-consumer', 'gpui_toolkit.layout'),
+    ('gpui-toolkit-cli.tooling', 'non-consumer', 'gpui_toolkit.tooling'),
     ('gpui-toolkit.aggregate-host', 'host-owned', 'gpui_toolkit'),
     ('gpui-python-runtime.host', 'command', 'gpui_toolkit.App.run'),
     ('gpui-au.platform', 'platform-unavailable', 'gpui_toolkit.platform.AU_EMBEDDING'),

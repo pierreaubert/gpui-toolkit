@@ -150,6 +150,8 @@ mod tests {
             "V > (B\"a\" + B\"b\")*2",
             "I#n[label=\"A B\" value=x]",
             "V*2",
+            "V[g6] > (Hd\"Analytics\"[level=2] + H[g2] > Tx.lg\"$42k\")",
+            "V[spacing=lg] > Tx.sm\"Hi\"[weight=bold muted]",
         ] {
             assert!(round_trip(text), "{text}");
         }

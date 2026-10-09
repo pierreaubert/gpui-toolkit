@@ -39,3 +39,21 @@ fn layout_builds_divs_repeats_and_variants() {
         }
     };
 }
+
+#[test]
+fn layout_builds_headings_styled_text_and_spacing() {
+    let _element = layout! {
+        V[g6] {
+            Hd "Analytics" [level = "2"],
+            H[g2] {
+                Tx.lg "$42k",
+                Tx.sm "Revenue" [weight = "bold", muted],
+            },
+        }
+    };
+    let _element = layout! {
+        V[spacing = "lg"] {
+            Hd "Plain",
+        }
+    };
+}

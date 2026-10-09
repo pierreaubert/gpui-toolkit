@@ -17,12 +17,13 @@ well, use a WebGPU-capable Chromium and run:
 just wasm-gallery
 ```
 
-The generated site contains contact sheets, lazy-loaded thumbnails, full-size
+The generated site opens with one featured example captured across every
+theme and design style, followed by lazy-loaded thumbnails, full-size
 images, source metadata, and links to the corresponding live demo routes.
 The same command writes `README-snippet.md` with the featured thumbnails and
 routes used by the repository README; the committed README points directly at
-the published thumbnails so it updates when the Pages site is rebuilt.
+the published thumbnails so it updates when the gallery site is rebuilt.
 The site also emits `_headers` for hosts that support COOP/COEP configuration.
-GitHub Pages is suitable for the static snapshot gallery; live WASM requires a
-host that preserves the cross-origin-isolated headers required by the web
-backend.
+The gallery is published manually to https://gpui-toolkit.spinorama.org/
+from the `target/demo-site/` output; live WASM requires a host that
+preserves the cross-origin-isolated headers required by the web backend.
