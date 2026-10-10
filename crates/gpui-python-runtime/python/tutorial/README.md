@@ -3,7 +3,7 @@
 Build a native desktop app in pure Python. You declare the UI, the bundled
 Rust host (`gpui-python-host`) renders it with GPUI. No Rust toolchain needed.
 
-Requires `gpui-toolkit` 0.9.27 or newer (the `data` + `px` builder API used
+Requires `gpui-toolkit` 0.10.33 or newer (the `data` + `px` builder API used
 below). Earlier wheels expose the older `charts.*(id, x, y)` functions instead.
 
 ## 1. Install the wheel

@@ -113,7 +113,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("version", nargs="?", help="version to write to all package manifests")
     parser.add_argument("--check", action="store_true", help="verify all manifests are synchronized")
-    parser.add_argument("--tag", help="also verify a release tag such as v0.9.15")
+    parser.add_argument("--tag", help="also verify a release tag such as v0.10.15")
     args = parser.parse_args()
 
     if args.check and args.version is not None:

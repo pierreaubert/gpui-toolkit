@@ -1,4 +1,4 @@
-# gpui-themes (lib: `gpui_themes`, version: 0.6.0)
+# gpui-themes (lib: `gpui_themes`, version: 0.10.8)
 
 Theme editor and management for GPUI applications.
 

@@ -7,7 +7,7 @@ and WASM.
 
 [![License](https://img.shields.io/crates/l/gpui-ui-kit)](LICENSE)
 
-The same UI from Rust or Python:
+The same UI from Rust, the compact `layout!` macro, or Python:
 
 ```rust
 use gpui::div;
@@ -16,6 +16,17 @@ use gpui_ui_kit::{Button, ButtonVariant, VStack};
 VStack::new()
     .child(div().child("Hi"))
     .child(Button::new("go", "Go").variant(ButtonVariant::Primary))
+```
+
+```rust
+use gpui_ui_kit_macros::layout;
+
+layout! {
+    V {
+        Tx "Hi",
+        B.primary("Go") #go,
+    }
+}
 ```
 
 ```python
@@ -102,11 +113,9 @@ Two open source examples:
 | [AGENTS.md](./AGENTS.md) | Short working guide for agents and contributors. |
 | [Renderer gallery](./assets/component-lab-gallery/) | 200 validated Metal-rendered snapshots across the toolkit component stories. |
 
-![GPUI Toolkit renderer gallery](./assets/component-lab-gallery/contact-sheet-001.png)
-
 ## GPUI Version
 
-This workspace is currently on the `0.9.x` GPUI toolkit line and vendors GPUI
+This workspace is currently on the `0.10.x` GPUI toolkit line and vendors GPUI
 from Zed `v1.9.0`, as recorded in the GPUI snapshot provenance.
 
 The workspace uses local path dependencies for toolkit crates and git

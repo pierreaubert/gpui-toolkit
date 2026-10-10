@@ -1,4 +1,4 @@
-# gpui-ui-kit (lib: `gpui_ui_kit`, version: 0.7)
+# gpui-ui-kit (lib: `gpui_ui_kit`, version: 0.10.43)
 
 Reusable UI component library for the GPUI framework.
 

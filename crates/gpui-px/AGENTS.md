@@ -1,4 +1,4 @@
-# gpui-px (lib: `gpui-px`, version: 0.6.0)
+# gpui-px (lib: `gpui-px`, version: 0.10.14)
 
 High-level Plotly Express-style charting API built on gpui-d3rs.
 

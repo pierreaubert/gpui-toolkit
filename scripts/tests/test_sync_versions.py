@@ -21,7 +21,7 @@ class SyncVersionsTests(unittest.TestCase):
 
     def test_check_rejects_tag_mismatch(self):
         with self.assertRaises(ValueError):
-            sync_versions.check(expected="0.9.15", tag="v0.9.14")
+            sync_versions.check(expected="0.10.15", tag="v0.10.14")
 
     def test_synchronize_updates_all_manifests(self):
         with tempfile.TemporaryDirectory() as directory:
