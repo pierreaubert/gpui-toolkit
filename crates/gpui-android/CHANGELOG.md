@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.6
+
 ## Added
 
 - Split Android event handling into a tested `event_stages` module and added

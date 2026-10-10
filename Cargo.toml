@@ -33,7 +33,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.9.33"
+version = "0.10.33"
 authors = ["Pierre F. Aubert pierre@spinorama.org"]
 description = "A toolkit to build portable and fast UI"
 edition = "2024"
@@ -83,30 +83,30 @@ ndarray = { version = "0.17", default-features = false, features = ["rayon", "bl
 math-delaunay = { version = "0.5", path = "../math-audio/crates/math-delaunay" }
 
 # GPUI toolkit crates
-gpui-au = { path = "crates/gpui-au", version = "0.9" }
-gpui-android = { path = "crates/gpui-android", version = "0.9" }
-gpui-audio-kit = { path = "crates/gpui-audio-kit", version = "0.9" }
-gpui-builder = { path = "crates/gpui-builder", version = "0.9" }
-gpui-component-lab = { path = "crates/gpui-component-lab", version = "0.9" }
-gpui-d3rs = { path = "crates/gpui-d3rs", version = "0.9", default-features = false }
-gpui-design = { path = "crates/gpui-design", version = "0.9" }
-gpui-design-tools = { path = "crates/gpui-design-tools", version = "0.9" }
-gpui-ios = { path = "crates/gpui-ios", version = "0.9" }
-gpui-keybinding = { path = "crates/gpui-keybinding", version = "0.9" }
-gpui-layout-expr = { path = "crates/gpui-layout-expr", version = "0.9" }
-gpui-miniapp = { path = "crates/gpui-miniapp", version = "0.9" }
-gpui-pretext = { path = "crates/gpui-pretext", version = "0.9" }
-gpui-profiler = { path = "crates/gpui-profiler", version = "0.9" }
-gpui-px = { path = "crates/gpui-px", version = "0.9", default-features = false }
-gpui-python-runtime = { path = "crates/gpui-python-runtime", version = "0.9" }
-gpui-release-gates = { path = "crates/gpui-release-gates", version = "0.9" }
-gpui-scaffolder = { path = "crates/gpui-scaffolder", version = "0.9" }
-gpui-showcase = { path = "crates/gpui-showcase", version = "0.9" }
-gpui-themes = { path = "crates/gpui-themes", version = "0.9" }
-gpui-toolkit = { path = "crates/gpui-toolkit", version = "0.9" }
-gpui-toolkit-cli = { path = "crates/gpui-toolkit-cli", version = "0.9" }
-gpui-ui-kit = { path = "crates/gpui-ui-kit", version = "0.9" }
-gpui-ui-kit-macros = { path = "crates/gpui-ui-kit-macros", version = "0.9" }
+gpui-au = { path = "crates/gpui-au", version = "0.10" }
+gpui-android = { path = "crates/gpui-android", version = "0.10" }
+gpui-audio-kit = { path = "crates/gpui-audio-kit", version = "0.10" }
+gpui-builder = { path = "crates/gpui-builder", version = "0.10" }
+gpui-component-lab = { path = "crates/gpui-component-lab", version = "0.10" }
+gpui-d3rs = { path = "crates/gpui-d3rs", version = "0.10", default-features = false }
+gpui-design = { path = "crates/gpui-design", version = "0.10" }
+gpui-design-tools = { path = "crates/gpui-design-tools", version = "0.10" }
+gpui-ios = { path = "crates/gpui-ios", version = "0.10" }
+gpui-keybinding = { path = "crates/gpui-keybinding", version = "0.10" }
+gpui-layout-expr = { path = "crates/gpui-layout-expr", version = "0.10" }
+gpui-miniapp = { path = "crates/gpui-miniapp", version = "0.10" }
+gpui-pretext = { path = "crates/gpui-pretext", version = "0.10" }
+gpui-profiler = { path = "crates/gpui-profiler", version = "0.10" }
+gpui-px = { path = "crates/gpui-px", version = "0.10", default-features = false }
+gpui-python-runtime = { path = "crates/gpui-python-runtime", version = "0.10" }
+gpui-release-gates = { path = "crates/gpui-release-gates", version = "0.10" }
+gpui-scaffolder = { path = "crates/gpui-scaffolder", version = "0.10" }
+gpui-showcase = { path = "crates/gpui-showcase", version = "0.10" }
+gpui-themes = { path = "crates/gpui-themes", version = "0.10" }
+gpui-toolkit = { path = "crates/gpui-toolkit", version = "0.10" }
+gpui-toolkit-cli = { path = "crates/gpui-toolkit-cli", version = "0.10" }
+gpui-ui-kit = { path = "crates/gpui-ui-kit", version = "0.10" }
+gpui-ui-kit-macros = { path = "crates/gpui-ui-kit-macros", version = "0.10" }
 
 # GPUI framework derived from Zed. The dependency keys retain the upstream
 # Rust crate names, while package names are namespaced for crates.io.

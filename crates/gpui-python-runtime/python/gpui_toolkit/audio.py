@@ -192,6 +192,9 @@ class AudioDesignTokens:
     meter_use_gradient: bool
     meter_corner_radius: float
     meter_glow: float
+    spectrum_bar_gap: float
+    spectrum_corner_radius: float
+    spectrum_peak_height: float
     toggle_variant: int
     corner_radius: float
     min_touch_target: float
@@ -237,7 +240,7 @@ def reports_from_command(result: CommandResult) -> AudioReports:
         str(automation["markdown"]),
         AudioVisualRegressionReport(int(visual["schema_version"]), str(visual["report_type"]), str(visual["crate_name"]), str(visual["crate_version"]), int(visual["capture_count"]), int(visual["expected_capture_count"]), bool(visual["unique_capture_ids"]), tuple(str(value) for value in visual["components"]), str(visual["markdown"])),
         AudioDesignTokens(
-            float(tokens["knob_arc_start_deg"]), float(tokens["knob_arc_sweep_deg"]), tuple(float(value) for value in tokens["knob_arc_widths"]), tuple(float(value) for value in tokens["knob_arc_track_widths"]), float(tokens["knob_arc_glow"]), int(tokens["knob_arc_segments"]), float(tokens["knob_border_width"]), int(tokens["knob_label_style"]), int(tokens["knob_indicator_style"]), tuple(float(value) for value in tokens["slider_track_widths"]), int(tokens["meter_label_style"]), bool(tokens["meter_use_gradient"]), float(tokens["meter_corner_radius"]), float(tokens["meter_glow"]), int(tokens["toggle_variant"]), float(tokens["corner_radius"]), float(tokens["min_touch_target"]), float(tokens["control_padding_x"]), float(tokens["control_padding_y"]), int(tokens["animation_duration_ms"]), bool(tokens["prefer_spring"]), float(tokens["spring_stiffness"]), float(tokens["spring_damping"]),
+            float(tokens["knob_arc_start_deg"]), float(tokens["knob_arc_sweep_deg"]), tuple(float(value) for value in tokens["knob_arc_widths"]), tuple(float(value) for value in tokens["knob_arc_track_widths"]), float(tokens["knob_arc_glow"]), int(tokens["knob_arc_segments"]), float(tokens["knob_border_width"]), int(tokens["knob_label_style"]), int(tokens["knob_indicator_style"]), tuple(float(value) for value in tokens["slider_track_widths"]), int(tokens["meter_label_style"]), bool(tokens["meter_use_gradient"]), float(tokens["meter_corner_radius"]), float(tokens["meter_glow"]), float(tokens["spectrum_bar_gap"]), float(tokens["spectrum_corner_radius"]), float(tokens["spectrum_peak_height"]), int(tokens["toggle_variant"]), float(tokens["corner_radius"]), float(tokens["min_touch_target"]), float(tokens["control_padding_x"]), float(tokens["control_padding_y"]), int(tokens["animation_duration_ms"]), bool(tokens["prefer_spring"]), float(tokens["spring_stiffness"]), float(tokens["spring_damping"]),
         ),
     )
 

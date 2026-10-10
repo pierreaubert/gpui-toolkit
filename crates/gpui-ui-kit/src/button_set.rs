@@ -25,6 +25,8 @@ use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, 
 use gpui::{
     AnyElement, App, Div, ElementId, MouseButton, Rgba, SharedString, Stateful, Window, div, px,
 };
+use gpui_design::DesignSystem;
+use std::sync::Arc;
 
 /// Theme colors for button set styling
 #[derive(Debug, Clone, ComponentTheme)]
@@ -125,6 +127,7 @@ pub struct ButtonSet {
     theme: Option<ButtonSetTheme>,
     on_change: Option<Box<dyn Fn(&SharedString, &mut Window, &mut App) + 'static>>,
     option_wrapper: Option<Box<dyn Fn(usize, Stateful<Div>) -> AnyElement>>,
+    design: Option<Arc<DesignSystem>>,
 }
 
 impl ButtonSet {
@@ -139,7 +142,14 @@ impl ButtonSet {
             theme: None,
             on_change: None,
             option_wrapper: None,
+            design: None,
         }
+    }
+
+    /// Set the design system (falls back to the app-global design when unset)
+    pub fn design(mut self, design: impl Into<Arc<DesignSystem>>) -> Self {
+        self.design = Some(design.into());
+        self
     }
 
     /// Set the options
@@ -194,19 +204,35 @@ impl ButtonSet {
     }
 
     /// Build into element
-    fn build(self, theme: &ButtonSetTheme, cx: &mut App) -> Stateful<Div> {
+    fn build(self, theme: &ButtonSetTheme, design: &DesignSystem, cx: &mut App) -> Stateful<Div> {
         let (px_val, py_val, text_size) = match self.size {
-            ButtonSetSize::Xs => (px(6.0), px(2.0), "xs"),
-            ButtonSetSize::Sm => (px(8.0), px(4.0), "sm"),
-            ButtonSetSize::Md => (px(12.0), px(6.0), "md"),
-            ButtonSetSize::Lg => (px(16.0), px(8.0), "lg"),
+            ButtonSetSize::Xs => (
+                px(design.spacing.grid_unit * 1.5),
+                px(design.spacing.grid_unit * 0.5),
+                px(design.typography.small_size),
+            ),
+            ButtonSetSize::Sm => (
+                px(design.spacing.control_gap),
+                px(design.spacing.grid_unit),
+                px(design.typography.base_size),
+            ),
+            ButtonSetSize::Md => (
+                px(design.spacing.control_padding_x),
+                px(design.spacing.grid_unit * 1.5),
+                px(design.typography.base_size),
+            ),
+            ButtonSetSize::Lg => (
+                px(design.spacing.section_gap),
+                px(design.spacing.control_padding_y),
+                px(design.typography.large_size),
+            ),
         };
 
         let border_radius = match self.size {
-            ButtonSetSize::Xs => px(4.0),
-            ButtonSetSize::Sm => px(4.0),
-            ButtonSetSize::Md => px(6.0),
-            ButtonSetSize::Lg => px(8.0),
+            ButtonSetSize::Xs => px(design.corners.sm),
+            ButtonSetSize::Sm => px(design.corners.sm),
+            ButtonSetSize::Md => px(design.corners.sm * 1.5),
+            ButtonSetSize::Lg => px(design.corners.md),
         };
 
         let on_change_rc = self.on_change.map(std::rc::Rc::new);
@@ -266,20 +292,13 @@ impl ButtonSet {
                 .flex()
                 .items_center()
                 .justify_center()
-                .gap_1()
+                .gap(px(design.spacing.grid_unit))
                 .px(px_val)
                 .py(py_val)
                 .bg(bg)
                 .text_color(text_color)
+                .text_size(text_size)
                 .cursor_pointer();
-
-            // Apply text size
-            button = match text_size {
-                "xs" => button.text_xs(),
-                "sm" => button.text_sm(),
-                "lg" => button.text_lg(),
-                _ => button.text_sm(),
-            };
 
             // Apply border radius only to first and last buttons
             if is_first && is_last {
@@ -359,7 +378,8 @@ impl RenderOnce for ButtonSet {
             .theme
             .take()
             .unwrap_or_else(|| ButtonSetTheme::from(global_theme.as_ref()));
+        let design = crate::design::resolve_design(this.design.clone(), cx);
 
-        this.build(&theme, cx)
+        this.build(&theme, &design, cx)
     }
 }

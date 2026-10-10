@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.6
+
 ## Added
 
 - Added showcase sections for the 30 new UI-kit components, with

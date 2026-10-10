@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.33
+
 ## Added
 
 - Added the `gate_execution` module: allowlisted `cargo publish --dry-run`

@@ -11,7 +11,9 @@ use gpui::{
     App, Context, ElementId, Entity, FocusHandle, KeyDownEvent, MouseDownEvent, Render,
     SharedString, Window, div,
 };
+use gpui_design::DesignSystem;
 use std::rc::Rc;
+use std::sync::Arc;
 
 mod tab_item;
 mod tab_render;
@@ -36,6 +38,7 @@ pub struct Tabs {
     focus_handle: Option<FocusHandle>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
+    design: Option<Arc<DesignSystem>>,
 }
 
 impl Tabs {
@@ -52,7 +55,14 @@ impl Tabs {
             focus_handle: None,
             aria_label: None,
             aria_role: None,
+            design: None,
         }
+    }
+
+    /// Set the design system (falls back to the app-global design when unset)
+    pub fn design(mut self, design: impl Into<Arc<DesignSystem>>) -> Self {
+        self.design = Some(design.into());
+        self
     }
 
     /// Set the focus handle for keyboard navigation
@@ -229,6 +239,7 @@ impl Render for TabsEntity {
         let global_theme = cx.theme();
         let tabs_theme = TabsTheme::from(global_theme.as_ref());
         let theme = self.props.theme.clone().unwrap_or(tabs_theme);
+        let design = crate::design::resolve_design(self.props.design.clone(), cx);
 
         // Capture theme colors as local Copy values.
         let colors = TabColors::from_theme(&theme);
@@ -242,7 +253,7 @@ impl Render for TabsEntity {
             .focusable();
 
         // Apply variant-specific container styling
-        container = style_tab_container(container, self.props.variant, &colors);
+        container = style_tab_container(container, self.props.variant, &colors, &design);
 
         // Retain tab metadata and factories across hover-triggered renders.
         let variant = self.props.variant;
@@ -267,10 +278,10 @@ impl Render for TabsEntity {
                 close_hovered: self.hovered_close == Some(index),
             };
             let tab_element = match variant {
-                TabVariant::Underline => render_underline_tab(tab, &state, &colors, cx),
-                TabVariant::VerticalCard => render_card_tab(tab, &state, &colors, cx),
+                TabVariant::Underline => render_underline_tab(tab, &state, &colors, &design, cx),
+                TabVariant::VerticalCard => render_card_tab(tab, &state, &colors, &design, cx),
                 TabVariant::Enclosed | TabVariant::Pills => {
-                    render_regular_tab(tab, variant, &state, &colors, cx)
+                    render_regular_tab(tab, variant, &state, &colors, &design, cx)
                 }
             };
 

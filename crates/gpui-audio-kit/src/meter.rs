@@ -3,6 +3,7 @@
 use crate::TickConfig;
 use crate::accessibility::AriaRole;
 use crate::audio_accessibility::AudioAccessibilitySummary;
+use crate::audio_design_tokens::AudioDesignTokens;
 use d3rs::render2d::{Renderer2D, VelloBackend};
 use gpui::prelude::*;
 use gpui::*;
@@ -162,6 +163,13 @@ impl HorizontalMeterTheme {
         } else {
             self.color_normal
         }
+    }
+
+    /// Apply platform design tokens to the theme geometry (bar corner radius
+    /// and gradient mode). Colors and layout constants are left untouched.
+    pub fn apply_design_tokens(&mut self, tokens: &AudioDesignTokens) {
+        self.border_radius = tokens.meter_corner_radius;
+        self.use_gradient = tokens.meter_use_gradient;
     }
 }
 
@@ -487,6 +495,9 @@ pub struct LevelMeterElement {
     colors: MeterColors,
     renderer_2d: Renderer2D,
     vello_backend: VelloBackend,
+    /// Optional platform design tokens. When set, the meter corner radius and
+    /// gradient mode come from the tokens instead of [`MeterColors`].
+    design_tokens: Option<AudioDesignTokens>,
     #[cfg(feature = "vello")]
     painter: d3rs::vello2d::VelloScenePainter,
 }
@@ -510,9 +521,38 @@ impl LevelMeterElement {
             colors: MeterColors::default(),
             renderer_2d: Renderer2D::default(),
             vello_backend: VelloBackend::default(),
+            design_tokens: None,
             #[cfg(feature = "vello")]
             painter: d3rs::vello2d::VelloScenePainter::new(),
         }
+    }
+
+    /// Set platform design tokens for meter geometry. Explicit tokens take
+    /// precedence over the corner radius and gradient mode in [`MeterColors`].
+    pub fn design_tokens(mut self, tokens: AudioDesignTokens) -> Self {
+        self.design_tokens = Some(tokens);
+        self
+    }
+
+    /// Set platform design defaults through the shared design system.
+    pub fn design(mut self, design: impl Into<std::sync::Arc<gpui_design::DesignSystem>>) -> Self {
+        let design = design.into();
+        self.design_tokens = Some(AudioDesignTokens::from(design.as_ref()));
+        self
+    }
+
+    fn effective_corner_radius(&self) -> f32 {
+        self.design_tokens
+            .as_ref()
+            .map_or(self.colors.corner_radius, |tokens| {
+                tokens.meter_corner_radius
+            })
+    }
+
+    fn effective_use_gradient(&self) -> bool {
+        self.design_tokens
+            .as_ref()
+            .map_or(self.colors.use_gradient, |tokens| tokens.meter_use_gradient)
     }
 
     pub fn peak(mut self, peak_db: f64) -> Self {
@@ -671,21 +711,24 @@ impl Element for LevelMeterElement {
         let meter_height_f: f32 = meter_bounds.size.height.into();
         let meter_origin_y_f: f32 = meter_bounds.origin.y.into();
         let bar_radius = self
-            .colors
-            .corner_radius
+            .effective_corner_radius()
             .clamp(0.0, (meter_w_f / 2.0).min(8.0));
         let corner_radii = Corners::all(px(bar_radius));
 
         #[cfg(feature = "vello")]
         if self.renderer_2d == Renderer2D::Vello {
-            use d3rs::vello2d::kurbo::Rect;
+            use d3rs::vello2d::kurbo::{Rect, RoundedRect, RoundedRectRadii, Shape};
             use d3rs::vello2d::peniko::{Brush, Color, Gradient};
             let mut scene = d3rs::vello2d::ChartScene::new();
             let brush = |color: Rgba, alpha: f32| {
                 Brush::Solid(Color::new([color.r, color.g, color.b, color.a * alpha]))
             };
-            scene.fill_rect(
+            // Mirror the CPU path: rounded background plus bottom-rounded
+            // lowest segment so backend output and design tokens agree.
+            let radius = f64::from(bar_radius);
+            scene.fill_rounded_rect(
                 Rect::new(0.0, 0.0, f64::from(meter_w_f), f64::from(meter_height_f)),
+                radius,
                 brush(self.colors.background, 1.0),
             );
             let segments = [
@@ -704,11 +747,20 @@ impl Element for LevelMeterElement {
                 }
                 let y0 = meter_height_f * (1.0 - top.clamp(0.0, 1.0));
                 let y1 = meter_height_f * (1.0 - bottom.clamp(0.0, 1.0));
-                if self.colors.use_gradient {
+                let rect = Rect::new(0.0, f64::from(y0), f64::from(meter_w_f), f64::from(y1));
+                // Only the segment touching the bar bottom rounds its lower
+                // corners, matching the CPU `paint_segment(is_bottom)` path.
+                let path = if bottom <= 0.0 && radius > 0.0 {
+                    RoundedRect::from_rect(rect, RoundedRectRadii::new(0.0, 0.0, radius, radius))
+                        .to_path(0.1)
+                } else {
+                    rect.to_path(0.1)
+                };
+                if self.effective_use_gradient() {
                     // A single GPU gradient replaces the twelve solid fill
                     // strips previously used to approximate this fade.
-                    scene.fill_rect(
-                        Rect::new(0.0, f64::from(y0), f64::from(meter_w_f), f64::from(y1)),
+                    scene.fill_path(
+                        path,
                         Brush::Gradient(
                             Gradient::new_linear((0.0, f64::from(y0)), (0.0, f64::from(y1)))
                                 .with_stops([
@@ -718,10 +770,7 @@ impl Element for LevelMeterElement {
                         ),
                     );
                 } else {
-                    scene.fill_rect(
-                        Rect::new(0.0, f64::from(y0), f64::from(meter_w_f), f64::from(y1)),
-                        brush(color, 1.0),
-                    );
+                    scene.fill_path(path, brush(color, 1.0));
                 }
             }
             if let Some(peak_db) = self.peak_db {
@@ -769,7 +818,7 @@ impl Element for LevelMeterElement {
             0.0
         };
 
-        let use_gradient = self.colors.use_gradient;
+        let use_gradient = self.effective_use_gradient();
         let mut paint_segment = |y_top: f32, y_bottom: f32, color: Rgba, is_bottom: bool| {
             if y_bottom - y_top < 0.5 {
                 return;

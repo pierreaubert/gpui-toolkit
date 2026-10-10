@@ -9,6 +9,8 @@ use gpui::{
     App, Component, Div, ElementId, FontWeight, MouseButton, Rgba, SharedString, Stateful, Window,
     div, px,
 };
+use gpui_design::DesignSystem;
+use std::sync::Arc;
 
 /// Toast visual variant
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -76,6 +78,7 @@ pub struct Toast {
     duration_secs: Option<f32>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
+    design: Option<Arc<DesignSystem>>,
 }
 
 impl Toast {
@@ -94,7 +97,14 @@ impl Toast {
             duration_secs: Some(Self::DEFAULT_DURATION_SECS),
             aria_label: None,
             aria_role: None,
+            design: None,
         }
+    }
+
+    /// Set the design system (falls back to the app-global design when unset)
+    pub fn design(mut self, design: impl Into<Arc<DesignSystem>>) -> Self {
+        self.design = Some(design.into());
+        self
     }
 
     /// Set the toast title
@@ -155,8 +165,21 @@ impl Toast {
         self.duration_secs.map(|s| (s * 1000.0) as u64)
     }
 
-    /// Build the toast into an element with theme
+    /// Build the toast into an element with theme (uses the neutral design for geometry)
     pub fn build_with_theme(self, theme: &Theme) -> Stateful<Div> {
+        let design = self
+            .design
+            .clone()
+            .unwrap_or_else(crate::design::neutral_design);
+        self.build_with_theme_and_design(theme, &design)
+    }
+
+    /// Build the toast into an element with explicit theme and design
+    pub fn build_with_theme_and_design(
+        self,
+        theme: &Theme,
+        design: &DesignSystem,
+    ) -> Stateful<Div> {
         let (bg, border, icon_color) = self.variant.colors(theme);
         let icon = self.variant.icon();
         // Clone ID for use in close button (self.id is moved to toast container)
@@ -167,31 +190,35 @@ impl Toast {
             .w(px(320.0))
             .flex()
             .items_start()
-            .gap_3()
-            .px_4()
-            .py_3()
+            .gap(px(design.spacing.control_gap * 1.5))
+            .px(px(design.spacing.section_gap))
+            .py(px(design.spacing.control_gap * 1.5))
             .bg(bg)
             .border_1()
             .border_color(border)
-            .rounded_lg()
+            .rounded(px(design.corners.md))
             .shadow_lg();
 
         // Icon
         toast = toast.child(
             div()
-                .text_lg()
+                .text_size(px(design.typography.large_size))
                 .text_color(icon_color)
-                .mt(px(2.0))
+                .mt(px(design.spacing.grid_unit * 0.5))
                 .child(icon),
         );
 
         // Content area
-        let mut content = div().flex_1().flex().flex_col().gap_1();
+        let mut content = div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .gap(px(design.spacing.grid_unit));
 
         if let Some(title) = self.title {
             content = content.child(
                 div()
-                    .text_sm()
+                    .text_size(px(design.typography.base_size))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme.text_primary)
                     .child(title),
@@ -200,7 +227,7 @@ impl Toast {
 
         content = content.child(
             div()
-                .text_sm()
+                .text_size(px(design.typography.base_size))
                 .text_color(theme.text_secondary)
                 .child(self.message),
         );
@@ -216,7 +243,7 @@ impl Toast {
                 toast = toast.child(
                     div()
                         .id((close_btn_id, "close"))
-                        .text_sm()
+                        .text_size(px(design.typography.base_size))
                         .text_color(text_muted)
                         .cursor_pointer()
                         .hover(move |s| s.text_color(text_primary))
@@ -257,8 +284,9 @@ impl RenderOnce for Toast {
             props: AriaProps::with_role(self.aria_role.unwrap_or(default_role)).live(live),
         });
 
+        let design = crate::design::resolve_design(self.design.clone(), cx);
         let theme = cx.theme();
-        self.build_with_theme(&theme)
+        self.build_with_theme_and_design(&theme, &design)
     }
 }
 
@@ -267,6 +295,7 @@ impl RenderOnce for Toast {
 pub struct ToastContainer {
     position: ToastPosition,
     toasts: Vec<Toast>,
+    design: Option<Arc<DesignSystem>>,
 }
 
 impl ToastContainer {
@@ -275,7 +304,14 @@ impl ToastContainer {
         Self {
             position,
             toasts: Vec::new(),
+            design: None,
         }
+    }
+
+    /// Set the design system (falls back to the app-global design when unset)
+    pub fn design(mut self, design: impl Into<Arc<DesignSystem>>) -> Self {
+        self.design = Some(design.into());
+        self
     }
 
     /// Add a toast to the container
@@ -290,9 +326,24 @@ impl ToastContainer {
         self
     }
 
-    /// Build the container into an element
+    /// Build the container into an element (uses the neutral design for geometry)
     pub fn build(self) -> Div {
-        let mut container = div().absolute().flex().flex_col().gap_2().p_4();
+        let design = self
+            .design
+            .clone()
+            .unwrap_or_else(crate::design::neutral_design);
+        self.build_with_design(&design)
+    }
+
+    /// Build the container into an element with an explicit design.
+    /// Toasts without their own explicit design inherit the container's.
+    pub fn build_with_design(self, design: &Arc<DesignSystem>) -> Div {
+        let mut container = div()
+            .absolute()
+            .flex()
+            .flex_col()
+            .gap(px(design.spacing.control_gap))
+            .p(px(design.spacing.section_gap));
 
         // Position the container
         match self.position {
@@ -316,7 +367,10 @@ impl ToastContainer {
             }
         }
 
-        for toast in self.toasts {
+        for mut toast in self.toasts {
+            if toast.design.is_none() {
+                toast.design = Some(Arc::clone(design));
+            }
             container = container.child(toast);
         }
 
@@ -325,7 +379,8 @@ impl ToastContainer {
 }
 
 impl RenderOnce for ToastContainer {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        self.build()
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let design = crate::design::resolve_design(self.design.clone(), cx);
+        self.build_with_design(&design)
     }
 }

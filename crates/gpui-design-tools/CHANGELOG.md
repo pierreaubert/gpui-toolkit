@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.6
+
 ## Added
 
 - Added a `gpui_diff_design_tokens` binary plus compact token export,

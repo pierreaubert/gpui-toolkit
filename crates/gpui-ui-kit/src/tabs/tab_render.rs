@@ -14,6 +14,7 @@ use gpui::{
     Context, Div, ElementId, FontWeight, MouseButton, MouseDownEvent, Rgba, SharedString, Stateful,
     div, px,
 };
+use gpui_design::DesignSystem;
 
 /// Copyable theme colors consumed by the tab builders.
 #[derive(Debug, Clone, Copy)]
@@ -66,37 +67,42 @@ pub(super) fn style_tab_container(
     mut container: Stateful<Div>,
     variant: TabVariant,
     colors: &TabColors,
+    design: &DesignSystem,
 ) -> Stateful<Div> {
     match variant {
         TabVariant::Underline => {
             // No border on container - we'll add underlines per-tab
         }
         TabVariant::Enclosed => {
-            container = container.gap_1();
+            container = container.gap(px(design.spacing.grid_unit));
         }
         TabVariant::Pills => {
-            container = container.gap_2().p_1().bg(colors.container_bg).rounded_lg();
+            container = container
+                .gap(px(design.spacing.control_gap))
+                .p(px(design.spacing.grid_unit))
+                .bg(colors.container_bg)
+                .rounded(px(design.corners.md));
         }
         TabVariant::VerticalCard => {
             container = container
                 .flex_wrap()
-                .gap_2()
-                .p_1()
+                .gap(px(design.spacing.control_gap))
+                .p(px(design.spacing.grid_unit))
                 .bg(colors.container_bg)
-                .rounded_lg();
+                .rounded(px(design.corners.md));
         }
     }
     container
 }
 
 /// Small badge pill shared by the underline and regular variants.
-pub(super) fn render_badge(badge: SharedString, colors: &TabColors) -> Div {
+pub(super) fn render_badge(badge: SharedString, colors: &TabColors, design: &DesignSystem) -> Div {
     div()
-        .text_xs()
-        .px_1()
-        .py(px(1.0))
+        .text_size(px(design.typography.small_size))
+        .px(px(design.spacing.grid_unit))
+        .py(px(design.spacing.grid_unit * 0.25))
         .bg(colors.badge_bg)
-        .rounded(px(3.0))
+        .rounded(px(design.corners.sm * 0.75))
         .child(badge)
 }
 
@@ -106,11 +112,12 @@ pub(super) fn render_close_button(
     index: usize,
     close_hovered: bool,
     colors: &TabColors,
+    design: &DesignSystem,
     cx: &mut Context<TabsEntity>,
 ) -> Stateful<Div> {
     let mut close_btn = div()
         .id(close_element_id)
-        .text_xs()
+        .text_size(px(design.typography.small_size))
         .text_color(colors.close_color)
         .when(close_hovered, |s| s.text_color(colors.close_hover_color));
 
@@ -153,6 +160,7 @@ pub(super) fn render_underline_tab(
     tab: TabItem,
     state: &TabRenderState,
     colors: &TabColors,
+    design: &DesignSystem,
     cx: &mut Context<TabsEntity>,
 ) -> Stateful<Div> {
     let TabRenderState {
@@ -178,9 +186,9 @@ pub(super) fn render_underline_tab(
         .id(tab_element_id)
         .flex()
         .items_center()
-        .gap_2()
-        .px_4()
-        .py_2();
+        .gap(px(design.spacing.control_gap))
+        .px(px(design.spacing.section_gap))
+        .py(px(design.spacing.control_padding_y));
 
     if is_selected {
         tab_content = tab_content
@@ -207,20 +215,26 @@ pub(super) fn render_underline_tab(
     if let Some(custom_icon) = custom_icon {
         tab_content = tab_content.child(custom_icon);
     } else if let Some(icon) = icon {
-        tab_content = tab_content.child(div().text_sm().child(icon));
+        tab_content =
+            tab_content.child(div().text_size(px(design.typography.base_size)).child(icon));
     }
 
     // Add label
-    tab_content = tab_content.child(div().text_sm().child(label));
+    tab_content = tab_content.child(
+        div()
+            .text_size(px(design.typography.base_size))
+            .child(label),
+    );
 
     // Add badge
     if let Some(badge) = badge {
-        tab_content = tab_content.child(render_badge(badge, colors));
+        tab_content = tab_content.child(render_badge(badge, colors, design));
     }
 
     // Add close button
     if closeable {
-        let close_btn = render_close_button(close_element_id, index, close_hovered, colors, cx);
+        let close_btn =
+            render_close_button(close_element_id, index, close_hovered, colors, design, cx);
         tab_content = tab_content.child(close_btn);
     }
 
@@ -228,9 +242,15 @@ pub(super) fn render_underline_tab(
 
     // Create the underline - accent color for selected, border color for unselected
     let underline = if is_selected {
-        div().h(px(2.0)).w_full().bg(colors.accent)
+        div()
+            .h(px(design.spacing.grid_unit * 0.5))
+            .w_full()
+            .bg(colors.accent)
     } else {
-        div().h(px(1.0)).w_full().bg(colors.container_border)
+        div()
+            .h(px(design.spacing.grid_unit * 0.25))
+            .w_full()
+            .bg(colors.container_border)
     };
 
     // Wrap in a flex column
@@ -247,6 +267,7 @@ pub(super) fn render_card_tab(
     tab: TabItem,
     state: &TabRenderState,
     colors: &TabColors,
+    design: &DesignSystem,
     cx: &mut Context<TabsEntity>,
 ) -> Stateful<Div> {
     let TabRenderState {
@@ -270,20 +291,20 @@ pub(super) fn render_card_tab(
         .id(tab_element_id)
         .flex()
         .items_center()
-        .gap_2()
-        .px_3()
-        .py_2()
+        .gap(px(design.spacing.control_gap))
+        .px(px(design.spacing.control_padding_x))
+        .py(px(design.spacing.control_padding_y))
         .min_w(px(90.0));
 
     if is_selected {
         tab_el = tab_el
             .bg(colors.accent)
-            .rounded_lg()
+            .rounded(px(design.corners.md))
             .text_color(colors.text_selected);
     } else {
         tab_el = tab_el
             .bg(colors.selected_bg)
-            .rounded_lg()
+            .rounded(px(design.corners.md))
             .text_color(colors.text_unselected)
             .when(hovered, |s| {
                 s.bg(colors.selected_bg)
@@ -325,18 +346,21 @@ pub(super) fn render_card_tab(
             div()
                 .flex()
                 .items_center()
-                .text_xl()
+                .text_size(px(design.typography.large_size + 2.0))
                 .text_color(icon_color)
                 .child(icon),
         );
     }
 
     // Right side: Title on top, Number below
-    let mut right_col = div().flex().flex_col().gap(px(1.0));
+    let mut right_col = div()
+        .flex()
+        .flex_col()
+        .gap(px(design.spacing.grid_unit * 0.25));
 
     right_col = right_col.child(
         div()
-            .text_xs()
+            .text_size(px(design.typography.small_size))
             .font_weight(if is_selected {
                 FontWeight::SEMIBOLD
             } else {
@@ -346,7 +370,12 @@ pub(super) fn render_card_tab(
     );
 
     if let Some(badge) = badge {
-        right_col = right_col.child(div().text_sm().font_weight(FontWeight::BOLD).child(badge));
+        right_col = right_col.child(
+            div()
+                .text_size(px(design.typography.base_size))
+                .font_weight(FontWeight::BOLD)
+                .child(badge),
+        );
     }
 
     tab_el = tab_el.child(right_col);
@@ -360,6 +389,7 @@ pub(super) fn render_regular_tab(
     variant: TabVariant,
     state: &TabRenderState,
     colors: &TabColors,
+    design: &DesignSystem,
     cx: &mut Context<TabsEntity>,
 ) -> Stateful<Div> {
     let TabRenderState {
@@ -384,16 +414,16 @@ pub(super) fn render_regular_tab(
         .id(tab_element_id)
         .flex()
         .items_center()
-        .gap_2()
-        .px_4()
-        .py_2();
+        .gap(px(design.spacing.control_gap))
+        .px(px(design.spacing.section_gap))
+        .py(px(design.spacing.control_padding_y));
 
     match variant {
         TabVariant::Enclosed => {
             if is_selected {
                 tab_el = tab_el
                     .bg(colors.selected_bg)
-                    .rounded_t_md()
+                    .rounded_t(px(design.corners.sm * 1.5))
                     .text_color(colors.text_selected);
             } else {
                 tab_el = tab_el
@@ -409,18 +439,17 @@ pub(super) fn render_regular_tab(
             if is_selected {
                 tab_el = tab_el
                     .bg(colors.accent)
-                    .rounded_md()
+                    .rounded(px(design.corners.sm * 1.5))
                     .text_color(colors.text_selected);
             } else {
-                tab_el =
-                    tab_el
-                        .rounded_md()
-                        .text_color(colors.text_unselected)
-                        .when(hovered, |s| {
-                            s.bg(colors.selected_bg)
-                                .text_color(colors.text_hover)
-                                .shadow(glow_shadow(colors.selected_bg))
-                        });
+                tab_el = tab_el
+                    .rounded(px(design.corners.sm * 1.5))
+                    .text_color(colors.text_unselected)
+                    .when(hovered, |s| {
+                        s.bg(colors.selected_bg)
+                            .text_color(colors.text_hover)
+                            .shadow(glow_shadow(colors.selected_bg))
+                    });
             }
         }
         TabVariant::Underline | TabVariant::VerticalCard => unreachable!(),
@@ -441,20 +470,25 @@ pub(super) fn render_regular_tab(
     if let Some(custom_icon) = custom_icon {
         tab_el = tab_el.child(custom_icon);
     } else if let Some(icon) = icon {
-        tab_el = tab_el.child(div().text_sm().child(icon));
+        tab_el = tab_el.child(div().text_size(px(design.typography.base_size)).child(icon));
     }
 
     // Add label
-    tab_el = tab_el.child(div().text_sm().child(label));
+    tab_el = tab_el.child(
+        div()
+            .text_size(px(design.typography.base_size))
+            .child(label),
+    );
 
     // Add badge
     if let Some(badge) = badge {
-        tab_el = tab_el.child(render_badge(badge, colors));
+        tab_el = tab_el.child(render_badge(badge, colors, design));
     }
 
     // Add close button
     if closeable {
-        let close_btn = render_close_button(close_element_id, index, close_hovered, colors, cx);
+        let close_btn =
+            render_close_button(close_element_id, index, close_hovered, colors, design, cx);
         tab_el = tab_el.child(close_btn);
     }
 

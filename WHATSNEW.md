@@ -1,3 +1,23 @@
+# What is new in 0.10
+
+## 0.10.33
+
+### Feature: design selector drives every design-aware component
+
+`Alert`, `Toast`, `ButtonSet`, `Badge`, `Progress`, `Tabs`, and `Card`
+now take `.design()` and follow `DesignSystem` tokens for padding, gaps,
+radii, and type sizes; the audio `VolumeKnob`, `LevelMeter`, and
+`Spectrum` family takes `.design()`/`.design_tokens()` for knob, meter,
+and spectrum geometry (mirrored to the Python `AudioDesignTokens`
+dataclass). The component-lab design selector gained macOS, Adwaita,
+Breeze, and Carbon presets, syncs the app-global design, and threads
+explicit per-cell designs through every story renderer, so matrix mode
+renders each cell in its own design. The Vello meter/spectrum paint
+paths now honor corner radius, matching CPU output.
+
+All crates move to 0.10 with no behavior change outside the above; the
+neutral design reproduces previous geometry exactly.
+
 # What is new in 0.9
 
 ## 0.9.33

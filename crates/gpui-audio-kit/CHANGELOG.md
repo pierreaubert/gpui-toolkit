@@ -1,13 +1,26 @@
 # Unreleased
 
+# 0.10.8
+
 ## Added
 
 - Added a lock-free `meter_fifo` feeding spectrum `meter_data`, and reworked
   `vertical_slider` calculation and `volume_knob` internals.
+- Added `spectrum_bar_gap`, `spectrum_corner_radius`, and
+  `spectrum_peak_height` to `AudioDesignTokens` (mirrored to the Python
+  `AudioDesignTokens` dataclass).
+- Added `.design()`/`.design_tokens()` to `VolumeKnob`,
+  `LevelMeterElement`, and `SpectrumElement`, plus
+  `HorizontalMeterTheme::apply_design_tokens` and
+  `SpectrumAxisTheme::apply_design`, so meter, knob, and spectrum
+  geometry follow the platform design system.
 
 ## Fixed
 
 - Corrected tick rendering and slider value mapping edge cases.
+- The Vello meter and spectrum paint paths now honor the corner radius
+  (rounded background, bottom-rounded lowest meter segment), matching
+  the CPU paint output and design tokens.
 
 ## Refactored
 

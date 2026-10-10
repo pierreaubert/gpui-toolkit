@@ -5,6 +5,8 @@
 use crate::theme::{Theme, ThemeExt};
 use gpui::prelude::{IntoElement, ParentElement, RenderOnce, Styled};
 use gpui::{App, Div, Pixels, Rgba, SharedString, Window, div, px};
+use gpui_design::DesignSystem;
+use std::sync::Arc;
 
 /// Badge variant
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -68,6 +70,7 @@ pub struct Badge {
     size: BadgeSize,
     rounded: bool,
     icon: Option<SharedString>,
+    design: Option<Arc<DesignSystem>>,
 }
 
 impl Badge {
@@ -79,7 +82,14 @@ impl Badge {
             size: BadgeSize::default(),
             rounded: false,
             icon: None,
+            design: None,
         }
+    }
+
+    /// Set the design system (falls back to the app-global design when unset)
+    pub fn design(mut self, design: impl Into<Arc<DesignSystem>>) -> Self {
+        self.design = Some(design.into());
+        self
     }
 
     /// Set variant
@@ -106,20 +116,38 @@ impl Badge {
         self
     }
 
-    /// Build into element with theme
+    /// Build into element with theme (uses the neutral design for geometry)
     pub fn build_with_theme(self, theme: &Theme) -> Div {
+        let design = self
+            .design
+            .clone()
+            .unwrap_or_else(crate::design::neutral_design);
+        self.build_with_theme_and_design(theme, &design)
+    }
+
+    /// Build into element with explicit theme and design
+    pub fn build_with_theme_and_design(self, theme: &Theme, design: &DesignSystem) -> Div {
         let (bg, text_color) = self.variant.colors(theme);
 
         let (px_val, py_val) = match self.size {
-            BadgeSize::Sm => (px(6.0), px(2.0)),
-            BadgeSize::Md => (px(8.0), px(3.0)),
-            BadgeSize::Lg => (px(12.0), px(4.0)),
+            BadgeSize::Sm => (
+                px(design.spacing.grid_unit * 1.5),
+                px(design.spacing.grid_unit * 0.5),
+            ),
+            BadgeSize::Md => (
+                px(design.spacing.control_gap),
+                px(design.spacing.grid_unit * 0.75),
+            ),
+            BadgeSize::Lg => (
+                px(design.spacing.control_padding_x),
+                px(design.spacing.grid_unit),
+            ),
         };
 
         let mut badge = div()
             .flex()
             .items_center()
-            .gap_1()
+            .gap(px(design.spacing.grid_unit))
             .px(px_val)
             .py(py_val)
             .bg(bg)
@@ -127,16 +155,15 @@ impl Badge {
 
         // Apply text size
         badge = match self.size {
-            BadgeSize::Sm => badge.text_xs(),
-            BadgeSize::Md => badge.text_xs(),
-            BadgeSize::Lg => badge.text_sm(),
+            BadgeSize::Sm | BadgeSize::Md => badge.text_size(px(design.typography.small_size)),
+            BadgeSize::Lg => badge.text_size(px(design.typography.base_size)),
         };
 
         // Apply rounding
         if self.rounded {
             badge = badge.rounded_full();
         } else {
-            badge = badge.rounded(px(3.0));
+            badge = badge.rounded(px(design.corners.sm * 0.75));
         }
 
         // Icon
@@ -153,8 +180,9 @@ impl Badge {
 
 impl RenderOnce for Badge {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let design = crate::design::resolve_design(self.design.clone(), cx);
         let theme = cx.theme();
-        self.build_with_theme(&theme)
+        self.build_with_theme_and_design(&theme, &design)
     }
 }
 

@@ -1,12 +1,6 @@
-# 0.9.14 - 2026-09-25
-
-## Fixes
-
-- Wheel zoom over an interactive plot now consumes the gesture so an
-  enclosing scroll container no longer scrolls underneath while zooming.
-  Outside the plot area the event keeps bubbling and the page scrolls.
-
 # Unreleased
+
+# 0.10.14 - 2026-10-09
 
 ## Added
 
@@ -22,6 +16,14 @@
   `prepare_frame_revolve`, `prepare_frame_contours`,
   `prepare_frame_series_2d`, plus interaction, style, navigation, and
   element builders) with no behavior change.
+
+# 0.9.14 - 2026-09-25
+
+## Fixes
+
+- Wheel zoom over an interactive plot now consumes the gesture so an
+  enclosing scroll container no longer scrolls underneath while zooming.
+  Outside the plot area the event keeps bubbling and the page scrolls.
 
 ## 0.9.11 - 2026-08-23
 

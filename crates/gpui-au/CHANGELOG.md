@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.10
+
 ## Added
 
 - Added a `params` bridge module with lazy wgpu initialization and new FFI

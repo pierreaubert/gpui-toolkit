@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.10.33 - 2026-10-09
+
 ### Accessibility
 
 - Added stable, frame-scoped `ElementId`/`FocusId` mapping with per-window focused-element queries, rerender cleanup, and duplicate-registration diagnostics.
@@ -68,6 +70,11 @@
   AvatarGroup, StatusDot, and CodeBlock were already covered by
   existing equivalents (Alert, SwipePanel, Avatar, BadgeDot,
   Code::block).
+- Extended `DesignSystem` support to Alert/Toast/ButtonSet/Badge/
+  Progress/Tabs/Card and to the audio VolumeKnob/LevelMeter/Spectrum
+  family; the component-lab design selector (now including macOS,
+  Adwaita, Breeze, and Carbon presets) drives every design-aware
+  component, including per-cell designs in matrix mode.
 
 ## 0.9.7 - 2026-08-07
 

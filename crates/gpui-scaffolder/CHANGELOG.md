@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.4
+
 ## Added
 
 - Reworked the scaffolder library surface and CLI with updated manifests

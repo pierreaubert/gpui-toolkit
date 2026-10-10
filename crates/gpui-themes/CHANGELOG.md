@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.8 - 2026-10-09
+
 ## Added
 
 - Added `token_export` (CSS-variable/Style-Dictionary round-trip with

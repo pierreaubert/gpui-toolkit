@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.7
+
 ## Added
 
 - Added `DensityTier` with density/RTL-aware spacing fields, fluid type

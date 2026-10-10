@@ -34,12 +34,13 @@ class AudioDeclarationsTests(unittest.TestCase):
    "ok":True,
    "automation":{"schema_version":1,"report_type":"gpui-audio-kit-automation-patterns","unique_ids":True,"patterns":[{"id":"gain","parameter_family":"gain","recommended_control":"Potentiometer","scale":"linear","automation_sources":["host"],"expected_interactions":["drag"],"accessibility_summary_contract":"slider summary","release_evidence":"native tests","status":"implemented"}],"markdown":"# Automation"},
    "visual":{"schema_version":1,"report_type":"visual","crate_name":"gpui-audio-kit","crate_version":"1.0.0","capture_count":2,"expected_capture_count":2,"unique_capture_ids":True,"components":["potentiometer","meter"],"markdown":"| capture |"},
-   "design_tokens":{"knob_arc_start_deg":135,"knob_arc_sweep_deg":270,"knob_arc_widths":[2,3],"knob_arc_track_widths":[1,2],"knob_arc_glow":0,"knob_arc_segments":32,"knob_border_width":1,"knob_label_style":0,"knob_indicator_style":0,"slider_track_widths":[2,3],"meter_label_style":0,"meter_use_gradient":True,"meter_corner_radius":2,"meter_glow":0,"toggle_variant":0,"corner_radius":4,"min_touch_target":44,"control_padding_x":8,"control_padding_y":6,"animation_duration_ms":150,"prefer_spring":False,"spring_stiffness":200,"spring_damping":20},
+   "design_tokens":{"knob_arc_start_deg":135,"knob_arc_sweep_deg":270,"knob_arc_widths":[2,3],"knob_arc_track_widths":[1,2],"knob_arc_glow":0,"knob_arc_segments":32,"knob_border_width":1,"knob_label_style":0,"knob_indicator_style":0,"slider_track_widths":[2,3],"meter_label_style":0,"meter_use_gradient":True,"meter_corner_radius":2,"meter_glow":0,"spectrum_bar_gap":1,"spectrum_corner_radius":4,"spectrum_peak_height":2,"toggle_variant":0,"corner_radius":4,"min_touch_target":44,"control_padding_x":8,"control_padding_y":6,"animation_duration_ms":150,"prefer_spring":False,"spring_stiffness":200,"spring_damping":20},
   }
   reports=reports_from_command(CommandResult.from_wire("audio",payload))
   self.assertEqual(reports.automation.pattern("gain").status,"implemented")
   self.assertEqual(reports.visual.capture_count,reports.visual.expected_capture_count)
   self.assertEqual(reports.design_tokens.min_touch_target,44)
+  self.assertEqual(reports.design_tokens.spectrum_corner_radius,4)
  def test_native_accessibility_summary_decodes(self):
   result=CommandResult.from_wire("a11y",{"ok":True,"summaries":[{"control_type":"potentiometer","label":"Gain","role":"slider","value_now":.5,"value_min":0,"value_max":1,"value_text":"0.5 dB","unit":"dB","normalized":.5,"scale":"linear","selected":True,"disabled":False,"muted":False,"peak_value":None,"description":"Gain control"}]})
   summary=accessibility_from_command(result)[0]

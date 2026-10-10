@@ -24,6 +24,7 @@ use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaR
 use crate::audio_accessibility::{
     AudioAccessibilitySummary, normalized, range_description, value_text,
 };
+use crate::audio_design_tokens::AudioDesignTokens;
 use crate::scale::Scale;
 use crate::theme::ThemeExt;
 use d3rs::render2d::{Renderer2D, VelloBackend};
@@ -65,6 +66,8 @@ pub struct VolumeKnob {
     aria_role: Option<AriaRole>,
     renderer_2d: Renderer2D,
     vello_backend: VelloBackend,
+    /// Platform design tokens for ring geometry.
+    design_tokens: AudioDesignTokens,
 }
 
 impl VolumeKnob {
@@ -94,12 +97,26 @@ impl VolumeKnob {
             aria_role: None,
             renderer_2d: Renderer2D::default(),
             vello_backend: VelloBackend::default(),
+            design_tokens: AudioDesignTokens::default(),
         }
     }
 
     /// Set the theme
     pub fn theme(mut self, theme: VolumeKnobTheme) -> Self {
         self.theme = Some(theme);
+        self
+    }
+
+    /// Set platform design tokens for ring geometry.
+    pub fn design_tokens(mut self, tokens: AudioDesignTokens) -> Self {
+        self.design_tokens = tokens;
+        self
+    }
+
+    /// Set platform design defaults through the shared design system.
+    pub fn design(mut self, design: impl Into<std::sync::Arc<gpui_design::DesignSystem>>) -> Self {
+        let design = design.into();
+        self.design_tokens = AudioDesignTokens::from(design.as_ref());
         self
     }
 
@@ -537,6 +554,7 @@ fn build_volume_dial(
     size: Pixels,
     display_value: f32,
     palette: &VolumePalette,
+    ring_width: f32,
     renderer_2d: Renderer2D,
     vello_backend: VelloBackend,
 ) -> Div {
@@ -549,6 +567,7 @@ fn build_volume_dial(
             palette.fill,
             palette.ring,
         )
+        .ring_width(ring_width)
         .renderer_2d(renderer_2d)
         .vello_backend(vello_backend),
     )
@@ -638,6 +657,7 @@ impl RenderOnce for VolumeKnob {
                 resolved_size,
                 display_value,
                 &palette,
+                self.design_tokens.knob_border_width,
                 self.renderer_2d,
                 self.vello_backend,
             ))

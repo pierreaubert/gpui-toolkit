@@ -28,3 +28,16 @@ impl Default for SpectrumAxisTheme {
         }
     }
 }
+
+impl SpectrumAxisTheme {
+    /// Apply platform design geometry to the axis theme (label text size, dB
+    /// axis width, and axis padding). Colors and label offsets are untouched.
+    ///
+    /// Text sizes assume the default 16px rem root, matching the `Default`
+    /// values (`rems(0.75)` = 12px).
+    pub fn apply_design(&mut self, design: &gpui_design::DesignSystem) {
+        self.text_size = rems(design.typography.small_size / 16.0);
+        self.db_axis_width = design.interaction.min_touch_target;
+        self.db_axis_padding_right = rems(design.spacing.grid_unit / 16.0);
+    }
+}

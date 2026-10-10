@@ -1,5 +1,6 @@
 use super::peak_hold::SpectrumPeakHold;
 use super::spectrum_colors::SpectrumColors;
+use crate::audio_design_tokens::AudioDesignTokens;
 use gpui::prelude::*;
 use gpui::*;
 use std::cell::RefCell;
@@ -42,6 +43,10 @@ pub struct SpectrumElement {
     pub(super) bar_gap: Pixels,
     peak_hold: bool,
     peak_color: Option<Rgba>,
+    /// Optional platform design tokens. When set, the bar gap, background
+    /// corner radius, and peak cap height come from the tokens instead of the
+    /// builder fields and defaults.
+    design_tokens: Option<AudioDesignTokens>,
     renderer_2d: Renderer2D,
     vello_backend: VelloBackend,
     #[cfg(feature = "vello")]
@@ -65,11 +70,45 @@ impl SpectrumElement {
             bar_gap: px(1.0),
             peak_hold: false,
             peak_color: None,
+            design_tokens: None,
             renderer_2d: Renderer2D::default(),
             vello_backend: VelloBackend::default(),
             #[cfg(feature = "vello")]
             painter: d3rs::vello2d::VelloScenePainter::new(),
         }
+    }
+
+    /// Set platform design tokens for spectrum geometry. Explicit tokens take
+    /// precedence over [`Self::bar_gap`] and the default background radius
+    /// and peak cap height.
+    pub fn design_tokens(mut self, tokens: AudioDesignTokens) -> Self {
+        self.design_tokens = Some(tokens);
+        self
+    }
+
+    /// Set platform design defaults through the shared design system.
+    pub fn design(mut self, design: impl Into<std::sync::Arc<gpui_design::DesignSystem>>) -> Self {
+        let design = design.into();
+        self.design_tokens = Some(AudioDesignTokens::from(design.as_ref()));
+        self
+    }
+
+    fn effective_bar_gap(&self) -> f32 {
+        self.design_tokens
+            .as_ref()
+            .map_or_else(|| self.bar_gap.into(), |tokens| tokens.spectrum_bar_gap)
+    }
+
+    fn effective_corner_radius(&self) -> f32 {
+        self.design_tokens
+            .as_ref()
+            .map_or(4.0, |tokens| tokens.spectrum_corner_radius)
+    }
+
+    fn effective_peak_height(&self) -> f32 {
+        self.design_tokens
+            .as_ref()
+            .map_or(2.0, |tokens| tokens.spectrum_peak_height)
     }
 
     /// Build an element from the latest frame published to a [`super::MeterFifo`].
@@ -241,7 +280,7 @@ impl Element for SpectrumElement {
 
         window.paint_quad(PaintQuad {
             bounds,
-            corner_radii: Corners::all(px(4.0)),
+            corner_radii: Corners::all(px(self.effective_corner_radius())),
             background: self.colors.background.into(),
             border_widths: Edges::default(),
             border_color: Hsla::transparent_black(),
@@ -297,14 +336,17 @@ impl Element for SpectrumElement {
             let mut scene = ChartScene::new();
             let color_brush =
                 |color: Rgba| Brush::Solid(Color::new([color.r, color.g, color.b, color.a]));
-            scene.fill_rect(
+            scene.fill_rounded_rect(
                 Rect::new(0.0, 0.0, f64::from(width), f64::from(height)),
+                f64::from(self.effective_corner_radius()),
                 color_brush(self.colors.background),
             );
 
             let mut bands = [BezPath::new(), BezPath::new(), BezPath::new()];
+            let gap = self.effective_bar_gap();
+            let peak_height = self.effective_peak_height();
             for (index, &ratio) in scratch.iter().enumerate() {
-                let (x0, x1) = bar_x_bounds(width, bar_count, self.bar_gap.into(), index);
+                let (x0, x1) = bar_x_bounds(width, bar_count, gap, index);
                 let y = |value: f32| height - height * value;
                 let segments = [
                     (0usize, ratio.min(yellow_threshold), self.colors.low),
@@ -347,14 +389,14 @@ impl Element for SpectrumElement {
             }
             if self.peak_hold {
                 for (index, &peak) in state.peaks.heights.iter().enumerate() {
-                    let (x0, x1) = bar_x_bounds(width, bar_count, self.bar_gap.into(), index);
-                    let y = (height * (1.0 - peak)).clamp(0.0, (height - 2.0).max(0.0));
+                    let (x0, x1) = bar_x_bounds(width, bar_count, gap, index);
+                    let y = (height * (1.0 - peak)).clamp(0.0, (height - peak_height).max(0.0));
                     scene.fill_rect(
                         Rect::new(
                             f64::from(x0),
                             f64::from(y),
                             f64::from(x1),
-                            f64::from(y + 2.0),
+                            f64::from(y + peak_height),
                         ),
                         color_brush(self.peak_color.unwrap_or(self.colors.high)),
                     );
@@ -369,7 +411,8 @@ impl Element for SpectrumElement {
         let mut yellow_path = PathBuilder::fill();
         let mut red_path = PathBuilder::fill();
         let width: f32 = bounds.size.width.into();
-        let gap: f32 = self.bar_gap.into();
+        let gap = self.effective_bar_gap();
+        let peak_height = self.effective_peak_height();
 
         for (index, &height_ratio) in scratch.iter().enumerate() {
             let (x0, x1) = bar_x_bounds(width, bar_count, gap, index);
@@ -425,11 +468,11 @@ impl Element for SpectrumElement {
             for (index, &peak) in state.peaks.heights.iter().enumerate() {
                 let (x0, x1) = bar_x_bounds(width, bar_count, gap, index);
                 let height: f32 = meter_height.into();
-                let y = (height * (1.0 - peak)).clamp(0.0, (height - 2.0).max(0.0));
+                let y = (height * (1.0 - peak)).clamp(0.0, (height - peak_height).max(0.0));
                 window.paint_quad(PaintQuad {
                     bounds: Bounds::new(
                         point(bounds.origin.x + px(x0), bounds.origin.y + px(y)),
-                        size(px(x1 - x0), px(2.0)),
+                        size(px(x1 - x0), px(peak_height)),
                     ),
                     corner_radii: Corners::default(),
                     background: self.peak_color.unwrap_or(self.colors.high).into(),

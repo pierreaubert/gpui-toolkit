@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.11
+
 ## Added
 
 - Split the solver pass (`solve`) for readability and added `child_info`

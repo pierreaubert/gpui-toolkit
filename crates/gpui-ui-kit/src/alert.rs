@@ -7,8 +7,10 @@ use crate::theme::{Theme, ThemeExt};
 use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
 use gpui::{
     App, Component, Div, ElementId, FontWeight, MouseButton, Rgba, SharedString, Stateful, Window,
-    div,
+    div, px,
 };
+use gpui_design::DesignSystem;
+use std::sync::Arc;
 
 /// Alert variant
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -56,6 +58,7 @@ pub struct Alert {
     on_close: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
+    design: Option<Arc<DesignSystem>>,
 }
 
 impl Alert {
@@ -71,7 +74,14 @@ impl Alert {
             on_close: None,
             aria_label: None,
             aria_role: None,
+            design: None,
         }
+    }
+
+    /// Set the design system (falls back to the app-global design when unset)
+    pub fn design(mut self, design: impl Into<Arc<DesignSystem>>) -> Self {
+        self.design = Some(design.into());
+        self
     }
 
     /// Set title
@@ -116,8 +126,21 @@ impl Alert {
         self
     }
 
-    /// Build into element with theme
+    /// Build into element with theme (uses the neutral design for geometry)
     pub fn build_with_theme(self, theme: &Theme) -> Stateful<Div> {
+        let design = self
+            .design
+            .clone()
+            .unwrap_or_else(crate::design::neutral_design);
+        self.build_with_theme_and_design(theme, &design)
+    }
+
+    /// Build into element with explicit theme and design
+    pub fn build_with_theme_and_design(
+        self,
+        theme: &Theme,
+        design: &DesignSystem,
+    ) -> Stateful<Div> {
         let (bg, border, icon_color) = self.variant.colors(theme);
         let default_icon = self.variant.icon();
         // Clone ID for use in close button (self.id is moved to alert container)
@@ -128,24 +151,33 @@ impl Alert {
             .font_family(theme.font_family.clone())
             .flex()
             .items_start()
-            .gap_3()
-            .p_4()
+            .gap(px(design.spacing.control_gap * 1.5))
+            .p(px(design.spacing.section_gap))
             .bg(bg)
             .border_1()
             .border_color(border)
-            .rounded_lg();
+            .rounded(px(design.corners.md));
 
         // Icon
         let icon = self.icon.unwrap_or_else(|| default_icon.into());
-        alert = alert.child(div().text_lg().text_color(icon_color).child(icon));
+        alert = alert.child(
+            div()
+                .text_size(px(design.typography.large_size))
+                .text_color(icon_color)
+                .child(icon),
+        );
 
         // Content
-        let mut content = div().flex_1().flex().flex_col().gap_1();
+        let mut content = div()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .gap(px(design.spacing.grid_unit));
 
         if let Some(title) = self.title {
             content = content.child(
                 div()
-                    .text_sm()
+                    .text_size(px(design.typography.base_size))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme.text_primary)
                     .child(title),
@@ -154,7 +186,7 @@ impl Alert {
 
         content = content.child(
             div()
-                .text_sm()
+                .text_size(px(design.typography.base_size))
                 .text_color(theme.text_secondary)
                 .child(self.message),
         );
@@ -167,7 +199,7 @@ impl Alert {
             let text_primary = theme.text_primary;
             let mut close_btn = div()
                 .id((close_btn_id, "close"))
-                .text_sm()
+                .text_size(px(design.typography.base_size))
                 .text_color(text_muted)
                 .cursor_pointer()
                 .hover(move |s| s.text_color(text_primary));
@@ -209,8 +241,9 @@ impl RenderOnce for Alert {
             props: AriaProps::with_role(self.aria_role.unwrap_or(AriaRole::Alert)),
         });
 
+        let design = crate::design::resolve_design(self.design.clone(), cx);
         let theme = cx.theme();
-        self.build_with_theme(&theme)
+        self.build_with_theme_and_design(&theme, &design)
     }
 }
 
@@ -219,6 +252,7 @@ impl RenderOnce for Alert {
 pub struct InlineAlert {
     message: SharedString,
     variant: AlertVariant,
+    design: Option<Arc<DesignSystem>>,
 }
 
 impl InlineAlert {
@@ -227,6 +261,7 @@ impl InlineAlert {
         Self {
             message: message.into(),
             variant: AlertVariant::default(),
+            design: None,
         }
     }
 
@@ -236,8 +271,23 @@ impl InlineAlert {
         self
     }
 
-    /// Build into element with theme
+    /// Set the design system (falls back to the app-global design when unset)
+    pub fn design(mut self, design: impl Into<Arc<DesignSystem>>) -> Self {
+        self.design = Some(design.into());
+        self
+    }
+
+    /// Build into element with theme (uses the neutral design for geometry)
     pub fn build_with_theme(self, theme: &Theme) -> Div {
+        let design = self
+            .design
+            .clone()
+            .unwrap_or_else(crate::design::neutral_design);
+        self.build_with_theme_and_design(theme, &design)
+    }
+
+    /// Build into element with explicit theme and design
+    pub fn build_with_theme_and_design(self, theme: &Theme, design: &DesignSystem) -> Div {
         let (_, _border, icon_color) = self.variant.colors(theme);
         let icon = self.variant.icon();
 
@@ -245,8 +295,8 @@ impl InlineAlert {
             .font_family(theme.font_family.clone())
             .flex()
             .items_center()
-            .gap_2()
-            .text_sm()
+            .gap(px(design.spacing.control_gap))
+            .text_size(px(design.typography.base_size))
             .text_color(icon_color)
             .child(div().child(icon))
             .child(self.message)
@@ -255,7 +305,8 @@ impl InlineAlert {
 
 impl RenderOnce for InlineAlert {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let design = crate::design::resolve_design(self.design.clone(), cx);
         let theme = cx.theme();
-        self.build_with_theme(&theme)
+        self.build_with_theme_and_design(&theme, &design)
     }
 }

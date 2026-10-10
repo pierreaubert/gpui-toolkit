@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.0
+
 ## Fixes
 
 - Added `UIApplicationSupportsIndirectInputEvents` to the showcase app plist so

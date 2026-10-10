@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.8
+
 ## Added
 
 - Extended `layout!` with headings (`Hd [level = "2"]`), styled text

@@ -1,5 +1,12 @@
 # Unreleased
 
+# 0.10.1
+
+## Changed
+
+- Version alignment with the 0.10 workspace; no behavior change.
+
+
 # 0.8.1
 
 ## New

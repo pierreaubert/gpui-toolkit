@@ -76,6 +76,17 @@ pub struct AudioDesignTokens {
     /// Default: 0.0.
     pub meter_glow: f32,
 
+    // -- Spectrum analyzer geometry --
+    /// Gap between spectrum bars in px.
+    /// Default: 1.0.
+    pub spectrum_bar_gap: f32,
+    /// Corner radius (px) applied to the spectrum background panel.
+    /// Default: 4.0.
+    pub spectrum_corner_radius: f32,
+    /// Height (px) of the peak-hold caps drawn above spectrum bars.
+    /// Default: 2.0.
+    pub spectrum_peak_height: f32,
+
     // -- Toggle variant --
     /// Toggle visual style.
     /// 0=Sliding (iOS capsule), 1=Segmented ([OFF|ON]), 2=ThumbOnTrack (Material), 3=Pill (Fluent).
@@ -129,6 +140,9 @@ impl Default for AudioDesignTokens {
             meter_use_gradient: false,
             meter_corner_radius: 2.0,
             meter_glow: 0.0,
+            spectrum_bar_gap: 1.0,
+            spectrum_corner_radius: 4.0,
+            spectrum_peak_height: 2.0,
             toggle_variant: 0,
             corner_radius: 8.0,
             min_touch_target: 32.0,
@@ -171,6 +185,9 @@ impl From<&gpui_design::DesignSystem> for AudioDesignTokens {
             meter_use_gradient: false,
             meter_corner_radius: design.corners.sm,
             meter_glow: 0.0,
+            spectrum_bar_gap: design.spacing.grid_unit * 0.25,
+            spectrum_corner_radius: design.corners.sm,
+            spectrum_peak_height: design.spacing.grid_unit * 0.5,
             toggle_variant: match design.toggle_variant {
                 gpui_design::ToggleVariant::Capsule => AudioDesignTokens::TOGGLE_SLIDING,
                 gpui_design::ToggleVariant::Segmented => AudioDesignTokens::TOGGLE_SEGMENTED,
@@ -229,6 +246,9 @@ mod tests {
         assert_eq!(tokens.slider_track_widths, [14.0, 18.0, 24.0]);
         assert!(!tokens.meter_use_gradient);
         assert_eq!(tokens.meter_corner_radius, 2.0);
+        assert_eq!(tokens.spectrum_bar_gap, 1.0);
+        assert_eq!(tokens.spectrum_corner_radius, 4.0);
+        assert_eq!(tokens.spectrum_peak_height, 2.0);
         assert_eq!(tokens.toggle_variant, AudioDesignTokens::TOGGLE_SLIDING);
         assert_eq!(tokens.corner_radius, 8.0);
         assert_eq!(tokens.min_touch_target, 32.0);
@@ -275,6 +295,9 @@ mod tests {
             design.audio_controls.slider_track_widths
         );
         assert_eq!(tokens.corner_radius, design.corners.md);
+        assert_eq!(tokens.spectrum_bar_gap, design.spacing.grid_unit * 0.25);
+        assert_eq!(tokens.spectrum_corner_radius, design.corners.sm);
+        assert_eq!(tokens.spectrum_peak_height, design.spacing.grid_unit * 0.5);
     }
 
     #[test]

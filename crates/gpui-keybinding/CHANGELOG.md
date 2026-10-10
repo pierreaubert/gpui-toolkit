@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.7 - 2026-10-09
+
 ## New
 
 - Added an opaque VSCode-style `when`-clause `context` on `DocumentedKeybinding`

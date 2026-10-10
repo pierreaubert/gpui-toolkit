@@ -1,6 +1,6 @@
 [package]
 name = "gpui-design-tools"
-version = "0.9.6"
+version = "0.10.6"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true

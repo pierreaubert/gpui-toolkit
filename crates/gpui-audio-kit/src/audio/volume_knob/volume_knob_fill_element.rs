@@ -10,6 +10,7 @@ pub(super) struct VolumeKnobFillElement {
     pub(super) bg_color: Rgba,
     pub(super) fill_color: Rgba,
     pub(super) ring_color: Rgba,
+    pub(super) ring_width: f32,
     pub(super) renderer_2d: Renderer2D,
     pub(super) vello_backend: VelloBackend,
     #[cfg(feature = "vello")]
@@ -32,11 +33,17 @@ impl VolumeKnobFillElement {
             bg_color,
             fill_color,
             ring_color,
+            ring_width: 2.0,
             renderer_2d: Renderer2D::default(),
             vello_backend: VelloBackend::default(),
             #[cfg(feature = "vello")]
             painter: d3rs::vello2d::VelloScenePainter::new(),
         }
+    }
+
+    pub(super) fn ring_width(mut self, width: f32) -> Self {
+        self.ring_width = width;
+        self
     }
 
     pub(super) fn renderer_2d(mut self, renderer: Renderer2D) -> Self {
@@ -179,7 +186,7 @@ impl Element for VolumeKnobFillElement {
                     f64::from(radius - 3.0),
                 )
                 .to_path(0.1),
-                Stroke::new(2.0),
+                Stroke::new(f64::from(self.ring_width)),
                 color(ring),
             );
             self.painter.set_backend(self.vello_backend);
@@ -299,7 +306,7 @@ impl Element for VolumeKnobFillElement {
             bounds: ring_bounds,
             corner_radii: Corners::all(px(radius - 3.0)),
             background: transparent.into(),
-            border_widths: Edges::all(px(2.0)),
+            border_widths: Edges::all(px(self.ring_width)),
             border_color: ring_with_opacity.into(),
             border_style: BorderStyle::default(),
         });

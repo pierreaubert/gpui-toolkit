@@ -24,14 +24,20 @@ use crate::scale::Scale;
 use crate::theme::ThemeExt;
 use crate::validation::{Validate, ValidationError};
 use gpui::{
-    App, ElementId, InteractiveElement, IntoElement, MouseButton, MouseMoveEvent, RenderOnce, Rgba,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    App, ElementId, FocusHandle, InteractiveElement, IntoElement, MouseButton, MouseMoveEvent,
+    RenderOnce, Rgba, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use gpui::prelude::ParentElement;
 use gpui_design::DesignSystem;
 use std::rc::Rc;
 use std::sync::Arc;
+
+#[derive(Debug)]
+struct SliderInteractionState {
+    focus: FocusHandle,
+    value: f32,
+}
 
 mod slider_size;
 mod types;
@@ -404,12 +410,19 @@ impl RenderOnce for Slider {
         let value_label = format!("{:.1}", self.value);
 
         // Keep focus across value-driven panel redraws, like other stateful controls.
-        let focus_state = window.use_keyed_state(
+        let initial_value = self.value;
+        let interaction_state = window.use_keyed_state(
             ElementId::from((self.id.clone(), "slider-focus")),
             cx,
-            |_, cx| cx.focus_handle(),
+            move |_, cx| SliderInteractionState {
+                focus: cx.focus_handle(),
+                value: initial_value,
+            },
         );
-        let focus_handle = focus_state.read(cx).clone();
+        // Consecutive gestures can arrive before the application's next render.
+        // A render always rebases their local intent on the authoritative value.
+        interaction_state.update(cx, |state, _| state.value = self.value);
+        let focus_handle = interaction_state.read(cx).focus.clone();
         let mut container = div().flex().flex_col().gap_1();
 
         if self.label.is_some() || self.show_value {
@@ -498,7 +511,11 @@ impl RenderOnce for Slider {
             let id_down = self.id.clone();
             let id_move = self.id.clone();
             let id_up = self.id.clone();
-            let value_at_press = self.value;
+            let state_down = interaction_state.clone();
+            let state_drag = interaction_state.clone();
+            let state_drag_end = interaction_state.clone();
+            let state_scroll = interaction_state.clone();
+            let state_key = interaction_state.clone();
             let config_drag = self.interaction_config();
             let config_drag_end = self.interaction_config();
             let config_scroll = self.interaction_config();
@@ -531,6 +548,7 @@ impl RenderOnce for Slider {
                     cx.stop_propagation();
                     focus_down.focus(window, cx);
                     let click_x: f32 = event.position.x.into();
+                    let value_at_press = state_down.read(cx).value;
 
                     if let Some(ref handler) = on_drag_start {
                         handler(click_x, value_at_press, window, cx);
@@ -559,7 +577,9 @@ impl RenderOnce for Slider {
                         && let Some(ref handler) = on_change_drag
                     {
                         cx.stop_propagation();
-                        handler(snap_drag.snap_value(value as f32), window, cx);
+                        let value = snap_drag.snap_value(value as f32);
+                        state_drag.update(cx, |state, _| state.value = value);
+                        handler(value, window, cx);
                     }
                 })
                 .on_mouse_up(MouseButton::Left, move |event, window, cx| {
@@ -570,7 +590,9 @@ impl RenderOnce for Slider {
                         let value = handle_drag(release_x, &state, &config_drag_end)
                             .unwrap_or(state.start_value)
                             as f32;
-                        handler(snap_drag_end.snap_value(value), window, cx);
+                        let value = snap_drag_end.snap_value(value);
+                        state_drag_end.update(cx, |state, _| state.value = value);
+                        handler(value, window, cx);
                     }
                     clear_drag_state(id_up.clone());
                     cx.stop_propagation();
@@ -582,24 +604,28 @@ impl RenderOnce for Slider {
                     if let Some(value) = handle_scroll(
                         &event.delta,
                         &event.modifiers,
-                        f64::from(value_at_press),
+                        f64::from(state_scroll.read(cx).value),
                         &config_scroll,
                     ) && let Some(ref handler) = on_change_scroll
                     {
                         cx.stop_propagation();
-                        handler(snap_scroll.snap_value(value as f32), window, cx);
+                        let value = snap_scroll.snap_value(value as f32);
+                        state_scroll.update(cx, |state, _| state.value = value);
+                        handler(value, window, cx);
                     }
                 })
                 .on_key_down(move |event, window, cx| {
                     if let Some(value) = handle_keyboard(
                         event.keystroke.key.as_str(),
                         &event.keystroke.modifiers,
-                        f64::from(value_at_press),
+                        f64::from(state_key.read(cx).value),
                         &config_key,
                     ) && let Some(ref handler) = on_change_key
                     {
                         cx.stop_propagation();
-                        handler(snap_key.snap_value(value as f32), window, cx);
+                        let value = snap_key.snap_value(value as f32);
+                        state_key.update(cx, |state, _| state.value = value);
+                        handler(value, window, cx);
                     }
                 });
 
@@ -616,7 +642,8 @@ impl RenderOnce for Slider {
             let a11y_decrement_handler = self.on_change.clone();
             let a11y_increment_snap = self.clone_for_calculation();
             let a11y_decrement_snap = self.clone_for_calculation();
-            let a11y_value = f64::from(self.value);
+            let a11y_increment_state = interaction_state.clone();
+            let a11y_decrement_state = interaction_state.clone();
             let a11y_increment_config = a11y_config.clone();
             track = track.on_a11y_action(
                 gpui::AccessibleAction::Increment,
@@ -624,11 +651,13 @@ impl RenderOnce for Slider {
                     if let Some(value) = handle_keyboard(
                         "right",
                         &gpui::Modifiers::default(),
-                        a11y_value,
+                        f64::from(a11y_increment_state.read(cx).value),
                         &a11y_increment_config,
                     ) && let Some(ref handler) = a11y_increment_handler
                     {
-                        handler(a11y_increment_snap.snap_value(value as f32), window, cx);
+                        let value = a11y_increment_snap.snap_value(value as f32);
+                        a11y_increment_state.update(cx, |state, _| state.value = value);
+                        handler(value, window, cx);
                     }
                 },
             );
@@ -638,11 +667,13 @@ impl RenderOnce for Slider {
                     if let Some(value) = handle_keyboard(
                         "left",
                         &gpui::Modifiers::default(),
-                        a11y_value,
+                        f64::from(a11y_decrement_state.read(cx).value),
                         &a11y_config,
                     ) && let Some(ref handler) = a11y_decrement_handler
                     {
-                        handler(a11y_decrement_snap.snap_value(value as f32), window, cx);
+                        let value = a11y_decrement_snap.snap_value(value as f32);
+                        a11y_decrement_state.update(cx, |state, _| state.value = value);
+                        handler(value, window, cx);
                     }
                 },
             );

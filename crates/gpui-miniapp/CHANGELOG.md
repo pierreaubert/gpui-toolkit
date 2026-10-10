@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.11
+
 ## Added
 
 - Added a dedicated `mini_app_state` module with expanded config/shell

@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.8
+
 ## Added
 
 - Registered lab stories for the 30 new UI-kit components (shell,
@@ -11,6 +13,12 @@
   can resolve every exported story.
 - Added a `deep_link` module for shareable lab URLs, window recovery for
   crashed sidebars, preview caches, and a preview-kind classifier.
+- Added macOS, Adwaita, Breeze, and Carbon theme presets to the design
+  selector, synced to the app-global design system so components
+  without an explicit override follow the selection.
+- Story previews now pass explicit designs to every design-aware
+  component, so matrix cells render their own per-cell design instead
+  of the selected preset.
 
 ## Performance
 

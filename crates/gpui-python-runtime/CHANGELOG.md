@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.33
+
 ## Features
 
 - Added retained IR nodes plus Python builders and showcase sections
@@ -11,6 +13,9 @@
   ingest alongside JSON specs with header-first budget enforcement.
 - Split `PxChartV2Node::validate` into per-chart-kind helpers with unchanged
   error precedence.
+- Mirrored the new `AudioDesignTokens` spectrum geometry fields
+  (`spectrum_bar_gap`, `spectrum_corner_radius`, `spectrum_peak_height`)
+  in the Python dataclass, report decoder, and showcase evidence.
 
 ## Performance
 

@@ -39,9 +39,13 @@ pub fn default_viewports() -> Vec<ViewportPreset> {
 pub fn default_theme_presets() -> Vec<ThemePreset> {
     vec![
         ThemePreset::new("neutral", "Neutral", "neutral", false),
+        ThemePreset::new("macos", "macOS", "macos", false),
         ThemePreset::new("apple-hig", "Apple HIG", "apple_hig", false),
         ThemePreset::new("material3", "Material 3", "material3", false),
         ThemePreset::new("fluent", "Fluent", "fluent", false),
+        ThemePreset::new("adwaita", "Adwaita", "adwaita", false),
+        ThemePreset::new("breeze", "Breeze", "breeze", false),
+        ThemePreset::new("carbon", "Carbon", "carbon", false),
         ThemePreset::new("reduced-motion", "Reduced Motion", "neutral", true),
     ]
 }

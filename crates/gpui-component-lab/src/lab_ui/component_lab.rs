@@ -72,14 +72,15 @@ use d3rs::mesh::{
 use d3rs::render2d::VelloBackend;
 use gpui::prelude::*;
 use gpui::{
-    AnyElement, Context, Entity, IntoElement, MouseButton, Pixels, Render, RenderImage,
+    AnyElement, App, Context, Entity, IntoElement, MouseButton, Pixels, Render, RenderImage,
     SharedString, Size, WeakEntity, Window, div, img, px, relative, wgpu_custom_draw_available,
 };
 use gpui_audio_kit::{
-    AudioScale, HorizontalMeterTheme, LevelMeterElement, MeterColors, Potentiometer,
-    PotentiometerSize, SpectrumAxisTheme, SpectrumElement, TickConfig, VerticalSlider,
-    VerticalSliderSize, VolumeKnob, render_horizontal_meter_bar, render_level_meter_ticks,
-    render_spectrum_db_axis, render_spectrum_frequency_axis, render_tick_row,
+    AudioDesignTokens, AudioScale, HorizontalMeterTheme, LevelMeterElement, MeterColors,
+    Potentiometer, PotentiometerSize, SpectrumAxisTheme, SpectrumElement, TickConfig,
+    VerticalSlider, VerticalSliderSize, VolumeKnob, render_horizontal_meter_bar,
+    render_level_meter_ticks, render_spectrum_db_axis, render_spectrum_frequency_axis,
+    render_tick_row,
 };
 use gpui_miniapp::{MiniApp, MiniAppConfig};
 use gpui_px::{
@@ -95,19 +96,19 @@ use gpui_ui_kit::{
     AvatarShape, AvatarSize, AvatarStatus, Badge, BadgeDot, BadgeSize, BadgeVariant,
     BreadcrumbItem, Breadcrumbs, Button, ButtonSet, ButtonSetOption, ButtonSize, ButtonVariant,
     Card, Center, Checkbox, CheckboxSize, CircularProgress, Code, Color, ColorPickerView, Column,
-    CommandItem, CommandPalette, ConfirmDialog, ContextMenu, DesignSystem, Dialog, DialogSize,
-    Divider, DragItem, DragList, EmptyState, FocusDirection, FocusGroup, Grid, HStack, Heading,
-    IconButton, IconButtonSize, ImageView, InlineAlert, Input, InputSize, KeyboardShortcutLabel,
-    KeyboardShortcutSize, Link, LoadingDots, LoadingOverlay, Menu, MenuBar, MenuBarItem, MenuItem,
-    Notification, NumberInput, NumberInputSize, PaneDivider, Popover, Port, PortDirection,
-    Position, Progress, ProgressSize, QrCode, Resizable, ResizableHandle, SearchBar, SearchBarSize,
-    Select, SelectOption, SelectSize, SettingsForm, SettingsRow, Sidebar, Slider, Spacer, Spinner,
-    SpinnerSize, SplitDirection, SplitPane, StackSpacing, StatusBar, StepIndicator,
-    StepIndicatorSize, StepItem, StepItemStatus, StepOrientation, StepStatus, TabItem, Table, Tabs,
-    Tag, Text, TextSize, TextWeight, Toast, ToastContainer, ToastPosition, Toggle, ToggleSize,
-    ToggleStyle, Toolbar, ToolbarItem, Tooltip, TreeNode, TreeView, VStack, VisuallyHidden,
-    WithTooltip, Wizard, WizardHeader, WizardNavigation, WizardVariant, WorkflowCanvas,
-    WorkflowNode, WorkflowNodeData,
+    CommandItem, CommandPalette, ConfirmDialog, ContextMenu, DesignSystem, DesignSystemState,
+    Dialog, DialogSize, Divider, DragItem, DragList, EmptyState, FocusDirection, FocusGroup, Grid,
+    HStack, Heading, IconButton, IconButtonSize, ImageView, InlineAlert, Input, InputSize,
+    KeyboardShortcutLabel, KeyboardShortcutSize, Link, LoadingDots, LoadingOverlay, Menu, MenuBar,
+    MenuBarItem, MenuItem, Notification, NumberInput, NumberInputSize, PaneDivider, Popover, Port,
+    PortDirection, Position, Progress, ProgressSize, QrCode, Resizable, ResizableHandle, SearchBar,
+    SearchBarSize, Select, SelectOption, SelectSize, SettingsForm, SettingsRow, Sidebar, Slider,
+    Spacer, Spinner, SpinnerSize, SplitDirection, SplitPane, StackSpacing, StatusBar,
+    StepIndicator, StepIndicatorSize, StepItem, StepItemStatus, StepOrientation, StepStatus,
+    TabItem, Table, Tabs, Tag, Text, TextSize, TextWeight, Toast, ToastContainer, ToastPosition,
+    Toggle, ToggleSize, ToggleStyle, Toolbar, ToolbarItem, Tooltip, TreeNode, TreeView, VStack,
+    VisuallyHidden, WithTooltip, Wizard, WizardHeader, WizardNavigation, WizardVariant,
+    WorkflowCanvas, WorkflowNode, WorkflowNodeData,
 };
 use serde_json::json;
 use std::cell::RefCell;
@@ -709,6 +710,7 @@ impl ComponentLab {
         if lab.live_preview {
             lab.start_live_preview(cx);
         }
+        lab.sync_global_design(cx);
         lab
     }
 
@@ -844,6 +846,7 @@ impl ComponentLab {
         if selected_reloaded {
             self.restore_selected_document_state();
             self.refresh_stateful_preview(cx);
+            self.sync_global_design(cx);
         }
 
         self.last_live_modified = reload.latest_modified;
@@ -931,6 +934,7 @@ impl ComponentLab {
             self.rebuild_derived_state();
             self.refresh_stateful_preview(cx);
             cx.notify();
+            self.sync_global_design(cx);
         }
     }
 
@@ -1136,6 +1140,24 @@ impl ComponentLab {
     pub(super) fn set_theme(&mut self, theme_id: impl Into<String>, cx: &mut Context<Self>) {
         self.selected_theme_id = theme_id.into();
         self.mark_layout_state_dirty(cx);
+        self.sync_global_design(cx);
+    }
+
+    /// Publish the selected theme's design language as the app-global design
+    /// system so embedded showcases and components without an explicit
+    /// override follow the Design selector (mirrors `MiniApp` design switching).
+    /// Preview stories with an explicit `.design()` are unaffected, as are
+    /// matrix cells, which carry their own per-cell theme.
+    fn sync_global_design(&self, cx: &mut App) {
+        let design = design_for_theme_preset(self.selected_theme_preset());
+        if cx
+            .try_global::<DesignSystemState>()
+            .is_some_and(|state| state.system.language == design.language)
+        {
+            return;
+        }
+        cx.set_global(DesignSystemState { system: design });
+        cx.refresh_windows();
     }
 
     pub(super) fn set_motion(&mut self, motion_id: impl Into<String>, cx: &mut Context<Self>) {
@@ -1288,6 +1310,7 @@ impl ComponentLab {
                 if selected_reloaded {
                     self.restore_selected_document_state();
                     self.refresh_stateful_preview(cx);
+                    self.sync_global_design(cx);
                 }
                 self.save_status = Some("Reloaded story JSON".into());
             }
@@ -2379,7 +2402,7 @@ impl ComponentLab {
         let story_id = story.id.as_str();
         let element = match exported_story_family(story_id) {
             ExportedStoryFamily::Feedback => {
-                Self::render_exported_feedback_story(story_id, &props, scope)
+                Self::render_exported_feedback_story(story_id, &props, scope, &design)
             }
             ExportedStoryFamily::Input => self.render_exported_input_story(
                 story_id,
@@ -2423,6 +2446,7 @@ impl ComponentLab {
         story_id: &str,
         props: &ExportedStoryProps,
         scope: &str,
+        design: &Arc<DesignSystem>,
     ) -> AnyElement {
         let label = props.label.clone();
         let disabled = props.disabled;
@@ -2439,26 +2463,31 @@ impl ComponentLab {
                 ])
                 .selected("edit")
                 .disabled(disabled)
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.icon-button" => IconButton::new(scoped("icon-button"), "✦")
                 .variant(icon_button_variant(&variant_name))
                 .size(IconButtonSize::Lg)
                 .selected(selected)
                 .disabled(disabled)
+                .design(design.clone())
                 .aria_label(label)
                 .into_any_element(),
             "ui-kit.alert" => Alert::new(scoped("alert"), label)
                 .title("Alert")
                 .variant(alert_variant(&variant_name))
                 .closeable(open)
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.inline-alert" => InlineAlert::new(label)
                 .variant(alert_variant(&variant_name))
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.toast" => Toast::new(scoped("toast"), label)
                 .title("Toast")
                 .variant(toast_variant(&variant_name))
                 .closeable(open)
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.toast-container" => div()
                 .relative()
@@ -2466,6 +2495,7 @@ impl ComponentLab {
                 .h(px(160.0))
                 .child(
                     ToastContainer::new(ToastPosition::TopRight)
+                        .design(design.clone())
                         .toast(Toast::new(scoped("toast-container-item"), label).title("Toast")),
                 )
                 .into_any_element(),
@@ -2588,6 +2618,7 @@ impl ComponentLab {
                 .variant(badge_variant(&variant_name))
                 .size(BadgeSize::Lg)
                 .rounded(true)
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.badge-dot" => BadgeDot::new()
                 .variant(badge_variant(&variant_name))
@@ -2595,7 +2626,7 @@ impl ComponentLab {
                 .into_any_element(),
             "ui-kit.empty-state-component" => EmptyState::new(label)
                 .description("No matching items")
-                .action(Button::new(scoped("empty-action"), "Create"))
+                .action(Button::new(scoped("empty-action"), "Create").design(design.clone()))
                 .into_any_element(),
             "ui-kit.image-view-component" => ImageView::new(scoped("image-view"))
                 .size(px(160.0))
@@ -2608,11 +2639,13 @@ impl ComponentLab {
                 .variant(progress_variant(&variant_name))
                 .size(ProgressSize::Lg)
                 .show_label(true)
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.circular-progress" => CircularProgress::new(value as f32)
                 .variant(progress_variant(&variant_name))
                 .size(px(64.0))
                 .show_label(true)
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.qr-code-component" => QrCode::new("https://sotf.dev")
                 .size(px(128.0))
@@ -2654,7 +2687,7 @@ impl ComponentLab {
                 .into_any_element(),
             "ui-kit.tooltip-component" => Tooltip::new(label).into_any_element(),
             "ui-kit.with-tooltip" => WithTooltip::new(
-                Button::new(scoped("with-tooltip-button"), "Hover target"),
+                Button::new(scoped("with-tooltip-button"), "Hover target").design(design.clone()),
                 label,
             )
             .into_any_element(),
@@ -2718,16 +2751,23 @@ impl ComponentLab {
                 .into_any_element(),
             "ui-kit.vstack" => VStack::new()
                 .child(Text::new(label.clone()))
-                .child(Button::new(scoped("vstack-button"), "Action"))
+                .child(Button::new(scoped("vstack-button"), "Action").design(design.clone()))
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.hstack" => HStack::new()
                 .child(Text::new(label.clone()))
-                .child(Badge::new("Live").variant(BadgeVariant::Success))
+                .child(
+                    Badge::new("Live")
+                        .variant(BadgeVariant::Success)
+                        .design(design.clone()),
+                )
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.spacer" => HStack::new()
                 .child(Text::new("Start"))
                 .child(Spacer::new())
                 .child(Text::new("End"))
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.divider" => VStack::new()
                 .child(Text::new("Above"))
@@ -2743,14 +2783,17 @@ impl ComponentLab {
                     Text::new("Cell C"),
                     Text::new("Cell D"),
                 ])
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.center-component" => Center::new(scoped("center"))
                 .max_width(px(280.0))
                 .child(Text::new(label))
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.aspect-ratio-component" => AspectRatio::new(scoped("aspect-ratio"))
                 .preset(AspectRatioPreset::Widescreen)
                 .child(Text::new("16 : 9"))
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.resizable-component" => Resizable::new(scoped("resizable"))
                 .handle(ResizableHandle::Corner)
@@ -2758,12 +2801,14 @@ impl ComponentLab {
                 .height(px(120.0))
                 .min_width(px(160.0))
                 .min_height(px(80.0))
+                .design(design.clone())
                 .child(Text::new("Drag my corner"))
                 .into_any_element(),
             "ui-kit.visually-hidden-component" => VisuallyHidden::new(scoped("visually-hidden"))
                 .focusable(true)
                 .aria_label("Skip to preview")
                 .child(Text::new("Skip to preview"))
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.status-bar-component" => StatusBar::new(scoped("status-bar"))
                 .left(Text::new(label))
@@ -2854,6 +2899,7 @@ impl ComponentLab {
                 ])
                 .selected_index(1)
                 .variant(tab_variant(&variant_name))
+                .design(design.clone())
                 .into_any_element(),
             "ui-kit.wizard-component" => Wizard::new()
                 .steps(sample_wizard_steps())
@@ -3092,7 +3138,7 @@ impl ComponentLab {
         &self,
         story: &ComponentStory,
         _scope: &str,
-        _design: Arc<DesignSystem>,
+        design: Arc<DesignSystem>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
@@ -3121,7 +3167,8 @@ impl ComponentLab {
                         Badge::new(label)
                             .variant(variant)
                             .size(BadgeSize::Lg)
-                            .rounded(true),
+                            .rounded(true)
+                            .design(design.clone()),
                     ),
             )
             .child(
@@ -3129,7 +3176,8 @@ impl ComponentLab {
                     .variant(progress_variant)
                     .size(ProgressSize::Lg)
                     .show_label(true)
-                    .aria_label("Story progress"),
+                    .aria_label("Story progress")
+                    .design(design),
             )
             .into_any_element()
     }
@@ -3138,7 +3186,7 @@ impl ComponentLab {
         &self,
         story: &ComponentStory,
         scope: &str,
-        _design: Arc<DesignSystem>,
+        design: Arc<DesignSystem>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
@@ -3152,6 +3200,7 @@ impl ComponentLab {
             ])
             .selected_index(selected)
             .variant(variant)
+            .design(design)
             .aria_label("Component lab navigation");
 
         div()
@@ -3169,7 +3218,7 @@ impl ComponentLab {
         &self,
         story: &ComponentStory,
         scope: &str,
-        _design: Arc<DesignSystem>,
+        design: Arc<DesignSystem>,
         _cx: &mut Context<Self>,
     ) -> AnyElement {
         let variant = alert_variant(&choice_prop(story, "variant", "info"));
@@ -3178,6 +3227,7 @@ impl ComponentLab {
             .title("Conformance")
             .variant(variant)
             .closeable(false)
+            .design(design)
             .into_any_element()
     }
 
@@ -3185,7 +3235,7 @@ impl ComponentLab {
         &self,
         story: &ComponentStory,
         _scope: &str,
-        _design: Arc<DesignSystem>,
+        design: Arc<DesignSystem>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let title = text_prop(story, "title", "Preview");
@@ -3193,13 +3243,19 @@ impl ComponentLab {
         let theme = cx.theme();
 
         Card::new()
+            .design(design.clone())
             .header(
                 div()
                     .flex()
                     .items_center()
                     .justify_between()
                     .child(Heading::new(title).level(3))
-                    .child(Badge::new("Lab").variant(BadgeVariant::Info).rounded(true)),
+                    .child(
+                        Badge::new("Lab")
+                            .variant(BadgeVariant::Info)
+                            .rounded(true)
+                            .design(design),
+                    ),
             )
             .content(
                 div()
@@ -3397,7 +3453,7 @@ impl ComponentLab {
         story: &ComponentStory,
         scope: &str,
         interactive: bool,
-        _design: Arc<DesignSystem>,
+        design: Arc<DesignSystem>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
@@ -3415,6 +3471,7 @@ impl ComponentLab {
             .label(label)
             .value(value)
             .muted(muted)
+            .design(design)
             .vello_backend(vello_backend_prop(backend_choice.as_str()))
             .size(px(if scope.starts_with("matrix-") {
                 52.0
@@ -3469,7 +3526,7 @@ impl ComponentLab {
         &self,
         story: &ComponentStory,
         _scope: &str,
-        _design: Arc<DesignSystem>,
+        design: Arc<DesignSystem>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
@@ -3529,6 +3586,7 @@ impl ComponentLab {
                             .peak(peak_db)
                             .width(px(24.0))
                             .colors(meter_colors)
+                            .design(design)
                             .vello_backend(backend),
                     )
                     .child(render_level_meter_ticks(theme.border, theme.text_muted)),
@@ -3545,7 +3603,7 @@ impl ComponentLab {
         &self,
         story: &ComponentStory,
         _scope: &str,
-        _design: Arc<DesignSystem>,
+        design: Arc<DesignSystem>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
@@ -3559,7 +3617,7 @@ impl ComponentLab {
         };
         tick_config.tick_color = theme.border_hover;
         let value = raw_value.clamp(tick_config.min, tick_config.max);
-        let meter_theme = HorizontalMeterTheme {
+        let mut meter_theme = HorizontalMeterTheme {
             color_normal: theme.success,
             color_warning: theme.warning,
             color_critical: theme.error,
@@ -3567,9 +3625,11 @@ impl ComponentLab {
             color_background: theme.background,
             color_border: theme.border,
             color_text: theme.text_secondary,
-            use_gradient: bool_prop(story, "gradient", true),
             ..HorizontalMeterTheme::default()
         };
+        meter_theme.apply_design_tokens(&AudioDesignTokens::from(design.as_ref()));
+        // The story prop wins over the design default for the gradient mode.
+        meter_theme.use_gradient = bool_prop(story, "gradient", true);
 
         div()
             .w(px(430.0))
@@ -3599,7 +3659,7 @@ impl ComponentLab {
         &self,
         story: &ComponentStory,
         _scope: &str,
-        _design: Arc<DesignSystem>,
+        design: Arc<DesignSystem>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
@@ -3617,6 +3677,7 @@ impl ComponentLab {
             .child(
                 SpectrumElement::new(magnitudes)
                     .height(px(150.0))
+                    .design(design)
                     .vello_backend(vello_backend_prop(backend_choice.as_str())),
             )
             .child(
@@ -3750,18 +3811,19 @@ impl ComponentLab {
         &self,
         story: &ComponentStory,
         _scope: &str,
-        _design: Arc<DesignSystem>,
+        design: Arc<DesignSystem>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
         let min_freq = number_prop(story, "min_freq", 20.0).clamp(1.0, 96_000.0) as f32;
         let max_freq = number_prop(story, "max_freq", 20_000.0)
             .clamp(f64::from(min_freq) + 1.0, 192_000.0) as f32;
-        let axis_theme = SpectrumAxisTheme {
+        let mut axis_theme = SpectrumAxisTheme {
             text_color: theme.text_secondary,
             tick_color: theme.border,
             ..SpectrumAxisTheme::default()
         };
+        axis_theme.apply_design(&design);
         let db_axis_width = axis_theme.db_axis_width;
         let magnitudes = spectrum_axis_magnitudes();
 
@@ -3794,7 +3856,8 @@ impl ComponentLab {
                             .child(
                                 SpectrumElement::new(magnitudes)
                                     .frequency_range(min_freq, max_freq)
-                                    .height(px(170.0)),
+                                    .height(px(170.0))
+                                    .design(design),
                             ),
                     ),
             )

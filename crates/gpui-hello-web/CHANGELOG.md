@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.10.2
+
 ### Added
 
 - `?view=quad|text|both` query-param selection and a page-lifetime

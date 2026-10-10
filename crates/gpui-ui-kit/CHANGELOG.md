@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.43
+
 ## Added
 
 - Added 30 components: `app_shell`/`top_nav`/`mobile_nav`, `calendar`,
@@ -16,6 +18,12 @@
 - Added accessibility node diffing (`accessibility_node_key`,
   `diff_accessibility_nodes`, `AccessibilityTree::apply_snapshot`) so
   unchanged trees skip snapshot rebuilds and native bridge exports.
+- Added `DesignSystem` support to `Alert`/`InlineAlert`,
+  `Toast`/`ToastContainer`, `ButtonSet`, `Badge`, `Progress`/
+  `CircularProgress`, `Tabs`, and `Card`: new `.design()` setters and
+  `build_with_theme_and_design` builders drive padding, gaps, corner
+  radii, and type sizes from design tokens (neutral-exact defaults),
+  falling back to the app-global design when unset.
 
 ## Performance
 

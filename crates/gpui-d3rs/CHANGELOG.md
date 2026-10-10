@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.19
+
 ## Fixed
 
 - Added the missing hexbin axis ticks: 6px outward tick marks on both log

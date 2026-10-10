@@ -29,7 +29,9 @@ use crate::theme::{Theme, ThemeExt};
 use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
-use gpui::{AnyElement, App, Div, ElementId, Rgba, Window, div};
+use gpui::{AnyElement, App, Div, ElementId, Rgba, Window, div, px};
+use gpui_design::DesignSystem;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Factory function type for creating elements with theme access
@@ -60,6 +62,7 @@ pub struct Card {
     extra_classes: Vec<Box<dyn FnOnce(Div) -> Div>>,
     /// Override mobile scroll behavior for card content.
     scrollable_on_mobile: Option<bool>,
+    design: Option<Arc<DesignSystem>>,
 }
 
 impl Card {
@@ -78,7 +81,14 @@ impl Card {
             border_color: None,
             extra_classes: Vec::new(),
             scrollable_on_mobile: None,
+            design: None,
         }
+    }
+
+    /// Set the design system (falls back to the app-global design when unset)
+    pub fn design(mut self, design: impl Into<Arc<DesignSystem>>) -> Self {
+        self.design = Some(design.into());
+        self
     }
 
     /// Set the card header with a static element
@@ -189,12 +199,26 @@ impl Card {
         self
     }
 
-    /// Build the card into an element with theme
+    /// Build the card into an element with theme (uses the neutral design for geometry)
     pub fn build_with_theme(self, theme: &Theme) -> Div {
-        self.build_with_theme_and_scroll(theme, false)
+        let design = self
+            .design
+            .clone()
+            .unwrap_or_else(crate::design::neutral_design);
+        self.build_with_theme_design_and_scroll(theme, &design, false)
     }
 
-    fn build_with_theme_and_scroll(self, theme: &Theme, scroll_content: bool) -> Div {
+    /// Build the card into an element with explicit theme and design
+    pub fn build_with_theme_and_design(self, theme: &Theme, design: &DesignSystem) -> Div {
+        self.build_with_theme_design_and_scroll(theme, design, false)
+    }
+
+    fn build_with_theme_design_and_scroll(
+        self,
+        theme: &Theme,
+        design: &DesignSystem,
+        scroll_content: bool,
+    ) -> Div {
         let id = self.id.clone();
         let bg_color = self.background.unwrap_or(theme.surface);
         let border_color = self.border_color.unwrap_or(theme.border);
@@ -207,7 +231,7 @@ impl Card {
             .text_color(theme.text_primary)
             .border_1()
             .border_color(border_color)
-            .rounded_lg()
+            .rounded(px(design.corners.md))
             .shadow_md()
             .overflow_hidden();
 
@@ -221,8 +245,8 @@ impl Card {
         if let Some(header) = header_element {
             card = card.child(
                 div()
-                    .px_4()
-                    .py_3()
+                    .px(px(design.spacing.section_gap))
+                    .py(px(design.spacing.control_padding_x))
                     .bg(header_bg)
                     .text_color(theme.text_primary)
                     .border_b_1()
@@ -238,8 +262,8 @@ impl Card {
                 div()
                     .flex_1()
                     .min_h_0()
-                    .px_4()
-                    .py_4()
+                    .px(px(design.spacing.section_gap))
+                    .py(px(design.spacing.section_gap))
                     .text_color(theme.text_secondary)
                     .id((id, "content"))
                     .overflow_y_scroll()
@@ -249,8 +273,8 @@ impl Card {
                 div()
                     .flex_1()
                     .min_h_0()
-                    .px_4()
-                    .py_4()
+                    .px(px(design.spacing.section_gap))
+                    .py(px(design.spacing.section_gap))
                     .text_color(theme.text_secondary)
                     .child(content)
                     .into_any_element()
@@ -263,8 +287,8 @@ impl Card {
         if let Some(footer) = footer_element {
             card = card.child(
                 div()
-                    .px_4()
-                    .py_3()
+                    .px(px(design.spacing.section_gap))
+                    .py(px(design.spacing.control_padding_x))
                     .bg(header_bg)
                     .text_color(theme.text_muted)
                     .border_t_1()
@@ -286,8 +310,9 @@ impl Default for Card {
 impl RenderOnce for Card {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let scroll_content = self.scrollable_on_mobile.unwrap_or(true) && is_mobile(window, cx);
+        let design = crate::design::resolve_design(self.design.clone(), cx);
         let theme = cx.theme();
-        self.build_with_theme_and_scroll(&theme, scroll_content)
+        self.build_with_theme_design_and_scroll(&theme, &design, scroll_content)
             .into_any_element()
     }
 }

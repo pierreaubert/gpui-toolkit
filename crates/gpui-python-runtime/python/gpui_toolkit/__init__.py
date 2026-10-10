@@ -60,7 +60,7 @@ from .capabilities import Capability, capabilities
 from .state import Binding, Computed, State, StateError, StateStore, StoredState, ValidationResult, ValidationSeverity, application_data_dir
 from .platform import UnsupportedCapability
 
-__version__ = "0.9.33"
+__version__ = "0.10.33"
 
 __all__ = [
     "App", "Binding", "CancellationToken", "Capability", "ChartSelection",

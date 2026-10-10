@@ -10,7 +10,9 @@ use gpui::{
     App, Bounds, Div, ElementId, FontWeight, Pixels, Rgba, SharedString, Window, canvas, div, px,
     relative,
 };
+use gpui_design::DesignSystem;
 use std::f32::consts::{PI, TAU};
+use std::sync::Arc;
 
 /// Progress variant
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -52,12 +54,12 @@ pub enum ProgressSize {
 }
 
 impl ProgressSize {
-    fn height(&self) -> Pixels {
+    fn height(&self, design: &DesignSystem) -> Pixels {
         match self {
-            ProgressSize::Xs => px(2.0),
-            ProgressSize::Sm => px(4.0),
-            ProgressSize::Md => px(8.0),
-            ProgressSize::Lg => px(12.0),
+            ProgressSize::Xs => px(design.spacing.grid_unit * 0.5),
+            ProgressSize::Sm => px(design.spacing.grid_unit),
+            ProgressSize::Md => px(design.spacing.control_gap),
+            ProgressSize::Lg => px(design.spacing.control_padding_x),
         }
     }
 }
@@ -92,6 +94,7 @@ pub struct Progress {
     animated: bool,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
+    design: Option<Arc<DesignSystem>>,
 }
 
 impl Progress {
@@ -108,7 +111,14 @@ impl Progress {
             animated: false,
             aria_label: None,
             aria_role: None,
+            design: None,
         }
+    }
+
+    /// Set the design system (falls back to the app-global design when unset)
+    pub fn design(mut self, design: impl Into<Arc<DesignSystem>>) -> Self {
+        self.design = Some(design.into());
+        self
     }
 
     /// Set maximum value
@@ -159,13 +169,26 @@ impl Progress {
         self
     }
 
-    /// Build into element with theme
+    /// Build into element with theme (uses the neutral design for geometry)
     pub fn build_with_theme(self, theme: &Theme) -> Div {
-        let height = self.size.height();
+        let design = self
+            .design
+            .clone()
+            .unwrap_or_else(crate::design::neutral_design);
+        self.build_with_theme_and_design(theme, &design)
+    }
+
+    /// Build into element with explicit theme and design
+    pub fn build_with_theme_and_design(self, theme: &Theme, design: &DesignSystem) -> Div {
+        let height = self.size.height(design);
         let color = self.variant.color(theme);
         let percentage = progress_percentage(self.value, self.max);
 
-        let mut container = div().flex().flex_col().gap_1().w_full();
+        let mut container = div()
+            .flex()
+            .flex_col()
+            .gap(px(design.spacing.grid_unit))
+            .w_full();
 
         // Label
         if self.show_label {
@@ -173,7 +196,7 @@ impl Progress {
                 div()
                     .flex()
                     .justify_between()
-                    .text_xs()
+                    .text_size(px(design.typography.small_size))
                     .text_color(theme.text_secondary)
                     .child(format!("{percentage:.0}%")),
             );
@@ -210,8 +233,9 @@ impl RenderOnce for Progress {
                 .value_range(f64::from(self.value), 0.0, f64::from(self.max)),
         });
 
+        let design = crate::design::resolve_design(self.design.clone(), cx);
         let theme = cx.theme();
-        self.build_with_theme(&theme)
+        self.build_with_theme_and_design(&theme, &design)
     }
 }
 
@@ -231,6 +255,7 @@ pub struct CircularProgress {
     thickness: Pixels,
     variant: ProgressVariant,
     show_label: bool,
+    design: Option<Arc<DesignSystem>>,
 }
 
 impl CircularProgress {
@@ -244,7 +269,14 @@ impl CircularProgress {
             thickness: px(4.0),
             variant: ProgressVariant::default(),
             show_label: false,
+            design: None,
         }
+    }
+
+    /// Set the design system (falls back to the app-global design when unset)
+    pub fn design(mut self, design: impl Into<Arc<DesignSystem>>) -> Self {
+        self.design = Some(design.into());
+        self
     }
 
     /// Set maximum value
@@ -283,6 +315,15 @@ impl CircularProgress {
     /// the progress geometry instead of encoding the value only as a blended
     /// border color.
     pub fn build_with_theme(self, theme: &Theme) -> Div {
+        let design = self
+            .design
+            .clone()
+            .unwrap_or_else(crate::design::neutral_design);
+        self.build_with_theme_and_design(theme, &design)
+    }
+
+    /// Build into element with explicit theme and design
+    pub fn build_with_theme_and_design(self, theme: &Theme, design: &DesignSystem) -> Div {
         let percentage = progress_percentage(self.value, self.max);
         let base_color = self.variant.color(theme);
         let progress_ratio = percentage / 100.0;
@@ -320,7 +361,7 @@ impl CircularProgress {
         if self.show_label {
             container = container.child(
                 div()
-                    .text_xs()
+                    .text_size(px(design.typography.small_size))
                     .font_weight(FontWeight::BOLD)
                     .text_color(theme.text_secondary)
                     .child(format!("{percentage:.0}%")),
@@ -333,8 +374,9 @@ impl CircularProgress {
 
 impl RenderOnce for CircularProgress {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let design = crate::design::resolve_design(self.design.clone(), cx);
         let theme = cx.theme();
-        self.build_with_theme(&theme)
+        self.build_with_theme_and_design(&theme, &design)
     }
 }
 

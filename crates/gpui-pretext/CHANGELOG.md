@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.10.11
+
 ## Added
 
 - Reworked text measurement caching and the line-break walk, and added
