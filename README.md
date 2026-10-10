@@ -341,6 +341,43 @@ just tvos-device
 This repo currently ships an iOS Swift host project. The tvOS recipes produce
 the Rust library artifacts and copy them next to the mobile showcase assets.
 
+## Android
+
+The Android showcase lives in
+[crates/gpui-showcase/android](./crates/gpui-showcase/android/). It builds
+the Rust shared library with cargo-ndk and links it into the Gradle host
+app (`org.spinorama.gpui.showcase`). Install the prerequisites first:
+
+```bash
+rustup target add aarch64-linux-android
+cargo install cargo-ndk
+sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+```
+
+Then check, build, install, and run:
+
+```bash
+# Check the Rust crate for the arm64 Android target
+just android-check
+
+# Build the Rust shared library into Gradle jniLibs
+just android-build-rust
+
+# Build the debug APK (includes the Rust library)
+just android-apk
+
+# Install and launch on the connected device/emulator
+just android-install
+just android-run
+```
+
+`just qa-android-emulator` additionally drives the installed app on an
+emulator: navigation, pixel capture, and native accessibility-tree
+export. SDK/NDK/Java homes default to the Homebrew command-line tools,
+NDK 27.2.12479018, and the Android Studio runtime; override with
+`ANDROID_HOME`/`ANDROID_SDK_ROOT`, `ANDROID_NDK_VERSION`, and
+`JAVA_HOME`.
+
 ## Quick Example
 
 ```rust
