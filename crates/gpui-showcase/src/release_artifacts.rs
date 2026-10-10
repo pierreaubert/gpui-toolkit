@@ -310,7 +310,7 @@ pub const SHOWCASE_RELEASE_ARTIFACTS: &[ShowcaseReleaseArtifact] = &[
     },
 ];
 
-fn slug(label: &str) -> String {
+pub(crate) fn slug(label: &str) -> String {
     let mut output = String::new();
     let mut pending_dash = false;
     for ch in label.chars() {

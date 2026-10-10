@@ -2820,6 +2820,7 @@ dependencies = [
 name = "gpui-showcase"
 version = "0.10.6"
 dependencies = [
+ "anyhow",
  "gpui-android",
  "gpui-audio-kit",
  "gpui-builder",
@@ -2829,9 +2830,12 @@ dependencies = [
  "gpui-miniapp",
  "gpui-profiler",
  "gpui-ui-kit",
+ "image",
  "serde",
  "serde_json",
  "sotf-gpui-toolkit-gpui",
+ "sotf-gpui-toolkit-gpui-macos",
+ "sotf-gpui-toolkit-gpui-wgpu",
  "wasm-bindgen",
  "web-time",
 ]

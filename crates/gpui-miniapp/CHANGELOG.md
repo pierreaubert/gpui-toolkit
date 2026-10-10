@@ -1,5 +1,11 @@
 # Unreleased
 
+## Added
+
+- Added `bundled_ui_fonts()` returning the eight embedded IBM Plex Sans
+  and Lilex files (the same set the wasm platform registers) so native
+  harnesses can resolve identical families instead of system fallbacks.
+
 # 0.10.11
 
 ## Added

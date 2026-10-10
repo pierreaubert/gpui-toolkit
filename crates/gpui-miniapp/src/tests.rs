@@ -3,6 +3,7 @@ use super::mini_app::{
 };
 use super::mini_app_config::MiniAppConfig;
 use super::mini_app_shell::MiniAppShell;
+use super::misc::bundled_ui_fonts;
 use super::misc::current_platform;
 use super::misc::decode_query_component;
 use super::misc::design_language_from_param;
@@ -754,4 +755,16 @@ fn menu_refresh_skips_unchanged_checked_states() {
             ..signature
         }
     ));
+}
+
+#[test]
+fn bundled_ui_fonts_cover_wasm_set() {
+    // Same eight files the wasm platform registers: four IBM Plex Sans
+    // weights plus four Lilex weights. Guards the include paths and the
+    // count native harnesses rely on for font parity.
+    let fonts = bundled_ui_fonts();
+    assert_eq!(fonts.len(), 8);
+    for font in &fonts {
+        assert!(!font.is_empty());
+    }
 }

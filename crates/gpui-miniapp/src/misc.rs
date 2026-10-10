@@ -1,4 +1,5 @@
 use gpui::*;
+use std::borrow::Cow;
 use std::rc::Rc;
 
 /// Construct the GPUI [`Platform`] backend for the current OS.
@@ -164,4 +165,41 @@ pub fn web_mark_ready() {
     if let Some(root) = document.document_element() {
         let _ = root.set_attribute("data-gpui-ready", "true");
     }
+}
+
+/// Bundled UI font data shared by every `MiniApp` shell.
+///
+/// Returns the eight embedded IBM Plex Sans and Lilex files in the same
+/// set the wasm platform registers, so native harnesses can resolve the
+/// identical families instead of falling back to system fonts (which
+/// changes glyph widths, line wrapping, and therefore layout).
+///
+/// # Examples
+///
+/// Feed the bytes to any [`PlatformTextSystem`](gpui::PlatformTextSystem):
+///
+/// ```ignore
+/// let text_system = gpui_wgpu::CosmicTextSystem::new_without_system_fonts("IBM Plex Sans");
+/// text_system.add_fonts(gpui_miniapp::bundled_ui_fonts()).unwrap();
+/// ```
+pub fn bundled_ui_fonts() -> Vec<Cow<'static, [u8]>> {
+    vec![
+        Cow::Borrowed(
+            include_bytes!("../../assets/fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf").as_slice(),
+        ),
+        Cow::Borrowed(
+            include_bytes!("../../assets/fonts/ibm-plex-sans/IBMPlexSans-Italic.ttf").as_slice(),
+        ),
+        Cow::Borrowed(
+            include_bytes!("../../assets/fonts/ibm-plex-sans/IBMPlexSans-SemiBold.ttf").as_slice(),
+        ),
+        Cow::Borrowed(
+            include_bytes!("../../assets/fonts/ibm-plex-sans/IBMPlexSans-SemiBoldItalic.ttf")
+                .as_slice(),
+        ),
+        Cow::Borrowed(include_bytes!("../../assets/fonts/lilex/Lilex-Regular.ttf").as_slice()),
+        Cow::Borrowed(include_bytes!("../../assets/fonts/lilex/Lilex-Bold.ttf").as_slice()),
+        Cow::Borrowed(include_bytes!("../../assets/fonts/lilex/Lilex-Italic.ttf").as_slice()),
+        Cow::Borrowed(include_bytes!("../../assets/fonts/lilex/Lilex-BoldItalic.ttf").as_slice()),
+    ]
 }

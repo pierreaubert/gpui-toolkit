@@ -14,9 +14,17 @@ workspace = true
 [features]
 profiler = ["gpui-profiler/global-allocator"]
 profiler-tests = ["profiler", "gpui/test-support"]
+visual-capture = [
+    "gpui/test-support",
+    "dep:gpui_macos",
+    "gpui_macos/test-support",
+    "dep:gpui_wgpu",
+]
 
 [dependencies]
+anyhow = { workspace = true }
 gpui = { workspace = true }
+image = { workspace = true }
 gpui-ui-kit = { workspace = true }
 gpui-audio-kit = { workspace = true }
 gpui-builder = { workspace = true }
@@ -30,6 +38,10 @@ web-time = "1.1"
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui_macos = { workspace = true, optional = true }
+gpui_wgpu = { workspace = true, optional = true }
 
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 gpui-ios = { workspace = true }

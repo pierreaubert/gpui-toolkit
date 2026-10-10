@@ -546,7 +546,7 @@ impl Showcase {
             }));
     }
 
-    fn select_section(&mut self, section: ShowcaseSection, cx: &mut Context<Self>) {
+    pub(crate) fn select_section(&mut self, section: ShowcaseSection, cx: &mut Context<Self>) {
         if section != ShowcaseSection::QrCode {
             // AnimatedQrCode owns a 30 Hz timer. Releasing its entities while
             // the section is hidden prevents idle redraws across the app.

@@ -162,3 +162,73 @@ demo-site: wasm-build-site
 [group('wasm')]
 wasm-test:
 	RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --target {{wasm_target}} -p gpui-hello-web
+
+# Capture a served wasm app under ?renderer=cpu and ?renderer=auto and diff
+# them. Structural differences are paint-backend divergence bugs of the same
+# class that separates wasm from native rendering.
+# Positional args: `just wasm-parity px-scatter 8082 gpui-px` (defaults: showcase).
+# Append a native reference PNG path to diff one wasm capture against it instead.
+[group('wasm')]
+wasm-parity name="showcase" port="8081" dir="gpui-showcase" reference="":
+	#!/usr/bin/env bash
+	set -euo pipefail
+	ref_flag=""
+	[ -n "{{reference}}" ] && ref_flag="--reference {{reference}}"
+	cd crates/{{dir}}
+	RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort env -u NO_COLOR trunk serve --port {{port}} --open=false --no-autoreload &
+	server=$!
+	trap 'kill $server' EXIT
+	cd ../..
+	server_up=""
+	for i in $(seq 1 60); do
+		if curl -fsS --max-time 5 "http://127.0.0.1:{{port}}" > /dev/null; then server_up=1; break; fi
+		sleep 2
+	done
+	if [ -z "$server_up" ]; then
+		echo "error: trunk on port {{port}} did not become ready within ~120s" >&2
+		exit 1
+	fi
+	uv run --with pillow --with playwright python3 scripts/qa_wasm_renderer_parity.py --url "http://127.0.0.1:{{port}}" --name {{name}} $ref_flag
+
+# Option B lane: capture every desktop showcase section with the native Metal
+# headless harness, screenshot the same sections from a served wasm build, and
+# diff each pair with cross-renderer-tolerant metrics (tolerant px ratio,
+# dilated edge IoU, block luminance correlation). Catches structural
+# wasm-vs-native divergence (missing text, dropped fills, layout shifts) while
+# ignoring glyph-rasterization noise between CoreText and browser canvas.
+# Positional args: `just wasm-native-parity 8081` (port only; cases forwarded).
+[group('wasm')]
+wasm-native-parity port="8081" *cases="":
+	#!/usr/bin/env bash
+	set -euo pipefail
+	native_dir="target/qa/showcase-native"
+	rm -rf "$native_dir"
+	native_flags=""
+	matrix_flags=""
+	for c in {{cases}}; do
+		native_flags="$native_flags --visual-case $c"
+		matrix_flags="$matrix_flags $c"
+	done
+	# shellcheck disable=SC2086
+	cargo run -q --manifest-path crates/gpui-showcase/Cargo.toml --features visual-capture -- \
+		--visual-capture --visual-output-root "$native_dir" $native_flags
+	cargo run -q --manifest-path crates/gpui-showcase/Cargo.toml --features visual-capture -- \
+		--visual-manifest --json > "$native_dir/manifest.json"
+	cd crates/gpui-showcase
+	RUSTUP_TOOLCHAIN=nightly CARGO_UNSTABLE_BUILD_STD=std,panic_abort env -u NO_COLOR trunk serve --port {{port}} --open=false --no-autoreload &
+	server=$!
+	trap 'kill $server' EXIT
+	cd ../..
+	server_up=""
+	for i in $(seq 1 60); do
+		if curl -fsS --max-time 5 "http://127.0.0.1:{{port}}" > /dev/null; then server_up=1; break; fi
+		sleep 2
+	done
+	if [ -z "$server_up" ]; then
+		echo "error: trunk on port {{port}} did not become ready within ~120s" >&2
+		exit 1
+	fi
+	# shellcheck disable=SC2086
+	uv run --with pillow --with playwright --with numpy python3 scripts/qa_showcase_native_wasm.py \
+		--port {{port}} --manifest-json "$native_dir/manifest.json" --native-dir "$native_dir/metal/actual" \
+		${matrix_flags:+--cases $matrix_flags}
