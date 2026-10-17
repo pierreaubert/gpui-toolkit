@@ -135,6 +135,7 @@ pub type InputValidator = Rc<dyn Fn(&str) -> Option<SharedString> + 'static>;
 /// The Input handles all focus and keyboard events internally.
 /// Parent components only need to provide callbacks for value changes.
 pub struct Input {
+    multiline: bool,
     id: ElementId,
     value: SharedString,
     placeholder: Option<SharedString>,
@@ -199,6 +200,7 @@ impl Input {
     /// Create a new input
     pub fn new(id: impl Into<ElementId>) -> Self {
         Self {
+            multiline: false,
             id: id.into(),
             value: "".into(),
             placeholder: None,
@@ -227,6 +229,14 @@ impl Input {
             aria_label: None,
             aria_role: None,
         }
+    }
+
+    /// Enables wrapping multiline composition with Enter submit and Shift-Enter newline.
+    ///
+    /// In this mode `on_change` runs only on Enter, never on focus loss.
+    pub fn multiline(mut self, enabled: bool) -> Self {
+        self.multiline = enabled;
+        self
     }
 
     /// Use Control+A to select all text.
@@ -558,7 +568,9 @@ impl InputEntity {
         let text = state.finish_edit();
         drop(state);
 
-        if let Some(ref handler) = self.props.on_change {
+        if !self.props.multiline
+            && let Some(ref handler) = self.props.on_change
+        {
             handler(&text, window, cx);
         }
         if let Some(ref handler) = self.props.on_edit_end {
@@ -610,7 +622,17 @@ impl InputEntity {
             o.borrow_mut().insert(id, origin);
         });
 
-        let char_pos = (((click_x - origin) / char_width).round() as usize).min(text_len);
+        let char_pos = if self.props.multiline {
+            self.multiline_layout.as_ref().map_or(text_len, |layout| {
+                let byte = layout
+                    .index_for_position(event.position)
+                    .unwrap_or_else(|i| i)
+                    .min(edit_text.len());
+                edit_text[..byte].chars().count()
+            })
+        } else {
+            (((click_x - origin) / char_width).round() as usize).min(text_len)
+        };
 
         let was_editing = state.editing;
         state.editing = true;
@@ -639,7 +661,17 @@ impl InputEntity {
             let move_x: f32 = event.position.x.into();
             let id = self.props.id.clone();
             let origin = TEXT_ORIGINS.with(|o| o.borrow().get(&id).copied().unwrap_or(0.0));
-            let char_pos = (((move_x - origin) / char_width).round() as usize).min(text_len);
+            let char_pos = if self.props.multiline {
+                self.multiline_layout.as_ref().map_or(text_len, |layout| {
+                    let byte = layout
+                        .index_for_position(event.position)
+                        .unwrap_or_else(|i| i)
+                        .min(edit_text.len());
+                    edit_text[..byte].chars().count()
+                })
+            } else {
+                (((move_x - origin) / char_width).round() as usize).min(text_len)
+            };
             state.update_selection(char_pos);
             let selection = Self::selection_from_state(&state);
             drop(state);
@@ -946,6 +978,30 @@ impl InputEntity {
             return false;
         }
 
+        if self.props.multiline && matches!(key, "up" | "down") {
+            if let Some(layout) = &self.multiline_layout {
+                let byte = Self::char_range_byte_offsets(&state.text, state.cursor, state.cursor).0;
+                if let Some(mut point) = layout.position_for_index(byte) {
+                    point.y += px(if key == "up" { -20.0 } else { 20.0 });
+                    let target = layout
+                        .index_for_position(point)
+                        .unwrap_or_else(|i| i)
+                        .min(state.text.len());
+                    if shift {
+                        let cursor = state.cursor;
+                        state.selection_anchor.get_or_insert(cursor);
+                    } else {
+                        state.clear_selection();
+                    }
+                    state.cursor = state.text[..target].chars().count();
+                }
+            }
+            drop(state);
+            cx.stop_propagation();
+            window.refresh();
+            return true;
+        }
+
         if !matches!(
             key,
             "enter" | "escape" | "backspace" | "delete" | "left" | "right" | "home" | "end"
@@ -956,6 +1012,19 @@ impl InputEntity {
         cx.stop_propagation();
 
         match key {
+            "enter" if self.props.multiline => {
+                if shift {
+                    state.insert_text("\n");
+                    self.emit_text_change(&state.text, window, cx);
+                } else {
+                    let text = state.text.clone();
+                    drop(state);
+                    if let Some(handler) = &self.props.on_change {
+                        handler(&text, window, cx);
+                    }
+                }
+                window.refresh();
+            }
             "enter" => {
                 drop(state);
                 self.commit_edit(window, cx);
@@ -1221,6 +1290,17 @@ impl EntityInputHandler for InputEntity {
         let state = self.edit_state.borrow();
         let start = Self::utf16_to_char(&state.text, range_utf16.start);
         let end = Self::utf16_to_char(&state.text, range_utf16.end).max(start);
+        if self.props.multiline
+            && let Some(layout) = &self.multiline_layout
+        {
+            let (start, end) = Self::char_range_byte_offsets(&state.text, start, end);
+            let origin = layout.position_for_index(start)?;
+            let finish = layout.position_for_index(end).unwrap_or(origin);
+            return Some(Bounds::new(
+                origin,
+                gpui::size((finish.x - origin.x).max(px(1.5)), px(20.0)),
+            ));
+        }
         let char_width = 8.0_f32;
         Some(Bounds {
             origin: gpui::point(
@@ -1241,6 +1321,15 @@ impl EntityInputHandler for InputEntity {
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
         let state = self.edit_state.borrow();
+        if self.props.multiline
+            && let Some(layout) = &self.multiline_layout
+        {
+            let byte = layout
+                .index_for_position(point)
+                .unwrap_or_else(|i| i)
+                .min(state.text.len());
+            return Some(state.text[..byte].encode_utf16().count());
+        }
         let char_width = 8.0_f32;
         let x: f32 = point.x.into();
         Some(((x / char_width).round().max(0.0) as usize).min(state.text.chars().count()))
@@ -1524,7 +1613,62 @@ impl Render for InputEntity {
             InputSize::Lg => text_el,
         };
 
-        if editing {
+        if props.multiline {
+            let text = if display_text.is_empty() {
+                " ".into()
+            } else {
+                display_text.clone()
+            };
+            let len = text.chars().count();
+            let cursor = cursor_pos.min(len);
+            let anchor = selection_anchor.unwrap_or(cursor).min(len);
+            let (start, end) =
+                Self::char_range_byte_offsets(&text, cursor.min(anchor), cursor.max(anchor));
+            let styled =
+                gpui::StyledText::new(text).with_highlights((editing && start != end).then_some((
+                    start..end,
+                    gpui::HighlightStyle {
+                        background_color: Some(selection_bg.into()),
+                        ..Default::default()
+                    },
+                )));
+            let layout = styled.layout().clone();
+            self.multiline_layout = Some(layout.clone());
+            let cursor_byte = Self::char_range_byte_offsets(&display_text, cursor, cursor).0;
+            text_el = text_el
+                .relative()
+                .min_w_0()
+                .w_full()
+                .flex_col()
+                .items_start()
+                .line_height(px(20.0))
+                .min_h(px(40.0))
+                .text_color(if props.value.is_empty() && !editing_text {
+                    placeholder_color
+                } else {
+                    text_color
+                })
+                .child(styled)
+                .child(
+                    gpui::canvas(
+                        |_, _, _| {},
+                        move |_, _, window, _| {
+                            if editing
+                                && start == end
+                                && let Some(position) = layout.position_for_index(cursor_byte)
+                            {
+                                window.paint_quad(gpui::fill(
+                                    gpui::Bounds::new(position, gpui::size(px(1.5), px(20.0))),
+                                    cursor_color,
+                                ));
+                            }
+                        },
+                    )
+                    .absolute()
+                    .inset_0(),
+                );
+            input_wrapper = input_wrapper.items_start();
+        } else if editing {
             let len = display_text.chars().count();
             let cursor_pos = cursor_pos.min(len);
             let selection_anchor = selection_anchor.map(|a| a.min(len));
@@ -1611,6 +1755,7 @@ impl Render for InputEntity {
 
 /// Internal entity that renders an [`Input`] with stable identity across frames.
 pub struct InputEntity {
+    multiline_layout: Option<gpui::TextLayout>,
     props: Input,
     focus_handle: FocusHandle,
     edit_state: Rc<RefCell<EditState>>,
@@ -1647,6 +1792,7 @@ impl RenderOnce for Input {
                 return entity;
             }
             let entity = cx.new(|_cx| InputEntity {
+                multiline_layout: None,
                 props: Input::new(id.clone()),
                 focus_handle: focus_handle.clone(),
                 edit_state: edit_state.clone(),

@@ -20,4 +20,5 @@ mod input_keyboard_test_view;
 mod input_on_change_test_view;
 mod input_test_view;
 mod input_with_callback_view;
+mod multiline;
 mod test;
