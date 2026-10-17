@@ -21,6 +21,12 @@ impl IosWindow {
                 if self.window.is_null() {
                     self.foreign.note_dropped_frame();
                 }
+                // The caller (GPUI's frame callback) believes this scene
+                // was presented, so nothing else will mark the window dirty
+                // again. Ask the display link for a forced render on its
+                // next tick or the skipped frame stays on screen
+                // indefinitely (stale/missing glyphs after a resize).
+                self.forced_frame_pending.set(true);
                 return;
             }
         };
@@ -36,18 +42,26 @@ impl IosWindow {
             return atlas.clone();
         }
 
-        let atlas: Arc<dyn PlatformAtlas> = {
+        let (atlas, cacheable): (Arc<dyn PlatformAtlas>, bool) = {
             let guard = self.renderer.lock();
             if let Some(renderer) = guard.as_ref() {
-                renderer.sprite_atlas().clone()
+                (renderer.sprite_atlas().clone(), true)
             } else {
                 // Fallback: return a dummy atlas so GPUI doesn't panic before
-                // the renderer is initialised.
-                Arc::new(FallbackAtlas::new())
+                // the renderer is initialised. Never cache it: the dummy
+                // hands out tiles at bounds (0, 0) of texture 0, so pinning
+                // it here would silently replace the real GPU atlas for the
+                // window's lifetime and corrupt every sprite lookup.
+                log::warn!(
+                    "GPUI iOS: sprite_atlas requested before renderer init; using fallback atlas"
+                );
+                (Arc::new(FallbackAtlas::new()), false)
             }
         };
 
-        *self.sprite_atlas.lock() = Some(atlas.clone());
+        if cacheable {
+            *self.sprite_atlas.lock() = Some(atlas.clone());
+        }
         atlas
     }
 
