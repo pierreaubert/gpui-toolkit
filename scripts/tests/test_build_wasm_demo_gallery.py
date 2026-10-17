@@ -127,6 +127,40 @@ class DemoGalleryTest(unittest.TestCase):
         self.assertNotIn("dataset=", scales["live_url"])
         self.assertEqual(scales["extra_query"], {})
 
+    def test_picture_theme_pins_preview_capture_and_live_link(self):
+        capture = {
+            "id": "geo-desktop",
+            "section": "geo",
+            "section_label": "Geo",
+            "group": "D3",
+            "viewport_id": "desktop",
+            "viewport_label": "Desktop",
+            "width": 1200,
+            "height": 900,
+            "scale_factor": 1,
+            "renderer_query": "auto",
+            "extra_query": {"dataset": "large"},
+        }
+        catalog = {
+            "schema_version": 1,
+            "featured": ["d3rs-geo-desktop"],
+            "apps": [
+                {
+                    "id": "d3rs",
+                    "title": "d3rs",
+                    "description": "d3rs",
+                    "route": "d3rs/",
+                    "picture_theme": "forest",
+                }
+            ],
+        }
+        entries = gallery.entries_for(catalog, {"d3rs": {"captures": [capture]}})
+        (preview,) = entries
+        self.assertEqual(preview["live_theme"], "forest")
+        self.assertEqual(preview["capture_theme"], "forest")
+        self.assertIn("theme=forest", preview["live_url"])
+        self.assertIn("dataset=large", preview["live_url"])
+
     def test_featured_variants_cover_themes_and_styles(self):
         base = {
             "id": "showcase-buttons-desktop",

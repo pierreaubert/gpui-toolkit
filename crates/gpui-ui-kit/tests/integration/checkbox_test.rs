@@ -13,6 +13,99 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[gpui::test]
+async fn test_checkbox_tab_navigation_and_focus_survive_redraw(cx: &mut TestAppContext) {
+    struct Checks(Arc<AtomicUsize>);
+    impl Render for Checks {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let mut row = div().size_full();
+            for (id, disabled, increment) in [
+                ("keyboard-first", false, 1),
+                ("keyboard-disabled", true, 100),
+                ("keyboard-last", false, 10),
+            ] {
+                let weak = cx.entity().downgrade();
+                row = row.child(Checkbox::new(id).disabled(disabled).label(id).on_change(
+                    move |_, _, cx| {
+                        let _ = weak.update(cx, |view, cx| {
+                            view.0.fetch_add(increment, Ordering::SeqCst);
+                            cx.notify();
+                        });
+                    },
+                ));
+            }
+            row
+        }
+    }
+    let count = Arc::new(AtomicUsize::new(0));
+    let state = count.clone();
+    let window = cx.add_window(move |_, _| Checks(state));
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    cx.update(gpui::Window::focus_next);
+    cx.simulate_keystrokes("space");
+    cx.run_until_parked();
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    cx.simulate_keystrokes("tab enter");
+    cx.run_until_parked();
+    assert_eq!(count.load(Ordering::SeqCst), 11);
+    cx.simulate_keystrokes("shift-tab space");
+    assert_eq!(count.load(Ordering::SeqCst), 12);
+}
+
+#[gpui::test]
+async fn test_question_keyboard_selection_requires_separate_confirmation(cx: &mut TestAppContext) {
+    use gpui_ui_kit::{Button, RadioGroup, RadioOption};
+    struct Question {
+        selected: Option<gpui::SharedString>,
+        confirmed: Arc<AtomicUsize>,
+    }
+    impl Render for Question {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let weak = cx.entity().downgrade();
+            let confirmed = self.confirmed.clone();
+            div()
+                .size_full()
+                .child(
+                    RadioGroup::new("keyboard-question")
+                        .options(vec![
+                            RadioOption::new("a", "Alpha"),
+                            RadioOption::new("b", "Beta"),
+                        ])
+                        .selected(self.selected.clone())
+                        .wrap_labels(true)
+                        .on_change(move |value, _, cx| {
+                            let _ = weak.update(cx, |view, cx| {
+                                view.selected = Some(value);
+                                cx.notify();
+                            });
+                        }),
+                )
+                .child(
+                    Button::new("keyboard-confirm", "Confirm")
+                        .disabled(self.selected.is_none())
+                        .on_click(move |_, _| {
+                            confirmed.fetch_add(1, Ordering::SeqCst);
+                        }),
+                )
+        }
+    }
+    let confirmed = Arc::new(AtomicUsize::new(0));
+    let state = confirmed.clone();
+    let window = cx.add_window(move |_, _| Question {
+        selected: None,
+        confirmed: state,
+    });
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    cx.update(gpui::Window::focus_next);
+    cx.simulate_keystrokes("down");
+    cx.run_until_parked();
+    assert_eq!(confirmed.load(Ordering::SeqCst), 0);
+    cx.simulate_keystrokes("tab enter");
+    assert_eq!(confirmed.load(Ordering::SeqCst), 1);
+}
+
 // ============================================================================
 // Toggle Tests
 // ============================================================================

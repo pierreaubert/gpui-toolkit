@@ -11,6 +11,7 @@ Requires: pip install playwright pillow && playwright install chromium
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -101,13 +102,17 @@ class BrowserSession:
         settle_ms: int,
         ready_selector: str | None = None,
         screenshot_timeout_ms: int = 30_000,
+        viewport: tuple[int, int] | None = None,
+        device_scale_factor: int | None = None,
     ) -> dict:
         """Screenshot one URL on a fresh page; return the liveness report."""
         console: list[str] = []
         screenshot_ok = True
+        page_viewport = viewport or self.viewport
+        page_scale = self.device_scale_factor if device_scale_factor is None else device_scale_factor
         page = self._browser.new_page(
-            viewport={"width": self.viewport[0], "height": self.viewport[1]},
-            device_scale_factor=self.device_scale_factor,
+            viewport={"width": page_viewport[0], "height": page_viewport[1]},
+            device_scale_factor=page_scale,
         )
         try:
             page.on("console", lambda msg: console.append(f"[{msg.type}] {msg.text}"))
@@ -229,6 +234,11 @@ def main() -> int:
         default=1500,
         help="delay after each --click-text/--click-xy to let the target section render",
     )
+    parser.add_argument(
+        "--report-json",
+        action="store_true",
+        help="print the liveness report as JSON and skip baseline comparison",
+    )
     args = parser.parse_args()
 
     try:
@@ -254,6 +264,11 @@ def main() -> int:
         device_scale_factor=args.device_scale_factor,
         ready_selector=args.ready_selector,
     )
+
+    if args.report_json:
+        print(json.dumps(report))
+        live = report["canvas_width"] > 0 and report["ready"] and report["screenshot"]
+        return 0 if live else 1
 
     print(f"canvas: {report['canvas_width']}x{report['canvas_height']}")
     if report["canvas_width"] <= 0 or not report["ready"] or not report["screenshot"]:

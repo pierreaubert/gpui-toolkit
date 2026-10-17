@@ -157,6 +157,28 @@ def entries_for(catalog: dict, manifests: dict[str, dict]) -> list[dict]:
                     "source": app["static_image"],
                 }
             )
+    # Pin each app's preview picture to its `picture_theme`, so the six
+    # landing cards each show a different theme and the capture matches its
+    # live link. Resolution mirrors `write_site`: first featured entry for
+    # the app, otherwise its first captured section.
+    featured_ids = set(catalog.get("featured", []))
+    for app in catalog["apps"]:
+        theme = app.get("picture_theme")
+        if not theme:
+            continue
+        candidates = [entry for entry in entries if entry["app_id"] == app["id"] and entry.get("section")]
+        preview = next((entry for entry in candidates if entry["id"] in featured_ids), None)
+        if preview is None and candidates:
+            preview = candidates[0]
+        if preview is None:
+            continue
+        preview["live_theme"] = theme
+        preview["capture_theme"] = theme
+        live_params = {"section": preview["section"], "theme": theme, "style": preview["live_style"]}
+        if preview.get("renderer_query"):
+            live_params["renderer"] = preview["renderer_query"]
+        live_params.update(preview.get("extra_query") or {})
+        preview["live_url"] = f"{app['route']}?{urlencode(live_params)}"
     return entries
 
 
@@ -214,6 +236,14 @@ def parse_urls(values: list[str]) -> dict[str, str]:
     return urls
 
 
+# Hard cap per capture, enforced by the OS on a subprocess. Healthy
+# captures take ~3s; a page that wedges its renderer (observed on 390px
+# showcase sections) otherwise blocks the whole matrix forever, and
+# in-process watchdogs corrupt Playwright's driver. One browser process
+# per capture keeps wedges isolated.
+CAPTURE_TIMEOUT_SECONDS = 90
+
+
 def capture_entries(
     entries: list[dict],
     urls: dict[str, str],
@@ -222,9 +252,9 @@ def capture_entries(
     only: set[str] | None = None,
 ) -> list[str]:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from qa_wasm_screenshot import capture
     from qa_chess_content import chess_content_errors
 
+    pending = []
     failures = []
     for entry in entries:
         if only and entry["id"] not in only:
@@ -243,22 +273,56 @@ def capture_entries(
             query_params["renderer"] = entry["renderer_query"]
         if entry.get("extra_query"):
             query_params.update(entry["extra_query"])
+        pending.append((entry, base_url, query_params))
+
+    if not pending:
+        return failures
+
+    screenshot_script = Path(__file__).resolve().parent / "qa_wasm_screenshot.py"
+    for entry, base_url, query_params in pending:
         query = urlencode(query_params)
         output = output_root / Path(entry["image"]).relative_to("snapshots")
         output.parent.mkdir(parents=True, exist_ok=True)
-        report = capture(
-            f"{base_url}/?{query}",
-            output,
-            wait_ms=800,
-            click_texts=[],
-            click_xys=[],
-            settle_ms=settle_ms,
-            viewport=(entry["width"], entry["height"]),
-            device_scale_factor=entry["scale_factor"],
-            ready_selector=("html[data-spinorama-state='loaded']" if entry["app_id"] == "spinorama"
-                            else "html[data-gpui-ready='true']"),
-            screenshot_timeout_ms=10_000,
-        )
+        ready_selector = ("html[data-spinorama-state='loaded']" if entry["app_id"] == "spinorama"
+                          else "html[data-gpui-ready='true']")
+        command = [
+            sys.executable,
+            str(screenshot_script),
+            "--name", entry["id"],
+            "--url", f"{base_url}/?{query}",
+            "--output", str(output),
+            "--wait-ms", "800",
+            "--settle-ms", str(settle_ms),
+            "--viewport", str(entry["width"]), str(entry["height"]),
+            "--device-scale-factor", str(entry["scale_factor"]),
+            "--ready-selector", ready_selector,
+            "--report-json",
+        ]
+        try:
+            completed = subprocess.run(
+                command, capture_output=True, text=True, timeout=CAPTURE_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            failures.append(
+                f"{entry['id']}: capture exceeded {CAPTURE_TIMEOUT_SECONDS}s; page unresponsive, skipped"
+            )
+            print(f"timeout {entry['id']}; continuing", flush=True)
+            continue
+        report = None
+        for line in reversed(completed.stdout.splitlines()):
+            line = line.strip()
+            if line.startswith("{"):
+                try:
+                    report = json.loads(line)
+                except json.JSONDecodeError:
+                    report = None
+                break
+        if report is None:
+            failures.append(
+                f"{entry['id']}: capture crashed (exit {completed.returncode}): "
+                f"{completed.stderr.strip().splitlines()[-1:]}"
+            )
+            continue
         if report["canvas_width"] <= 0 or not report["ready"] or not report["screenshot"]:
             failures.append(
                 f"{entry['id']}: canvas={report['canvas_width']} ready={report['ready']} "
@@ -270,7 +334,8 @@ def capture_entries(
                 failures.extend(f"{entry['id']}: {error}" for error in chess_content_errors(image))
         print(
             f"captured {entry['id']} {entry['width']}x{entry['height']}@{entry['scale_factor']} "
-            f"canvas={report['canvas_width']}x{report['canvas_height']}"
+            f"canvas={report['canvas_width']}x{report['canvas_height']}",
+            flush=True,
         )
     return failures
 

@@ -21,28 +21,8 @@
         "--",
         "--visual-manifest",
         "--json"
-      ]
-    },
-    {
-      "id": "px",
-      "title": "Chart Showcase",
-      "description": "Plotly Express-style scatter, line, bar, heatmap, contour, isoline, and treemap charts.",
-      "route": "px/",
-      "source_url": "https://github.com/pierreaubert/gpui-toolkit/tree/main/crates/gpui-px",
-      "port": 8082,
-      "manifest_command": [
-        "cargo",
-        "run",
-        "-p",
-        "gpui-px",
-        "--features",
-        "vello",
-        "--bin",
-        "px-showcase",
-        "--",
-        "--visual-manifest",
-        "--json"
-      ]
+      ],
+      "picture_theme": "dark"
     },
     {
       "id": "d3rs",
@@ -63,26 +43,8 @@
         "--",
         "--visual-manifest",
         "--json"
-      ]
-    },
-    {
-      "id": "spinorama",
-      "title": "Spinorama Showcase",
-      "description": "Explore real speakers with CEA-2034 curves, polar directivity, contours, 3D surfaces, and sphere views.",
-      "route": "spinorama/",
-      "source_url": "https://github.com/pierreaubert/gpui-toolkit/tree/main/crates/gpui-spinorama",
-      "port": 8084,
-      "manifest_command": [
-        "cargo",
-        "run",
-        "-p",
-        "gpui-spinorama",
-        "--bin",
-        "spinorama-showcase",
-        "--",
-        "--visual-manifest",
-        "--json"
-      ]
+      ],
+      "picture_theme": "forest"
     },
     {
       "id": "mesh",
@@ -103,7 +65,50 @@
         "--",
         "--visual-manifest",
         "--json"
-      ]
+      ],
+      "picture_theme": "midnight"
+    },
+    {
+      "id": "spinorama",
+      "title": "Spinorama Showcase",
+      "description": "Explore real speakers with CEA-2034 curves, polar directivity, contours, 3D surfaces, and sphere views.",
+      "route": "spinorama/",
+      "source_url": "https://github.com/pierreaubert/gpui-toolkit/tree/main/crates/gpui-spinorama",
+      "port": 8084,
+      "manifest_command": [
+        "cargo",
+        "run",
+        "-p",
+        "gpui-spinorama",
+        "--bin",
+        "spinorama-showcase",
+        "--",
+        "--visual-manifest",
+        "--json"
+      ],
+      "picture_theme": "carbon-white"
+    },
+    {
+      "id": "px",
+      "title": "Chart Showcase",
+      "description": "Plotly Express-style scatter, line, bar, heatmap, contour, isoline, and treemap charts.",
+      "route": "px/",
+      "source_url": "https://github.com/pierreaubert/gpui-toolkit/tree/main/crates/gpui-px",
+      "port": 8082,
+      "manifest_command": [
+        "cargo",
+        "run",
+        "-p",
+        "gpui-px",
+        "--features",
+        "vello",
+        "--bin",
+        "px-showcase",
+        "--",
+        "--visual-manifest",
+        "--json"
+      ],
+      "picture_theme": "light"
     },
     {
       "id": "hello",

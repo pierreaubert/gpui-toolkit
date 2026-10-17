@@ -16,8 +16,8 @@ use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
 use gpui::{
-    App, Div, ElementId, FontWeight, MouseButton, Pixels, Rgba, SharedString, Stateful, Window,
-    div, px,
+    App, Div, ElementId, FocusHandle, FontWeight, MouseButton, Pixels, Rgba, SharedString,
+    Stateful, Window, div, px,
 };
 use gpui_design::DesignSystem;
 use std::sync::Arc;
@@ -89,6 +89,7 @@ pub struct Checkbox {
     on_change: Option<Box<dyn Fn(bool, &mut Window, &mut App) + 'static>>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
+    focus_handle: Option<FocusHandle>,
 }
 
 impl Checkbox {
@@ -105,12 +106,19 @@ impl Checkbox {
             on_change: None,
             aria_label: None,
             aria_role: None,
+            focus_handle: None,
         }
     }
 
     /// Set checked state
     pub fn checked(mut self, checked: bool) -> Self {
         self.checked = checked;
+        self
+    }
+
+    /// Sets a stable focus handle for programmatic keyboard access.
+    pub fn focus_handle(mut self, handle: FocusHandle) -> Self {
+        self.focus_handle = Some(handle);
         self
     }
 
@@ -210,6 +218,15 @@ impl Checkbox {
         if self.disabled {
             container = container.opacity(0.5).cursor_not_allowed();
         }
+        if let Some(handle) = self.focus_handle {
+            let handle = handle.tab_stop(!self.disabled);
+            container = container.track_focus(&handle).focusable();
+            if !self.disabled {
+                container = container.on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    handle.focus(window, cx);
+                });
+            }
+        }
 
         // Checkbox box
         let mut checkbox = div()
@@ -257,7 +274,13 @@ impl Checkbox {
                 CheckboxSize::Md => div().text_sm(),
                 CheckboxSize::Lg => div(),
             };
-            container = container.child(label_el.text_color(theme.label).child(label));
+            container = container.child(
+                label_el
+                    .flex_1()
+                    .min_w_0()
+                    .text_color(theme.label)
+                    .child(label),
+            );
         }
 
         // Event handlers
@@ -288,7 +311,16 @@ impl Checkbox {
             let key_handler = handler_rc.clone();
             container = container.on_key_down(move |event, window, cx| {
                 match event.keystroke.key.as_str() {
+                    "tab" => {
+                        if event.keystroke.modifiers.shift {
+                            window.focus_prev(cx);
+                        } else {
+                            window.focus_next(cx);
+                        }
+                        cx.stop_propagation();
+                    }
                     "space" | " " | "enter" => {
+                        cx.stop_propagation();
                         key_handler(new_checked, window, cx);
                     }
                     _ => {}
@@ -301,7 +333,15 @@ impl Checkbox {
 }
 
 impl RenderOnce for Checkbox {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        if self.focus_handle.is_none() {
+            let state = window.use_keyed_state(
+                ElementId::from((self.id.clone(), "checkbox-focus")),
+                cx,
+                |_, cx| cx.focus_handle(),
+            );
+            self.focus_handle = Some(state.read(cx).clone());
+        }
         // Register in accessibility tree
         let effective_label = self
             .aria_label

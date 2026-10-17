@@ -2,7 +2,7 @@
 //!
 //! A small Markdown renderer for headings, paragraphs, fenced code
 //! blocks, unordered list items, and quotes. The source is a
-//! parent-owned string; parsing is deterministic and dependency-free so
+//! parent-owned string; parsing is deterministic so
 //! previews render identically on every platform.
 //!
 //! # Usage
@@ -16,10 +16,15 @@
 use crate::ComponentTheme;
 use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaRole};
 use crate::theme::ThemeExt;
-use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
+use gpui::prelude::{
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
+};
 use gpui::{App, Div, ElementId, FontWeight, Rgba, SharedString, Stateful, Window, div, px};
 use gpui_design::DesignSystem;
 use std::sync::Arc;
+
+mod inline;
+use inline::InlineMarkdown;
 
 /// One parsed Markdown block.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,8 +47,22 @@ pub enum MarkdownBlock {
     },
     /// Unordered `-` list item text.
     ListItem(String),
+    /// Numbered list item with its source number and inline text.
+    OrderedListItem {
+        /// Number displayed before the item.
+        number: u64,
+        /// Item text without the list marker.
+        text: String,
+    },
     /// `>` quote line text.
     Quote(String),
+    /// Pipe table with inline Markdown in each cell.
+    Table {
+        /// Column headings.
+        headers: Vec<String>,
+        /// Body rows.
+        rows: Vec<Vec<String>>,
+    },
 }
 
 /// Parse Markdown source into blocks.
@@ -70,7 +89,8 @@ pub fn parse_markdown(source: &str) -> Vec<MarkdownBlock> {
         }
     };
 
-    for line in source.lines() {
+    let mut source_lines = source.lines().peekable();
+    while let Some(line) = source_lines.next() {
         if code.is_some() {
             if line.trim_start().starts_with("```") {
                 let (language, lines) = code.take().expect("code fence tracked above");
@@ -92,14 +112,40 @@ pub fn parse_markdown(source: &str) -> Vec<MarkdownBlock> {
                 (!language.is_empty()).then(|| language.to_string()),
                 Vec::new(),
             ));
+        } else if trimmed.contains('|')
+            && source_lines
+                .peek()
+                .is_some_and(|line| table_separator(line))
+        {
+            flush_paragraph(&mut paragraph, &mut blocks);
+            source_lines.next();
+            let headers = table_cells(trimmed);
+            let mut rows = Vec::new();
+            while source_lines
+                .peek()
+                .is_some_and(|line| !line.trim().is_empty() && line.contains('|'))
+            {
+                rows.push(table_cells(source_lines.next().expect("table row peeked")));
+            }
+            blocks.push(MarkdownBlock::Table { headers, rows });
         } else if trimmed.is_empty() {
             flush_paragraph(&mut paragraph, &mut blocks);
         } else if let Some(heading) = parse_heading(trimmed) {
             flush_paragraph(&mut paragraph, &mut blocks);
             blocks.push(heading);
-        } else if let Some(item) = trimmed.strip_prefix("- ") {
+        } else if let Some(item) = trimmed
+            .strip_prefix("- ")
+            .or_else(|| trimmed.strip_prefix("* "))
+            .or_else(|| trimmed.strip_prefix("+ "))
+        {
             flush_paragraph(&mut paragraph, &mut blocks);
             blocks.push(MarkdownBlock::ListItem(item.trim().to_string()));
+        } else if let Some((number, text)) = parse_ordered_item(trimmed) {
+            flush_paragraph(&mut paragraph, &mut blocks);
+            blocks.push(MarkdownBlock::OrderedListItem {
+                number,
+                text: text.into(),
+            });
         } else if let Some(quote) = trimmed
             .strip_prefix('>')
             .map(|rest| rest.strip_prefix(' ').unwrap_or(rest))
@@ -139,6 +185,46 @@ fn parse_heading(trimmed: &str) -> Option<MarkdownBlock> {
         level: hashes as u8,
         text: text.to_string(),
     })
+}
+
+fn parse_ordered_item(line: &str) -> Option<(u64, &str)> {
+    let end = line.bytes().take_while(u8::is_ascii_digit).count();
+    if end == 0 || end > 9 {
+        return None;
+    }
+    let text = line[end..]
+        .strip_prefix(". ")
+        .or_else(|| line[end..].strip_prefix(") "))?;
+    Some((line[..end].parse().ok()?, text))
+}
+
+fn table_cells(line: &str) -> Vec<String> {
+    let mut cells = Vec::new();
+    let mut cell = String::new();
+    let mut escaped = false;
+    let line = line.trim().strip_prefix('|').unwrap_or(line.trim());
+    for character in line.chars() {
+        if character == '|' && !escaped {
+            cells.push(cell.trim().to_owned());
+            cell.clear();
+        } else {
+            cell.push(character);
+        }
+        escaped = character == '\\' && !escaped;
+    }
+    if !cell.trim().is_empty() || !line.ends_with('|') {
+        cells.push(cell.trim().to_owned());
+    }
+    cells
+}
+
+fn table_separator(line: &str) -> bool {
+    let cells = table_cells(line);
+    !cells.is_empty()
+        && cells.iter().all(|cell| {
+            let value = cell.trim_matches(':');
+            value.len() >= 3 && value.bytes().all(|byte| byte == b'-')
+        })
 }
 
 /// Theme colors for rendered Markdown.
@@ -246,7 +332,12 @@ impl Markdown {
     }
 
     /// Render one parsed block with theme and design tokens.
-    fn render_block(block: MarkdownBlock, theme: &MarkdownTheme, design: &DesignSystem) -> Div {
+    fn render_block(
+        id: ElementId,
+        block: MarkdownBlock,
+        theme: &MarkdownTheme,
+        design: &DesignSystem,
+    ) -> Div {
         match block {
             MarkdownBlock::Heading { level, text } => {
                 let mut heading = div()
@@ -259,22 +350,29 @@ impl Markdown {
                     4 => heading.text_sm(),
                     _ => heading.text_xs(),
                 };
-                heading.child(text)
+                heading.child(InlineMarkdown::new(id, text, theme.clone()))
             }
-            MarkdownBlock::Paragraph(text) => div().text_color(theme.body).child(text),
+            MarkdownBlock::Paragraph(text) => div()
+                .text_color(theme.body)
+                .child(InlineMarkdown::new(id, text, theme.clone())),
             MarkdownBlock::CodeBlock { code, .. } => div()
                 .bg(theme.code_background)
                 .rounded(px(design.corners.sm))
                 .px(px(design.spacing.control_padding_x))
                 .py(px(design.spacing.control_padding_y * 0.5))
                 .text_color(theme.code_text)
+                .font_family("monospace")
                 .child(code),
             MarkdownBlock::ListItem(text) => div()
                 .flex()
                 .gap(px(design.spacing.control_gap))
                 .text_color(theme.body)
                 .child(div().child("-"))
-                .child(div().child(text)),
+                .child(div().flex_1().min_w_0().child(InlineMarkdown::new(
+                    id,
+                    text,
+                    theme.clone(),
+                ))),
             MarkdownBlock::Quote(text) => div()
                 .flex()
                 .gap(px(design.spacing.control_gap))
@@ -284,7 +382,46 @@ impl Markdown {
                         .rounded(px(design.corners.sm))
                         .bg(theme.quote),
                 )
-                .child(div().text_color(theme.quote).child(text)),
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_color(theme.quote)
+                        .child(InlineMarkdown::new(id, text, theme.clone())),
+                ),
+            MarkdownBlock::Table { headers, rows } => {
+                let columns = headers.len();
+                let mut table = div().flex().flex_col().min_w(px(columns as f32 * 120.0));
+                for (row_index, row) in std::iter::once(headers).chain(rows).enumerate() {
+                    let mut rendered = div().flex().border_b_1().border_color(theme.quote);
+                    if row_index == 0 {
+                        rendered = rendered.font_weight(FontWeight::BOLD);
+                    }
+                    for column in 0..columns {
+                        rendered = rendered.child(div().flex_1().min_w_0().p_2().child(
+                            InlineMarkdown::new(
+                                (id.clone(), format!("{row_index}-{column}")).into(),
+                                row.get(column).cloned().unwrap_or_default(),
+                                theme.clone(),
+                            ),
+                        ));
+                    }
+                    table = table.child(rendered);
+                }
+                div()
+                    .min_w_0()
+                    .child(div().id(id).overflow_x_scroll().child(table))
+            }
+            MarkdownBlock::OrderedListItem { number, text } => div()
+                .flex()
+                .gap(px(design.spacing.control_gap))
+                .text_color(theme.body)
+                .child(div().child(format!("{number}.")))
+                .child(div().flex_1().min_w_0().child(InlineMarkdown::new(
+                    id,
+                    text,
+                    theme.clone(),
+                ))),
         }
     }
 
@@ -304,7 +441,8 @@ impl Markdown {
         design: &DesignSystem,
     ) -> Stateful<Div> {
         let mut doc = div()
-            .id(self.id)
+            .id(self.id.clone())
+            .min_w_0()
             .flex()
             .flex_col()
             .gap(px(design.spacing.control_gap));
@@ -313,8 +451,13 @@ impl Markdown {
             MarkdownSize::Md => doc.text_sm(),
             MarkdownSize::Lg => doc.text_lg(),
         };
-        for block in parse_markdown(&self.source) {
-            doc = doc.child(Self::render_block(block, theme, design));
+        for (index, block) in parse_markdown(&self.source).into_iter().enumerate() {
+            doc = doc.child(Self::render_block(
+                (self.id.clone(), index.to_string()).into(),
+                block,
+                theme,
+                design,
+            ));
         }
         doc
     }
@@ -388,6 +531,34 @@ mod tests {
                 language: Some("rust".to_string()),
                 code: "let x = 1;".to_string(),
             }]
+        );
+    }
+
+    #[test]
+    fn markdown_preserves_numbered_lists_and_escaped_table_cells() {
+        let blocks = parse_markdown(
+            "3. **Third**\n4) Fourth\n\n| Name | Value |\n| --- | ---: |\n| a\\|b | `x` |\n",
+        );
+        assert_eq!(
+            blocks[0],
+            MarkdownBlock::OrderedListItem {
+                number: 3,
+                text: "**Third**".into()
+            }
+        );
+        assert_eq!(
+            blocks[1],
+            MarkdownBlock::OrderedListItem {
+                number: 4,
+                text: "Fourth".into()
+            }
+        );
+        assert_eq!(
+            blocks[2],
+            MarkdownBlock::Table {
+                headers: vec!["Name".into(), "Value".into()],
+                rows: vec![vec!["a\\|b".into(), "`x`".into()]]
+            }
         );
     }
 
