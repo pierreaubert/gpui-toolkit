@@ -68,6 +68,31 @@ fn bench_grapheme_widths_cache_hit(c: &mut Criterion) {
     });
 }
 
+fn bench_populated_measure_cache_hits(c: &mut Criterion) {
+    let measure = FixedWidthMeasure { char_width: 10.0 };
+    for count in [128, 4096] {
+        let texts: Vec<_> = (0..count)
+            .map(|index| format!("cached segment {index}"))
+            .collect();
+        let mut cache = MeasureCache::new();
+        for text in &texts {
+            black_box(cache.get_width(text, &measure));
+        }
+        let mut index = 0u64;
+        c.bench_function(&format!("measurement/get_width_cache_hit_{count}"), |b| {
+            b.iter(|| {
+                index = index
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                black_box(cache.get_width(
+                    black_box(&texts[((index >> 32) as usize) % count]),
+                    &measure,
+                ));
+            });
+        });
+    }
+}
+
 fn bench_layout_optimal(c: &mut Criterion) {
     let measure = FixedWidthMeasure { char_width: 10.0 };
     let profile = EngineProfile::default();
@@ -158,6 +183,7 @@ criterion_group!(
     bench_grapheme_prefix_widths,
     bench_measure_cache_hit,
     bench_grapheme_widths_cache_hit,
+    bench_populated_measure_cache_hits,
     bench_measure_cache_miss_cjk,
     bench_measure_cache_miss_emoji,
     bench_measure_cache_bounded_evict,

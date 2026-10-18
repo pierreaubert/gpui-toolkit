@@ -1,0 +1,1480 @@
+{
+  "kind": "shared-host bounded text CPU/allocation diagnostic; no full-frame or power acceptance claim",
+  "captured_utc": "2026-10-18T22:19:39.398073+00:00",
+  "baseline_commit": "8851de7f",
+  "candidate": "pending clock/memory checkpoint",
+  "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "methodology": "ABBA twice; four processes per variant; one warmup and five samples per process/case. Hit cases perform 10000 requests on populated 128/4096-entry caches. High bits of a 64-bit LCG avoid low-bit repeating full-cache permutations; entry counts and width sums are validated outside the timed region. Cold cases: 10000 requests rotating 512 prebuilt strings through an 8-entry cache; 100 full preparations of a repeated Unicode paragraph. Compare medians of process medians. Shared host, no affinity/thermal/energy control.",
+  "probe_source": "use gpui_pretext::{MeasureCache, TextMeasure, prepare_with_segments, EngineProfile, PrepareOptions};\nuse gpui_profiler::AllocProbe;\nuse std::{hint::black_box, time::Instant};\nstruct Width;\nimpl TextMeasure for Width {\n    fn measure_width(&self, text: &str) -> f64 { text.chars().count() as f64 * 8.0 }\n    fn cache_key(&self) -> u64 { 0x636c6f636b }\n    fn cache_key_is_stable(&self) -> bool { true }\n}\nfn cold_workloads() {\n    let measure=Width;\n    let texts:Vec<_>=(0..512).map(|index|format!(\"admission segment {index}\")).collect();\n    let profile=EngineProfile::default();\n    let options=PrepareOptions::default();\n    let text=\"alpha beta gamma \u6f22\u5b57\u306e\u6587\u7ae0 Ame\\u{301}lie \ud83d\udc69\u200d\ud83d\udcbb delta epsilon alpha beta gamma\".repeat(4);\n    for case in [\"admission_churn_10000\",\"prepare_unicode_100\"] {\n        for sample in 0..6 {\n            let mut cache=MeasureCache::with_capacity(8);\n            let mut probe=AllocProbe::new();\n            let start=Instant::now();\n            if case==\"admission_churn_10000\" {\n                for index in 0..10000 { black_box(cache.get_width(&texts[index%512],&measure)); }\n            } else {\n                for _ in 0..100 { black_box(prepare_with_segments(&text,&measure,&profile,&options)); }\n            }\n            let elapsed=start.elapsed().as_nanos();\n            let allocations=probe.sample(\"cold-text-workloads\");\n            println!(\"{{\\\"case\\\":\\\"{case}\\\",\\\"sample\\\":{sample},\\\"elapsed_ns\\\":{elapsed},\\\"allocations\\\":{},\\\"allocated_bytes\\\":{}}}\",allocations.count,allocations.bytes);\n        }\n    }\n}\nfn main() {\n    let measure=Width;\n    for count in [128usize,4096] {\n        let texts:Vec<_>=(0..count).map(|index|format!(\"cached segment {index}\")).collect();\n        let mut cache=MeasureCache::new();\n        for text in &texts { black_box(cache.get_width(text,&measure)); }\n        assert_eq!(cache.len(),count);\n        let mut index=0u64;\n        for sample in 0..6 {\n            let mut check_index=index;\n            let mut expected=0.0;\n            for _ in 0..10000 {\n                check_index=check_index.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);\n                expected+=texts[((check_index>>32) as usize)%count].len() as f64*8.0;\n            }\n            let mut probe=AllocProbe::new();\n            let start=Instant::now();\n            let mut sum=0.0;\n            for _ in 0..10000 {\n                index=index.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);\n                sum+=cache.get_width(black_box(&texts[((index>>32) as usize)%count]),&measure);\n            }\n            black_box(sum);\n            let elapsed=start.elapsed().as_nanos();\n            let allocations=probe.sample(\"populated-cache-hits\");\n            assert_eq!(sum,expected);\n            println!(\"{{\\\"entries\\\":{count},\\\"sample\\\":{sample},\\\"elapsed_ns\\\":{elapsed},\\\"allocations\\\":{},\\\"allocated_bytes\\\":{}}}\",allocations.count,allocations.bytes);\n        }\n    }\n    cold_workloads();\n}\n",
+  "source_sha256": {
+    "baseline": {
+      "crates/gpui-pretext/src/measurement.rs": "2632285121d909b642af48ecc4942d44c9b709f62e81c69429dd0873a5c21468",
+      "crates/gpui-pretext/src/layout/types.rs": "864a6fac841e570d44654c728548930b3a78a02a50537136535afc3f6d13a949"
+    },
+    "candidate": {
+      "crates/gpui-pretext/src/measurement.rs": "18b08987e435c6325fb9d1513dbbdb5b77e950211d4999d40a252320cdd29eff",
+      "crates/gpui-pretext/src/layout/types.rs": "864a6fac841e570d44654c728548930b3a78a02a50537136535afc3f6d13a949"
+    }
+  },
+  "summary": [
+    {
+      "case": 128,
+      "median_of_process_medians": {
+        "baseline": {
+          "elapsed_ns": 2222146.5,
+          "allocations": 0.0,
+          "allocated_bytes": 0.0
+        },
+        "candidate": {
+          "elapsed_ns": 85479.0,
+          "allocations": 0.0,
+          "allocated_bytes": 0.0
+        }
+      },
+      "time_ratio": 0.03846686075828034
+    },
+    {
+      "case": 4096,
+      "median_of_process_medians": {
+        "baseline": {
+          "elapsed_ns": 39314146.0,
+          "allocations": 0.0,
+          "allocated_bytes": 0.0
+        },
+        "candidate": {
+          "elapsed_ns": 139104.0,
+          "allocations": 0.0,
+          "allocated_bytes": 0.0
+        }
+      },
+      "time_ratio": 0.0035382683881776296
+    },
+    {
+      "case": "admission_churn_10000",
+      "median_of_process_medians": {
+        "baseline": {
+          "elapsed_ns": 465771.0,
+          "allocations": 10007.0,
+          "allocated_bytes": 404188.0
+        },
+        "candidate": {
+          "elapsed_ns": 472312.5,
+          "allocations": 10006.0,
+          "allocated_bytes": 404540.0
+        }
+      },
+      "time_ratio": 1.0140444553224652
+    },
+    {
+      "case": "prepare_unicode_100",
+      "median_of_process_medians": {
+        "baseline": {
+          "elapsed_ns": 2459291.5,
+          "allocations": 43400.0,
+          "allocated_bytes": 6077000.0
+        },
+        "candidate": {
+          "elapsed_ns": 2102354.5,
+          "allocations": 43400.0,
+          "allocated_bytes": 6125000.0
+        }
+      },
+      "time_ratio": 0.8548618575715811
+    }
+  ],
+  "runs": [
+    {
+      "variant": "baseline",
+      "records": [
+        {
+          "entries": 128,
+          "sample": 0,
+          "elapsed_ns": 2248958,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 1,
+          "elapsed_ns": 2224334,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 2,
+          "elapsed_ns": 2271250,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 3,
+          "elapsed_ns": 2252375,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 4,
+          "elapsed_ns": 2254125,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 5,
+          "elapsed_ns": 2240000,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 0,
+          "elapsed_ns": 32407750,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 1,
+          "elapsed_ns": 39173333,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 2,
+          "elapsed_ns": 39100875,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 3,
+          "elapsed_ns": 39223667,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 4,
+          "elapsed_ns": 39380459,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 5,
+          "elapsed_ns": 39496584,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 0,
+          "elapsed_ns": 536417,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 1,
+          "elapsed_ns": 469083,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 2,
+          "elapsed_ns": 459625,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 3,
+          "elapsed_ns": 454542,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 4,
+          "elapsed_ns": 454084,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 5,
+          "elapsed_ns": 454875,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 0,
+          "elapsed_ns": 2786791,
+          "allocations": 43405,
+          "allocated_bytes": 6077336
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 1,
+          "elapsed_ns": 2489875,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 2,
+          "elapsed_ns": 2448167,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 3,
+          "elapsed_ns": 2441834,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 4,
+          "elapsed_ns": 2445292,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 5,
+          "elapsed_ns": 2446750,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        }
+      ],
+      "stderr": ""
+    },
+    {
+      "variant": "candidate",
+      "records": [
+        {
+          "entries": 128,
+          "sample": 0,
+          "elapsed_ns": 255375,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 1,
+          "elapsed_ns": 268500,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 2,
+          "elapsed_ns": 239334,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 3,
+          "elapsed_ns": 237541,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 4,
+          "elapsed_ns": 241625,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 5,
+          "elapsed_ns": 236959,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 0,
+          "elapsed_ns": 660167,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 1,
+          "elapsed_ns": 509000,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 2,
+          "elapsed_ns": 426084,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 3,
+          "elapsed_ns": 479041,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 4,
+          "elapsed_ns": 362333,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 5,
+          "elapsed_ns": 351959,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 0,
+          "elapsed_ns": 1412958,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 1,
+          "elapsed_ns": 1092959,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 2,
+          "elapsed_ns": 478542,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 3,
+          "elapsed_ns": 485292,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 4,
+          "elapsed_ns": 486084,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 5,
+          "elapsed_ns": 481667,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 0,
+          "elapsed_ns": 2458250,
+          "allocations": 43405,
+          "allocated_bytes": 6125336
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 1,
+          "elapsed_ns": 2244541,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 2,
+          "elapsed_ns": 2104667,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 3,
+          "elapsed_ns": 2111375,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 4,
+          "elapsed_ns": 2104875,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 5,
+          "elapsed_ns": 2101000,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        }
+      ],
+      "stderr": ""
+    },
+    {
+      "variant": "candidate",
+      "records": [
+        {
+          "entries": 128,
+          "sample": 0,
+          "elapsed_ns": 84000,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 1,
+          "elapsed_ns": 83042,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 2,
+          "elapsed_ns": 80875,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 3,
+          "elapsed_ns": 86166,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 4,
+          "elapsed_ns": 80292,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 5,
+          "elapsed_ns": 86042,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 0,
+          "elapsed_ns": 136208,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 1,
+          "elapsed_ns": 142083,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 2,
+          "elapsed_ns": 138458,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 3,
+          "elapsed_ns": 137292,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 4,
+          "elapsed_ns": 137208,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 5,
+          "elapsed_ns": 138542,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 0,
+          "elapsed_ns": 530000,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 1,
+          "elapsed_ns": 482458,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 2,
+          "elapsed_ns": 469250,
+          "allocations": 10005,
+          "allocated_bytes": 402196
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 3,
+          "elapsed_ns": 472917,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 4,
+          "elapsed_ns": 469500,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 5,
+          "elapsed_ns": 467375,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 0,
+          "elapsed_ns": 2410291,
+          "allocations": 43405,
+          "allocated_bytes": 6125336
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 1,
+          "elapsed_ns": 2214334,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 2,
+          "elapsed_ns": 2066875,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 3,
+          "elapsed_ns": 2081000,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 4,
+          "elapsed_ns": 2071625,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 5,
+          "elapsed_ns": 2099084,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        }
+      ],
+      "stderr": ""
+    },
+    {
+      "variant": "baseline",
+      "records": [
+        {
+          "entries": 128,
+          "sample": 0,
+          "elapsed_ns": 2191000,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 1,
+          "elapsed_ns": 2227333,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 2,
+          "elapsed_ns": 2212458,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 3,
+          "elapsed_ns": 2204042,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 4,
+          "elapsed_ns": 2222083,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 5,
+          "elapsed_ns": 2215084,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 0,
+          "elapsed_ns": 31887625,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 1,
+          "elapsed_ns": 39538625,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 2,
+          "elapsed_ns": 39173500,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 3,
+          "elapsed_ns": 38756209,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 4,
+          "elapsed_ns": 39464750,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 5,
+          "elapsed_ns": 39531542,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 0,
+          "elapsed_ns": 522125,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 1,
+          "elapsed_ns": 476667,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 2,
+          "elapsed_ns": 478375,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 3,
+          "elapsed_ns": 470833,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 4,
+          "elapsed_ns": 479083,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 5,
+          "elapsed_ns": 461250,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 0,
+          "elapsed_ns": 2793500,
+          "allocations": 43405,
+          "allocated_bytes": 6077336
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 1,
+          "elapsed_ns": 2511917,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 2,
+          "elapsed_ns": 2459167,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 3,
+          "elapsed_ns": 2472250,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 4,
+          "elapsed_ns": 2437333,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 5,
+          "elapsed_ns": 2428208,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        }
+      ],
+      "stderr": ""
+    },
+    {
+      "variant": "baseline",
+      "records": [
+        {
+          "entries": 128,
+          "sample": 0,
+          "elapsed_ns": 2182583,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 1,
+          "elapsed_ns": 2175584,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 2,
+          "elapsed_ns": 2208167,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 3,
+          "elapsed_ns": 2194875,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 4,
+          "elapsed_ns": 2202709,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 5,
+          "elapsed_ns": 2181125,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 0,
+          "elapsed_ns": 31883083,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 1,
+          "elapsed_ns": 39035833,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 2,
+          "elapsed_ns": 39218583,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 3,
+          "elapsed_ns": 39022334,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 4,
+          "elapsed_ns": 39778209,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 5,
+          "elapsed_ns": 39820959,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 0,
+          "elapsed_ns": 610709,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 1,
+          "elapsed_ns": 513375,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 2,
+          "elapsed_ns": 513667,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 3,
+          "elapsed_ns": 471833,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 4,
+          "elapsed_ns": 479833,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 5,
+          "elapsed_ns": 467625,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 0,
+          "elapsed_ns": 2786333,
+          "allocations": 43405,
+          "allocated_bytes": 6077336
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 1,
+          "elapsed_ns": 2521500,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 2,
+          "elapsed_ns": 2477583,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 3,
+          "elapsed_ns": 2470208,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 4,
+          "elapsed_ns": 2454750,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 5,
+          "elapsed_ns": 2470208,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        }
+      ],
+      "stderr": ""
+    },
+    {
+      "variant": "candidate",
+      "records": [
+        {
+          "entries": 128,
+          "sample": 0,
+          "elapsed_ns": 83833,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 1,
+          "elapsed_ns": 84292,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 2,
+          "elapsed_ns": 87208,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 3,
+          "elapsed_ns": 89958,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 4,
+          "elapsed_ns": 83750,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 5,
+          "elapsed_ns": 86708,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 0,
+          "elapsed_ns": 132917,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 1,
+          "elapsed_ns": 134583,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 2,
+          "elapsed_ns": 130917,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 3,
+          "elapsed_ns": 131208,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 4,
+          "elapsed_ns": 135708,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 5,
+          "elapsed_ns": 138792,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 0,
+          "elapsed_ns": 589459,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 1,
+          "elapsed_ns": 477042,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 2,
+          "elapsed_ns": 464166,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 3,
+          "elapsed_ns": 476834,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 4,
+          "elapsed_ns": 468334,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 5,
+          "elapsed_ns": 465875,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 0,
+          "elapsed_ns": 2402791,
+          "allocations": 43405,
+          "allocated_bytes": 6125336
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 1,
+          "elapsed_ns": 2220333,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 2,
+          "elapsed_ns": 2093167,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 3,
+          "elapsed_ns": 2103500,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 4,
+          "elapsed_ns": 2119250,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 5,
+          "elapsed_ns": 2107333,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        }
+      ],
+      "stderr": ""
+    },
+    {
+      "variant": "candidate",
+      "records": [
+        {
+          "entries": 128,
+          "sample": 0,
+          "elapsed_ns": 78458,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 1,
+          "elapsed_ns": 79625,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 2,
+          "elapsed_ns": 92916,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 3,
+          "elapsed_ns": 78417,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 4,
+          "elapsed_ns": 84250,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 5,
+          "elapsed_ns": 88417,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 0,
+          "elapsed_ns": 134833,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 1,
+          "elapsed_ns": 139750,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 2,
+          "elapsed_ns": 140334,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 3,
+          "elapsed_ns": 149583,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 4,
+          "elapsed_ns": 139417,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 5,
+          "elapsed_ns": 131917,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 0,
+          "elapsed_ns": 522041,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 1,
+          "elapsed_ns": 488375,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 2,
+          "elapsed_ns": 464709,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 3,
+          "elapsed_ns": 491209,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 4,
+          "elapsed_ns": 475125,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 5,
+          "elapsed_ns": 458125,
+          "allocations": 10006,
+          "allocated_bytes": 404540
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 0,
+          "elapsed_ns": 2437541,
+          "allocations": 43405,
+          "allocated_bytes": 6125336
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 1,
+          "elapsed_ns": 2285250,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 2,
+          "elapsed_ns": 2109667,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 3,
+          "elapsed_ns": 2095625,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 4,
+          "elapsed_ns": 2090666,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 5,
+          "elapsed_ns": 2099834,
+          "allocations": 43400,
+          "allocated_bytes": 6125000
+        }
+      ],
+      "stderr": ""
+    },
+    {
+      "variant": "baseline",
+      "records": [
+        {
+          "entries": 128,
+          "sample": 0,
+          "elapsed_ns": 2215833,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 1,
+          "elapsed_ns": 2204541,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 2,
+          "elapsed_ns": 2235667,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 3,
+          "elapsed_ns": 2249542,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 4,
+          "elapsed_ns": 2229209,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 128,
+          "sample": 5,
+          "elapsed_ns": 2193500,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 0,
+          "elapsed_ns": 32217125,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 1,
+          "elapsed_ns": 39189583,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 2,
+          "elapsed_ns": 39404625,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 3,
+          "elapsed_ns": 39194042,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 4,
+          "elapsed_ns": 39460125,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "entries": 4096,
+          "sample": 5,
+          "elapsed_ns": 39497500,
+          "allocations": 0,
+          "allocated_bytes": 0
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 0,
+          "elapsed_ns": 532959,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 1,
+          "elapsed_ns": 456583,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 2,
+          "elapsed_ns": 437708,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 3,
+          "elapsed_ns": 447791,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 4,
+          "elapsed_ns": 453083,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "admission_churn_10000",
+          "sample": 5,
+          "elapsed_ns": 465084,
+          "allocations": 10007,
+          "allocated_bytes": 404188
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 0,
+          "elapsed_ns": 2774792,
+          "allocations": 43405,
+          "allocated_bytes": 6077336
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 1,
+          "elapsed_ns": 2558042,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 2,
+          "elapsed_ns": 2454458,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 3,
+          "elapsed_ns": 2459416,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 4,
+          "elapsed_ns": 2487417,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        },
+        {
+          "case": "prepare_unicode_100",
+          "sample": 5,
+          "elapsed_ns": 2453166,
+          "allocations": 43400,
+          "allocated_bytes": 6077000
+        }
+      ],
+      "stderr": ""
+    }
+  ]
+}

@@ -95,6 +95,33 @@ fn unkeyed_scoped_measurement_hits_are_allocation_free() {
         .assert_contains(probe.sample("pretext-unkeyed-scoped-hits-1000x"));
 }
 
+fn charged_cache_memory_covers_allocator_requests() {
+    if std::env::var_os("CARGO_LLVM_COV").is_some() {
+        return;
+    }
+    let measure = FixedMeasure;
+    // Warm reusable scratch outside the cache-allocation measurement.
+    let mut warmup = MeasureCache::new();
+    black_box(warmup.get_grapheme_prefix_widths("scratch warmup", &measure));
+    let mut probe = AllocProbe::new();
+    probe.reset();
+    let mut cache = MeasureCache::new();
+    black_box(cache.get_width("abc", &measure));
+    let cold = probe.sample("pretext-cold-cache-storage");
+    let base = cache.stats();
+    assert!(
+        base.retained_bytes >= cold.bytes,
+        "{base:?} must cover {cold:?}"
+    );
+    black_box(cache.get_grapheme_widths("abc", &measure));
+    let arrays = probe.sample("pretext-grapheme-storage");
+    let graphemes = cache.stats();
+    assert!(graphemes.retained_bytes - base.retained_bytes >= arrays.bytes);
+    black_box(cache.get_grapheme_prefix_widths("abc", &measure));
+    let prefix = probe.sample("pretext-prefix-storage");
+    assert!(cache.stats().retained_bytes - graphemes.retained_bytes >= prefix.bytes);
+}
+
 /// Optimal multi-chunk walks buffer lines by value (`Copy`, no `clone`)
 /// with an upfront capacity reserve: after warming the Knuth-Plass item
 /// cache, a repeated walk must not grow the line buffer. The probe asserts a
@@ -170,6 +197,7 @@ fn allocation_contracts_run_serially() {
     warmed_measurement_cache_hits_are_allocation_free();
     warmed_grapheme_metric_cache_hits_are_allocation_free();
     unkeyed_scoped_measurement_hits_are_allocation_free();
+    charged_cache_memory_covers_allocator_requests();
     warmed_optimal_multichunk_walk_does_not_reallocate_lines();
     bounded_cache_caps_adversarial_growth();
 }

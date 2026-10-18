@@ -4,7 +4,7 @@ use hashbrown::hash_map::RawEntryMut;
 ///
 /// Instead of the browser's canvas `measureText()`, users provide a [`TextMeasure`]
 /// implementation backed by their text rendering system (e.g., GPUI, CoreText, etc.).
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 
 use unicode_segmentation::UnicodeSegmentation;
@@ -18,6 +18,50 @@ thread_local! {
     static GRAPHEME_SCRATCH: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) };
     /// Reusable f64 buffer for per-grapheme and prefix widths.
     static WIDTH_SCRATCH: RefCell<Vec<f64>> = const { RefCell::new(Vec::new()) };
+    static SCRATCH_REVISION: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Maximum bytes retained by each of the two per-thread metric scratch buffers.
+pub const MAX_RETAINED_METRIC_SCRATCH_BYTES: usize = 64 * 1024;
+
+/// Returns reusable metric scratch bytes retained on the calling thread.
+///
+/// In-progress measurements own their working buffers outside thread-local state.
+pub fn retained_measurement_scratch_bytes() -> usize {
+    GRAPHEME_SCRATCH
+        .with_borrow(|scratch| std::mem::size_of::<(usize, usize)>() * scratch.capacity())
+        + WIDTH_SCRATCH.with_borrow(|scratch| std::mem::size_of::<f64>() * scratch.capacity())
+}
+
+/// Releases reusable metric scratch storage on the calling thread.
+///
+/// In-progress measurements discard their buffers on return after this request.
+pub fn trim_measurement_scratch() {
+    SCRATCH_REVISION.set(SCRATCH_REVISION.get().wrapping_add(1));
+    GRAPHEME_SCRATCH.with_borrow_mut(|scratch| *scratch = Vec::new());
+    WIDTH_SCRATCH.with_borrow_mut(|scratch| *scratch = Vec::new());
+}
+
+fn with_scratch<T: 'static, R>(
+    key: &'static std::thread::LocalKey<RefCell<Vec<T>>>,
+    operation: impl FnOnce(&mut Vec<T>) -> R,
+) -> R {
+    let revision = SCRATCH_REVISION.get();
+    // No TLS borrow spans the measurer callback: nested preparation can rent
+    // another buffer, and panics drop local scratch rather than poisoning TLS.
+    let mut scratch = key.with_borrow_mut(std::mem::take);
+    let result = operation(&mut scratch);
+    scratch.clear();
+    if revision == SCRATCH_REVISION.get()
+        && scratch.capacity() <= MAX_RETAINED_METRIC_SCRATCH_BYTES / std::mem::size_of::<T>().max(1)
+    {
+        key.with_borrow_mut(|retained| {
+            if retained.capacity() < scratch.capacity() {
+                *retained = scratch;
+            }
+        });
+    }
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -179,34 +223,76 @@ pub struct SegmentMetrics {
 // Measurement cache
 // ---------------------------------------------------------------------------
 
-/// Caches segment widths and grapheme-level metrics during the prepare phase.
+/// Retained cache memory and activity under its conservative accounting model.
 ///
-/// The cache is a bounded LRU (see [`MeasureCache::with_budgets`]): once
-/// `capacity` entries or `max_bytes` of retained segment text are exceeded,
-/// least-recently-used entries are evicted. This bounds worst-case memory for
-/// adversarial inputs (e.g. per-grapheme CJK segments) where an unbounded map
-/// would grow without limit.
+/// Map storage uses its reported allocation size; queue storage uses its capacity.
+/// Allocator bookkeeping and caller-owned returned metrics are outside this model.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MeasureCacheStats {
+    /// Number of retained segment entries.
+    pub entries: usize,
+    /// Shared key and grapheme-array allocation bytes, including Arc headers.
+    pub payload_bytes: usize,
+    /// Charged map and recency-queue capacity bytes.
+    pub container_bytes: usize,
+    /// Sum of payload and container charges.
+    pub retained_bytes: usize,
+    /// Largest retained charge after any completed cache operation.
+    pub high_water_bytes: usize,
+    /// Existing base or derived metric accesses.
+    pub hits: u64,
+    /// Base metric calculations.
+    pub misses: u64,
+    /// Admissions rejected or removed to satisfy memory/entry limits.
+    pub evictions: u64,
+}
+
+struct CacheEntry {
+    metrics: SegmentMetrics,
+    referenced: bool,
+}
+
+/// Caches segment metrics with bounded retained storage and clock eviction.
+///
+/// Hits mark a second-chance bit in O(1). Admission walks the clock queue,
+/// clearing those bits before evicting an entry. Byte limits include keys,
+/// grapheme arrays, Arc headers and conservative container-capacity charges.
+/// Returned metric snapshots belong to callers and can outlive cache eviction.
 ///
 /// Raw lookups retain measurements only when [`TextMeasure::cache_key_is_stable`]
 /// is true. Use [`Self::scope`] for repeated lookups with an unkeyed provider;
 /// the session borrows one provider and cannot accidentally switch instances.
 pub struct MeasureCache {
-    cache: HashMap<Arc<str>, SegmentMetrics>,
-    /// LRU order, front = least recently used.
+    cache: HashMap<Arc<str>, CacheEntry>,
     order: std::collections::VecDeque<Arc<str>>,
-    /// Maximum entries retained.
     capacity: usize,
-    /// Maximum retained segment-text bytes. `usize::MAX` means unbounded.
     max_bytes: usize,
-    retained_bytes: usize,
+    payload_bytes: usize,
     measurement_key: Option<(bool, u64)>,
+    high_water_bytes: usize,
+    hits: u64,
+    misses: u64,
+    evictions: u64,
 }
 
-/// Defaults for [`MeasureCache::new`]: generous enough that ordinary
-/// paragraphs never evict, tight enough to bound adversarial growth.
+/// Default maximum retained measurement entries.
 pub const DEFAULT_MEASURE_CACHE_CAPACITY: usize = 4096;
-/// Default byte budget for retained segment text (~4 MiB).
+/// Default retained-memory charge budget (4 MiB).
 pub const DEFAULT_MEASURE_CACHE_MAX_BYTES: usize = 4 * 1024 * 1024;
+
+fn metric_payload_bytes(seg_bytes: usize, metrics: &SegmentMetrics) -> usize {
+    let arc_header = 2 * std::mem::size_of::<usize>() + std::mem::align_of::<usize>() - 1;
+    let mut bytes = seg_bytes.saturating_add(arc_header);
+    for widths in [&metrics.grapheme_widths, &metrics.grapheme_prefix_widths]
+        .into_iter()
+        .flatten()
+    {
+        bytes = bytes
+            .saturating_add(arc_header)
+            .saturating_add(std::mem::size_of_val(widths.as_ref()));
+    }
+    bytes
+}
 
 impl MeasureCache {
     pub fn new() -> Self {
@@ -216,43 +302,75 @@ impl MeasureCache {
         )
     }
 
-    /// Unbounded cache (legacy behavior). Prefer [`MeasureCache::new`].
+    /// Unbounded retention for callers providing their own memory policy.
     pub fn unbounded() -> Self {
         Self::with_budgets(usize::MAX, usize::MAX)
     }
 
+    /// Limits entry count without imposing a byte budget.
     pub fn with_capacity(capacity: usize) -> Self {
         Self::with_budgets(capacity, usize::MAX)
     }
 
+    /// Limits entry count and conservative retained-memory charges.
+    ///
+    /// A zero entry/byte limit disables retention. Oversized results are returned
+    /// without being retained. This does not limit the measurer's own transient
+    /// work, result arrays retained by callers, or allocator bookkeeping.
+    /// Hash-table growth/shrink working memory can temporarily exceed the limit.
     pub fn with_budgets(capacity: usize, max_bytes: usize) -> Self {
         Self {
             cache: HashMap::new(),
             order: std::collections::VecDeque::new(),
-            capacity: capacity.max(1),
+            capacity,
             max_bytes,
-            retained_bytes: 0,
+            payload_bytes: 0,
             measurement_key: None,
+            high_water_bytes: 0,
+            hits: 0,
+            misses: 0,
+            evictions: 0,
         }
     }
 
     pub fn len(&self) -> usize {
         self.cache.len()
     }
-
     pub fn is_empty(&self) -> bool {
         self.cache.is_empty()
     }
-
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
+    /// Reports retained charges and cumulative cache activity.
+    pub fn stats(&self) -> MeasureCacheStats {
+        let container_bytes = self.container_bytes();
+        MeasureCacheStats {
+            entries: self.cache.len(),
+            payload_bytes: self.payload_bytes,
+            container_bytes,
+            retained_bytes: self.payload_bytes.saturating_add(container_bytes),
+            high_water_bytes: self.high_water_bytes,
+            hits: self.hits,
+            misses: self.misses,
+            evictions: self.evictions,
+        }
+    }
+
+    /// Discards metrics while preserving reusable container capacity and counters.
     pub fn clear(&mut self) {
         self.cache.clear();
         self.order.clear();
-        self.retained_bytes = 0;
+        self.payload_bytes = 0;
         self.measurement_key = None;
+    }
+
+    /// Releases all cache-owned allocations, preserving cumulative counters.
+    pub fn trim(&mut self) {
+        self.clear();
+        self.cache = HashMap::new();
+        self.order = std::collections::VecDeque::new();
     }
 
     /// Borrows one measurement provider for a series of cached lookups.
@@ -293,88 +411,130 @@ impl MeasureCache {
         }
     }
 
-    fn touch(&mut self, key: &Arc<str>) {
-        if let Some(pos) = self.order.iter().position(|k| k == key) {
-            let k = self.order.remove(pos).expect("lru position valid");
-            self.order.push_back(k);
-        }
+    fn container_bytes(&self) -> usize {
+        self.cache.allocation_size().saturating_add(
+            self.order
+                .capacity()
+                .saturating_mul(std::mem::size_of::<Arc<str>>()),
+        )
     }
 
-    fn evict_if_needed(&mut self) {
-        while (self.cache.len() > self.capacity
-            || (self.max_bytes != usize::MAX && self.retained_bytes > self.max_bytes))
-            // Never evict the most-recently-inserted entry: callers hold a
-            // reference to it across this call.
-            && self.order.len() > 1
-        {
-            let Some(oldest) = self.order.pop_front() else {
-                break;
-            };
-            if self.cache.remove(&oldest).is_some() {
-                self.retained_bytes = self
-                    .retained_bytes
-                    .saturating_sub(oldest.len() + std::mem::size_of::<SegmentMetrics>());
+    fn evict_one(&mut self) {
+        while let Some(key) = self.order.pop_front() {
+            match self.cache.raw_entry_mut().from_key(key.as_ref()) {
+                RawEntryMut::Occupied(mut entry) if entry.get().referenced => {
+                    entry.get_mut().referenced = false;
+                    self.order.push_back(key);
+                }
+                RawEntryMut::Occupied(entry) => {
+                    let (_, entry) = entry.remove_entry();
+                    self.payload_bytes = self
+                        .payload_bytes
+                        .saturating_sub(metric_payload_bytes(key.len(), &entry.metrics));
+                    self.evictions = self.evictions.saturating_add(1);
+                    return;
+                }
+                RawEntryMut::Vacant(_) => {}
             }
         }
     }
 
-    /// Returns metrics for the provider's current measurement identity.
-    pub fn get_segment_metrics(&mut self, seg: &str, measure: &dyn TextMeasure) -> &SegmentMetrics {
+    fn enforce_budget(&mut self) {
+        while self.cache.len() > self.capacity || self.stats().retained_bytes > self.max_bytes {
+            if self.cache.is_empty() {
+                self.cache = HashMap::new();
+                self.order = std::collections::VecDeque::new();
+                break;
+            }
+            self.evict_one();
+            // Admission, never a hit, may shrink oversized retained capacities.
+            self.cache.shrink_to_fit();
+            self.order.shrink_to_fit();
+        }
+        self.high_water_bytes = self.high_water_bytes.max(self.stats().retained_bytes);
+    }
+
+    fn store(
+        &mut self,
+        seg: &str,
+        metrics: &SegmentMetrics,
+        existing: Option<(Arc<str>, CacheEntry)>,
+    ) {
+        if let Some((key, entry)) = &existing {
+            self.payload_bytes = self
+                .payload_bytes
+                .saturating_sub(metric_payload_bytes(key.len(), &entry.metrics));
+            self.order.retain(|candidate| candidate.as_ref() != seg);
+        }
+        let bytes = metric_payload_bytes(seg.len(), metrics);
+        if self.capacity == 0 || bytes > self.max_bytes {
+            self.evictions = self.evictions.saturating_add(1);
+            self.enforce_budget();
+            return;
+        }
+        while !self.cache.is_empty()
+            && (self.cache.len() >= self.capacity
+                || self.payload_bytes.saturating_add(bytes) > self.max_bytes)
+        {
+            self.evict_one();
+        }
+        let key = existing.map_or_else(|| Arc::from(seg), |(key, _)| key);
+        self.payload_bytes = self.payload_bytes.saturating_add(bytes);
+        self.order.push_back(key.clone());
+        self.cache.insert(
+            key,
+            CacheEntry {
+                metrics: metrics.clone(),
+                referenced: false,
+            },
+        );
+        self.enforce_budget();
+    }
+
+    /// Returns an owned metrics snapshot; oversized snapshots are not retained.
+    pub fn get_segment_metrics(&mut self, seg: &str, measure: &dyn TextMeasure) -> SegmentMetrics {
         self.select_measure(measure, false);
         self.segment_metrics(seg, measure)
     }
 
-    fn segment_metrics(&mut self, seg: &str, measure: &dyn TextMeasure) -> &SegmentMetrics {
-        if self.cache.contains_key(seg) {
-            let stored_key = self.cache.get_key_value(seg).map(|(k, _)| Arc::clone(k));
-            if let Some(k) = stored_key {
-                self.touch(&k);
-            }
-            // Hit: the entry is not evicted on this path, so a second lookup
-            // is safe.
-            return self.cache.get(seg).expect("cache hit present");
+    fn segment_metrics(&mut self, seg: &str, measure: &dyn TextMeasure) -> SegmentMetrics {
+        if let Some(entry) = self.cache.get_mut(seg) {
+            entry.referenced = true;
+            self.hits = self.hits.saturating_add(1);
+            return entry.metrics.clone();
         }
-        let width = measure.measure_width(seg);
-        let contains_cjk = is_cjk(seg);
-        let key: Arc<str> = Arc::from(seg);
-        self.retained_bytes += key.len() + std::mem::size_of::<SegmentMetrics>();
-        self.order.push_back(Arc::clone(&key));
-        match self.cache.raw_entry_mut().from_key(seg) {
-            RawEntryMut::Occupied(_) => {}
-            RawEntryMut::Vacant(entry) => {
-                entry.insert(
-                    key,
-                    SegmentMetrics {
-                        width,
-                        contains_cjk,
-                        grapheme_widths: None,
-                        grapheme_prefix_widths: None,
-                    },
-                );
-            }
-        }
-        // Evict after inserting so the new entry counts toward the budgets.
-        self.evict_if_needed();
-        // The just-inserted key sits at the back of the LRU order and the
-        // eviction loop never pops the back entry (`order.len() > 1`
-        // guard), so a plain lookup replaces the old raw pointer without
-        // unsafe. Capacity is at least 1 by construction (`with_budgets`
-        // applies `capacity.max(1)` and offers no setter).
-        self.cache
-            .get(seg)
-            .expect("just-inserted entry survives eviction")
+        self.measure_segment(seg, measure)
+    }
+
+    fn measure_segment(&mut self, seg: &str, measure: &dyn TextMeasure) -> SegmentMetrics {
+        self.misses = self.misses.saturating_add(1);
+        let metrics = SegmentMetrics {
+            width: measure.measure_width(seg),
+            contains_cjk: is_cjk(seg),
+            grapheme_widths: None,
+            grapheme_prefix_widths: None,
+        };
+        // The caller already established absence, so do not hash the key again
+        // merely to check for a replacement before admission.
+        self.store(seg, &metrics, None);
+        metrics
     }
 
     pub fn get_width(&mut self, seg: &str, measure: &dyn TextMeasure) -> f64 {
-        self.get_segment_metrics(seg, measure).width
+        self.select_measure(measure, false);
+        self.width(seg, measure)
     }
 
-    fn ensure_parent_entry(&mut self, seg: &str, measure: &dyn TextMeasure) {
-        let _ = self.segment_metrics(seg, measure);
+    fn width(&mut self, seg: &str, measure: &dyn TextMeasure) -> f64 {
+        if let Some(entry) = self.cache.get_mut(seg) {
+            entry.referenced = true;
+            self.hits = self.hits.saturating_add(1);
+            return entry.metrics.width;
+        }
+        self.measure_segment(seg, measure).width
     }
 
-    /// Get per-grapheme widths for a segment (measured individually).
-    /// Returns `None` if the segment has only one grapheme.
+    /// Returns grapheme advances, or `None` for fewer than two graphemes.
     pub fn get_grapheme_widths(
         &mut self,
         seg: &str,
@@ -385,68 +545,37 @@ impl MeasureCache {
     }
 
     fn grapheme_widths(&mut self, seg: &str, measure: &dyn TextMeasure) -> Option<Arc<[f64]>> {
-        // Check if already computed
-        if let Some(metrics) = self.cache.get(seg)
-            && let Some(ref gw) = metrics.grapheme_widths
+        if let Some(entry) = self.cache.get_mut(seg)
+            && let Some(widths) = &entry.metrics.grapheme_widths
         {
-            if gw.is_empty() {
-                return None; // sentinel: single-grapheme segment
-            }
-            return Some(gw.clone());
+            entry.referenced = true;
+            self.hits = self.hits.saturating_add(1);
+            return (!widths.is_empty()).then(|| widths.clone());
         }
-
-        let widths = GRAPHEME_SCRATCH.with(|grapheme_scratch| {
-            let mut graphemes = grapheme_scratch.borrow_mut();
-            graphemes.clear();
+        let mut metrics = self.segment_metrics(seg, measure);
+        let widths: Arc<[f64]> = with_scratch(&GRAPHEME_SCRATCH, |graphemes| {
             graphemes.extend(
                 seg.grapheme_indices(true)
                     .map(|(start, g)| (start, start + g.len())),
             );
-
-            if graphemes.len() <= 1 {
-                drop(graphemes);
-                self.ensure_parent_entry(seg, measure);
-                if let Some(metrics) = self.cache.get_mut(seg) {
-                    // sentinel: computed but single
-                    metrics.grapheme_widths = Some(Arc::from(Vec::new()));
+            with_scratch(&WIDTH_SCRATCH, |widths| {
+                if graphemes.len() > 1 {
+                    widths.extend(
+                        graphemes
+                            .iter()
+                            .map(|(start, end)| measure.measure_width(&seg[*start..*end])),
+                    );
                 }
-                return None;
-            }
-
-            // Ensure parent entry exists before measuring graphemes
-            // (grapheme measurement may insert sub-entries but not the parent)
-            self.ensure_parent_entry(seg, measure);
-
-            let widths_arc = WIDTH_SCRATCH.with(|width_scratch| {
-                let mut widths = width_scratch.borrow_mut();
-                widths.clear();
-                widths.extend(
-                    graphemes
-                        .iter()
-                        // These widths are single-use inputs to the parent
-                        // segment. Caching each slice creates one Arc/HashMap
-                        // entry per grapheme with no later hit.
-                        .map(|(start, end)| measure.measure_width(&seg[*start..*end])),
-                );
-                let widths_arc: Arc<[f64]> = Arc::from(widths.as_slice());
-                widths.clear();
-                widths_arc
-            });
-
-            graphemes.clear();
-            Some(widths_arc)
-        })?;
-
-        // Store in the parent segment's metrics (guaranteed to exist now)
-        if let Some(metrics) = self.cache.get_mut(seg) {
-            metrics.grapheme_widths = Some(widths.clone());
-        }
-
-        Some(widths)
+                Arc::from(widths.as_slice())
+            })
+        });
+        metrics.grapheme_widths = Some(widths.clone());
+        let existing = self.cache.remove_entry(seg);
+        self.store(seg, &metrics, existing);
+        (!widths.is_empty()).then_some(widths)
     }
 
-    /// Get cumulative prefix widths for a segment's graphemes.
-    /// Returns `None` if the segment has only one grapheme.
+    /// Returns cumulative advances, or `None` for fewer than two graphemes.
     pub fn get_grapheme_prefix_widths(
         &mut self,
         seg: &str,
@@ -461,45 +590,33 @@ impl MeasureCache {
         seg: &str,
         measure: &dyn TextMeasure,
     ) -> Option<Arc<[f64]>> {
-        // Check if already computed
-        if let Some(metrics) = self.cache.get(seg)
-            && let Some(ref pw) = metrics.grapheme_prefix_widths
+        if let Some(entry) = self.cache.get_mut(seg)
+            && let Some(widths) = &entry.metrics.grapheme_prefix_widths
         {
-            if pw.is_empty() {
-                return None; // sentinel: single-grapheme segment
-            }
-            return Some(pw.clone());
+            entry.referenced = true;
+            self.hits = self.hits.saturating_add(1);
+            return (!widths.is_empty()).then(|| widths.clone());
         }
-
-        // Reuse per-grapheme widths and compute prefix sums in O(n) instead of
-        // measuring every prefix substring (O(n²) calls into the measurer).
-        let Some(widths) = self.grapheme_widths(seg, measure) else {
-            self.ensure_parent_entry(seg, measure);
-            if let Some(metrics) = self.cache.get_mut(seg) {
-                metrics.grapheme_prefix_widths = Some(Arc::from(Vec::new()));
+        let widths = self.grapheme_widths(seg, measure);
+        let prefix: Arc<[f64]> = with_scratch(&WIDTH_SCRATCH, |scratch| {
+            if let Some(widths) = &widths {
+                scratch.extend_from_slice(widths);
             }
-            return None;
-        };
-
-        let prefix_widths: Arc<[f64]> = WIDTH_SCRATCH.with(|scratch| {
-            let mut scratch = scratch.borrow_mut();
-            scratch.clear();
-            scratch.extend_from_slice(&widths);
             let mut running = 0.0;
-            for w in scratch.iter_mut() {
-                running += *w;
-                *w = running;
+            for width in scratch.iter_mut() {
+                running += *width;
+                *width = running;
             }
-            let prefix_arc: Arc<[f64]> = Arc::from(scratch.as_slice());
-            scratch.clear();
-            prefix_arc
+            Arc::from(scratch.as_slice())
         });
-
-        if let Some(metrics) = self.cache.get_mut(seg) {
-            metrics.grapheme_prefix_widths = Some(prefix_widths.clone());
-        }
-
-        Some(prefix_widths)
+        let mut metrics = self.segment_metrics(seg, measure);
+        // When the grapheme payload was oversized, it was returned to this call
+        // without remaining in the map. Its ownership still belongs to the result.
+        metrics.grapheme_widths = Some(widths.unwrap_or_else(|| Arc::from([])));
+        metrics.grapheme_prefix_widths = Some(prefix.clone());
+        let existing = self.cache.remove_entry(seg);
+        self.store(seg, &metrics, existing);
+        (!prefix.is_empty()).then_some(prefix)
     }
 }
 
@@ -514,14 +631,15 @@ pub struct MeasurementSession<'a> {
 
 impl MeasurementSession<'_> {
     /// Returns segment metrics for this session's measurement provider.
-    pub fn get_segment_metrics(&mut self, seg: &str) -> &SegmentMetrics {
+    pub fn get_segment_metrics(&mut self, seg: &str) -> SegmentMetrics {
         self.cache.select_measure(self.measure, true);
         self.cache.segment_metrics(seg, self.measure)
     }
 
     /// Returns advance width for this session's measurement provider.
     pub fn get_width(&mut self, seg: &str) -> f64 {
-        self.get_segment_metrics(seg).width
+        self.cache.select_measure(self.measure, true);
+        self.cache.width(seg, self.measure)
     }
 
     /// Returns per-grapheme advances, or `None` for a single grapheme.
@@ -546,6 +664,145 @@ impl Default for MeasureCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn byte_budget_accounts_for_metric_arrays_and_container_capacity() {
+        let measure = FixedWidthMeasure { char_width: 10.0 };
+        let mut cache = MeasureCache::with_budgets(32, 4096);
+        cache.get_width("abc", &measure);
+        let base = cache.stats();
+        assert!(base.container_bytes > 0);
+        let widths = cache.get_grapheme_widths("abc", &measure).unwrap();
+        let graphemes = cache.stats();
+        assert!(
+            graphemes.payload_bytes
+                >= base.payload_bytes + 3 * 8 + 2 * std::mem::size_of::<usize>()
+        );
+        let prefix = cache.get_grapheme_prefix_widths("abc", &measure).unwrap();
+        assert!(
+            cache.stats().payload_bytes
+                >= graphemes.payload_bytes + 3 * 8 + 2 * std::mem::size_of::<usize>()
+        );
+        assert_eq!(
+            cache.stats().retained_bytes,
+            cache.stats().payload_bytes + cache.stats().container_bytes
+        );
+        let weak = Arc::downgrade(&widths);
+        drop(widths);
+        drop(prefix);
+        assert!(weak.upgrade().is_some());
+        cache.trim();
+        assert!(weak.upgrade().is_none());
+        assert_eq!(cache.stats().retained_bytes, 0);
+        assert!(cache.stats().high_water_bytes > 0);
+    }
+
+    #[test]
+    fn oversized_and_disabled_entries_return_results_without_retention() {
+        let measure = FixedWidthMeasure { char_width: 2.0 };
+        let text = "a".repeat(1024);
+        let mut cache = MeasureCache::with_budgets(16, 512);
+        assert_eq!(cache.get_width(&text, &measure), 2048.0);
+        assert!(cache.is_empty());
+        assert_eq!(cache.stats().retained_bytes, 0);
+        let widths = cache.get_grapheme_widths(&text, &measure).unwrap();
+        assert_eq!(widths.len(), 1024);
+        assert_eq!(widths[500], 2.0);
+        let prefix = cache.get_grapheme_prefix_widths(&text, &measure).unwrap();
+        assert_eq!(prefix[1023], 2048.0);
+        assert!(cache.is_empty());
+        assert_eq!(cache.stats().retained_bytes, 0);
+        for (entries, bytes) in [(0, 4096), (16, 0), (1, 64)] {
+            let mut disabled = MeasureCache::with_budgets(entries, bytes);
+            assert_eq!(disabled.get_width("ab", &measure), 4.0);
+            assert_eq!(
+                disabled
+                    .get_grapheme_prefix_widths("ab", &measure)
+                    .unwrap()
+                    .as_ref(),
+                &[2.0, 4.0]
+            );
+            assert_eq!(disabled.stats().retained_bytes, 0);
+            assert!(disabled.is_empty());
+        }
+    }
+
+    #[test]
+    fn charged_memory_plateaus_during_width_and_metric_churn() {
+        let measure = FixedWidthMeasure { char_width: 1.0 };
+        let mut cache = MeasureCache::with_budgets(128, 4096);
+        for index in 0..1000 {
+            let text = format!("{index}-{}", "x".repeat(index % 64));
+            cache.get_width(&text, &measure);
+            assert!(cache.stats().retained_bytes <= 4096);
+            cache.get_grapheme_widths(&text, &measure);
+            assert!(cache.stats().retained_bytes <= 4096);
+            cache.get_grapheme_prefix_widths(&text, &measure);
+            let stats = cache.stats();
+            assert!(stats.entries <= 128);
+            assert!(stats.retained_bytes <= 4096);
+            assert!(stats.high_water_bytes <= 4096);
+        }
+        assert!(cache.stats().evictions > 0);
+        cache.trim();
+        assert_eq!(cache.stats().retained_bytes, 0);
+    }
+
+    #[test]
+    fn scratch_is_bounded_reentrant_and_trimmed_during_active_measurement() {
+        struct Reentrant {
+            called: Cell<bool>,
+            trim: bool,
+        }
+        impl TextMeasure for Reentrant {
+            fn measure_width(&self, text: &str) -> f64 {
+                // Trigger during individual-grapheme measurement, when both
+                // outer working buffers are active outside their TLS cells.
+                if text.len() == 1 && !self.called.replace(true) {
+                    let mut nested = MeasureCache::new();
+                    let nested_measure = FixedWidthMeasure { char_width: 2.0 };
+                    assert_eq!(
+                        nested
+                            .get_grapheme_prefix_widths("ab", &nested_measure)
+                            .unwrap()
+                            .as_ref(),
+                        &[2.0, 4.0]
+                    );
+                    if self.trim {
+                        trim_measurement_scratch();
+                    }
+                }
+                text.graphemes(true).count() as f64
+            }
+        }
+        trim_measurement_scratch();
+        let mut cache = MeasureCache::with_budgets(16, 512);
+        let long = "a".repeat(10_000);
+        assert_eq!(
+            cache
+                .get_grapheme_prefix_widths(&long, &FixedWidthMeasure { char_width: 1.0 })
+                .unwrap()
+                .len(),
+            10_000
+        );
+        assert!(retained_measurement_scratch_bytes() <= 2 * MAX_RETAINED_METRIC_SCRATCH_BYTES);
+        for trim in [false, true] {
+            let measure = Reentrant {
+                called: Cell::new(false),
+                trim,
+            };
+            assert_eq!(
+                cache.get_grapheme_widths("abc", &measure).unwrap().as_ref(),
+                &[1.0; 3]
+            );
+            assert!(measure.called.get());
+            if trim {
+                assert_eq!(retained_measurement_scratch_bytes(), 0);
+            }
+        }
+        trim_measurement_scratch();
+        assert_eq!(retained_measurement_scratch_bytes(), 0);
+    }
 
     #[test]
     fn raw_unkeyed_lookups_remeasure_each_provider_and_all_metric_kinds() {
@@ -796,14 +1053,14 @@ mod tests {
     }
 
     #[test]
-    fn test_bounded_cache_evicts_lru() {
+    fn clock_eviction_gives_referenced_entries_a_second_chance() {
         let measure = FixedWidthMeasure { char_width: 10.0 };
         let mut cache = MeasureCache::with_capacity(2);
 
         let _ = cache.get_width("aaa", &measure);
         let _ = cache.get_width("bbb", &measure);
         assert_eq!(cache.len(), 2);
-        // Touch "aaa" so "bbb" becomes least-recently-used.
+        // Reference "aaa" so the clock grants it a second chance.
         let _ = cache.get_width("aaa", &measure);
         let _ = cache.get_width("ccc", &measure);
         assert_eq!(cache.len(), 2);

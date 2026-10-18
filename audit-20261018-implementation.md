@@ -389,3 +389,66 @@ RGBA, opacity or transfer settings. No broad completion claim is made.
 
 Cache benchmark smoke operations, release allocation contracts and both public
 documentation examples also pass. Smoke execution is not a latency comparison.
+
+## Measurement cache retention and CPU checkpoint
+
+- Clock eviction replaces the linear recency-queue scan on every hit. A hit sets
+  one second-chance bit. Admission/eviction can walk the queue; this is approximate
+  recency, rather than the former strict LRU policy. Eviction and admission reuse
+  known hash lookups, and width-only hits no longer clone stored grapheme arrays.
+- Byte admission now charges shared keys and metric arrays, Arc headers/padding,
+  actual hashbrown allocation size and recency-queue capacity. Over-budget entries
+  can be evicted, including the last entry. Zero limits disable retention.
+  `MeasureCacheStats` exposes payload/container charges, retained high-water,
+  entries and activity. `trim` releases cache-owned allocations; `clear` preserves
+  reusable container capacity and counters.
+- `get_segment_metrics` now returns an owned, shared-array snapshot. This allows
+  oversized results to be returned without a reference pinning them in the cache.
+  Caller-owned snapshots/arrays, allocator bookkeeping and transient table
+  growth/shrink working memory are outside the retained-byte limit. This is not
+  a total-process or peak-allocation budget.
+- Each of the two thread-local scratch buffers retains at most 64 KiB. Oversized
+  working buffers are dropped after the operation. Scratch is rented out of TLS
+  while calling a measurer, so nested preparation does not panic on a live TLS
+  borrow. A pressure trim generation prevents active operations from returning
+  their old scratch after a trim request. Public current-thread scratch byte and
+  trim hooks expose that separate retained storage.
+- Tests cover byte accounting for arrays and containers, 1,000 churn iterations,
+  oversized results, zero/tiny budgets, shared-array release, second-chance
+  retention, nested measurement and scratch trimming during an active callback.
+  The serial allocation contract checks cold container/array charges against
+  actual allocator request bytes and keeps zero-allocation keyed/scoped hits.
+- Paired bounded diagnostic against `8851de7f`:
+
+  | Work per sample | Baseline median ms | Current median ms |
+  |---|---:|---:|
+  | 10,000 randomized hits, 128 entries | 2.2221 | 0.0855 |
+  | 10,000 randomized hits, 4,096 entries | 39.3141 | 0.1391 |
+  | 10,000 admissions rotating 512 strings through eight entries | 0.4658 | 0.4723 |
+  | 100 full preparations of the Unicode paragraph | 2.4593 | 2.1024 |
+
+  Four process medians per version, ABBA twice; one warmup and five samples per
+  process. Entry counts and width sums are checked outside timing. Random hit
+  selection uses the high bits of a 64-bit LCG; repeating a low-bit permutation
+  would make this a misleading LRU benchmark. Both hit variants allocate zero.
+  Admission calls are 10,007 to 10,006, with 404,188 to 404,540 allocated bytes;
+  preparation calls stay 43,400, with 6,077,000 to 6,125,000 bytes (about +0.8%).
+  Admission time is about +1.4% in this run; shared-host variation prevents an
+  equivalence claim. These are cache/text workloads, not full-frame or energy
+  acceptance. The [raw paired evidence](qa/perf/20261019-pretext-clock-paired.json)
+  includes all samples, identical probe source, hashes and methodology.
+- The first clock implementation showed +27% admission time; reducing redundant
+  hash lookups removed most of that observed cost before this checkpoint. The
+  retained-byte budget is enforced after operations and can require cold-path
+  shrinking; its allocator working-set peak still needs the separate C5 work.
+- Verification: 170 pretext library tests plus its integration/corpus/property/
+  allocation suites pass. Builder tests, strict Clippy, populated benchmark
+  smoke, release allocation contracts, public docs and wasm compilation also
+  pass for this checkpoint. P3 remains open for the other caches, pressure
+  wiring and application/device qualification; C7 editing work is still open.
+
+API migration: `MeasureCache::get_segment_metrics` and the session equivalent
+return `SegmentMetrics` by value. Shared arrays remain cheap to clone. A zero
+`with_budgets` entry limit now explicitly disables retention. New public APIs:
+`MeasureCacheStats`, `MeasureCache::stats`/`trim`, current-thread scratch byte/
+trim hooks and `MAX_RETAINED_METRIC_SCRATCH_BYTES`.
