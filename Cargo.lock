@@ -2109,6 +2109,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "fontique"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbf1df16263783918b7da396077521f92b729ef7c429444dfcf03581f1448b77"
+dependencies = [
+ "hashbrown 0.17.1",
+ "linebender_resource_handle",
+ "memmap2",
+ "parlance",
+ "read-fonts 0.41.0",
+ "smallvec",
+]
+
+[[package]]
 name = "foreign-types"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2614,7 +2628,7 @@ dependencies = [
  "criterion",
  "delaunator",
  "fontdue",
- "fontique",
+ "fontique 0.12.0",
  "glam",
  "gpui-builder",
  "gpui-design",
@@ -4835,7 +4849,7 @@ version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22d2ff88bd3f7d68d1d9b09c7e6209f9a8e8c05088295140a2bcf2e9b17038c5"
 dependencies = [
- "fontique",
+ "fontique 0.11.1",
  "harfrust 0.12.0",
  "hashbrown 0.17.1",
  "icu_normalizer",
