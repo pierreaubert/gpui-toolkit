@@ -329,10 +329,14 @@ impl GpuRenderer {
     ///
     /// # Errors
     ///
-    /// Returns [`SceneError`] when an actor references a missing field.
+    /// Returns an error for invalid render settings, missing fields,
+    /// unsupported scalar/clip precision, or unsupported geometry features.
     pub fn upload(&self, scene: &Scene) -> Result<GpuScene, GpuRenderError> {
-        scene.validate_clipping()?;
+        scene.validate_render_state()?;
         for actor in scene.actors.iter().filter(|actor| actor.visible) {
+            if let Some(transfer) = actor.active_transfer() {
+                transfer.gpu_range()?;
+            }
             if actor.wireframe {
                 return Err(GpuRenderError::UnsupportedFeature("wireframe"));
             }
@@ -397,7 +401,7 @@ impl GpuRenderer {
                 });
             }
             // Colour LUT: the actor's transfer function, or a flat ramp.
-            let (lut_bytes, scalar_range) = material_lut(actor);
+            let (lut_bytes, scalar_range) = material_lut(actor)?;
             let lut = self.device.create_texture_with_data(
                 &self.queue,
                 &wgpu::TextureDescriptor {
@@ -436,8 +440,8 @@ impl GpuRenderer {
                 transparent: actor.is_transparent(),
                 distance: 0.0,
                 lut,
-                transfer: actor.transfer.clone(),
-                color: actor.color,
+                transfer: actor.active_transfer().cloned(),
+                color: actor.effective_color(),
             });
         }
         Ok(GpuScene {
@@ -459,7 +463,12 @@ impl GpuRenderer {
     ///
     /// Returns the same preparation errors as [`Self::upload`].
     pub fn sync(&self, uploaded: &mut GpuScene, scene: &Scene) -> Result<bool, GpuRenderError> {
-        scene.validate_clipping()?;
+        scene.validate_render_state()?;
+        for actor in scene.actors.iter().filter(|actor| actor.visible) {
+            if let Some(transfer) = actor.active_transfer() {
+                transfer.gpu_range()?;
+            }
+        }
         if !uploaded.prepared.matches(scene)? {
             *uploaded = self.upload(scene)?;
             return Ok(true);
@@ -494,8 +503,10 @@ impl GpuRenderer {
             .zip(scene.actors.iter().filter(|a| a.visible))
             .enumerate()
         {
-            if gpu.transfer != actor.transfer || gpu.color != actor.color {
-                let (bytes, range) = material_lut(actor);
+            if gpu.transfer.as_ref() != actor.active_transfer()
+                || gpu.color != actor.effective_color()
+            {
+                let (bytes, range) = material_lut(actor)?;
                 // New material resources keep already-encoded passes immutable.
                 // A queue write into the old LUT would affect earlier passes
                 // when the host batches both revisions in one submission.
@@ -520,8 +531,8 @@ impl GpuRenderer {
                 );
                 gpu.bind_group = self.actor_bind_group(&gpu.uniform, &gpu.lut);
                 gpu.scalar_range = range;
-                gpu.transfer.clone_from(&actor.transfer);
-                gpu.color = actor.color;
+                gpu.transfer = actor.active_transfer().cloned();
+                gpu.color = actor.effective_color();
             }
             gpu.opacity = actor.opacity;
             if clip_updates
@@ -968,15 +979,12 @@ fn readback_layout(
     })
 }
 
-fn material_lut(actor: &crate::Actor) -> (Vec<u8>, [f32; 2]) {
+fn material_lut(actor: &crate::Actor) -> Result<(Vec<u8>, [f32; 2]), SceneError> {
     if let (Some(transfer), Some(_)) = (&actor.transfer, actor.scalars()) {
-        (
-            transfer.lut_bytes(),
-            [transfer.range[0] as f32, transfer.range[1] as f32],
-        )
+        Ok((transfer.lut_bytes(), transfer.gpu_range()?))
     } else {
         let color = actor.color.map(|value| (value * 255.0) as u8);
-        (color.repeat(256), [0.0, 1.0])
+        Ok((color.repeat(256), [0.0, 1.0]))
     }
 }
 
@@ -1406,6 +1414,41 @@ mod tests {
             Err(GpuRenderError::Scene(SceneError::InvalidCamera(_)))
         ));
         assert_eq!(before.rgba, renderer.read_rgba(&target).unwrap().rgba);
+    }
+
+    #[test]
+    fn rejected_transfer_updates_preserve_uploaded_materials_and_background() {
+        let Some(renderer) = renderer() else { return };
+        let dataset = DataSet::structured_grid("transaction", [2; 3], [-0.5; 3], [1.0; 3])
+            .unwrap()
+            .with_field(Field::scalar("p", vec![0.5; 8]));
+        let base = Scene::new()
+            .with_actor(Actor::new(dataset.clone()).color([1.0, 0.0, 0.0, 1.0]))
+            .with_actor(
+                Actor::new(dataset).coloured_by("p", TransferFunction::viridis([0.0, 1.0])),
+            );
+        let camera = Camera::fitted(base.bounds().unwrap());
+        let target = renderer.create_target(32, 32).unwrap();
+        let mut uploaded = renderer.upload(&base).unwrap();
+        renderer.render(&mut uploaded, &camera, &target).unwrap();
+        let reference = renderer.read_rgba(&target).unwrap();
+        for range in [[f64::NAN, 1.0], [-f64::MAX, f64::MAX], [1e12, 1e12 + 0.125]] {
+            let mut changed = base.clone();
+            changed.background = [1.0; 4];
+            changed.actors[0].color = [0.0, 0.0, 1.0, 1.0];
+            changed.actors[1].transfer.as_mut().unwrap().range = range;
+            assert!(matches!(
+                renderer.sync(&mut uploaded, &changed),
+                Err(GpuRenderError::Scene(
+                    SceneError::InvalidMaterial(_) | SceneError::UnsupportedPrecision(_)
+                ))
+            ));
+            assert!(renderer.upload(&changed).is_err());
+            assert_eq!(uploaded.actors[0].color, base.actors[0].color);
+            assert_eq!(uploaded.background, base.background);
+            renderer.render(&mut uploaded, &camera, &target).unwrap();
+            assert_eq!(reference.rgba, renderer.read_rgba(&target).unwrap().rgba);
+        }
     }
 
     #[test]

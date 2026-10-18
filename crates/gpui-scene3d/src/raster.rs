@@ -93,7 +93,7 @@ pub fn render_with_limits(
     limits: RenderLimits,
 ) -> Result<Frame, SceneError> {
     camera.validate()?;
-    scene.validate_clipping()?;
+    scene.validate_render_state()?;
     let pixels = limits.pixel_count(width, height, 8)?;
     let prepared = scene.prepare()?;
     let bg = scene.background;
@@ -202,7 +202,10 @@ fn draw_actor(
     depth: &mut [f32],
     rgba: &mut [u8],
 ) -> Result<(), SceneError> {
-    let transfer = actor.active_transfer();
+    let transfer = actor
+        .active_transfer()
+        .map(crate::TransferFunction::prepare)
+        .transpose()?;
     // Screen triangles with their mean depth, for transparent sorting.
     let mut triangles: Vec<ScreenTriangle> = Vec::new();
     for chunk in &geometry.chunks {
@@ -253,7 +256,9 @@ fn draw_actor(
                 ))
             };
             let mut emit = |[a, b, c]: [(f32, f32, f32); 3], mean_scalar: f32| {
-                let mut colour = transfer.map_or(actor.color, |tf| tf.map(f64::from(mean_scalar)));
+                let mut colour = transfer
+                    .as_ref()
+                    .map_or(actor.color, |tf| tf.map(f64::from(mean_scalar)));
                 colour[3] *= actor.opacity;
                 let shaded = shade_with_normal(colour, normal, light);
                 if blend {
@@ -603,6 +608,32 @@ mod tests {
     fn empty_scene_is_background_only() {
         let frame = render(&Scene::new(), &Camera::default(), 8, 8).unwrap();
         assert!(frame.rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 255));
+    }
+
+    #[test]
+    fn invalid_active_materials_fail_before_geometry_preparation() {
+        let dataset = DataSet::structured_grid("invalid", [2; 3], [0.0; 3], [1.0; 3])
+            .unwrap()
+            .with_field(Field::scalar("p", vec![0.5; 8]));
+        for mutation in 0..5 {
+            let mut scene = Scene::new().with_actor(Actor::new(dataset.clone()));
+            match mutation {
+                0 => scene.background[0] = f32::NAN,
+                1 => scene.actors[0].color[3] = 1.1,
+                2 => scene.actors[0].opacity = f32::INFINITY,
+                3 => scene.actors[0].opacity = -0.1,
+                _ => {
+                    scene.actors[0] = scene.actors[0]
+                        .clone()
+                        .coloured_by("p", TransferFunction::viridis([f64::NAN, 1.0]));
+                }
+            }
+            assert!(matches!(
+                render(&scene, &Camera::default(), 8, 8),
+                Err(SceneError::InvalidMaterial(_))
+            ));
+            assert_eq!(scene.preparation_stats().geometry_builds, 0);
+        }
     }
 
     #[test]

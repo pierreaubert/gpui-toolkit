@@ -318,3 +318,44 @@ API migration for custom GPU hosts:
   `SCENE_UNIFORM_SIZE`; the plane count is at byte 176.
 
 Goal turn 4: progress. The full audit implementation remains active.
+
+## Transfer storage, material validation and volume alpha checkpoint
+
+- Built-in palettes now borrow static immutable stops. Custom palettes sort once
+  and share `Arc` storage across scene/material snapshots; changing a clone's
+  domain does not change its source. Opacity classification uses cached stop
+  metadata instead of walking the palette on each query.
+- `TransferFunction::validate` rejects nonfinite/reversed domains, invalid log
+  domains, zero bands and invalid stop positions/RGBA. Direct `map`/`lut_bytes`
+  calls return transparent results for malformed settings instead of a lookup
+  panic. Active render settings fail before geometry preparation or GPU upload.
+  Unused transfer/flat-color settings do not invalidate a retained frame.
+- `TransferFunction::prepare` returns a borrowed, allocation-free sampler. Surface
+  and volume rendering prepare domain constants once, including stable wide
+  linear ranges and close/wide logarithmic ranges. Banded log mapping applies
+  its quantization as well. The public convenience lookup remains available.
+- The raw-f32 GPU path now rejects collapsed/overflowing/subnormal transfer
+  domains explicitly. GPUI retains a software image for those domains, preserves
+  that decision through camera updates, and returns to GPU presentation when the
+  domain becomes representable. Rejected GPU material updates leave previously
+  uploaded materials and background intact; tests render before and after the
+  rejection to verify the transaction. This does not solve raw f64 field-to-f32
+  precision or CPU/GPU interpolation parity; C4 remains open.
+- Volume source-over composition now includes background alpha and exports
+  straight RGBA. Transparent samples preserve a translucent background, and
+  translucent volume samples over transparent/translucent backgrounds retain
+  their alpha and expected color mixtures.
+- Verification: **88** scene library tests pass with required Metal. The native
+  2x-DPI viewer and pressure integration pass; all scene examples, software-only
+  GPUI and wasm compile. Strict Clippy passes with default features and with
+  `gpui-gpu`. The bounded release probe retains **2 allocations / 131,072 bytes**
+  per warmed 128x128 frame on 16³, 32³ and 48³ datasets.
+- The [allocation evidence](qa/perf/20261019-transfer-allocation.json) includes
+  probe source, source hashes and five-sample arrays. Built-in construction,
+  custom palette cloning and 10,000 prepared lookups each report zero allocation
+  traffic in every recorded sample. Custom palette construction, retained source
+  memory, whole-application latency and energy are outside that measurement.
+
+Additional API: `PreparedTransfer` and `TransferFunction::prepare` are public;
+render entry points can return `SceneError::InvalidMaterial` for invalid active
+RGBA, opacity or transfer settings. No broad completion claim is made.

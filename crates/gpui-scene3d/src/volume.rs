@@ -264,6 +264,8 @@ impl VolumeRenderer {
         options: &VolumeOptions,
         limits: crate::RenderLimits,
     ) -> Result<Frame, SceneError> {
+        let transfer = transfer.prepare()?;
+        crate::scene::validate_rgba(options.background)?;
         let pixels = limits.pixel_count(width, height, 4)?;
         let dataset = &self.dataset;
         let scalars: &[f64] = &self.scalars;
@@ -336,16 +338,17 @@ impl VolumeRenderer {
                     accumulated[2] += weight * colour[2];
                     accumulated[3] += weight;
                 }
-                let out = [
-                    accumulated[0] + (1.0 - accumulated[3]) * bg[0],
-                    accumulated[1] + (1.0 - accumulated[3]) * bg[1],
-                    accumulated[2] + (1.0 - accumulated[3]) * bg[2],
-                    1.0,
-                ];
-                rgba[idx] = (out[0].clamp(0.0, 1.0) * 255.0) as u8;
-                rgba[idx + 1] = (out[1].clamp(0.0, 1.0) * 255.0) as u8;
-                rgba[idx + 2] = (out[2].clamp(0.0, 1.0) * 255.0) as u8;
-                rgba[idx + 3] = 255;
+                let remaining = 1.0 - accumulated[3];
+                let alpha = accumulated[3] + remaining * bg[3];
+                let mut out = [0.0; 4];
+                if alpha > 0.0 {
+                    for channel in 0..3 {
+                        out[channel] =
+                            (accumulated[channel] + remaining * bg[channel] * bg[3]) / alpha;
+                    }
+                }
+                out[3] = alpha;
+                write_pixel(&mut rgba, idx, out);
             }
         }
         Ok(Frame {
@@ -648,6 +651,97 @@ mod tests {
                     .all(|pixel| pixel == [0, 0, 0, 255])
             );
         }
+    }
+
+    #[test]
+    fn volume_compositing_retains_background_and_sample_alpha() {
+        let dataset = DataSet::structured_grid("alpha", [3; 3], [-1.0; 3], [1.0; 3])
+            .unwrap()
+            .with_field(Field::scalar("p", vec![0.5; 27]));
+        let renderer = VolumeRenderer::new(&dataset, "p").unwrap();
+        let camera = Camera {
+            azimuth: 0.0,
+            elevation: 0.0,
+            distance: 3.0,
+            projection: crate::Projection::Orthographic { half_height: 1.5 },
+            ..Camera::default()
+        };
+        let transfer =
+            |alpha| TransferFunction::from_stops([0.0, 1.0], &[(0.0, [1.0, 0.0, 0.0, alpha])]);
+        let options = |background| VolumeOptions {
+            background,
+            ..VolumeOptions::default()
+        };
+        let clear = renderer
+            .render(
+                &transfer(0.0),
+                &camera,
+                24,
+                24,
+                &options([0.2, 0.4, 0.6, 0.25]),
+            )
+            .unwrap();
+        assert!(
+            clear
+                .rgba
+                .chunks_exact(4)
+                .all(|pixel| pixel == [51, 102, 153, 63])
+        );
+        let red = renderer
+            .render(
+                &transfer(0.01),
+                &camera,
+                24,
+                24,
+                &options([0.0, 0.0, 1.0, 0.0]),
+            )
+            .unwrap();
+        let center = &red.rgba[((12 * 24 + 12) * 4) as usize..][..4];
+        assert_eq!(&center[..3], &[255, 0, 0]);
+        assert!(center[3] > 0 && center[3] < 255);
+        let mixed = renderer
+            .render(
+                &transfer(0.01),
+                &camera,
+                24,
+                24,
+                &options([0.0, 0.0, 1.0, 0.5]),
+            )
+            .unwrap();
+        let center = &mixed.rgba[((12 * 24 + 12) * 4) as usize..][..4];
+        assert!(center[0] > 0 && center[2] > 0 && center[3] > 127 && center[3] < 255);
+        assert!((u16::from(center[0]) + u16::from(center[2])).abs_diff(255) <= 2);
+    }
+
+    #[test]
+    fn invalid_volume_materials_fail_instead_of_entering_the_ray_loop() {
+        let ds = gaussian_room();
+        let renderer = VolumeRenderer::new(&ds, "pressure").unwrap();
+        let camera = Camera::fitted(ds.bounds().unwrap());
+        assert!(matches!(
+            renderer.render(
+                &TransferFunction::viridis([f64::NAN, 1.0]),
+                &camera,
+                16,
+                16,
+                &VolumeOptions::default()
+            ),
+            Err(SceneError::InvalidMaterial(_))
+        ));
+        let options = VolumeOptions {
+            background: [f32::NAN; 4],
+            ..VolumeOptions::default()
+        };
+        assert!(matches!(
+            renderer.render(
+                &TransferFunction::viridis([0.0, 1.0]),
+                &camera,
+                16,
+                16,
+                &options
+            ),
+            Err(SceneError::InvalidMaterial(_))
+        ));
     }
 
     #[test]

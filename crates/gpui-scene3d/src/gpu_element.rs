@@ -72,21 +72,42 @@ impl RegisteredSceneDraw {
             state.compatibility_scans += 1;
             supports_topology(scene)
         };
-        let same_clipping = same_geometry
+        let same_precision = same_geometry
             && state.input.as_ref().is_some_and(|input| {
                 input
                     .scene
                     .actors
                     .iter()
                     .zip(&scene.actors)
-                    .all(|(old, actor)| old.clip_planes == actor.clip_planes)
+                    .all(|(old, actor)| {
+                        !actor.visible
+                            || (old.clip_planes == actor.clip_planes
+                                && old.active_transfer().map(|tf| tf.range)
+                                    == actor.active_transfer().map(|tf| tf.range))
+                    })
             });
         let clip_limit = scene
             .actors
             .iter()
             .filter(|actor| actor.visible)
             .all(|actor| actor.clip_planes.len() <= crate::shaders::MAX_CLIP_PLANES);
-        let needs_origins = topology_supported
+        let mut ranges_supported = true;
+        if !same_precision {
+            for actor in scene.actors.iter().filter(|actor| actor.visible) {
+                if let Some(transfer) = actor.active_transfer() {
+                    match transfer.gpu_range() {
+                        Ok(_) => {}
+                        Err(SceneError::UnsupportedPrecision(_)) => {
+                            ranges_supported = false;
+                            break;
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+            }
+        }
+        let needs_origins = ranges_supported
+            && topology_supported
             && clip_limit
             && scene
                 .actors
@@ -117,9 +138,9 @@ impl RegisteredSceneDraw {
         } else {
             None
         };
-        let gpu_supported = if !topology_supported || !clip_limit {
+        let gpu_supported = if !ranges_supported || !topology_supported || !clip_limit {
             false
-        } else if same_clipping {
+        } else if same_precision {
             state.input.as_ref().expect("existing input").gpu_supported
         } else if let Some(origins) = &origins {
             let mut supported = true;

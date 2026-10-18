@@ -75,7 +75,10 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let range = scene.scalar_range.y - scene.scalar_range.x;
     var t = 0.0;
     if (range > 0.0) {
-        t = clamp((input.scalar - scene.scalar_range.x) / range, 0.0, 1.0);
+        if (input.scalar >= scene.scalar_range.y) { t = 1.0; }
+        else if (input.scalar > scene.scalar_range.x) {
+            t = (input.scalar - scene.scalar_range.x) / range;
+        }
     }
     var colour = textureSample(lut_texture, lut_sampler, t);
     let light_dir = normalize(vec3<f32>(-0.4, 0.7, 0.6));

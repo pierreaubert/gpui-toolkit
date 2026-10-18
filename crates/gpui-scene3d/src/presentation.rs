@@ -15,8 +15,8 @@ struct MaterialKey {
 
 impl MaterialKey {
     fn matches(&self, actor: &crate::Actor) -> bool {
-        self.color == actor.color
-            && self.transfer == actor.transfer
+        self.color == actor.effective_color()
+            && self.transfer.as_ref() == actor.active_transfer()
             && self.opacity == actor.opacity
             && self.clip_planes == actor.clip_planes
     }
@@ -38,7 +38,7 @@ impl RenderKey {
 
     pub(crate) fn new(scene: &Scene, camera: Camera, size: [u32; 2]) -> Result<Self, SceneError> {
         camera.validate()?;
-        scene.validate_clipping()?;
+        scene.validate_render_state()?;
         Ok(Self {
             prepared: SceneRevision::new(scene)?,
             camera,
@@ -49,8 +49,8 @@ impl RenderKey {
                 .iter()
                 .filter(|actor| actor.visible)
                 .map(|actor| MaterialKey {
-                    color: actor.color,
-                    transfer: actor.transfer.clone(),
+                    color: actor.effective_color(),
+                    transfer: actor.active_transfer().cloned(),
                     opacity: actor.opacity,
                     clip_planes: actor.clip_planes.clone(),
                 })
@@ -108,7 +108,7 @@ mod tests {
     }
 
     #[test]
-    fn frame_key_reuses_static_frames_and_invalidates_every_render_input() {
+    fn frame_key_reuses_static_frames_and_tracks_effective_render_inputs() {
         let dataset = DataSet::structured_grid("key", [2; 3], [0.0; 3], [1.0; 3])
             .unwrap()
             .with_field(Field::scalar("p", vec![0.5; 8]));
@@ -136,11 +136,33 @@ mod tests {
                 5 => changed.actors[0].visible = false,
                 _ => Arc::make_mut(&mut changed.actors[0].dataset.positions)[0][0] += 1.0,
             }
-            assert!(
-                !key.matches(&changed, camera, [100, 50]).unwrap(),
-                "mutation {mutation}"
+            assert_eq!(
+                key.matches(&changed, camera, [100, 50]).unwrap(),
+                mutation == 1,
+                "effective render mutation {mutation}"
             );
         }
+    }
+
+    #[test]
+    fn unused_material_settings_do_not_invalidate_or_reject_retained_frames() {
+        let dataset = DataSet::structured_grid("unused", [2; 3], [0.0; 3], [1.0; 3])
+            .unwrap()
+            .with_field(Field::scalar("p", vec![0.5; 8]));
+        let camera = Camera::default();
+        let mut flat = Scene::new().with_actor(Actor::new(dataset.clone()));
+        let flat_key = RenderKey::new(&flat, camera, [16, 16]).unwrap();
+        flat.actors[0].transfer = Some(TransferFunction::viridis([f64::NAN, 1.0]));
+        flat.validate_render_state().unwrap();
+        assert!(flat_key.matches(&flat, camera, [16, 16]).unwrap());
+
+        let mut mapped = Scene::new().with_actor(
+            Actor::new(dataset).coloured_by("p", TransferFunction::viridis([0.0, 1.0])),
+        );
+        let mapped_key = RenderKey::new(&mapped, camera, [16, 16]).unwrap();
+        mapped.actors[0].color = [f32::NAN; 4];
+        mapped.validate_render_state().unwrap();
+        assert!(mapped_key.matches(&mapped, camera, [16, 16]).unwrap());
     }
 
     #[test]

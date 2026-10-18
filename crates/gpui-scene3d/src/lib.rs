@@ -49,7 +49,7 @@ pub use raster::{Frame, render, render_with_limits};
 #[doc(inline)]
 pub use retained::{PreparationStats, PreparedScene};
 pub use scene::{Actor, ClipBox, ClipPlane, Scene};
-pub use transfer::TransferFunction;
+pub use transfer::{PreparedTransfer, TransferFunction};
 pub use volume::{VolumeOptions, VolumeRenderer, raycast_volume};
 
 /// Failures reported by scene preparation and rendering.
@@ -73,6 +73,9 @@ pub enum SceneError {
     /// A backend cannot retain a required nonzero coefficient.
     #[error("unsupported rendering precision: {0}")]
     UnsupportedPrecision(&'static str),
+    /// Material settings cannot define finite normalized colors or opacity.
+    #[error("invalid scene material: {0}")]
+    InvalidMaterial(&'static str),
     /// A requested resource exceeds the host's working-set allowance.
     #[error("{resource} requires {requested}, limit is {limit}")]
     ResourceLimit {

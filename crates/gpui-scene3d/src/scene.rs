@@ -421,6 +421,15 @@ impl Actor {
         self.field.as_ref().and(self.transfer.as_ref())
     }
 
+    #[cfg(any(feature = "gpu", feature = "gpui"))]
+    pub(crate) fn effective_color(&self) -> [f32; 4] {
+        if self.active_transfer().is_some() {
+            [0.0; 4]
+        } else {
+            self.color
+        }
+    }
+
     /// Toggles the wireframe overlay.
     #[must_use]
     pub fn wireframe(mut self, enabled: bool) -> Self {
@@ -524,8 +533,19 @@ pub(crate) fn coefficient_sensitive_scene() -> Scene {
 }
 
 impl Scene {
-    pub(crate) fn validate_clipping(&self) -> Result<(), crate::SceneError> {
+    pub(crate) fn validate_render_state(&self) -> Result<(), crate::SceneError> {
+        validate_rgba(self.background)?;
         for actor in self.actors.iter().filter(|actor| actor.visible) {
+            if !actor.opacity.is_finite() || !(0.0..=1.0).contains(&actor.opacity) {
+                return Err(crate::SceneError::InvalidMaterial(
+                    "opacity must be finite and in [0,1]",
+                ));
+            }
+            if let Some(transfer) = actor.active_transfer() {
+                transfer.validate()?;
+            } else {
+                validate_rgba(actor.color)?;
+            }
             for plane in &actor.clip_planes {
                 plane.validate()?;
             }
@@ -620,4 +640,16 @@ impl Scene {
         }
         Some(bounds)
     }
+}
+
+pub(crate) fn validate_rgba(color: [f32; 4]) -> Result<(), crate::SceneError> {
+    if color
+        .iter()
+        .any(|value| !value.is_finite() || !(0.0..=1.0).contains(value))
+    {
+        return Err(crate::SceneError::InvalidMaterial(
+            "RGBA components must be finite and in [0,1]",
+        ));
+    }
+    Ok(())
 }
