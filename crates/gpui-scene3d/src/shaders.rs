@@ -2,31 +2,34 @@
 //!
 //! These strings are the shader contract shared by every GPU backend
 //! (Metal on Apple Silicon, Vulkan/Direct3D elsewhere, WebGPU in the
-//! browser). Keeping them as data in this crate means the software
-//! rasterizer, the volume raycaster, and GPU hosts all implement the
-//! same clipping and colouring semantics; the `gpu` feature validates
-//! them with the real `wgpu` compiler.
+//! browser). The `gpu` feature validates the shader with the real `wgpu`
+//! compiler. Local clipping equations are also used by the software paths;
+//! material interpolation differences are tracked separately.
 
 // Rust guideline compliant 2026-02-21
 
 /// Maximum clipping planes in the shader uniform block.
 pub const MAX_CLIP_PLANES: usize = 6;
 
+/// Uniform ABI version: compact local plane equations replace origin/normal pairs.
+pub const SCENE_UNIFORM_VERSION: u32 = 2;
+/// Surface uniform block size, including 16-byte alignment padding.
+pub const SCENE_UNIFORM_SIZE: usize = 192;
+
 /// Surface shader: per-vertex scalar colouring through a LUT texture,
-/// flat lighting, and up to [`MAX_CLIP_PLANES`] clipping planes.
+/// interpolated two-sided lighting, and up to [`MAX_CLIP_PLANES`] clipping planes.
 ///
 /// Uniform layout (`SceneUniforms`):
 /// - `view_proj`: `mat4x4<f32>`, column-major, matching [`crate::Camera`].
 /// - `scalar_range`: `[min, max, opacity, wireframe_mix]`.
-/// - `clip_origins[i]` / `clip_normals[i]`: world-space plane data;
+/// - `clip_equations[i]`: local `[normal.xyz, offset]` plane coefficients;
 ///   fragments with a negative distance to any active plane are discarded.
 /// - `clip_count`: number of active planes.
 pub const SURFACE_WGSL: &str = r"
 struct SceneUniforms {
     view_proj: mat4x4<f32>,
     scalar_range: vec4<f32>,
-    clip_origins: array<vec4<f32>, 6>,
-    clip_normals: array<vec4<f32>, 6>,
+    clip_equations: array<vec4<f32>, 6>,
     clip_count: u32,
 };
 
@@ -42,7 +45,7 @@ struct VertexInput {
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) world_position: vec3<f32>,
+    @location(0) local_position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) scalar: f32,
 };
@@ -51,7 +54,7 @@ struct VertexOutput {
 fn vs_main(input: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     out.clip_position = scene.view_proj * vec4<f32>(input.position, 1.0);
-    out.world_position = input.position;
+    out.local_position = input.position;
     out.normal = input.normal;
     out.scalar = input.scalar;
     return out;
@@ -64,9 +67,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
     for (var i: u32 = 0u; i < scene.clip_count; i = i + 1u) {
-        let origin = scene.clip_origins[i].xyz;
-        let normal = scene.clip_normals[i].xyz;
-        if (dot(input.world_position - origin, normal) < 0.0) {
+        let plane = scene.clip_equations[i];
+        if (dot(input.local_position, plane.xyz) - plane.w < 0.0) {
             discard;
         }
     }
@@ -89,15 +91,18 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 /// Builds the surface-shader uniform block bytes for a camera and actor.
 ///
 /// Layout matches `SceneUniforms` in [`SURFACE_WGSL`]: view-projection
-/// (64 bytes), scalar range (16), origins (96), normals (96), count (4),
+/// (64 bytes), scalar range (16), local plane equations (96), count (4),
 /// padded to 16-byte alignment.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns an error for invalid plane coefficients or too many planes.
 pub fn scene_uniform_bytes(
     view_projection: &[f32; 16],
     scalar_range: [f32; 2],
     opacity: f32,
     clip_planes: &[crate::scene::ClipPlane],
-) -> Vec<u8> {
+) -> Result<Vec<u8>, crate::SceneError> {
     scene_uniform_bytes_relative_to(
         view_projection,
         scalar_range,
@@ -111,28 +116,75 @@ pub fn scene_uniform_bytes(
 ///
 /// Plane origins are converted in `f64` before upload, matching vertex
 /// preparation and preserving small half-space offsets at large coordinates.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns an error for nonfinite planes, unrepresentable local offsets, or
+/// more than [`MAX_CLIP_PLANES`] planes.
 pub fn scene_uniform_bytes_relative_to(
     view_projection: &[f32; 16],
     scalar_range: [f32; 2],
     opacity: f32,
     clip_planes: &[crate::scene::ClipPlane],
     origin: [f64; 3],
-) -> Vec<u8> {
-    scene_uniform_block_relative_to(view_projection, scalar_range, opacity, clip_planes, origin)
-        .to_vec()
+) -> Result<Vec<u8>, crate::SceneError> {
+    Ok(scene_uniform_block_relative_to(
+        view_projection,
+        scalar_range,
+        opacity,
+        clip_planes,
+        origin,
+    )?
+    .to_vec())
 }
 
 /// Builds the fixed-size uniform block without a heap allocation.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns an error for invalid plane coefficients or too many planes.
 pub fn scene_uniform_block_relative_to(
     view_projection: &[f32; 16],
     scalar_range: [f32; 2],
     opacity: f32,
     clip_planes: &[crate::scene::ClipPlane],
     origin: [f64; 3],
-) -> [u8; 288] {
-    let mut bytes = [0u8; 288];
+) -> Result<[u8; SCENE_UNIFORM_SIZE], crate::SceneError> {
+    let equations = packed_clip_planes(clip_planes, origin)?;
+    Ok(scene_uniform_block_with_equations(
+        view_projection,
+        scalar_range,
+        opacity,
+        &equations,
+    ))
+}
+
+pub(crate) type PackedClipPlanes = smallvec::SmallVec<[[f32; 4]; MAX_CLIP_PLANES]>;
+
+pub(crate) fn packed_clip_planes(
+    planes: &[crate::ClipPlane],
+    origin: [f64; 3],
+) -> Result<PackedClipPlanes, crate::SceneError> {
+    if planes.len() > MAX_CLIP_PLANES {
+        return Err(crate::SceneError::ResourceLimit {
+            resource: "GPU clip plane count",
+            requested: planes.len() as u64,
+            limit: MAX_CLIP_PLANES as u64,
+        });
+    }
+    crate::scene::local_planes(planes, origin)?
+        .into_iter()
+        .map(crate::scene::PlaneEquation::to_uniform)
+        .collect()
+}
+
+pub(crate) fn scene_uniform_block_with_equations(
+    view_projection: &[f32; 16],
+    scalar_range: [f32; 2],
+    opacity: f32,
+    equations: &[[f32; 4]],
+) -> [u8; SCENE_UNIFORM_SIZE] {
+    let mut bytes = [0u8; SCENE_UNIFORM_SIZE];
     let mut offset = 0;
     let mut append = |value: [u8; 4]| {
         bytes[offset..offset + 4].copy_from_slice(&value);
@@ -144,21 +196,12 @@ pub fn scene_uniform_block_relative_to(
     for value in [scalar_range[0], scalar_range[1], opacity, 0.0] {
         append(value.to_le_bytes());
     }
-    let mut origins = [[0.0f32; 4]; MAX_CLIP_PLANES];
-    let mut normals = [[0.0f32; 4]; MAX_CLIP_PLANES];
-    for (i, plane) in clip_planes.iter().take(MAX_CLIP_PLANES).enumerate() {
-        let mut local = *plane;
-        local.origin = std::array::from_fn(|axis| plane.origin[axis] - origin[axis]);
-        let uniform = local.to_uniform();
-        origins[i] = [uniform[0], uniform[1], uniform[2], 0.0];
-        normals[i] = [uniform[4], uniform[5], uniform[6], 0.0];
-    }
-    for plane in origins.iter().chain(normals.iter()) {
-        for value in plane {
+    for index in 0..MAX_CLIP_PLANES {
+        for value in equations.get(index).copied().unwrap_or([0.0; 4]) {
             append(value.to_le_bytes());
         }
     }
-    append((clip_planes.len().min(MAX_CLIP_PLANES) as u32).to_le_bytes());
+    append((equations.len().min(MAX_CLIP_PLANES) as u32).to_le_bytes());
     bytes
 }
 
@@ -176,9 +219,10 @@ mod tests {
                 origin: [1.0, 0.0, 0.0],
                 normal: [1.0, 0.0, 0.0],
             }],
-        );
+        )
+        .unwrap();
         assert_eq!(bytes.len() % 16, 0);
-        assert_eq!(bytes.len(), 288);
+        assert_eq!(bytes.len(), SCENE_UNIFORM_SIZE);
     }
 
     #[test]
@@ -194,9 +238,37 @@ mod tests {
             origin: [origin[0] + 0.125, origin[1] + 0.25, origin[2] - 0.5],
             normal: [1.0, 2.0, -3.0],
         };
-        let bytes = scene_uniform_bytes_relative_to(&[0.0; 16], [0.0, 1.0], 1.0, &[plane], origin);
+        let bytes =
+            scene_uniform_bytes_relative_to(&[0.0; 16], [0.0, 1.0], 1.0, &[plane], origin).unwrap();
         let read = |offset| f32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
-        assert_eq!([read(80), read(84), read(88)], [0.125, 0.25, -0.5]);
-        assert_eq!([read(176), read(180), read(184)], [1.0, 2.0, -3.0]);
+        assert_eq!([read(80), read(84), read(88)], [1.0 / 3.0, 2.0 / 3.0, -1.0]);
+        assert!((read(92) - 2.125 / 3.0).abs() < 1e-7);
+        assert_eq!(u32::from_le_bytes(bytes[176..180].try_into().unwrap()), 1);
+    }
+
+    #[test]
+    fn uniform_builders_reject_excess_and_nonfinite_planes() {
+        let plane = crate::ClipPlane {
+            origin: [0.0; 3],
+            normal: [1.0, 0.0, 0.0],
+        };
+        assert!(matches!(
+            scene_uniform_bytes(&[0.0; 16], [0.0, 1.0], 1.0, &[plane; 7]),
+            Err(crate::SceneError::ResourceLimit { .. })
+        ));
+        assert!(matches!(
+            scene_uniform_bytes(
+                &[0.0; 16],
+                [0.0, 1.0],
+                1.0,
+                &[crate::ClipPlane {
+                    normal: [f64::INFINITY; 3],
+                    ..plane
+                }]
+            ),
+            Err(crate::SceneError::InvalidClipPlane(_))
+        ));
+        assert_eq!(SCENE_UNIFORM_VERSION, 2);
+        assert_eq!(SCENE_UNIFORM_SIZE, 192);
     }
 }

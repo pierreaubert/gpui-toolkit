@@ -7,9 +7,9 @@ item requires implementation and verification evidence, not just a planned API.
 
 ## Correctness
 
-- [ ] C1: camera-relative clipping, translation invariance and precision.
-  Camera/surface/line/volume coordinates and frustum regressions are implemented.
-  Extreme plane-coefficient validation and normalization remain to be qualified.
+- [x] C1: camera-relative clipping, translation invariance and precision.
+  Validated local equations, robust coefficient rescaling, explicit precision
+  limits and CPU fallback are covered alongside the camera/frustum regressions.
 - [x] C2: coherent prepared-flow field updates and provenance.
 - [ ] C3: validity masks across transforms and rendering.
 - [ ] C4: alpha/interpolation/wireframe/line/capability/transparency semantics.
@@ -271,3 +271,50 @@ other platform hot paths and physical mobile memory/energy qualification.
   not prove correctness for those inputs. The full objective remains open.
 
 Goal turn 3: progress. No broad completion or physical power/memory claim.
+
+## Plane coefficient and presentation checkpoint
+
+- Clipping now uses `dot(local_position, normal) - offset` in every path.
+  Normals are rescaled in `f64`, local offsets use compensated products/sums,
+  and tangential origin components never cross the float boundary. Opposite-sign
+  terms cancel before an intermediate sum can overflow. Nonfinite inputs and
+  offsets beyond `f64` range return typed errors.
+- Tests rescale normals by `1e-300`/`1e300`, move the plane point by `1e12` along
+  a tangent, and give its unused axis a `1e250` coordinate. Metal and software
+  images remain identical to their respective controls; volume clipping also
+  preserves its image. Zero normals retain all points. Sufficiently distant
+  planes use finite constant half-space coefficients instead of infinities.
+- Required coefficients that underflow or become subnormal shader floats return
+  `UnsupportedPrecision`. This includes coefficients hardware may flush to zero.
+  The GPUI presentation decision selects and retains an actual software image,
+  then switches back to a custom draw when the coefficients become representable.
+  A coplanar fixture proves that ignoring the small coefficient would change
+  the selected half-surface. Invalid coefficient updates cannot partially change
+  another actor's material or the uploaded scene background.
+- Shader uniform ABI **version 2** packs six plane equations into one vector each.
+  The block is **192 bytes**, down from 288; GPU buffers, ordered staging copies
+  and the WGSL layout use the same exported size constant. Plane equations are
+  prepared on upload/clip changes and reused during camera frames.
+- GPU compatibility previously walked every cell type on each GPUI paint. It is
+  now cached by source revision. Camera and material-only updates reuse topology
+  verdicts and shared origin metadata; tests check 24 camera updates without a
+  second topology scan. Unsupported-precision verdicts are retained as well.
+- Verification: **78** scene library tests pass with required Metal, including
+  actual shader output and the window's presentation-selection path. Native
+  2×-DPI viewer interactions, pressure integration, strict Clippy, all scene
+  examples, software-only GPUI and clean wasm compilation pass. The bounded
+  release probe still reports median **2 allocations / 131,072 bytes** for warm
+  frames at 16³, 32³ and 48³. No power or mobile runtime qualification is claimed.
+- C1 is checked against its camera/coordinate/half-space requirements. The
+  separate platform qualification, data-size, material/interpolation and numeric
+  transformation requirements remain open.
+
+API migration for custom GPU hosts:
+
+- `ClipPlane::to_uniform` returns `Result<[f32; 4], SceneError>` containing
+  `[normal.xyz, offset]`; it no longer returns an origin/normal pair.
+- Public scene uniform builders return `Result` and use the 192-byte ABI.
+  Hosts must use the matching `SURFACE_WGSL`, `SCENE_UNIFORM_VERSION` and
+  `SCENE_UNIFORM_SIZE`; the plane count is at byte 176.
+
+Goal turn 4: progress. The full audit implementation remains active.

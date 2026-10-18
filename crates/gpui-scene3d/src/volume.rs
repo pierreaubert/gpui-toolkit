@@ -276,11 +276,7 @@ impl VolumeRenderer {
             min: std::array::from_fn(|axis| bounds.min[axis] - origin[axis]),
             max: std::array::from_fn(|axis| bounds.max[axis] - origin[axis]),
         };
-        let planes: smallvec::SmallVec<[ClipPlane; 6]> = options
-            .clip_planes
-            .iter()
-            .map(|plane| plane.relative_to(origin))
-            .collect();
+        let planes = crate::scene::local_planes(&options.clip_planes, origin)?;
         let diagonal = bounds.diagonal();
         let step = (diagonal * options.step_fraction).max(diagonal / 4096.0);
         let bg = options.background;
@@ -538,6 +534,42 @@ mod tests {
         .unwrap();
         let sum = |f: &Frame| -> u64 { f.rgba.iter().map(|b| u64::from(*b)).sum() };
         assert_ne!(sum(&clipped), sum(&full));
+    }
+
+    #[test]
+    fn volume_plane_equations_ignore_normal_scale_and_tangential_origins() {
+        let ds = gaussian_room();
+        let renderer = VolumeRenderer::new(&ds, "pressure").unwrap();
+        let camera = Camera::fitted(ds.bounds().unwrap());
+        let transfer = TransferFunction::viridis([0.0, 1.0]);
+        let mut options = VolumeOptions {
+            clip_planes: vec![ClipPlane {
+                origin: [0.125, 0.0, 0.0],
+                normal: [1.0, 1.0, 0.0],
+            }],
+            ..VolumeOptions::default()
+        };
+        let reference = renderer
+            .render(&transfer, &camera, 24, 24, &options)
+            .unwrap();
+        for magnitude in [1e-300, 1e300] {
+            options.clip_planes[0] = ClipPlane {
+                origin: [1e12 + 0.125, -1e12, 1e250],
+                normal: [magnitude, magnitude, 0.0],
+            };
+            assert_eq!(
+                reference.rgba,
+                renderer
+                    .render(&transfer, &camera, 24, 24, &options)
+                    .unwrap()
+                    .rgba
+            );
+        }
+        options.clip_planes[0].normal[0] = f64::NAN;
+        assert!(matches!(
+            renderer.render(&transfer, &camera, 24, 24, &options),
+            Err(SceneError::InvalidClipPlane(_))
+        ));
     }
 
     #[test]

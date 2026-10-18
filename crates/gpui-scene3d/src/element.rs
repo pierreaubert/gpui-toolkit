@@ -48,17 +48,66 @@ struct ElementState {
     gpu: Option<crate::gpu_element::RegisteredSceneDraw>,
 }
 
+enum PaintSource {
+    Image(Arc<RenderImage>),
+    #[cfg(feature = "gpui-gpu")]
+    Custom(gpui::CustomDrawId),
+}
+
 impl ElementState {
+    fn prepare(
+        &mut self,
+        scene: &Scene,
+        camera: Camera,
+        size: [u32; 2],
+        gpu_available: bool,
+    ) -> Result<PaintSource, crate::SceneError> {
+        if let Err(error) = crate::RenderLimits::default().pixel_count(size[0], size[1], 8) {
+            self.image = None;
+            #[cfg(feature = "gpui-gpu")]
+            drop(self.gpu.take());
+            return Err(error);
+        }
+        #[cfg(feature = "gpui-gpu")]
+        if gpu_available {
+            let draw = self
+                .gpu
+                .get_or_insert_with(crate::gpu_element::RegisteredSceneDraw::new);
+            match draw.update(scene, camera, size) {
+                Ok(true) => {
+                    self.image = None;
+                    return Ok(PaintSource::Custom(draw.id()));
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    self.image = None;
+                    drop(self.gpu.take());
+                    return Err(error);
+                }
+            }
+        } else {
+            drop(self.gpu.take());
+        }
+        #[cfg(not(feature = "gpui-gpu"))]
+        let _ = gpu_available;
+        self.image(scene, camera, size).map(PaintSource::Image)
+    }
+
     fn image(
         &mut self,
         scene: &Scene,
         camera: Camera,
         size: [u32; 2],
     ) -> Result<Arc<RenderImage>, crate::SceneError> {
-        if let Some((key, image)) = &self.image
-            && key.matches(scene, camera, size)?
-        {
-            return Ok(image.clone());
+        if let Some((key, image)) = &self.image {
+            match key.matches(scene, camera, size) {
+                Ok(true) => return Ok(image.clone()),
+                Ok(false) => {}
+                Err(error) => {
+                    self.image = None;
+                    return Err(error);
+                }
+            }
         }
         // Drop the previous frame before allocating a replacement.
         self.image = None;
@@ -108,28 +157,19 @@ impl SceneElement {
         };
         let camera = *self.camera.borrow();
         #[cfg(feature = "gpui-gpu")]
-        if retained
-            && gpui::wgpu_custom_draw_available()
-            && crate::gpu_element::supports(&self.scene)
-            && crate::RenderLimits::default()
-                .pixel_count(size[0], size[1], 8)
-                .is_ok()
-        {
-            state.image = None;
-            let draw = state
-                .gpu
-                .get_or_insert_with(crate::gpu_element::RegisteredSceneDraw::new);
-            if draw.update(&self.scene, camera, size).is_ok() {
-                window.paint_custom(draw.id(), bounds);
-                return;
-            }
-        }
+        let gpu_available = retained && gpui::wgpu_custom_draw_available();
         #[cfg(not(feature = "gpui-gpu"))]
-        let _ = retained;
-        #[cfg(feature = "gpui-gpu")]
-        drop(state.gpu.take());
-        if let Ok(image) = state.image(&self.scene, camera, size) {
-            let _ = window.paint_image(bounds, Corners::default(), image, 0, false);
+        let gpu_available = {
+            let _ = retained;
+            false
+        };
+        match state.prepare(&self.scene, camera, size, gpu_available) {
+            Ok(PaintSource::Image(image)) => {
+                let _ = window.paint_image(bounds, Corners::default(), image, 0, false);
+            }
+            #[cfg(feature = "gpui-gpu")]
+            Ok(PaintSource::Custom(id)) => window.paint_custom(id, bounds),
+            Err(_) => {}
         }
     }
 
@@ -225,6 +265,31 @@ mod tests {
     use super::*;
     use crate::Actor;
     use gpui_mesh::DataSet;
+
+    #[test]
+    #[cfg(feature = "gpui-gpu")]
+    fn actual_presentation_decision_uses_and_retains_precision_fallback_image() {
+        let mut scene = crate::scene::coefficient_sensitive_scene();
+        let camera = Camera::fitted(scene.bounds().unwrap());
+        let mut state = ElementState::default();
+        let PaintSource::Image(first) = state.prepare(&scene, camera, [32, 32], true).unwrap()
+        else {
+            panic!("precision fallback must paint an image");
+        };
+        let PaintSource::Image(second) = state.prepare(&scene, camera, [32, 32], true).unwrap()
+        else {
+            panic!("cached fallback must paint an image");
+        };
+        assert!(Arc::ptr_eq(&first, &second));
+        scene.actors[0].clip_planes[0].normal = [0.0, 1.0, 0.0];
+        let PaintSource::Custom(id) = state.prepare(&scene, camera, [32, 32], true).unwrap() else {
+            panic!("representable clipping returns to GPU presentation");
+        };
+        assert!(state.image.is_none());
+        assert!(gpui::lookup_custom_draw(id).is_some());
+        drop(state);
+        assert!(gpui::lookup_custom_draw(id).is_none());
+    }
 
     #[test]
     fn retained_images_reuse_static_content_and_replace_changed_frames() {

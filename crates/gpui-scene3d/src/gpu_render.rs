@@ -2,7 +2,7 @@
 //!
 //! A [`GpuScene`] uploads every actor's prepared chunks (positions,
 //! normals, scalars, indices) and colour LUT once. Afterwards, drawing a
-//! frame only rewrites the 288-byte per-actor uniform block (camera and
+//! frame only rewrites the 192-byte per-actor uniform block (camera and
 //! clip planes): geometry never returns to the CPU, which is the whole
 //! point on Metal / CUDA-class adapters. Hosts present the target texture
 //! themselves (surface or GPUI custom draw); the native `read_rgba` method
@@ -15,7 +15,10 @@ use crate::Frame;
 use crate::camera::Camera;
 use crate::retained::SceneRevision;
 use crate::scene::Scene;
-use crate::shaders::{SURFACE_WGSL, scene_uniform_block_relative_to};
+use crate::shaders::{
+    PackedClipPlanes, SCENE_UNIFORM_SIZE, SURFACE_WGSL, packed_clip_planes,
+    scene_uniform_block_with_equations,
+};
 use crate::{RenderLimits, SceneError};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
@@ -54,6 +57,8 @@ struct GpuActor {
     scalar_range: [f32; 2],
     opacity: f32,
     clip_planes: Vec<crate::scene::ClipPlane>,
+    clip_coefficients: PackedClipPlanes,
+    origin: [f64; 3],
     transparent: bool,
     distance: f64,
     lut: wgpu::Texture,
@@ -326,6 +331,7 @@ impl GpuRenderer {
     ///
     /// Returns [`SceneError`] when an actor references a missing field.
     pub fn upload(&self, scene: &Scene) -> Result<GpuScene, GpuRenderError> {
+        scene.validate_clipping()?;
         for actor in scene.actors.iter().filter(|actor| actor.visible) {
             if actor.wireframe {
                 return Err(GpuRenderError::UnsupportedFeature("wireframe"));
@@ -353,10 +359,12 @@ impl GpuRenderer {
             .enumerate()
             .filter(|(_, actor)| actor.visible)
         {
-            let chunks = &prepared.actors[index]
+            let geometry = prepared.actors[index]
                 .as_ref()
-                .expect("visible actor prepared")
-                .chunks;
+                .expect("visible actor prepared");
+            let chunks = &geometry.chunks;
+            let origin = geometry.bounds.map_or([0.0; 3], |bounds| bounds.center());
+            let clip_coefficients = packed_clip_planes(&actor.clip_planes, origin)?;
             let mut gpu_chunks = Vec::with_capacity(chunks.len());
             for chunk in chunks {
                 if chunk.indices.is_empty() {
@@ -411,7 +419,7 @@ impl GpuRenderer {
             );
             let uniform = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("gpui-scene3d uniforms"),
-                size: 288,
+                size: SCENE_UNIFORM_SIZE as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
@@ -423,6 +431,8 @@ impl GpuRenderer {
                 scalar_range,
                 opacity: actor.opacity,
                 clip_planes: actor.clip_planes.clone(),
+                clip_coefficients,
+                origin,
                 transparent: actor.is_transparent(),
                 distance: 0.0,
                 lut,
@@ -449,6 +459,7 @@ impl GpuRenderer {
     ///
     /// Returns the same preparation errors as [`Self::upload`].
     pub fn sync(&self, uploaded: &mut GpuScene, scene: &Scene) -> Result<bool, GpuRenderError> {
+        scene.validate_clipping()?;
         if !uploaded.prepared.matches(scene)? {
             *uploaded = self.upload(scene)?;
             return Ok(true);
@@ -463,11 +474,25 @@ impl GpuRenderer {
                 "more than six clipping planes",
             ));
         }
+        // Validate every changed plane before mutating any uploaded material.
+        let mut clip_updates = smallvec::SmallVec::<[(usize, PackedClipPlanes); 4]>::new();
+        for (index, (gpu, actor)) in uploaded
+            .actors
+            .iter()
+            .zip(scene.actors.iter().filter(|actor| actor.visible))
+            .enumerate()
+        {
+            if gpu.clip_planes != actor.clip_planes {
+                clip_updates.push((index, packed_clip_planes(&actor.clip_planes, gpu.origin)?));
+            }
+        }
+        let mut clip_updates = clip_updates.into_iter().peekable();
         uploaded.background = scene.background;
-        for (gpu, actor) in uploaded
+        for (index, (gpu, actor)) in uploaded
             .actors
             .iter_mut()
             .zip(scene.actors.iter().filter(|a| a.visible))
+            .enumerate()
         {
             if gpu.transfer != actor.transfer || gpu.color != actor.color {
                 let (bytes, range) = material_lut(actor);
@@ -499,7 +524,13 @@ impl GpuRenderer {
                 gpu.color = actor.color;
             }
             gpu.opacity = actor.opacity;
-            gpu.clip_planes.clone_from(&actor.clip_planes);
+            if clip_updates
+                .peek()
+                .is_some_and(|(updated, _)| *updated == index)
+            {
+                gpu.clip_coefficients = clip_updates.next().expect("matching clip update").1;
+                gpu.clip_planes.clone_from(&actor.clip_planes);
+            }
             gpu.transparent = actor.is_transparent();
         }
         Ok(false)
@@ -662,7 +693,7 @@ impl GpuRenderer {
         if target.size.contains(&0) {
             return Err(SceneError::InvalidSize(target.size[0], target.size[1]).into());
         }
-        let uniform_bytes = (scene.actors.len() as u64).saturating_mul(288);
+        let uniform_bytes = (scene.actors.len() as u64).saturating_mul(SCENE_UNIFORM_SIZE as u64);
         if uniform_bytes > self.device.limits().max_buffer_size {
             return Err(SceneError::ResourceLimit {
                 resource: "scene uniform staging bytes",
@@ -699,22 +730,27 @@ impl GpuRenderer {
             for (index, actor) in scene.actors.iter().enumerate() {
                 if let Some(first) = actor.chunks.first() {
                     let mvp = camera.view_projection_relative_to(first.origin, aspect);
-                    let bytes = scene_uniform_block_relative_to(
+                    let bytes = scene_uniform_block_with_equations(
                         &mvp,
                         actor.scalar_range,
                         actor.opacity,
-                        &actor.clip_planes,
-                        first.origin,
+                        &actor.clip_coefficients,
                     );
                     mapped
-                        .slice(index * 288..(index + 1) * 288)
+                        .slice(index * SCENE_UNIFORM_SIZE..(index + 1) * SCENE_UNIFORM_SIZE)
                         .copy_from_slice(&bytes);
                 }
             }
             drop(mapped);
             staging.unmap();
             for (index, actor) in scene.actors.iter().enumerate() {
-                encoder.copy_buffer_to_buffer(staging, index as u64 * 288, &actor.uniform, 0, 288);
+                encoder.copy_buffer_to_buffer(
+                    staging,
+                    index as u64 * SCENE_UNIFORM_SIZE as u64,
+                    &actor.uniform,
+                    0,
+                    SCENE_UNIFORM_SIZE as u64,
+                );
             }
         }
         scene.order.sort_unstable_by(|&left, &right| {
@@ -1263,6 +1299,95 @@ mod tests {
                 reference = Some(gpu.rgba);
             }
         }
+    }
+
+    #[test]
+    fn clipping_is_invariant_to_normal_magnitude_and_distant_tangential_points() {
+        let Some(renderer) = renderer() else {
+            return;
+        };
+        let dataset = DataSet::structured_grid("equations", [3; 3], [-1.0; 3], [1.0; 3]).unwrap();
+        let mut scene =
+            Scene::new().with_actor(Actor::new(dataset).color([1.0, 0.0, 0.0, 1.0]).clip(
+                crate::ClipPlane {
+                    origin: [0.125, 0.0, 0.0],
+                    normal: [1.0, 1.0, 0.0],
+                },
+            ));
+        let camera = Camera::fitted(scene.bounds().unwrap());
+        let target = renderer.create_target(64, 64).unwrap();
+        let mut uploaded = renderer.upload(&scene).unwrap();
+        renderer.render(&mut uploaded, &camera, &target).unwrap();
+        let reference_gpu = renderer.read_rgba(&target).unwrap();
+        let reference_cpu = crate::render(&scene, &camera, 64, 64).unwrap();
+        for magnitude in [1e-300, 1.0, 1e300] {
+            for tangent in [0.0, 1e12] {
+                scene.actors[0].clip_planes[0] = crate::ClipPlane {
+                    origin: [tangent + 0.125, -tangent, 1e250],
+                    normal: [magnitude, magnitude, 0.0],
+                };
+                assert!(!renderer.sync(&mut uploaded, &scene).unwrap());
+                renderer.render(&mut uploaded, &camera, &target).unwrap();
+                assert_eq!(
+                    reference_gpu.rgba,
+                    renderer.read_rgba(&target).unwrap().rgba
+                );
+                assert_eq!(
+                    reference_cpu.rgba,
+                    crate::render(&scene, &camera, 64, 64).unwrap().rgba
+                );
+            }
+        }
+        scene.actors[0].clip_planes.clear();
+        renderer.sync(&mut uploaded, &scene).unwrap();
+        renderer.render(&mut uploaded, &camera, &target).unwrap();
+        let full_gpu = renderer.read_rgba(&target).unwrap();
+        let full_cpu = crate::render(&scene, &camera, 64, 64).unwrap();
+        for (origin, normal, keep) in [
+            ([1e250, 0.0, 0.0], [1.0, 0.0, 0.0], false),
+            ([1e250, 0.0, 0.0], [-1.0, 0.0, 0.0], true),
+            ([1e250; 3], [0.0; 3], true),
+        ] {
+            scene.actors[0].clip_planes = vec![crate::ClipPlane { origin, normal }];
+            renderer.sync(&mut uploaded, &scene).unwrap();
+            renderer.render(&mut uploaded, &camera, &target).unwrap();
+            let gpu = renderer.read_rgba(&target).unwrap();
+            let cpu = crate::render(&scene, &camera, 64, 64).unwrap();
+            if keep {
+                assert_eq!(full_gpu.rgba, gpu.rgba);
+                assert_eq!(full_cpu.rgba, cpu.rgba);
+            } else {
+                assert!(gpu.rgba.chunks_exact(4).all(|p| p[0] < 30));
+                assert!(cpu.rgba.chunks_exact(4).all(|p| p[0] < 30));
+            }
+        }
+    }
+
+    #[test]
+    fn unsupported_clip_precision_does_not_partially_update_other_materials() {
+        let Some(renderer) = renderer() else {
+            return;
+        };
+        let mut scene = crate::scene::translated_clipped_scene(0.0);
+        let camera = Camera::fitted(scene.bounds().unwrap());
+        let mut uploaded = renderer.upload(&scene).unwrap();
+        let target = renderer.create_target(64, 64).unwrap();
+        renderer.render(&mut uploaded, &camera, &target).unwrap();
+        let before = renderer.read_rgba(&target).unwrap();
+        scene.background = [1.0; 4];
+        scene.actors[0].color = [0.0, 0.0, 1.0, 1.0];
+        scene.actors[1].clip_planes[0].normal = [1.0, 1e-100, 0.0];
+        assert!(matches!(
+            renderer.sync(&mut uploaded, &scene),
+            Err(GpuRenderError::Scene(SceneError::UnsupportedPrecision(_)))
+        ));
+        renderer.render(&mut uploaded, &camera, &target).unwrap();
+        assert_eq!(before.rgba, renderer.read_rgba(&target).unwrap().rgba);
+        let sensitive = crate::scene::coefficient_sensitive_scene();
+        assert!(matches!(
+            renderer.upload(&sensitive),
+            Err(GpuRenderError::Scene(SceneError::UnsupportedPrecision(_)))
+        ));
     }
 
     #[test]

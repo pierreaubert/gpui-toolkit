@@ -2,7 +2,7 @@
 
 // Rust guideline compliant 2026-02-21
 
-use crate::ClipPlane;
+use crate::scene::PlaneEquation;
 use smallvec::SmallVec;
 
 #[derive(Debug, Clone, Copy)]
@@ -90,7 +90,7 @@ fn polygon_plane(poly: &Polygon, distance: impl Fn([f32; 4]) -> f64) -> Polygon 
 }
 
 #[inline]
-pub(crate) fn clip_planes(poly: &mut Polygon, planes: &[ClipPlane]) {
+pub(crate) fn clip_planes(poly: &mut Polygon, planes: &[PlaneEquation]) {
     for plane in planes {
         if poly.is_empty() {
             break;
@@ -197,7 +197,7 @@ fn segment<const N: usize>(
     Some([enter, exit].map(|t| std::array::from_fn(|axis| a[axis] + (b[axis] - a[axis]) * t)))
 }
 
-pub(crate) fn clip_line(points: [[f64; 3]; 2], planes: &[ClipPlane]) -> Option<[[f64; 3]; 2]> {
+pub(crate) fn clip_line(points: [[f64; 3]; 2], planes: &[PlaneEquation]) -> Option<[[f64; 3]; 2]> {
     segment(points, planes.len(), |point, plane| {
         planes[plane].distance(point)
     })
@@ -227,6 +227,7 @@ pub(crate) fn clip_frustum_line(points: [[f32; 4]; 2]) -> Option<[[f32; 4]; 2]> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ClipPlane;
 
     #[test]
     fn bounds_classification_is_conservative_at_frustum_boundaries() {
@@ -312,6 +313,7 @@ mod tests {
                 normal: [-1.0, 0.0, 0.0],
             },
         ];
+        let planes = crate::scene::local_planes(&planes, [0.0; 3]).unwrap();
         let points = [[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]];
         let expected = [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]];
         assert_eq!(clip_line(points, &planes).unwrap(), expected);

@@ -31,8 +31,14 @@ pub(crate) struct RenderKey {
 }
 
 impl RenderKey {
+    #[cfg(feature = "gpui-gpu")]
+    pub(crate) fn geometry_matches(&self, scene: &Scene) -> Result<bool, SceneError> {
+        self.prepared.matches(scene)
+    }
+
     pub(crate) fn new(scene: &Scene, camera: Camera, size: [u32; 2]) -> Result<Self, SceneError> {
         camera.validate()?;
+        scene.validate_clipping()?;
         Ok(Self {
             prepared: SceneRevision::new(scene)?,
             camera,

@@ -67,6 +67,12 @@ pub enum SceneError {
     /// Camera parameters cannot define a finite visible frustum.
     #[error("invalid scene camera: {0}")]
     InvalidCamera(&'static str),
+    /// A plane contains nonfinite or unrepresentable coefficients.
+    #[error("invalid clipping plane: {0}")]
+    InvalidClipPlane(&'static str),
+    /// A backend cannot retain a required nonzero coefficient.
+    #[error("unsupported rendering precision: {0}")]
+    UnsupportedPrecision(&'static str),
     /// A requested resource exceeds the host's working-set allowance.
     #[error("{resource} requires {requested}, limit is {limit}")]
     ResourceLimit {

@@ -93,6 +93,7 @@ pub fn render_with_limits(
     limits: RenderLimits,
 ) -> Result<Frame, SceneError> {
     camera.validate()?;
+    scene.validate_clipping()?;
     let pixels = limits.pixel_count(width, height, 8)?;
     let prepared = scene.prepare()?;
     let bg = scene.background;
@@ -126,7 +127,7 @@ pub fn render_with_limits(
             false,
             &mut depth,
             &mut rgba,
-        );
+        )?;
     }
     // Transparent actors back-to-front by bounds-centre distance.
     let mut transparent: Vec<(usize, &crate::scene::Actor)> = scene
@@ -159,7 +160,7 @@ pub fn render_with_limits(
             true,
             &mut depth,
             &mut rgba,
-        );
+        )?;
     }
     Ok(Frame {
         width,
@@ -200,7 +201,7 @@ fn draw_actor(
     blend: bool,
     depth: &mut [f32],
     rgba: &mut [u8],
-) {
+) -> Result<(), SceneError> {
     let transfer = actor.active_transfer();
     // Screen triangles with their mean depth, for transparent sorting.
     let mut triangles: Vec<ScreenTriangle> = Vec::new();
@@ -215,11 +216,7 @@ fn draw_actor(
         if visibility == BoundsVisibility::Outside {
             continue;
         }
-        let planes: SmallVec<[crate::ClipPlane; 6]> = actor
-            .clip_planes
-            .iter()
-            .map(|plane| plane.relative_to(chunk.origin))
-            .collect();
+        let planes = crate::scene::local_planes(&actor.clip_planes, chunk.origin)?;
         for tri in chunk.indices.as_chunks::<3>().0 {
             if tri
                 .iter()
@@ -332,8 +329,9 @@ fn draw_actor(
     }
     // Line cells (streamlines, glyphs) draw as 1px projected segments.
     if !geometry.lines.is_empty() {
-        draw_lines(actor, &geometry.lines, camera, width, height, depth, rgba);
+        draw_lines(actor, &geometry.lines, camera, width, height, depth, rgba)?;
     }
+    Ok(())
 }
 
 /// Clips and projects line cells before performing bounded screen-space work.
@@ -345,15 +343,11 @@ fn draw_lines(
     height: u32,
     depth: &mut [f32],
     rgba: &mut [u8],
-) {
+) -> Result<(), SceneError> {
     let dataset = &actor.dataset;
     let origin = camera.target;
     let matrix = camera.view_projection_relative_to(origin, width as f32 / height as f32);
-    let planes: SmallVec<[crate::ClipPlane; 6]> = actor
-        .clip_planes
-        .iter()
-        .map(|plane| plane.relative_to(origin))
-        .collect();
+    let planes = crate::scene::local_planes(&actor.clip_planes, origin)?;
     let colour = [
         (actor.color[0].clamp(0.0, 1.0) * 255.0) as u8,
         (actor.color[1].clamp(0.0, 1.0) * 255.0) as u8,
@@ -403,6 +397,7 @@ fn draw_lines(
             }
         }
     }
+    Ok(())
 }
 
 fn shade_with_normal(colour: [f32; 4], n: [f32; 3], light: [f32; 3]) -> [u8; 4] {
@@ -693,6 +688,17 @@ mod tests {
             render(&Scene::new(), &invalid, 48, 48),
             Err(SceneError::InvalidCamera(_))
         ));
+    }
+
+    #[test]
+    fn nonfinite_planes_are_rejected_before_geometry_preparation() {
+        let mut scene = crate::scene::translated_clipped_scene(0.0);
+        scene.actors[0].clip_planes[0].origin[0] = f64::NAN;
+        assert!(matches!(
+            render(&scene, &Camera::default(), 32, 32),
+            Err(SceneError::InvalidClipPlane(_))
+        ));
+        assert_eq!(scene.preparation_stats().geometry_builds, 0);
     }
 
     #[test]
