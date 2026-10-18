@@ -649,3 +649,35 @@ two native test allocator dependency edges; no production dependency is added.
 Flow checkpoint full-core verification completed: 66 transformation, 15 mesh and
 91 scene library tests, thirteen public validity/flow tests, allocation contracts
 and pressure/large-dataset integrations pass with Metal required.
+
+## Streaming CPU Jacobians checkpoint
+
+- CPU flow now streams one tetrahedral stencil at a time in deterministic cell
+  order. It no longer materializes tetrahedra, gradients, worker results or
+  scoped worker threads. The required per-point accumulator remains 80 bytes per
+  point; returned fields and their Arc conversions add output-proportional
+  allocations. This bounds scratch by point count, not by tetrahedron count.
+- Each stencil reuses one adjugate for all three velocity components rather than
+  repeatedly solving by Cramer's rule. Its volume-weighted Jacobian is computed
+  once before contributing to its four nodes. Ordinary final normalization
+  reuses a normal reciprocal; extreme reciprocals retain division. This changes
+  floating-point rounding, so bit identity with the old algorithm is not claimed.
+  Existing numerical scale limits remain C4 work.
+- Independent tests check a non-axis-aligned affine field under orientation
+  reversal, translation and rescaling, plus unequal adjacent volumes with
+  different gradients. The latter verifies that Jacobians are averaged before
+  the nonlinear Q diagnostic. A fixed four-point allocation contract holds from
+  one to 20,000 repeated cells: no cell-count-dependent temporary allocation.
+- `qa/perf/20261019-flow-streaming-paired.json` compares preserved release binaries
+  from `63350761` with the new source. Baseline source hashes were verified before
+  editing; probe source is identical. Allocator-disabled ABBA runs are repeated
+  twice, with separate allocation runs and analytic checks outside timing. At
+  48³, combined diagnostics improve from 12.52 to 9.22 ms (26.3% less wall time),
+  with 18 versus 98 calls and 17.70 MB versus 144.11 MB allocated (87.7% less).
+  The separate-operation chain improves from 34.89 to 24.85 ms. Worker aggregate
+  CPU time, energy, peak RSS and mobile thermal behavior are not measured.
+- Required-Metal full-core verification passes: 66 transformation, 15 mesh and
+  91 scene library tests, fifteen public validity/flow tests, allocation contracts
+  and pressure/large-dataset integrations. Transformation all-target Clippy and
+  the core wasm closure pass. C3/P1/P2 remain unchecked: other validity consumers,
+  GPU adjacency/staging budgets and the broader retention work are still open.

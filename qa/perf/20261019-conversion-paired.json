@@ -2,7 +2,7 @@
   "kind": "bounded conversion diagnostic; allocator-disabled CPU timing, separate allocation builds; no mobile/full-frame/energy acceptance claim",
   "captured_utc": "2026-10-18T23:33:32.801075+00:00",
   "baseline_commit": "e812e685",
-  "candidate": "pending conversion/decomposition checkpoint",
+  "candidate": "c24a06b5",
   "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
   "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
   "features": {

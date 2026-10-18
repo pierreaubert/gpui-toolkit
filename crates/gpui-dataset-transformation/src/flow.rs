@@ -12,27 +12,6 @@ use gpui_mesh::{Association, DataSet, Field};
 
 use gpui_mesh::tetrahedra as tetrahedralize;
 
-/// Solves a 3x3 system by Cramer's rule; `None` for a singular matrix.
-fn solve3(m: [[f64; 3]; 3], rhs: [f64; 3]) -> Option<[f64; 3]> {
-    let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
-        - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
-        + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
-    if det.abs() < 1e-300 {
-        return None;
-    }
-    let replace = |col: usize| {
-        let mut mm = m;
-        for row in 0..3 {
-            mm[row][col] = rhs[row];
-        }
-        (mm[0][0] * (mm[1][1] * mm[2][2] - mm[1][2] * mm[2][1])
-            - mm[0][1] * (mm[1][0] * mm[2][2] - mm[1][2] * mm[2][0])
-            + mm[0][2] * (mm[1][0] * mm[2][1] - mm[1][1] * mm[2][0]))
-            / det
-    };
-    Some([replace(0), replace(1), replace(2)])
-}
-
 /// Per-point velocity Jacobian `J[component][axis]`, volume-weighted.
 ///
 /// Returns `(jacobian, volume)` per point; volume is the accumulated
@@ -42,44 +21,44 @@ fn point_jacobian(
     field: &Field,
     vectors: &[[f64; 3]],
 ) -> Vec<([[f64; 3]; 3], f64)> {
-    // Gather every tetrahedron first; per-tet gradients are computed in
-    // parallel, then accumulated sequentially in cell order so results
-    // are bit-identical to the sequential version.
-    let mut tets: Vec<[u32; 4]> = Vec::new();
+    // Stream stencils in cell order. Scratch depends only on point count:
+    // neither tetrahedra nor per-element gradients are materialized.
+    let mut acc = vec![([[0.0; 3]; 3], 0.0f64); dataset.point_count()];
     for cell in 0..dataset.cell_count() {
         let kind = dataset.cells.types[cell];
         if !kind.is_volume() {
             continue;
         }
         let nodes = dataset.cells.cell(cell).unwrap_or(&[]);
-        tets.extend(tetrahedralize(kind, nodes).filter(|tet| {
-            field.valid.is_none() || tet.iter().all(|&node| field.is_valid(node as usize))
-        }));
-    }
-    let gradients = crate::parallel::parallel_map(tets.len(), |index| {
-        let tet = tets[index];
-        tet_jacobian(dataset, vectors, tet)
-    });
-    let mut acc = vec![([[0.0; 3]; 3], 0.0f64); dataset.point_count()];
-    for (tet, gradient) in tets.iter().zip(gradients.iter()) {
-        let Some((jac, volume)) = gradient else {
-            continue;
-        };
-        for &node in tet {
-            let entry = &mut acc[node as usize];
-            for (component, row) in jac.iter().enumerate() {
-                for (axis, value) in row.iter().enumerate() {
-                    entry.0[component][axis] += value * volume;
-                }
+        for tet in tetrahedralize(kind, nodes) {
+            if field.valid.is_some() && !tet.iter().all(|&node| field.is_valid(node as usize)) {
+                continue;
             }
-            entry.1 += volume;
+            let Some((jac, volume)) = tet_jacobian(dataset, vectors, tet) else {
+                continue;
+            };
+            let weighted = jac.map(|row| row.map(|value| value * volume));
+            for node in tet {
+                let entry = &mut acc[node as usize];
+                for (component, row) in weighted.iter().enumerate() {
+                    for (axis, value) in row.iter().enumerate() {
+                        entry.0[component][axis] += value;
+                    }
+                }
+                entry.1 += volume;
+            }
         }
     }
     for (jac, volume) in &mut acc {
         if *volume > 0.0 {
+            let inverse = 1.0 / *volume;
             for row in jac.iter_mut() {
                 for value in row.iter_mut() {
-                    *value /= *volume;
+                    *value = if inverse.is_normal() {
+                        *value * inverse
+                    } else {
+                        *value / *volume
+                    };
                 }
             }
         }
@@ -112,10 +91,24 @@ fn tet_jacobian(
     if !volume.is_finite() || volume < 1e-300 {
         return None;
     }
-    let mt = [
+    let edges = [
         [m[0][0], m[1][0], m[2][0]],
         [m[0][1], m[1][1], m[2][1]],
         [m[0][2], m[1][2], m[2][2]],
+    ];
+    let cross = |a: [f64; 3], b: [f64; 3]| {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    };
+    // Reuse the adjugate for all three velocity components. Dividing the
+    // final numerator avoids an overflowing inverse determinant on tiny cells.
+    let cofactors = [
+        cross(edges[1], edges[2]),
+        cross(edges[2], edges[0]),
+        cross(edges[0], edges[1]),
     ];
     let mut jac = [[0.0; 3]; 3];
     for component in 0..3 {
@@ -125,7 +118,12 @@ fn tet_jacobian(
             vectors[tet[2] as usize][component] - v0,
             vectors[tet[3] as usize][component] - v0,
         ];
-        jac[component] = solve3(mt, dv)?;
+        for axis in 0..3 {
+            jac[component][axis] = (cofactors[0][axis] * dv[0]
+                + cofactors[1][axis] * dv[1]
+                + cofactors[2][axis] * dv[2])
+                / det;
+        }
     }
     jac.iter()
         .flatten()

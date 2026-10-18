@@ -1,16 +1,18 @@
-//! Native conversion allocation contracts, measured in one serial process.
+//! Native conversion/flow allocation contracts, measured in one serial process.
 
 #![cfg(not(target_family = "wasm"))]
 
 // Rust guideline compliant 2026-02-21
 
-use gpui_dataset_transformation::{cell_data_to_point_data, point_data_to_cell_data};
-use gpui_mesh::{Association, DataSet, Field};
+use gpui_dataset_transformation::{
+    cell_data_to_point_data, flow_diagnostics, point_data_to_cell_data,
+};
+use gpui_mesh::{Association, CellType, Cells, DataSet, Field};
 use gpui_profiler::{AllocProbe, AllocationBudget};
 use std::hint::black_box;
 
 #[test]
-fn conversion_allocation_count_does_not_grow_with_cell_count() {
+fn allocation_cost_is_bounded_by_outputs_and_points_without_per_cell_scratch() {
     if std::env::var_os("CARGO_LLVM_COV").is_some() {
         return;
     }
@@ -51,5 +53,33 @@ fn conversion_allocation_count_does_not_grow_with_cell_count() {
             .assert_contains(allocations);
         let field = output.field(Association::Point, "mean").unwrap();
         assert!((0..points).all(|index| !field.is_valid(index)));
+    }
+    for cells in [1, 20_000] {
+        let nodes = [0, 1, 2, 3];
+        let connectivity = vec![(CellType::Tetra, nodes.as_slice()); cells];
+        let dataset = DataSet::new(
+            "flow-scratch",
+            vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            Cells::from_cells(&connectivity),
+        )
+        .with_field(Field::vector(
+            "velocity",
+            vec![[0.0; 3], [0.0, 2.0, 0.0], [-2.0, 0.0, 0.0], [0.0; 3]],
+        ));
+        let mut probe = AllocProbe::new();
+        probe.reset();
+        let output = black_box(flow_diagnostics(&dataset, "velocity").unwrap());
+        let allocations = probe.sample("flow-point-scratch");
+        AllocationBudget::new("flow-point-scratch", 32, 8192).assert_contains(allocations);
+        output.validate().unwrap();
+        assert!(
+            output
+                .field(Association::Point, "vorticity")
+                .unwrap()
+                .as_vector()
+                .unwrap()
+                .iter()
+                .all(|v| (v[2] - 4.0).abs() < 1e-9)
+        );
     }
 }

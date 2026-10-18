@@ -39,6 +39,95 @@ fn rotating(masked: f64) -> DataSet {
 }
 
 #[test]
+fn skewed_affine_cells_preserve_gradient_under_orientation_translation_and_scaling() {
+    for scale in [0.125, 1.0, 8.0] {
+        for origin in [0.0, 1e6] {
+            for nodes in [[0, 1, 2, 3], [0, 2, 1, 3]] {
+                let positions = [[0.0; 3], [2.0, 0.5, 0.25], [1.0, 3.0, 0.5], [0.5, 1.0, 4.0]]
+                    .map(|p| p.map(|v| origin + scale * v));
+                let vectors = positions.map(|p| {
+                    [
+                        p[0] + 2.0 * p[1] + 3.0 * p[2] + 0.25,
+                        4.0 * p[0] + 5.0 * p[1] + 6.0 * p[2] - 0.5,
+                        7.0 * p[0] + 8.0 * p[1] + 9.0 * p[2] + 1.0,
+                    ]
+                });
+                let dataset = DataSet::new(
+                    "affine",
+                    positions.to_vec(),
+                    Cells::from_cells(&[(CellType::Tetra, &nodes)]),
+                )
+                .with_field(Field::vector("velocity", vectors.to_vec()));
+                let output = flow_diagnostics(&dataset, "velocity").unwrap();
+                output.validate().unwrap();
+                let curl = output.field(Association::Point, "vorticity").unwrap();
+                let q = output.field(Association::Point, "q_criterion").unwrap();
+                let div = output.field(Association::Point, "divergence").unwrap();
+                for point in 0..4 {
+                    assert!(curl.is_valid(point) && q.is_valid(point) && div.is_valid(point));
+                    for (actual, expected) in curl.as_vector().unwrap()[point]
+                        .iter()
+                        .zip([2.0, -4.0, 2.0])
+                    {
+                        assert!((actual - expected).abs() < 1e-10);
+                    }
+                    assert!((q.as_scalar().unwrap()[point] + 130.5).abs() < 1e-10);
+                    assert!((div.as_scalar().unwrap()[point] - 15.0).abs() < 1e-10);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn unequal_incident_volumes_average_jacobians_before_nonlinear_diagnostics() {
+    let dataset = DataSet::new(
+        "unequal-volumes",
+        vec![
+            [0.0; 3],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, -2.0],
+        ],
+        Cells::from_cells(&[
+            (CellType::Tetra, &[0, 1, 2, 3]),
+            (CellType::Tetra, &[0, 2, 1, 4]),
+        ]),
+    )
+    .with_field(Field::vector(
+        "velocity",
+        vec![
+            [0.0; 3],
+            [1.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [0.0, 0.0, 3.0],
+            [0.0, 0.0, -10.0],
+        ],
+    ));
+    let output = flow_diagnostics(&dataset, "velocity").unwrap();
+    output.validate().unwrap();
+    let div = output
+        .field(Association::Point, "divergence")
+        .unwrap()
+        .as_scalar()
+        .unwrap();
+    let q = output
+        .field(Association::Point, "q_criterion")
+        .unwrap()
+        .as_scalar()
+        .unwrap();
+    for point in 0..3 {
+        assert!((div[point] - 22.0 / 3.0).abs() < 1e-12);
+        assert!((q[point] + 107.0 / 9.0).abs() < 1e-12);
+    }
+    assert_eq!(div[3], 6.0);
+    assert_eq!(div[4], 8.0);
+    assert_eq!(q[3], -7.0);
+    assert_eq!(q[4], -15.0);
+}
+
+#[test]
 fn diagnostics_require_complete_stencils_and_mark_unsupported_points_missing() {
     for missing in [99.0, f64::NAN] {
         let dataset = rotating(missing);

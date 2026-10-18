@@ -1,0 +1,1777 @@
+{
+  "kind": "bounded CPU streaming Jacobian comparison; host wall time and separate allocated bytes, not a mobile/energy acceptance gate",
+  "captured_utc": "2026-10-18T23:43:21.187423+00:00",
+  "baseline_commit": "63350761",
+  "candidate": "streaming Jacobian candidate identified by source_sha256",
+  "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "methodology": "Preserved release baseline binaries were verified against committed source hashes before editing. Identical probe source, allocator-disabled timing, four processes/version, ABBA twice; alternating per-process case order. Each case has a warmup and five samples at 16/32/48 cubed grids. Analytic output checks and output destruction are outside timing. Separate allocation builds supply allocated bytes, not peak RSS. Baseline gradient workers use scoped threads; candidate streams on one thread. Wall time does not measure aggregate worker CPU time; host affinity, thermal state and energy are uncontrolled.",
+  "probe_source": "use gpui_dataset_transformation::{divergence, flow_diagnostics, q_criterion, vorticity};\nuse gpui_mesh::{Association, DataSet, Field};\nuse gpui_profiler::AllocProbe;\nuse std::{hint::black_box, time::Instant};\n\nfn check(output: &DataSet) {\n    output.validate().unwrap();\n    for name in [\"vorticity\", \"q_criterion\", \"divergence\"] {\n        let field = output.field(Association::Point, name).unwrap();\n        assert!(field.valid.is_none());\n        match name {\n            \"vorticity\" => assert!(field.as_vector().unwrap().iter().all(|v| v[0].abs() < 1e-10 && v[1].abs() < 1e-10 && (v[2] - 4.0).abs() < 1e-10)),\n            \"q_criterion\" => assert!(field.as_scalar().unwrap().iter().all(|q| (q - 4.0).abs() < 1e-10)),\n            _ => assert!(field.as_scalar().unwrap().iter().all(|d| d.abs() < 1e-10)),\n        }\n    }\n}\n\nfn main() {\n    let reverse = std::env::args().nth(1).as_deref() == Some(\"reverse\");\n    for n in [16usize, 32, 48] {\n        let dataset = DataSet::structured_grid(\"flow\", [n; 3], [0.0; 3], [0.5; 3]).unwrap();\n        let vectors = dataset.positions.iter().map(|p| [-2.0 * p[1], 2.0 * p[0], 0.0]).collect::<Vec<_>>();\n        let dataset = dataset.with_field(Field::vector(\"velocity\", vectors));\n        let order = if reverse { [\"combined\", \"separate_chain\"] } else { [\"separate_chain\", \"combined\"] };\n        for case in order {\n            let operation = || if case == \"combined\" {\n                flow_diagnostics(&dataset, \"velocity\").unwrap()\n            } else {\n                let output = vorticity(&dataset, \"velocity\", \"vorticity\").unwrap();\n                let output = q_criterion(&output, \"velocity\", \"q_criterion\").unwrap();\n                divergence(&output, \"velocity\", \"divergence\").unwrap()\n            };\n            let warm = black_box(operation()); check(&warm); drop(warm);\n            let mut times = Vec::with_capacity(5);\n            let mut counts = Vec::with_capacity(5);\n            let mut bytes = Vec::with_capacity(5);\n            for _ in 0..5 {\n                let mut probe = AllocProbe::new();\n                let start = Instant::now();\n                let output = black_box(operation());\n                let elapsed = start.elapsed().as_nanos();\n                let sample = probe.sample(\"flow\");\n                times.push(elapsed); counts.push(sample.count); bytes.push(sample.bytes);\n                check(&output); drop(output);\n            }\n            println!(r#\"{{\"n\":{n},\"case\":\"{case}\",\"times_ns\":{times:?},\"allocation_calls\":{counts:?},\"allocated_bytes\":{bytes:?},\"allocator_instrumentation\":{}}}\"#, cfg!(feature=\"allocations\"));\n        }\n    }\n}\n",
+  "source_sha256": {
+    "baseline": {
+      "crates/gpui-dataset-transformation/src/flow.rs": "5a3adf34516fe303b3ef295bbda3af9180666274dadee49e7131e8624da2a5dc",
+      "crates/gpui-dataset-transformation/src/parallel.rs": "a92ad0aa307eb6ed4a0d863062cba5366feb5a187e2bec2a098f21c4be498a5e",
+      "crates/gpui-dataset-transformation/src/validity.rs": "8aeada8b386384af2749580f6ee16004cd796a5273212e1c3692d4b7f9421c51",
+      "crates/gpui-mesh/src/dataset.rs": "9a8627bf7609b95dd181d97fd87e5e1d699faa1c5ec0d96b5201d0bbafb140dc",
+      "crates/gpui-mesh/src/decomposition.rs": "0fe536a626745c4fdf62ed824f0ec762fdac5ef2a785b23d6f7511bf978773b0"
+    },
+    "candidate": {
+      "crates/gpui-dataset-transformation/src/flow.rs": "842ee537b942e1a013e7303bd8a5cc9f5f327184d096fd6535c72786c81e05a6",
+      "crates/gpui-dataset-transformation/src/parallel.rs": "a92ad0aa307eb6ed4a0d863062cba5366feb5a187e2bec2a098f21c4be498a5e",
+      "crates/gpui-dataset-transformation/src/validity.rs": "8aeada8b386384af2749580f6ee16004cd796a5273212e1c3692d4b7f9421c51",
+      "crates/gpui-mesh/src/dataset.rs": "9a8627bf7609b95dd181d97fd87e5e1d699faa1c5ec0d96b5201d0bbafb140dc",
+      "crates/gpui-mesh/src/decomposition.rs": "0fe536a626745c4fdf62ed824f0ec762fdac5ef2a785b23d6f7511bf978773b0"
+    }
+  },
+  "binary_sha256": {
+    "baseline_timing": "f0732a45447a0c0cbbd29c4ea4b04e0f52696266000c43d0328bcb5362add651",
+    "baseline_allocations": "5d0f04e4903fcce2c5398c891014408678bcbac2ca325a07ba68950618512bd8"
+  },
+  "summary": [
+    {
+      "n": 16,
+      "case": "separate_chain",
+      "median_ns": {
+        "baseline": 1427458.0,
+        "candidate": 820374.5
+      },
+      "time_ratio": 0.5747100790356003,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 252,
+          "allocated_bytes": 13584254
+        },
+        "candidate": {
+          "allocation_calls": 27,
+          "allocated_bytes": 1312406
+        }
+      }
+    },
+    {
+      "n": 16,
+      "case": "combined",
+      "median_ns": {
+        "baseline": 526354.0,
+        "candidate": 310979.0
+      },
+      "time_ratio": 0.5908172066707957,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 93,
+          "allocated_bytes": 4746672
+        },
+        "candidate": {
+          "allocation_calls": 18,
+          "allocated_bytes": 656056
+        }
+      }
+    },
+    {
+      "n": 32,
+      "case": "separate_chain",
+      "median_ns": {
+        "baseline": 9561187.5,
+        "candidate": 7180917.0
+      },
+      "time_ratio": 0.7510486537367874,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 265,
+          "allocated_bytes": 117457598
+        },
+        "candidate": {
+          "allocation_calls": 27,
+          "allocated_bytes": 10487446
+        }
+      }
+    },
+    {
+      "n": 32,
+      "case": "combined",
+      "median_ns": {
+        "baseline": 3481791.5,
+        "candidate": 2674021.0
+      },
+      "time_ratio": 0.7680014728050201,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 98,
+          "allocated_bytes": 40900688
+        },
+        "candidate": {
+          "allocation_calls": 18,
+          "allocated_bytes": 5243576
+        }
+      }
+    },
+    {
+      "n": 48,
+      "case": "separate_chain",
+      "median_ns": {
+        "baseline": 34890833.0,
+        "candidate": 24854187.0
+      },
+      "time_ratio": 0.7123414622975611,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 267,
+          "allocated_bytes": 414641022
+        },
+        "candidate": {
+          "allocation_calls": 27,
+          "allocated_bytes": 35391126
+        }
+      }
+    },
+    {
+      "n": 48,
+      "case": "combined",
+      "median_ns": {
+        "baseline": 12520812.5,
+        "candidate": 9222937.5
+      },
+      "time_ratio": 0.7366085467696286,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 98,
+          "allocated_bytes": 144112048
+        },
+        "candidate": {
+          "allocation_calls": 18,
+          "allocated_bytes": 17695416
+        }
+      }
+    }
+  ],
+  "runs": [
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "order": "forward",
+      "records": [
+        {
+          "n": 16,
+          "case": "separate_chain",
+          "times_ns": [
+            1422458,
+            1393958,
+            1429458,
+            1380791,
+            1445959
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "combined",
+          "times_ns": [
+            526292,
+            530292,
+            525541,
+            529917,
+            495709
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "separate_chain",
+          "times_ns": [
+            9627750,
+            9679834,
+            9697292,
+            9596958,
+            9607917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "combined",
+          "times_ns": [
+            3545084,
+            3497125,
+            3612959,
+            3485875,
+            3534791
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "separate_chain",
+          "times_ns": [
+            34400375,
+            34694041,
+            34998458,
+            34760541,
+            34564541
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "combined",
+          "times_ns": [
+            12402417,
+            12359584,
+            12333792,
+            12460042,
+            12471500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "order": "reverse",
+      "records": [
+        {
+          "n": 16,
+          "case": "combined",
+          "times_ns": [
+            311375,
+            309500,
+            309291,
+            310375,
+            310500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "separate_chain",
+          "times_ns": [
+            819709,
+            821416,
+            821500,
+            815250,
+            831500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "combined",
+          "times_ns": [
+            2665250,
+            2674833,
+            2682250,
+            2673666,
+            2692958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "separate_chain",
+          "times_ns": [
+            7238583,
+            7196542,
+            7187750,
+            7142708,
+            7137583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "combined",
+          "times_ns": [
+            9210833,
+            9224417,
+            9208625,
+            9261000,
+            9218583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "separate_chain",
+          "times_ns": [
+            24826584,
+            24774750,
+            24781750,
+            24748000,
+            24775292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "order": "forward",
+      "records": [
+        {
+          "n": 16,
+          "case": "separate_chain",
+          "times_ns": [
+            822583,
+            828042,
+            823084,
+            827625,
+            821625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "combined",
+          "times_ns": [
+            313959,
+            310958,
+            310959,
+            310500,
+            309417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "separate_chain",
+          "times_ns": [
+            7184125,
+            7176041,
+            7174084,
+            7173083,
+            7171458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "combined",
+          "times_ns": [
+            2666625,
+            2673750,
+            2695166,
+            2689042,
+            2693375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "separate_chain",
+          "times_ns": [
+            24965334,
+            24845958,
+            24853291,
+            24840500,
+            25102958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "combined",
+          "times_ns": [
+            9305250,
+            9234625,
+            9211458,
+            9222708,
+            9276125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "order": "reverse",
+      "records": [
+        {
+          "n": 16,
+          "case": "combined",
+          "times_ns": [
+            552834,
+            540958,
+            518584,
+            557375,
+            517250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "separate_chain",
+          "times_ns": [
+            1677083,
+            1404375,
+            1459250,
+            1434458,
+            1464542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "combined",
+          "times_ns": [
+            3604000,
+            3506583,
+            3474458,
+            3506125,
+            3559833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "separate_chain",
+          "times_ns": [
+            9662375,
+            9748625,
+            9779041,
+            9752250,
+            9735041
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "combined",
+          "times_ns": [
+            12748708,
+            12592375,
+            12445000,
+            12431250,
+            12448375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "separate_chain",
+          "times_ns": [
+            35087625,
+            35134250,
+            35388750,
+            34757541,
+            34843042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "order": "forward",
+      "records": [
+        {
+          "n": 16,
+          "case": "separate_chain",
+          "times_ns": [
+            1489625,
+            1421500,
+            1415541,
+            1388083,
+            1459667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "combined",
+          "times_ns": [
+            573416,
+            521042,
+            517875,
+            526958,
+            511208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "separate_chain",
+          "times_ns": [
+            9494625,
+            9453875,
+            9403208,
+            9536708,
+            10155500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "combined",
+          "times_ns": [
+            3366583,
+            3315042,
+            3332417,
+            3322167,
+            3347958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "separate_chain",
+          "times_ns": [
+            33360458,
+            32988500,
+            33505459,
+            34764042,
+            34589500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "combined",
+          "times_ns": [
+            12674333,
+            12984459,
+            12612125,
+            12358750,
+            12421708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "order": "reverse",
+      "records": [
+        {
+          "n": 16,
+          "case": "combined",
+          "times_ns": [
+            314458,
+            310250,
+            321042,
+            311083,
+            312250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "separate_chain",
+          "times_ns": [
+            819250,
+            818834,
+            819500,
+            819084,
+            817542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "combined",
+          "times_ns": [
+            2655542,
+            2659542,
+            2648083,
+            2650500,
+            2653292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "separate_chain",
+          "times_ns": [
+            7272042,
+            7145083,
+            7112583,
+            7123208,
+            7113209
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "combined",
+          "times_ns": [
+            9191667,
+            9194417,
+            9212625,
+            9208125,
+            9196958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "separate_chain",
+          "times_ns": [
+            24779084,
+            24841750,
+            25127708,
+            25401500,
+            26050417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "order": "forward",
+      "records": [
+        {
+          "n": 16,
+          "case": "separate_chain",
+          "times_ns": [
+            819333,
+            821250,
+            814500,
+            819833,
+            816250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "combined",
+          "times_ns": [
+            312042,
+            311625,
+            310375,
+            310958,
+            311000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "separate_chain",
+          "times_ns": [
+            7226500,
+            7238083,
+            7151167,
+            7235375,
+            7166250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "combined",
+          "times_ns": [
+            2669666,
+            2673209,
+            2674667,
+            2676500,
+            2669083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "separate_chain",
+          "times_ns": [
+            24814750,
+            25652417,
+            25430458,
+            24855083,
+            24773875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "combined",
+          "times_ns": [
+            9210125,
+            9227292,
+            9211083,
+            9232084,
+            9253709
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "order": "reverse",
+      "records": [
+        {
+          "n": 16,
+          "case": "combined",
+          "times_ns": [
+            564291,
+            526416,
+            531667,
+            518500,
+            520041
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "separate_chain",
+          "times_ns": [
+            1405125,
+            1422167,
+            1596375,
+            1432458,
+            1462833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "combined",
+          "times_ns": [
+            3691125,
+            3457000,
+            3610833,
+            3418333,
+            3377584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "case": "separate_chain",
+          "times_ns": [
+            9367917,
+            9519333,
+            9768917,
+            9417042,
+            9461958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "combined",
+          "times_ns": [
+            12585083,
+            12892459,
+            12574750,
+            12709750,
+            12593250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "case": "separate_chain",
+          "times_ns": [
+            36067042,
+            35280209,
+            35436833,
+            34674167,
+            35615292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "allocations",
+      "order": "forward",
+      "records": [
+        {
+          "n": 16,
+          "case": "separate_chain",
+          "times_ns": [
+            1399083,
+            1490250,
+            1569458,
+            1466334,
+            1434542
+          ],
+          "allocation_calls": [
+            252,
+            252,
+            252,
+            252,
+            252
+          ],
+          "allocated_bytes": [
+            13584254,
+            13584254,
+            13584254,
+            13584254,
+            13584254
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "combined",
+          "times_ns": [
+            510833,
+            500333,
+            514000,
+            527500,
+            504625
+          ],
+          "allocation_calls": [
+            93,
+            93,
+            93,
+            93,
+            93
+          ],
+          "allocated_bytes": [
+            4746672,
+            4746672,
+            4746672,
+            4746672,
+            4746672
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "case": "separate_chain",
+          "times_ns": [
+            9464667,
+            9512541,
+            9264208,
+            9674875,
+            9461833
+          ],
+          "allocation_calls": [
+            265,
+            265,
+            267,
+            263,
+            265
+          ],
+          "allocated_bytes": [
+            117457598,
+            117457598,
+            117458782,
+            117456414,
+            117457598
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "case": "combined",
+          "times_ns": [
+            3389833,
+            3562625,
+            3328917,
+            3346958,
+            3563875
+          ],
+          "allocation_calls": [
+            98,
+            96,
+            98,
+            98,
+            96
+          ],
+          "allocated_bytes": [
+            40900688,
+            40899504,
+            40900688,
+            40900688,
+            40899504
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "case": "separate_chain",
+          "times_ns": [
+            34686458,
+            34713208,
+            34468000,
+            35139417,
+            35393833
+          ],
+          "allocation_calls": [
+            267,
+            267,
+            267,
+            267,
+            267
+          ],
+          "allocated_bytes": [
+            414641022,
+            414641022,
+            414641022,
+            414641022,
+            414641022
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "case": "combined",
+          "times_ns": [
+            13020333,
+            12791916,
+            12569625,
+            12629916,
+            12543625
+          ],
+          "allocation_calls": [
+            98,
+            98,
+            98,
+            98,
+            98
+          ],
+          "allocated_bytes": [
+            144112048,
+            144112048,
+            144112048,
+            144112048,
+            144112048
+          ],
+          "allocator_instrumentation": true
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "allocations",
+      "order": "reverse",
+      "records": [
+        {
+          "n": 16,
+          "case": "combined",
+          "times_ns": [
+            310209,
+            308791,
+            312291,
+            308750,
+            318792
+          ],
+          "allocation_calls": [
+            18,
+            18,
+            18,
+            18,
+            18
+          ],
+          "allocated_bytes": [
+            656056,
+            656056,
+            656056,
+            656056,
+            656056
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "separate_chain",
+          "times_ns": [
+            840041,
+            849375,
+            833291,
+            826417,
+            825791
+          ],
+          "allocation_calls": [
+            27,
+            27,
+            27,
+            27,
+            27
+          ],
+          "allocated_bytes": [
+            1312406,
+            1312406,
+            1312406,
+            1312406,
+            1312406
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "case": "combined",
+          "times_ns": [
+            2665708,
+            2690250,
+            2677792,
+            2752959,
+            2697417
+          ],
+          "allocation_calls": [
+            18,
+            18,
+            18,
+            18,
+            18
+          ],
+          "allocated_bytes": [
+            5243576,
+            5243576,
+            5243576,
+            5243576,
+            5243576
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "case": "separate_chain",
+          "times_ns": [
+            7282667,
+            7215042,
+            7208291,
+            7135209,
+            7198208
+          ],
+          "allocation_calls": [
+            27,
+            27,
+            27,
+            27,
+            27
+          ],
+          "allocated_bytes": [
+            10487446,
+            10487446,
+            10487446,
+            10487446,
+            10487446
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "case": "combined",
+          "times_ns": [
+            9247916,
+            9387000,
+            9359500,
+            9371083,
+            9471833
+          ],
+          "allocation_calls": [
+            18,
+            18,
+            18,
+            18,
+            18
+          ],
+          "allocated_bytes": [
+            17695416,
+            17695416,
+            17695416,
+            17695416,
+            17695416
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "case": "separate_chain",
+          "times_ns": [
+            24975500,
+            24967417,
+            24802458,
+            25030125,
+            25169625
+          ],
+          "allocation_calls": [
+            27,
+            27,
+            27,
+            27,
+            27
+          ],
+          "allocated_bytes": [
+            35391126,
+            35391126,
+            35391126,
+            35391126,
+            35391126
+          ],
+          "allocator_instrumentation": true
+        }
+      ]
+    }
+  ]
+}
