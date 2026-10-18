@@ -32,7 +32,7 @@ gpui-ui-kit = { workspace = true }
 web-time = "1.1"
 
 [dev-dependencies]
-gpui = { version = "0.2.3",  package = "sotf-gpui-toolkit-gpui", git = "https://github.com/pierreaubert/sotf-3rdparties", branch = "foreign-parent-win-linux", features = ["test-support"] }
+gpui = { version = "0.2.3",  package = "sotf-gpui-toolkit-gpui", git = "https://github.com/pierreaubert/sotf-3rdparties", features = ["test-support"] }
 gpui-miniapp = { path = "../gpui-miniapp" }
 gpui-profiler = { path = "../gpui-profiler", features = ["global-allocator"] }
 
