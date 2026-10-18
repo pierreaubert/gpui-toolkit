@@ -11,23 +11,32 @@
     reason = "fixed-size 3x3 matrix indexing is clearer than iterator zips"
 )]
 pub(crate) fn symmetric_eigen(m: [[f64; 3]; 3]) -> ([f64; 3], [[f64; 3]; 3]) {
-    let mut a = m;
     let mut v = [[0.0; 3]; 3];
     for i in 0..3 {
         v[i][i] = 1.0;
     }
+    if !m.iter().flatten().all(|v| v.is_finite()) {
+        return ([f64::NAN; 3], [[f64::NAN; 3]; 3]);
+    }
+    let scale = m.iter().flatten().map(|v| v.abs()).fold(0.0, f64::max);
+    if scale == 0.0 {
+        return ([0.0; 3], v);
+    }
+    // Normalize once: the stopping criterion and rotation remain independent
+    // of field units, without squaring huge or subnormal source components.
+    let mut a = m.map(|row| row.map(|value| value / scale));
     // Cyclic Jacobi: 12 sweeps converge far past f64 needs for 3x3.
     for _ in 0..12 {
         let off = (a[0][1].powi(2) + a[0][2].powi(2) + a[1][2].powi(2)).sqrt();
-        if off < 1e-300 {
+        if off <= f64::EPSILON * 8.0 {
             break;
         }
         for (p, q) in [(0usize, 1usize), (0, 2), (1, 2)] {
-            if a[p][q].abs() < 1e-300 {
+            if a[p][q] == 0.0 {
                 continue;
             }
-            let theta = 0.5 * (a[q][q] - a[p][p]).atan2(a[p][q]);
-            let (c, s) = (theta.cos(), theta.sin());
+            let theta = 0.5 * (2.0 * a[p][q]).atan2(a[q][q] - a[p][p]);
+            let (s, c) = theta.sin_cos();
             for k in 0..3 {
                 let (akp, akq) = (a[k][p], a[k][q]);
                 a[k][p] = c * akp - s * akq;
@@ -45,7 +54,7 @@ pub(crate) fn symmetric_eigen(m: [[f64; 3]; 3]) -> ([f64; 3], [[f64; 3]; 3]) {
             }
         }
     }
-    ([a[0][0], a[1][1], a[2][2]], v)
+    ([a[0][0] * scale, a[1][1] * scale, a[2][2] * scale], v)
 }
 
 /// Imaginary part of the complex eigenvalue pair of a real 3x3 matrix.
@@ -92,6 +101,46 @@ fn det3(m: [[f64; 3]; 3]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn symmetric_eigen_resolves_coupled_equal_diagonals_independent_of_units() {
+        for (source, expected) in [
+            (
+                [[2.0, 1.0, 0.0], [1.0, 2.0, 0.0], [0.0, 0.0, 4.0]],
+                [1.0, 3.0, 4.0],
+            ),
+            (
+                [[3.0, 0.0, -2.0], [0.0, 3.0, -2.0], [-2.0, -2.0, 5.0]],
+                [1.0, 3.0, 7.0],
+            ),
+        ] {
+            for scale in [1.0, 1e-200, 1e200] {
+                let matrix = source.map(|row| row.map(|v| v * scale));
+                let (values, vectors) = symmetric_eigen(matrix);
+                let mut sorted = values.map(|v| v / scale);
+                sorted.sort_by(f64::total_cmp);
+                for (actual, expected) in sorted.iter().zip(expected) {
+                    assert!((actual - expected).abs() < 1e-12);
+                }
+                for (column, value) in values.iter().enumerate() {
+                    for row in 0..3 {
+                        let product = matrix[row]
+                            .iter()
+                            .enumerate()
+                            .map(|(k, component)| (component / scale) * vectors[k][column])
+                            .sum::<f64>();
+                        assert!((product - (value / scale) * vectors[row][column]).abs() < 1e-12);
+                    }
+                    for other in 0..3 {
+                        let dot = (0..3)
+                            .map(|row| vectors[row][column] * vectors[row][other])
+                            .sum::<f64>();
+                        assert!((dot - if column == other { 1.0 } else { 0.0 }).abs() < 1e-12);
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     #[expect(

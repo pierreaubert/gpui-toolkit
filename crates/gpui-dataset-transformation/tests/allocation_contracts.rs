@@ -5,7 +5,8 @@
 // Rust guideline compliant 2026-02-21
 
 use gpui_dataset_transformation::{
-    cell_data_to_point_data, flow_diagnostics, point_data_to_cell_data,
+    GlyphKind, cell_data_to_point_data, flow_diagnostics, glyphs, point_data_to_cell_data,
+    solid_arrows, tensor_glyphs,
 };
 use gpui_mesh::{Association, CellType, Cells, DataSet, Field};
 use gpui_profiler::{AllocProbe, AllocationBudget};
@@ -81,5 +82,33 @@ fn allocation_cost_is_bounded_by_outputs_and_points_without_per_cell_scratch() {
                 .iter()
                 .all(|v| (v[2] - 4.0).abs() < 1e-9)
         );
+    }
+    for points in [16, 256] {
+        let dataset = DataSet::new(
+            "glyph-scratch",
+            vec![[0.0; 3]; points],
+            Cells::from_cells(&[]),
+        )
+        .with_field(Field::vector("v", vec![[1.0, 0.0, 0.0]; points]))
+        .with_field(Field::tensor(
+            "t",
+            vec![[4.0, 1.0, 1.0, 0.0, 0.0, 0.0]; points],
+        ));
+        let mut probe = AllocProbe::new();
+        probe.reset();
+        let output = black_box(glyphs(&dataset, "v", 1.0, 1, GlyphKind::Arrow).unwrap());
+        AllocationBudget::new("line-glyph-storage", 96, 1024 * points + 8192)
+            .assert_contains(probe.sample("line-glyph-storage"));
+        output.validate().unwrap();
+        probe.reset();
+        let output = black_box(solid_arrows(&dataset, "v", 1.0, 1, 0.05).unwrap());
+        AllocationBudget::new("solid-glyph-storage", 96, 6000 * points + 8192)
+            .assert_contains(probe.sample("solid-glyph-storage"));
+        output.validate().unwrap();
+        probe.reset();
+        let output = black_box(tensor_glyphs(&dataset, "t", 1.0, 1).unwrap());
+        AllocationBudget::new("tensor-glyph-storage", 96, 9000 * points + 8192)
+            .assert_contains(probe.sample("tensor-glyph-storage"));
+        output.validate().unwrap();
     }
 }

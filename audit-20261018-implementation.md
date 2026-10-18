@@ -681,3 +681,53 @@ and pressure/large-dataset integrations pass with Metal required.
   and pressure/large-dataset integrations. Transformation all-target Clippy and
   the core wasm closure pass. C3/P1/P2 remain unchecked: other validity consumers,
   GPU adjacency/staging budgets and the broader retention work are still open.
+
+## Warp/glyph validity, topology and coupled eigensolver checkpoint
+
+- Vector/scalar warps validate input before indexing and require finite scale.
+  Missing samples retain their original coordinates and source masks. Zero-scale
+  and wholly missing warps share source position storage; scalar zero displacement
+  also avoids normal extraction. Computed nonfinite positions/normals error rather
+  than returning an invalid dataset. FMA retains finite vector results when an
+  intermediate product would overflow before cancellation; normal magnitudes use
+  the robust helper. Surface extraction/normal scratch remains a C5/P1 budget item.
+- Line, solid-arrow and tensor glyphs validate input and skip masked samples,
+  including finite placeholders. Parameters must be finite and output point-index
+  ranges are checked before append. Unrepresentable glyph geometry is omitted.
+  Derived magnitude units follow the source. `GlyphKind::Line` now centers its two
+  endpoints at ±`scale*v/2`; the old positive endpoint was `scale*v`, producing an
+  asymmetric line. Tiny/huge representable vector norms survive unit rescaling.
+- Solid arrows were not closed despite the old test name: the base lacked a cap
+  and the shaft/head transition had missing triangles. Corrected arrows have 34
+  triangles and the same 19 vertices, including a base cap and complete annulus.
+  Independent edge counts require two opposite uses of every edge; signed volume
+  and Euler characteristic verify outward closed geometry for both scale signs.
+  Tensor sphere indices also faced inward; they now face outward. Tensor radius
+  scale uses absolute magnitude so negative scale preserves outward winding.
+- A new eigenvalue test failed before the fix on `[[2,1],[1,2]]`: the old Jacobi
+  angle returned zero rotation for equal diagonals and reported `[2,2]` instead of
+  `[1,3]`. The solver now uses `atan2(2*a[p][q], a[q][q]-a[p][p])/2`, normalized by
+  matrix magnitude before iteration. Residual/orthonormality tests cover known
+  coupled 2D and fully 3D spectra at scales 1, `1e-200`, `1e200`. Public regressions
+  verify rotated tensor axes and lambda-2 for coupled strain (1, previously 5).
+  General nonsymmetric eigen/swirling numerical qualification remains C4 work.
+- Glyph generation streams in point order with fixed local arrays. It removes
+  per-glyph result vectors, per-cell small vectors and scoped workers. Solid-arrow
+  radial directions use fixed circle constants. Only output-proportional vectors
+  grow; serial allocation contracts cap calls/bytes from 16 to 256 samples. Those
+  bounds are regression fixtures, not an aggregate import/render memory budget.
+- `qa/perf/20261019-glyph-streaming-paired.json` records allocator-disabled release
+  ABBA runs twice and separate allocation builds. Baseline `e812e685` glyph code
+  exactly matches pre-change `ba23b340`; source hashes and identical probe source
+  are included. At 4,096 unmasked samples, line/solid/tensor medians improve
+  48.5%/72.6%/79.3%. Calls fall from 12,338/118,918/200,850 to 36/56/66; allocated
+  bytes fall from 2.15/21.56/35.20 MB to 1.24/13.98/18.22 MB. Solid output includes
+  the extra cap triangles. Counts, magnitudes and the old/new closure difference
+  are checked outside timing. This measures host wall time and allocated bytes,
+  without peak RSS, aggregate worker CPU time, energy or mobile qualification.
+- Final required-Metal core checks pass: 69 transformation, 15 mesh and 91 scene
+  library tests; 21 public validity/flow/geometry tests; allocation contracts and
+  pressure/large-dataset integrations. Transformation all-target Clippy and the
+  full core wasm closure pass. C3/C4 remain unchecked: tracing, particles, LIC,
+  FTLE, analysis/statistics, time and IO consumers, general interpolation and
+  transparency semantics still require work. No whole-platform completion claim.

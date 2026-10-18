@@ -1,0 +1,2606 @@
+{
+  "kind": "bounded glyph host diagnostic; corrected solid-arrow topology has more output triangles",
+  "captured_utc": "2026-10-18T23:55:01.468886+00:00",
+  "baseline_commit": "e812e685",
+  "baseline_glyph_also_matches_parent": "ba23b340",
+  "candidate": "streamed validity-aware glyph source identified by source_sha256",
+  "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "features": {
+    "baseline": [],
+    "candidate": [
+      "retained (probe expectation flag for 34 corrected triangles)"
+    ],
+    "allocations": "separate feature enables global allocator instrumentation"
+  },
+  "methodology": "Four allocator-disabled release processes/version, ABBA twice; warmup plus five samples per case. Identical probe source at 128/1024/4096 unmasked point-cloud samples, stride 1. Validation, counts, derived magnitudes and first-arrow edge closure are checked outside timing; output destruction is excluded. Baseline solid arrows have 24 triangles and boundary edges; candidate has 34 triangles and closed edges. Both have 19 vertices. Tensor glyphs retain 26 vertices/48 triangles and line arrows retain four vertices/three segments. Candidate validates input while baseline skips it. Separate allocation runs supply allocated bytes, not peak RSS. No controlled affinity/thermal/energy or physical mobile qualification.",
+  "probe_source": "use gpui_dataset_transformation::{glyphs, solid_arrows, tensor_glyphs, GlyphKind};\nuse gpui_mesh::{DataSet, Field};\nuse gpui_profiler::AllocProbe;\nuse std::{hint::black_box, time::Instant};\n\nfn check(output: &DataSet, points: usize, case: &str) {\n    output.validate().unwrap();\n    let (vertices, triangles) = match case {\n        \"line_arrows\" => (4,3),\n        \"solid_arrows\" => (19,if cfg!(feature=\"retained\") {34} else {24}),\n        _ => (26,48),\n    };\n    assert_eq!(output.point_count(), points*vertices);\n    assert_eq!(output.cell_count(), points*triangles);\n    if case == \"solid_arrows\" {\n        let mut edges = std::collections::BTreeMap::<(u32,u32), usize>::new();\n        for cell in 0..triangles {\n            let tri = output.cells.cell(cell).unwrap();\n            for [u,v] in [[tri[0],tri[1]],[tri[1],tri[2]],[tri[2],tri[0]]] { *edges.entry((u.min(v),u.max(v))).or_default() += 1; }\n        }\n        assert_eq!(edges.values().all(|&count|count==2), cfg!(feature=\"retained\"));\n    }\n    if case != \"line_arrows\" {\n        let values=output.point_data[0].as_scalar().unwrap();\n        for glyph in 0..points {\n            let expected=if case==\"tensor_glyphs\" {4.0} else {(1.0+0.25_f64.powi(2)+0.5_f64.powi(2)).sqrt()};\n            assert!(values[glyph*vertices..(glyph+1)*vertices].iter().all(|v|(v-expected).abs()<1e-12));\n        }\n    }\n}\n\nfn main() {\n    for points in [128usize,1024,4096] {\n        let dataset=DataSet::surface(\"glyphs\", (0..points).map(|i|[i as f64*2.0,0.0,0.0]).collect::<Vec<_>>(), &[])\n            .with_field(Field::vector(\"v\",vec![[1.0,0.25,0.5];points]))\n            .with_field(Field::tensor(\"t\",vec![[4.0,1.0,1.0,0.0,0.0,0.0];points]));\n        for case in [\"line_arrows\",\"solid_arrows\",\"tensor_glyphs\"] {\n            let operation=||match case {\n                \"line_arrows\"=>glyphs(&dataset,\"v\",1.0,1,GlyphKind::Arrow).unwrap(),\n                \"solid_arrows\"=>solid_arrows(&dataset,\"v\",1.0,1,0.05).unwrap(),\n                _=>tensor_glyphs(&dataset,\"t\",1.0,1).unwrap(),\n            };\n            let warm=black_box(operation());check(&warm,points,case);drop(warm);\n            let mut times=Vec::with_capacity(5);let mut counts=Vec::with_capacity(5);let mut bytes=Vec::with_capacity(5);\n            for _ in 0..5 {\n                let mut probe=AllocProbe::new();let start=Instant::now();let output=black_box(operation());let elapsed=start.elapsed().as_nanos();let sample=probe.sample(\"glyphs\");\n                times.push(elapsed);counts.push(sample.count);bytes.push(sample.bytes);check(&output,points,case);drop(output);\n            }\n            println!(r#\"{{\"points\":{points},\"case\":\"{case}\",\"times_ns\":{times:?},\"allocation_calls\":{counts:?},\"allocated_bytes\":{bytes:?},\"allocator_instrumentation\":{}}}\"#,cfg!(feature=\"allocations\"));\n        }\n    }\n}\n",
+  "source_sha256": {
+    "baseline": {
+      "crates/gpui-dataset-transformation/src/glyph.rs": "3014b7ebbb78ca6491a2060fc2e2206d2b389ae741037efc14d4bcd6b11a3993",
+      "crates/gpui-dataset-transformation/src/eigen.rs": "9fa5c730377e3e3949a201ff269e1b8740b6875c759a2d9f0eb43a94441b91bd",
+      "crates/gpui-dataset-transformation/src/calculator.rs": "cbcbf14188db53273244e174524e471affafe17384d8d422b13d42f033e5d5d3",
+      "crates/gpui-mesh/src/dataset.rs": "35ed0580c3ada3fd1d7afaaf26143813621fdd61bdd0f726479dbaf6176b0f8c"
+    },
+    "candidate": {
+      "crates/gpui-dataset-transformation/src/glyph.rs": "9c0c9bd2f41e8042fc2e97acf62c86205f1db2090920b63bb1ef18ccfb50b3c2",
+      "crates/gpui-dataset-transformation/src/eigen.rs": "4ea6e63305aab36300fc3d1ca747993e711fd3f3021064f6af0eeba7f01b43c0",
+      "crates/gpui-dataset-transformation/src/calculator.rs": "3c38738b8d380325f93cc75f5f8c4b32c3ae3330b02e68bd443bcbe2cb024439",
+      "crates/gpui-mesh/src/dataset.rs": "9a8627bf7609b95dd181d97fd87e5e1d699faa1c5ec0d96b5201d0bbafb140dc"
+    }
+  },
+  "summary": [
+    {
+      "points": 128,
+      "case": "line_arrows",
+      "median_ns": {
+        "baseline": 12729.0,
+        "candidate": 5271.0
+      },
+      "time_ratio": 0.4140938015555032,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 419,
+          "allocated_bytes": 67456
+        },
+        "candidate": {
+          "allocation_calls": 26,
+          "allocated_bytes": 38784
+        }
+      }
+    },
+    {
+      "points": 128,
+      "case": "solid_arrows",
+      "median_ns": {
+        "baseline": 97458.5,
+        "candidate": 32937.5
+      },
+      "time_ratio": 0.33796436431917176,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 3766,
+          "allocated_bytes": 667184
+        },
+        "candidate": {
+          "allocation_calls": 41,
+          "allocated_bytes": 437296
+        }
+      }
+    },
+    {
+      "points": 128,
+      "case": "tensor_glyphs",
+      "median_ns": {
+        "baseline": 128583.0,
+        "candidate": 34792.0
+      },
+      "time_ratio": 0.2705800922361432,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 6338,
+          "allocated_bytes": 1097788
+        },
+        "candidate": {
+          "allocation_calls": 51,
+          "allocated_bytes": 571452
+        }
+      }
+    },
+    {
+      "points": 1024,
+      "case": "line_arrows",
+      "median_ns": {
+        "baseline": 65395.5,
+        "candidate": 27875.0
+      },
+      "time_ratio": 0.4262525708955509,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 3116,
+          "allocated_bytes": 538752
+        },
+        "candidate": {
+          "allocation_calls": 32,
+          "allocated_bytes": 309376
+        }
+      }
+    },
+    {
+      "points": 1024,
+      "case": "solid_arrows",
+      "median_ns": {
+        "baseline": 594563.0,
+        "candidate": 216479.5
+      },
+      "time_ratio": 0.3640985059615213,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 29762,
+          "allocated_bytes": 5333552
+        },
+        "candidate": {
+          "allocation_calls": 50,
+          "allocated_bytes": 3494448
+        }
+      }
+    },
+    {
+      "points": 1024,
+      "case": "tensor_glyphs",
+      "median_ns": {
+        "baseline": 859479.5,
+        "candidate": 210583.0
+      },
+      "time_ratio": 0.24501224287490278,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 50254,
+          "allocated_bytes": 8767548
+        },
+        "candidate": {
+          "allocation_calls": 60,
+          "allocated_bytes": 4556860
+        }
+      }
+    },
+    {
+      "points": 4096,
+      "case": "line_arrows",
+      "median_ns": {
+        "baseline": 204458.5,
+        "candidate": 105375.5
+      },
+      "time_ratio": 0.5153882083650227,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 12338,
+          "allocated_bytes": 2154624
+        },
+        "candidate": {
+          "allocation_calls": 36,
+          "allocated_bytes": 1237120
+        }
+      }
+    },
+    {
+      "points": 4096,
+      "case": "solid_arrows",
+      "median_ns": {
+        "baseline": 3185250.0,
+        "candidate": 873021.0
+      },
+      "time_ratio": 0.27408241111372733,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 118918,
+          "allocated_bytes": 21564232
+        },
+        "candidate": {
+          "allocation_calls": 56,
+          "allocated_bytes": 13976112
+        }
+      }
+    },
+    {
+      "points": 4096,
+      "case": "tensor_glyphs",
+      "median_ns": {
+        "baseline": 4397062.0,
+        "candidate": 908666.5
+      },
+      "time_ratio": 0.20665310154826108,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 200850,
+          "allocated_bytes": 35197268
+        },
+        "candidate": {
+          "allocation_calls": 66,
+          "allocated_bytes": 18221116
+        }
+      }
+    }
+  ],
+  "runs": [
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "records": [
+        {
+          "points": 128,
+          "case": "line_arrows",
+          "times_ns": [
+            19166,
+            12500,
+            12167,
+            71666,
+            14250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "solid_arrows",
+          "times_ns": [
+            121875,
+            102083,
+            97042,
+            96542,
+            88792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            143459,
+            125625,
+            110416,
+            112000,
+            110042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "line_arrows",
+          "times_ns": [
+            65500,
+            65333,
+            64250,
+            72333,
+            68625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "solid_arrows",
+          "times_ns": [
+            606375,
+            601542,
+            600917,
+            594750,
+            585833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            812333,
+            815041,
+            1100042,
+            1141625,
+            880792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "line_arrows",
+          "times_ns": [
+            225292,
+            207167,
+            201833,
+            205084,
+            200250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "solid_arrows",
+          "times_ns": [
+            2964375,
+            3068834,
+            2745667,
+            2672542,
+            2867500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            3982917,
+            4460791,
+            4563250,
+            5049625,
+            4228208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "records": [
+        {
+          "points": 128,
+          "case": "line_arrows",
+          "times_ns": [
+            14500,
+            4708,
+            4750,
+            6084,
+            5542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "solid_arrows",
+          "times_ns": [
+            43709,
+            33000,
+            47000,
+            33417,
+            33667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            40500,
+            31958,
+            37916,
+            38417,
+            36125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "line_arrows",
+          "times_ns": [
+            32791,
+            37625,
+            30917,
+            35041,
+            29041
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "solid_arrows",
+          "times_ns": [
+            252042,
+            252458,
+            259583,
+            247167,
+            245375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            237209,
+            253125,
+            239916,
+            239792,
+            241125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "line_arrows",
+          "times_ns": [
+            129875,
+            137792,
+            264750,
+            221791,
+            173666
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "solid_arrows",
+          "times_ns": [
+            1465542,
+            1326625,
+            1308792,
+            841083,
+            828000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            1063042,
+            889333,
+            906666,
+            909875,
+            966917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "records": [
+        {
+          "points": 128,
+          "case": "line_arrows",
+          "times_ns": [
+            8625,
+            4667,
+            4208,
+            5000,
+            5209
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "solid_arrows",
+          "times_ns": [
+            36083,
+            32542,
+            30125,
+            32208,
+            30083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            37375,
+            34250,
+            39833,
+            36583,
+            37625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "line_arrows",
+          "times_ns": [
+            30750,
+            30458,
+            28500,
+            28375,
+            28125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "solid_arrows",
+          "times_ns": [
+            222334,
+            214958,
+            222458,
+            221042,
+            222500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            205667,
+            202333,
+            205083,
+            203333,
+            203292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "line_arrows",
+          "times_ns": [
+            103666,
+            103084,
+            102709,
+            103541,
+            102625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "solid_arrows",
+          "times_ns": [
+            1660250,
+            843083,
+            829500,
+            823917,
+            831333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            821708,
+            930500,
+            986458,
+            804792,
+            815125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "records": [
+        {
+          "points": 128,
+          "case": "line_arrows",
+          "times_ns": [
+            14375,
+            11167,
+            11625,
+            15375,
+            11833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "solid_arrows",
+          "times_ns": [
+            95583,
+            93417,
+            90625,
+            90167,
+            79375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            136916,
+            126167,
+            112791,
+            112666,
+            109625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "line_arrows",
+          "times_ns": [
+            59750,
+            58708,
+            59041,
+            58709,
+            59042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "solid_arrows",
+          "times_ns": [
+            579125,
+            578208,
+            579042,
+            576041,
+            556667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            856459,
+            883459,
+            838167,
+            814625,
+            837750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "line_arrows",
+          "times_ns": [
+            212750,
+            214083,
+            204708,
+            209500,
+            211292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "solid_arrows",
+          "times_ns": [
+            2952875,
+            3537041,
+            3002750,
+            2529666,
+            3418250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            4190417,
+            4096625,
+            4616125,
+            4025041,
+            3877333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "records": [
+        {
+          "points": 128,
+          "case": "line_arrows",
+          "times_ns": [
+            16542,
+            15584,
+            10625,
+            13000,
+            11583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "solid_arrows",
+          "times_ns": [
+            121209,
+            97875,
+            96417,
+            94208,
+            97916
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            175334,
+            154375,
+            130041,
+            134167,
+            148375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "line_arrows",
+          "times_ns": [
+            70542,
+            73209,
+            77292,
+            62333,
+            66875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "solid_arrows",
+          "times_ns": [
+            756250,
+            706292,
+            586959,
+            588209,
+            557000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            1195708,
+            859583,
+            826208,
+            822458,
+            812959
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "line_arrows",
+          "times_ns": [
+            203625,
+            203792,
+            202416,
+            202083,
+            204250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "solid_arrows",
+          "times_ns": [
+            3135959,
+            3367750,
+            3521667,
+            3442167,
+            2850584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            4711541,
+            3877917,
+            4154750,
+            4624125,
+            4333333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "records": [
+        {
+          "points": 128,
+          "case": "line_arrows",
+          "times_ns": [
+            10958,
+            5250,
+            5625,
+            35541,
+            7041
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "solid_arrows",
+          "times_ns": [
+            46083,
+            38209,
+            38666,
+            30041,
+            38584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            34416,
+            32209,
+            31250,
+            32542,
+            30209
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "line_arrows",
+          "times_ns": [
+            28875,
+            28916,
+            27000,
+            26625,
+            26792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "solid_arrows",
+          "times_ns": [
+            210625,
+            224292,
+            209375,
+            208875,
+            226000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            216416,
+            216125,
+            225333,
+            220292,
+            217833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "line_arrows",
+          "times_ns": [
+            109583,
+            107667,
+            107541,
+            105208,
+            110583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "solid_arrows",
+          "times_ns": [
+            1125125,
+            863875,
+            859792,
+            857375,
+            844666
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            871750,
+            1434542,
+            1037416,
+            948583,
+            990292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "records": [
+        {
+          "points": 128,
+          "case": "line_arrows",
+          "times_ns": [
+            8375,
+            4667,
+            4208,
+            6167,
+            4166
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "solid_arrows",
+          "times_ns": [
+            33916,
+            31959,
+            29667,
+            30625,
+            29959
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            32750,
+            30333,
+            29958,
+            30917,
+            30666
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "line_arrows",
+          "times_ns": [
+            30166,
+            28833,
+            26958,
+            27250,
+            26625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "solid_arrows",
+          "times_ns": [
+            210333,
+            210583,
+            209458,
+            210125,
+            213000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            201500,
+            201750,
+            204792,
+            199667,
+            203791
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "line_arrows",
+          "times_ns": [
+            101292,
+            101125,
+            101000,
+            109209,
+            101875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "solid_arrows",
+          "times_ns": [
+            1158417,
+            907500,
+            883292,
+            886250,
+            853708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            1143000,
+            1315208,
+            907458,
+            856209,
+            890209
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "records": [
+        {
+          "points": 128,
+          "case": "line_arrows",
+          "times_ns": [
+            16667,
+            12000,
+            12458,
+            13417,
+            10750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "solid_arrows",
+          "times_ns": [
+            112083,
+            103834,
+            101000,
+            96583,
+            86375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 128,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            158792,
+            156084,
+            144375,
+            132584,
+            117292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "line_arrows",
+          "times_ns": [
+            63792,
+            65291,
+            73709,
+            62708,
+            70000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "solid_arrows",
+          "times_ns": [
+            669708,
+            693208,
+            742583,
+            712584,
+            709209
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 1024,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            977167,
+            979125,
+            1004209,
+            999792,
+            1197333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "line_arrows",
+          "times_ns": [
+            203833,
+            215250,
+            233333,
+            203125,
+            201750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "solid_arrows",
+          "times_ns": [
+            3281042,
+            3048375,
+            3750500,
+            4483500,
+            3676750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "points": 4096,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            4147375,
+            4076167,
+            4477666,
+            4773250,
+            4749375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "allocations",
+      "records": [
+        {
+          "points": 128,
+          "case": "line_arrows",
+          "times_ns": [
+            17292,
+            11917,
+            9875,
+            11458,
+            11250
+          ],
+          "allocation_calls": [
+            419,
+            419,
+            419,
+            419,
+            419
+          ],
+          "allocated_bytes": [
+            67456,
+            67456,
+            67456,
+            67456,
+            67456
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 128,
+          "case": "solid_arrows",
+          "times_ns": [
+            118709,
+            113417,
+            115333,
+            102167,
+            92958
+          ],
+          "allocation_calls": [
+            3766,
+            3766,
+            3766,
+            3766,
+            3766
+          ],
+          "allocated_bytes": [
+            667184,
+            667184,
+            667184,
+            667184,
+            667184
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 128,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            155209,
+            160334,
+            131750,
+            145416,
+            192625
+          ],
+          "allocation_calls": [
+            6338,
+            6338,
+            6338,
+            6338,
+            6338
+          ],
+          "allocated_bytes": [
+            1097788,
+            1097788,
+            1097788,
+            1097788,
+            1097788
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 1024,
+          "case": "line_arrows",
+          "times_ns": [
+            76125,
+            74583,
+            77958,
+            74750,
+            75625
+          ],
+          "allocation_calls": [
+            3116,
+            3116,
+            3116,
+            3116,
+            3116
+          ],
+          "allocated_bytes": [
+            538752,
+            538752,
+            538752,
+            538752,
+            538752
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 1024,
+          "case": "solid_arrows",
+          "times_ns": [
+            652666,
+            592500,
+            580167,
+            574125,
+            564291
+          ],
+          "allocation_calls": [
+            29762,
+            29762,
+            29762,
+            29762,
+            29762
+          ],
+          "allocated_bytes": [
+            5333552,
+            5333552,
+            5333552,
+            5333552,
+            5333552
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 1024,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            804958,
+            810208,
+            1120333,
+            881000,
+            1302291
+          ],
+          "allocation_calls": [
+            50254,
+            50254,
+            50254,
+            50254,
+            50254
+          ],
+          "allocated_bytes": [
+            8767548,
+            8767548,
+            8767548,
+            8767548,
+            8767548
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 4096,
+          "case": "line_arrows",
+          "times_ns": [
+            269625,
+            238208,
+            236292,
+            234625,
+            237167
+          ],
+          "allocation_calls": [
+            12338,
+            12338,
+            12338,
+            12338,
+            12338
+          ],
+          "allocated_bytes": [
+            2154624,
+            2154624,
+            2154624,
+            2154624,
+            2154624
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 4096,
+          "case": "solid_arrows",
+          "times_ns": [
+            5444625,
+            5426000,
+            4862166,
+            5926209,
+            6725667
+          ],
+          "allocation_calls": [
+            118918,
+            118918,
+            118920,
+            118918,
+            118920
+          ],
+          "allocated_bytes": [
+            21564232,
+            21564232,
+            21565416,
+            21564232,
+            21565416
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 4096,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            4247750,
+            4765792,
+            5760041,
+            4245500,
+            5141292
+          ],
+          "allocation_calls": [
+            200850,
+            200850,
+            200850,
+            200850,
+            200850
+          ],
+          "allocated_bytes": [
+            35197268,
+            35197268,
+            35197268,
+            35197268,
+            35197268
+          ],
+          "allocator_instrumentation": true
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "allocations",
+      "records": [
+        {
+          "points": 128,
+          "case": "line_arrows",
+          "times_ns": [
+            8084,
+            4667,
+            4167,
+            5583,
+            5750
+          ],
+          "allocation_calls": [
+            26,
+            26,
+            26,
+            26,
+            26
+          ],
+          "allocated_bytes": [
+            38784,
+            38784,
+            38784,
+            38784,
+            38784
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 128,
+          "case": "solid_arrows",
+          "times_ns": [
+            39125,
+            33542,
+            33125,
+            39542,
+            51125
+          ],
+          "allocation_calls": [
+            41,
+            41,
+            41,
+            41,
+            41
+          ],
+          "allocated_bytes": [
+            437296,
+            437296,
+            437296,
+            437296,
+            437296
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 128,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            39500,
+            49166,
+            47750,
+            43750,
+            32750
+          ],
+          "allocation_calls": [
+            51,
+            51,
+            51,
+            51,
+            51
+          ],
+          "allocated_bytes": [
+            571452,
+            571452,
+            571452,
+            571452,
+            571452
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 1024,
+          "case": "line_arrows",
+          "times_ns": [
+            38000,
+            33583,
+            31667,
+            28625,
+            27958
+          ],
+          "allocation_calls": [
+            32,
+            32,
+            32,
+            32,
+            32
+          ],
+          "allocated_bytes": [
+            309376,
+            309376,
+            309376,
+            309376,
+            309376
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 1024,
+          "case": "solid_arrows",
+          "times_ns": [
+            292583,
+            377833,
+            404791,
+            399708,
+            403250
+          ],
+          "allocation_calls": [
+            50,
+            50,
+            50,
+            50,
+            50
+          ],
+          "allocated_bytes": [
+            3494448,
+            3494448,
+            3494448,
+            3494448,
+            3494448
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 1024,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            353750,
+            380208,
+            391292,
+            200209,
+            282167
+          ],
+          "allocation_calls": [
+            60,
+            60,
+            60,
+            60,
+            60
+          ],
+          "allocated_bytes": [
+            4556860,
+            4556860,
+            4556860,
+            4556860,
+            4556860
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 4096,
+          "case": "line_arrows",
+          "times_ns": [
+            119792,
+            107000,
+            109250,
+            110166,
+            96916
+          ],
+          "allocation_calls": [
+            36,
+            36,
+            36,
+            36,
+            36
+          ],
+          "allocated_bytes": [
+            1237120,
+            1237120,
+            1237120,
+            1237120,
+            1237120
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 4096,
+          "case": "solid_arrows",
+          "times_ns": [
+            1416625,
+            1257167,
+            1254166,
+            1363041,
+            1261625
+          ],
+          "allocation_calls": [
+            56,
+            56,
+            56,
+            56,
+            56
+          ],
+          "allocated_bytes": [
+            13976112,
+            13976112,
+            13976112,
+            13976112,
+            13976112
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "points": 4096,
+          "case": "tensor_glyphs",
+          "times_ns": [
+            878333,
+            849292,
+            853041,
+            838375,
+            846042
+          ],
+          "allocation_calls": [
+            66,
+            66,
+            66,
+            66,
+            66
+          ],
+          "allocated_bytes": [
+            18221116,
+            18221116,
+            18221116,
+            18221116,
+            18221116
+          ],
+          "allocator_instrumentation": true
+        }
+      ]
+    }
+  ]
+}

@@ -128,6 +128,33 @@ fn unequal_incident_volumes_average_jacobians_before_nonlinear_diagnostics() {
 }
 
 #[test]
+fn lambda2_uses_coupled_strain_eigenvalues() {
+    let positions = vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    let velocity = positions
+        .iter()
+        .map(|p| [2.0 * p[0] + p[1], p[0] + 2.0 * p[1], 0.0])
+        .collect::<Vec<_>>();
+    let dataset = DataSet::new(
+        "coupled-strain",
+        positions,
+        Cells::from_cells(&[(CellType::Tetra, &[0, 1, 2, 3])]),
+    )
+    .with_field(Field::vector("velocity", velocity));
+    let output = lambda2(&dataset, "velocity", "lambda2").unwrap();
+    output.validate().unwrap();
+    // J eigenvalues are 0,1,3; S² + Ω² has 0,1,9, so lambda-2 is 1.
+    assert!(
+        output
+            .field(Association::Point, "lambda2")
+            .unwrap()
+            .as_scalar()
+            .unwrap()
+            .iter()
+            .all(|value| (value - 1.0).abs() < 1e-12)
+    );
+}
+
+#[test]
 fn diagnostics_require_complete_stencils_and_mark_unsupported_points_missing() {
     for missing in [99.0, f64::NAN] {
         let dataset = rotating(missing);
