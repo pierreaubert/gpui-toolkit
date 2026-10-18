@@ -34,6 +34,7 @@ wgpu = { workspace = true, optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 criterion = { workspace = true }
+gpui-profiler = { path = "../gpui-profiler", features = ["global-allocator"] }
 
 [[bench]]
 name = "flow_bench"

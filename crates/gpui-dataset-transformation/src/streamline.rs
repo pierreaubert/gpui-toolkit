@@ -5,30 +5,7 @@
 use crate::TransformError;
 use gpui_mesh::{Association, CellType, Cells, DataSet};
 
-pub(crate) fn tetrahedralize(kind: CellType, n: &[u32]) -> Vec<[u32; 4]> {
-    match kind {
-        CellType::Tetra => vec![[n[0], n[1], n[2], n[3]]],
-        // Six tetrahedra around the 0-6 body diagonal. Every face diagonal
-        // touches node 0 or node 6, so identically oriented neighbours
-        // triangulate their shared face the same way and the extracted
-        // surface stays watertight.
-        CellType::Hexahedron => vec![
-            [n[0], n[1], n[2], n[6]],
-            [n[0], n[2], n[3], n[6]],
-            [n[0], n[3], n[7], n[6]],
-            [n[0], n[7], n[4], n[6]],
-            [n[0], n[4], n[5], n[6]],
-            [n[0], n[5], n[1], n[6]],
-        ],
-        CellType::Wedge => vec![
-            [n[0], n[1], n[2], n[3]],
-            [n[1], n[2], n[3], n[4]],
-            [n[2], n[3], n[4], n[5]],
-        ],
-        CellType::Pyramid => vec![[n[0], n[1], n[2], n[4]], [n[0], n[2], n[3], n[4]]],
-        _ => Vec::new(),
-    }
-}
+pub(crate) use gpui_mesh::tetrahedra as tetrahedralize;
 
 /// Barycentric weights of `p` in a tetrahedron, when inside (within tolerance).
 pub(crate) fn barycentric(tet: [[f64; 3]; 4], p: [f64; 3]) -> Option<[f64; 4]> {

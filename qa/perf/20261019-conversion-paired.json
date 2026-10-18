@@ -1,0 +1,6099 @@
+{
+  "kind": "bounded conversion diagnostic; allocator-disabled CPU timing, separate allocation builds; no mobile/full-frame/energy acceptance claim",
+  "captured_utc": "2026-10-18T23:33:32.801075+00:00",
+  "baseline_commit": "e812e685",
+  "candidate": "pending conversion/decomposition checkpoint",
+  "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "features": {
+    "baseline_timing": [],
+    "candidate_timing": [
+      "retained"
+    ],
+    "allocation_builds": "same variant features plus allocations"
+  },
+  "methodology": "Four timing processes/version, ABBA twice; one warmup/five samples per case at 16/32/48 cubed integer grids with varying finite scalar/vector data. Individual outputs checked outside timing against analytic cell means/independent incident-cell sums. Cold candidate wrappers validate per call. Retained candidate APIs borrow a view validated before timing. The batch includes full validation once and all four conversions in both variants, and checks all four returned outputs outside timing. Returned output destruction excluded. Allocation builds run separately; their wall times do not support CPU comparisons. Shared host, no affinity/thermal/energy control.",
+  "probe_source": "use gpui_mesh::{Association, DataSet, Field, FieldData};\nuse gpui_dataset_transformation::{point_data_to_cell_data,cell_data_to_point_data};\nuse gpui_profiler::AllocProbe;\nuse std::{hint::black_box,time::Instant};\nfn validate(output:&DataSet, association:Association, expected:&[f64], vector:bool) {\n    let field=output.field(association,\"out\").unwrap();\n    assert!(field.valid.as_ref().is_none_or(|mask|mask.iter().all(|&valid|valid)));\n    match &field.data {\n        FieldData::Scalar(values)=>{\n            assert!(!vector); assert_eq!(values.len(),expected.len());\n            for (&a,&b) in values.iter().zip(expected) { assert!((a-b).abs()<1e-10); }\n        }\n        FieldData::Vector(values)=>{\n            assert!(vector); assert_eq!(values.len(),expected.len());\n            for (a,&b) in values.iter().zip(expected) {\n                for (axis,factor) in [1.0,2.0,-0.5].into_iter().enumerate() { assert!((a[axis]-b*factor).abs()<1e-10); }\n            }\n        }\n        _=>panic!(\"unexpected output\"),\n    }\n}\nfn measure(n:usize,label:&str, association:Association, expected:&[f64], vector:bool,mut operation:impl FnMut()->DataSet) {\n    let warm=black_box(operation()); validate(&warm,association,expected,vector); drop(warm);\n    let mut times=Vec::with_capacity(5); let mut counts=Vec::with_capacity(5); let mut bytes=Vec::with_capacity(5);\n    for _ in 0..5 {\n        let mut probe=AllocProbe::new();\n        let start=Instant::now();\n        let output=black_box(operation());\n        let elapsed=start.elapsed().as_nanos();\n        let allocations=probe.sample(\"conversion\");\n        times.push(elapsed); counts.push(allocations.count); bytes.push(allocations.bytes);\n        validate(&output,association,expected,vector); drop(output);\n    }\n    println!(r#\"{{\"n\":{n},\"case\":\"{label}\",\"allocator_instrumentation\":{},\"times_ns\":{times:?},\"allocation_calls\":{counts:?},\"allocated_bytes\":{bytes:?}}}\"#,cfg!(feature=\"allocations\"));\n}\nfn measure_batch(n:usize,label:&str,expected_cells:&[f64],expected_points:&[f64],mut operation:impl FnMut()->[DataSet;4]) {\n    let check=|outputs:&[DataSet;4]| {\n        validate(&outputs[0],Association::Cell,expected_cells,false);\n        validate(&outputs[1],Association::Cell,expected_cells,true);\n        validate(&outputs[2],Association::Point,expected_points,false);\n        validate(&outputs[3],Association::Point,expected_points,true);\n    };\n    let warm=black_box(operation());check(&warm);drop(warm);\n    let mut times=Vec::with_capacity(5);let mut counts=Vec::with_capacity(5);let mut bytes=Vec::with_capacity(5);\n    for _ in 0..5 {\n        let mut probe=AllocProbe::new();let start=Instant::now();let output=black_box(operation());\n        let elapsed=start.elapsed().as_nanos();let allocations=probe.sample(\"conversion-batch\");\n        times.push(elapsed);counts.push(allocations.count);bytes.push(allocations.bytes);check(&output);drop(output);\n    }\n    println!(r#\"{{\"n\":{n},\"case\":\"{label}\",\"allocator_instrumentation\":{},\"times_ns\":{times:?},\"allocation_calls\":{counts:?},\"allocated_bytes\":{bytes:?}}}\"#,cfg!(feature=\"allocations\"));\n}\n\nfn main() {\n    for n in [16usize,32,48] {\n        let dataset=DataSet::structured_grid(\"conversion\",[n;3],[0.0;3],[1.0;3]).unwrap();\n        let point_values:Vec<_>=dataset.positions.iter().map(|p|0.5+(p[0]+2.0*p[1]-0.5*p[2])*0.015625).collect();\n        let cell_values:Vec<_>=(0..dataset.cell_count()).map(|i|0.5+(i%13) as f64*0.03125).collect();\n        let expected_cells:Vec<_>=(0..dataset.cell_count()).map(|cell|{\n            let nodes=dataset.cells.cell(cell).unwrap(); let a=dataset.positions[nodes[0] as usize];let b=dataset.positions[nodes[6] as usize];\n            0.5+((a[0]+b[0])*0.5+(a[1]+b[1])-(a[2]+b[2])*0.25)*0.015625\n        }).collect();\n        let mut sums=vec![0.0;dataset.point_count()];let mut counts=vec![0usize;dataset.point_count()];\n        for (cell,&value) in cell_values.iter().enumerate() {\n            for &node in dataset.cells.cell(cell).unwrap() { sums[node as usize]+=value; counts[node as usize]+=1; }\n        }\n        let expected_points:Vec<_>=sums.iter().zip(&counts).map(|(&sum,&count)|sum/count as f64).collect();\n        let point_vectors:Vec<_>=point_values.iter().map(|&v|[v,2.0*v,-0.5*v]).collect();\n        let cell_vectors:Vec<_>=cell_values.iter().map(|&v|[v,2.0*v,-0.5*v]).collect();\n        let dataset=dataset.with_field(Field::scalar(\"point-s\",point_values)).with_field(Field::vector(\"point-v\",point_vectors))\n            .with_field(Field::scalar(\"cell-s\",cell_values).on_cells()).with_field(Field::vector(\"cell-v\",cell_vectors).on_cells());\n        dataset.validate().unwrap();\n        measure(n,\"point_scalar\",Association::Cell,&expected_cells,false,||point_data_to_cell_data(&dataset,\"point-s\",\"out\").unwrap());\n        measure(n,\"point_vector\",Association::Cell,&expected_cells,true,||point_data_to_cell_data(&dataset,\"point-v\",\"out\").unwrap());\n        measure(n,\"cell_scalar\",Association::Point,&expected_points,false,||cell_data_to_point_data(&dataset,\"cell-s\",\"out\").unwrap());\n        measure(n,\"cell_vector\",Association::Point,&expected_points,true,||cell_data_to_point_data(&dataset,\"cell-v\",\"out\").unwrap());\n        #[cfg(feature=\"retained\")]\n        {\n            let checked=dataset.validated().unwrap();\n            measure(n,\"retained_point_scalar\",Association::Cell,&expected_cells,false,||gpui_dataset_transformation::point_data_to_cell_data_validated(checked,\"point-s\",\"out\").unwrap());\n            measure(n,\"retained_point_vector\",Association::Cell,&expected_cells,true,||gpui_dataset_transformation::point_data_to_cell_data_validated(checked,\"point-v\",\"out\").unwrap());\n            measure(n,\"retained_cell_scalar\",Association::Point,&expected_points,false,||gpui_dataset_transformation::cell_data_to_point_data_validated(checked,\"cell-s\",\"out\").unwrap());\n            measure(n,\"retained_cell_vector\",Association::Point,&expected_points,true,||gpui_dataset_transformation::cell_data_to_point_data_validated(checked,\"cell-v\",\"out\").unwrap());\n            measure_batch(n,\"batch_validate_once\",&expected_cells,&expected_points,||{\n                let checked=dataset.validated().unwrap();\n                [gpui_dataset_transformation::point_data_to_cell_data_validated(checked,\"point-s\",\"out\").unwrap(),\n                 gpui_dataset_transformation::point_data_to_cell_data_validated(checked,\"point-v\",\"out\").unwrap(),\n                 gpui_dataset_transformation::cell_data_to_point_data_validated(checked,\"cell-s\",\"out\").unwrap(),\n                 gpui_dataset_transformation::cell_data_to_point_data_validated(checked,\"cell-v\",\"out\").unwrap()]\n            });\n        }\n        #[cfg(not(feature=\"retained\"))]\n        measure_batch(n,\"batch_validate_once\",&expected_cells,&expected_points,||{\n            dataset.validate().unwrap();\n            [point_data_to_cell_data(&dataset,\"point-s\",\"out\").unwrap(),point_data_to_cell_data(&dataset,\"point-v\",\"out\").unwrap(),\n             cell_data_to_point_data(&dataset,\"cell-s\",\"out\").unwrap(),cell_data_to_point_data(&dataset,\"cell-v\",\"out\").unwrap()]\n        });\n    }\n}\n",
+  "source_sha256": {
+    "baseline": {
+      "crates/gpui-dataset-transformation/src/convert.rs": "17f30b357c5f4e0f6c1833962c83b2e0d5bcade2959ea9d891cad9215b28221e",
+      "crates/gpui-dataset-transformation/src/calculator.rs": "cbcbf14188db53273244e174524e471affafe17384d8d422b13d42f033e5d5d3",
+      "crates/gpui-dataset-transformation/src/streamline.rs": "275762bece028b4562dd002d05091127a78bd70033581f0250a94ea6957df270",
+      "crates/gpui-mesh/src/dataset.rs": "35ed0580c3ada3fd1d7afaaf26143813621fdd61bdd0f726479dbaf6176b0f8c",
+      "crates/gpui-mesh/src/decomposition.rs": null,
+      "crates/gpui-mesh/src/lib.rs": "17a6453f28a0250d0e01956b1e5013c84330853f574da214ab76621495e64f42"
+    },
+    "candidate": {
+      "crates/gpui-dataset-transformation/src/convert.rs": "33f5d21309b76a05555c5581c80202128f0073c23729594552c5e2296e73466e",
+      "crates/gpui-dataset-transformation/src/calculator.rs": "3c38738b8d380325f93cc75f5f8c4b32c3ae3330b02e68bd443bcbe2cb024439",
+      "crates/gpui-dataset-transformation/src/streamline.rs": "5049b273a51fe93fd3ebf0cfd2a532b8c3e940165656114eafba9aa10233d53d",
+      "crates/gpui-mesh/src/dataset.rs": "9a8627bf7609b95dd181d97fd87e5e1d699faa1c5ec0d96b5201d0bbafb140dc",
+      "crates/gpui-mesh/src/decomposition.rs": "0fe536a626745c4fdf62ed824f0ec762fdac5ef2a785b23d6f7511bf978773b0",
+      "crates/gpui-mesh/src/lib.rs": "f1897e06cc981103d4f1c40553ce4822fc41f945d9718530b6899964f21e9fdb"
+    }
+  },
+  "summary": [
+    {
+      "n": 16,
+      "baseline_case": "point_scalar",
+      "candidate_case": "point_scalar",
+      "median_ns": {
+        "baseline": 10208.5,
+        "candidate": 31187.5
+      },
+      "time_ratio": 3.055052162413675,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 54619
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 54616
+        }
+      }
+    },
+    {
+      "n": 16,
+      "baseline_case": "point_scalar",
+      "candidate_case": "retained_point_scalar",
+      "median_ns": {
+        "baseline": 10208.5,
+        "candidate": 11208.5
+      },
+      "time_ratio": 1.0979575843659695,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 54619
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 54616
+        }
+      }
+    },
+    {
+      "n": 16,
+      "baseline_case": "point_vector",
+      "candidate_case": "point_vector",
+      "median_ns": {
+        "baseline": 14854.0,
+        "candidate": 35542.0
+      },
+      "time_ratio": 2.392756159956914,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 162619
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 162616
+        }
+      }
+    },
+    {
+      "n": 16,
+      "baseline_case": "point_vector",
+      "candidate_case": "retained_point_vector",
+      "median_ns": {
+        "baseline": 14854.0,
+        "candidate": 16604.0
+      },
+      "time_ratio": 1.117813383600377,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 162619
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 162616
+        }
+      }
+    },
+    {
+      "n": 16,
+      "baseline_case": "cell_scalar",
+      "candidate_case": "cell_scalar",
+      "median_ns": {
+        "baseline": 200729.0,
+        "candidate": 121646.0
+      },
+      "time_ratio": 0.6060210532608642,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 6760,
+          "allocated_bytes": 1130691
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 98920
+        }
+      }
+    },
+    {
+      "n": 16,
+      "baseline_case": "cell_scalar",
+      "candidate_case": "retained_cell_scalar",
+      "median_ns": {
+        "baseline": 200729.0,
+        "candidate": 104270.5
+      },
+      "time_ratio": 0.5194590716837129,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 6760,
+          "allocated_bytes": 1130691
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 98920
+        }
+      }
+    },
+    {
+      "n": 16,
+      "baseline_case": "cell_vector",
+      "candidate_case": "cell_vector",
+      "median_ns": {
+        "baseline": 151104.0,
+        "candidate": 137458.0
+      },
+      "time_ratio": 0.9096913384159254,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 6760,
+          "allocated_bytes": 1327299
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 229992
+        }
+      }
+    },
+    {
+      "n": 16,
+      "baseline_case": "cell_vector",
+      "candidate_case": "retained_cell_vector",
+      "median_ns": {
+        "baseline": 151104.0,
+        "candidate": 119812.5
+      },
+      "time_ratio": 0.7929141518424396,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 6760,
+          "allocated_bytes": 1327299
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 229992
+        }
+      }
+    },
+    {
+      "n": 16,
+      "baseline_case": "batch_validate_once",
+      "candidate_case": "batch_validate_once",
+      "median_ns": {
+        "baseline": 338541.5,
+        "candidate": 269333.5
+      },
+      "time_ratio": 0.7955701147422103,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 13534,
+          "allocated_bytes": 2675228
+        },
+        "candidate": {
+          "allocation_calls": 26,
+          "allocated_bytes": 546144
+        }
+      }
+    },
+    {
+      "n": 32,
+      "baseline_case": "point_scalar",
+      "candidate_case": "point_scalar",
+      "median_ns": {
+        "baseline": 81021.0,
+        "candidate": 246854.5
+      },
+      "time_ratio": 3.0467965095469074,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 477275
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 477272
+        }
+      }
+    },
+    {
+      "n": 32,
+      "baseline_case": "point_scalar",
+      "candidate_case": "retained_point_scalar",
+      "median_ns": {
+        "baseline": 81021.0,
+        "candidate": 97354.0
+      },
+      "time_ratio": 1.2015897113094136,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 477275
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 477272
+        }
+      }
+    },
+    {
+      "n": 32,
+      "baseline_case": "point_vector",
+      "candidate_case": "point_vector",
+      "median_ns": {
+        "baseline": 125708.5,
+        "candidate": 291166.5
+      },
+      "time_ratio": 2.3162037571047303,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 1430587
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 1430584
+        }
+      }
+    },
+    {
+      "n": 32,
+      "baseline_case": "point_vector",
+      "candidate_case": "retained_point_vector",
+      "median_ns": {
+        "baseline": 125708.5,
+        "candidate": 142271.0
+      },
+      "time_ratio": 1.1317532227335463,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 1430587
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 1430584
+        }
+      }
+    },
+    {
+      "n": 32,
+      "baseline_case": "cell_scalar",
+      "candidate_case": "cell_scalar",
+      "median_ns": {
+        "baseline": 1275562.5,
+        "candidate": 1056833.0
+      },
+      "time_ratio": 0.8285231025527954,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 59592,
+          "allocated_bytes": 9867331
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 787048
+        }
+      }
+    },
+    {
+      "n": 32,
+      "baseline_case": "cell_scalar",
+      "candidate_case": "retained_cell_scalar",
+      "median_ns": {
+        "baseline": 1275562.5,
+        "candidate": 911896.0
+      },
+      "time_ratio": 0.7148971532167181,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 59592,
+          "allocated_bytes": 9867331
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 787048
+        }
+      }
+    },
+    {
+      "n": 32,
+      "baseline_case": "cell_vector",
+      "candidate_case": "cell_vector",
+      "median_ns": {
+        "baseline": 1362458.0,
+        "candidate": 1197250.0
+      },
+      "time_ratio": 0.8787426841781545,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 59592,
+          "allocated_bytes": 11440195
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 1835624
+        }
+      }
+    },
+    {
+      "n": 32,
+      "baseline_case": "cell_vector",
+      "candidate_case": "retained_cell_vector",
+      "median_ns": {
+        "baseline": 1362458.0,
+        "candidate": 1046521.0
+      },
+      "time_ratio": 0.7681124849353155,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 59592,
+          "allocated_bytes": 11440195
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 1835624
+        }
+      }
+    },
+    {
+      "n": 32,
+      "baseline_case": "batch_validate_once",
+      "candidate_case": "batch_validate_once",
+      "median_ns": {
+        "baseline": 2996479.5,
+        "candidate": 2353417.0
+      },
+      "time_ratio": 0.7853939931843351,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 119198,
+          "allocated_bytes": 23215388
+        },
+        "candidate": {
+          "allocation_calls": 26,
+          "allocated_bytes": 4530528
+        }
+      }
+    },
+    {
+      "n": 48,
+      "baseline_case": "point_scalar",
+      "candidate_case": "point_scalar",
+      "median_ns": {
+        "baseline": 282770.5,
+        "candidate": 843083.5
+      },
+      "time_ratio": 2.9815115084494317,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 1661787
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 1661784
+        }
+      }
+    },
+    {
+      "n": 48,
+      "baseline_case": "point_scalar",
+      "candidate_case": "retained_point_scalar",
+      "median_ns": {
+        "baseline": 282770.5,
+        "candidate": 371042.0
+      },
+      "time_ratio": 1.3121665803186684,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 1661787
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 1661784
+        }
+      }
+    },
+    {
+      "n": 48,
+      "baseline_case": "point_vector",
+      "candidate_case": "point_vector",
+      "median_ns": {
+        "baseline": 434042.0,
+        "candidate": 997146.5
+      },
+      "time_ratio": 2.2973502564267974,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 4984123
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 4984120
+        }
+      }
+    },
+    {
+      "n": 48,
+      "baseline_case": "point_vector",
+      "candidate_case": "retained_point_vector",
+      "median_ns": {
+        "baseline": 434042.0,
+        "candidate": 497729.5
+      },
+      "time_ratio": 1.1467311919123033,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 4984123
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 4984120
+        }
+      }
+    },
+    {
+      "n": 48,
+      "baseline_case": "cell_scalar",
+      "candidate_case": "cell_scalar",
+      "median_ns": {
+        "baseline": 4385291.5,
+        "candidate": 3683562.0
+      },
+      "time_ratio": 0.8399811050189024,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 207656,
+          "allocated_bytes": 34271171
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 2654824
+        }
+      }
+    },
+    {
+      "n": 48,
+      "baseline_case": "cell_scalar",
+      "candidate_case": "retained_cell_scalar",
+      "median_ns": {
+        "baseline": 4385291.5,
+        "candidate": 3183020.5
+      },
+      "time_ratio": 0.7258401180400437,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 207656,
+          "allocated_bytes": 34271171
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 2654824
+        }
+      }
+    },
+    {
+      "n": 48,
+      "baseline_case": "cell_vector",
+      "candidate_case": "cell_vector",
+      "median_ns": {
+        "baseline": 4713791.5,
+        "candidate": 4167770.5
+      },
+      "time_ratio": 0.8841652202902908,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 207656,
+          "allocated_bytes": 39579587
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 6193768
+        }
+      }
+    },
+    {
+      "n": 48,
+      "baseline_case": "cell_vector",
+      "candidate_case": "retained_cell_vector",
+      "median_ns": {
+        "baseline": 4713791.5,
+        "candidate": 3651500.0
+      },
+      "time_ratio": 0.7746418143441431,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 207656,
+          "allocated_bytes": 39579587
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 6193768
+        }
+      }
+    },
+    {
+      "n": 48,
+      "baseline_case": "batch_validate_once",
+      "candidate_case": "batch_validate_once",
+      "median_ns": {
+        "baseline": 10237083.0,
+        "candidate": 8232333.5
+      },
+      "time_ratio": 0.804167896264981,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 415326,
+          "allocated_bytes": 80496668
+        },
+        "candidate": {
+          "allocation_calls": 26,
+          "allocated_bytes": 15494496
+        }
+      }
+    }
+  ],
+  "runs": [
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "records": [
+        {
+          "n": 16,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            10417,
+            10167,
+            10250,
+            10208,
+            11500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            15208,
+            15792,
+            14833,
+            14791,
+            14583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            207250,
+            204083,
+            200166,
+            193459,
+            138334
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            152917,
+            151083,
+            150709,
+            150250,
+            151417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            335875,
+            338625,
+            342583,
+            336917,
+            335208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            79542,
+            79709,
+            79750,
+            79625,
+            100542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            125417,
+            126541,
+            125292,
+            125667,
+            125667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1256042,
+            1262875,
+            1261750,
+            1266208,
+            1247083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1352708,
+            1366292,
+            1377583,
+            1358291,
+            1335333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            2987625,
+            2995709,
+            2993709,
+            3019167,
+            2980708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            278375,
+            281000,
+            277375,
+            278042,
+            279916
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            429333,
+            432416,
+            432500,
+            433083,
+            439417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            4328667,
+            4410750,
+            4434666,
+            4496791,
+            4345833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            4549500,
+            4639250,
+            4605334,
+            4582625,
+            4545958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            10238625,
+            10217583,
+            10240708,
+            10175542,
+            10190500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "records": [
+        {
+          "n": 16,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            30333,
+            30458,
+            30167,
+            29375,
+            30584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            35250,
+            34625,
+            34542,
+            36500,
+            35042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            119458,
+            121958,
+            121500,
+            121041,
+            120875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            137625,
+            134500,
+            137250,
+            138333,
+            140750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            14000,
+            12208,
+            11417,
+            11250,
+            11166
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            16917,
+            16083,
+            16167,
+            18625,
+            16375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            105083,
+            104708,
+            101875,
+            104750,
+            104833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            116584,
+            119625,
+            120875,
+            123084,
+            125000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            266750,
+            268458,
+            268083,
+            268417,
+            267584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            246166,
+            241500,
+            244541,
+            244459,
+            241708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            284042,
+            288625,
+            291042,
+            285208,
+            291875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1054000,
+            1056083,
+            1053083,
+            1050500,
+            1048625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1186583,
+            1194916,
+            1187875,
+            1186000,
+            1195042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            102375,
+            95625,
+            98833,
+            98625,
+            95292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            139333,
+            140667,
+            142417,
+            141750,
+            142334
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            912542,
+            907875,
+            905500,
+            905750,
+            902958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1049292,
+            1046375,
+            1040667,
+            1052625,
+            1046250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            2335500,
+            2342625,
+            2334750,
+            2337125,
+            2336208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            847958,
+            848791,
+            838708,
+            842917,
+            845250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            989041,
+            995459,
+            1001417,
+            995625,
+            993500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            3666792,
+            3679458,
+            3669625,
+            3686083,
+            3670834
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            4141666,
+            4146416,
+            4174334,
+            4222708,
+            4227833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            416208,
+            413792,
+            411541,
+            347292,
+            347375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            509750,
+            515625,
+            523375,
+            509667,
+            513541
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            3208834,
+            3178667,
+            3179625,
+            3296500,
+            3229542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            3768916,
+            3720459,
+            3734083,
+            3780375,
+            3726250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            8373292,
+            8343000,
+            8296292,
+            8150750,
+            8156834
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "records": [
+        {
+          "n": 16,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            32750,
+            32583,
+            33250,
+            34875,
+            34750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            36375,
+            35500,
+            35667,
+            36042,
+            36292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            123083,
+            122834,
+            121500,
+            123250,
+            119750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            144209,
+            138334,
+            141709,
+            139083,
+            138375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            13417,
+            13792,
+            15708,
+            13583,
+            13583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            16417,
+            16209,
+            16166,
+            16209,
+            17917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            105209,
+            104042,
+            102000,
+            105250,
+            104291
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            119958,
+            119500,
+            119584,
+            118666,
+            116667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            273459,
+            272917,
+            271458,
+            270083,
+            269500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            268625,
+            265041,
+            265917,
+            268125,
+            268750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            294375,
+            303583,
+            292042,
+            291500,
+            292125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1054375,
+            1060208,
+            1064792,
+            1058959,
+            1064459
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1198667,
+            1194625,
+            1203292,
+            1199500,
+            1195375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            122834,
+            125833,
+            118417,
+            118500,
+            117416
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            142375,
+            141750,
+            141625,
+            143834,
+            142708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            912417,
+            907917,
+            910542,
+            904666,
+            910667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1050208,
+            1044917,
+            1046000,
+            1045209,
+            1042000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            2440125,
+            2481542,
+            2530709,
+            2530875,
+            2522166
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            940125,
+            904125,
+            905042,
+            902542,
+            887875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1090333,
+            1024792,
+            1084000,
+            1078500,
+            1082042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            3813875,
+            3705333,
+            3739209,
+            3718333,
+            3758459
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            4147084,
+            4137875,
+            4141916,
+            4152041,
+            4146958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            409333,
+            407917,
+            406708,
+            403917,
+            452625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            499334,
+            495917,
+            492334,
+            495584,
+            494708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            3157083,
+            3154917,
+            3155000,
+            3161375,
+            3161625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            3631167,
+            3634042,
+            3638250,
+            3634250,
+            3622459
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            8215917,
+            8220125,
+            8253500,
+            8243500,
+            8248875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "records": [
+        {
+          "n": 16,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            10750,
+            10167,
+            10125,
+            10625,
+            9708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            14833,
+            16583,
+            14375,
+            16042,
+            14459
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            203708,
+            200333,
+            199500,
+            197166,
+            148375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            152709,
+            150916,
+            151125,
+            150042,
+            152083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            340959,
+            339709,
+            339833,
+            340500,
+            338583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            82000,
+            79916,
+            83875,
+            80417,
+            81792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            126375,
+            125958,
+            125875,
+            124792,
+            124750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1402250,
+            1341375,
+            1279375,
+            1264917,
+            1279291
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1375125,
+            1346667,
+            1368542,
+            1337792,
+            1337084
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            3024667,
+            2999250,
+            2970167,
+            3024167,
+            2967791
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            284291,
+            284041,
+            284041,
+            283833,
+            285459
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            434084,
+            436125,
+            432209,
+            433042,
+            435500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            4416792,
+            4322584,
+            4339916,
+            4350125,
+            4459291
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            4702584,
+            4770500,
+            4749166,
+            4734875,
+            4639791
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            10423708,
+            10415334,
+            10388959,
+            10277625,
+            10238750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "records": [
+        {
+          "n": 16,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            10625,
+            9959,
+            9958,
+            9959,
+            10750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            14458,
+            15167,
+            16042,
+            15083,
+            14500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            204500,
+            203709,
+            201292,
+            197833,
+            140667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            151000,
+            149917,
+            150166,
+            154042,
+            152333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            335167,
+            335541,
+            337250,
+            342333,
+            339375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            86416,
+            86250,
+            83792,
+            86042,
+            82875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            123208,
+            122583,
+            125459,
+            125291,
+            125000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1275958,
+            1274542,
+            1290125,
+            1289708,
+            1289833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1367375,
+            1373417,
+            1368583,
+            1337625,
+            1343334
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            2956792,
+            2910875,
+            2954625,
+            3031209,
+            3024167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            290000,
+            288667,
+            294083,
+            293291,
+            373708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            457375,
+            444000,
+            443917,
+            458792,
+            472500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            5930125,
+            5913916,
+            5946375,
+            5682291,
+            5754334
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            6507250,
+            6513667,
+            6506667,
+            6098083,
+            6072750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            10955000,
+            10208958,
+            10154625,
+            10185959,
+            10201458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "records": [
+        {
+          "n": 16,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            29042,
+            28250,
+            28041,
+            28958,
+            31875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            33125,
+            33125,
+            36791,
+            35333,
+            33250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            121959,
+            121709,
+            117666,
+            122000,
+            120666
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            137417,
+            136250,
+            136167,
+            137875,
+            135708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            11750,
+            11083,
+            10875,
+            10916,
+            10875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            17750,
+            19125,
+            16709,
+            16917,
+            16542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            102000,
+            104750,
+            103833,
+            101334,
+            104875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            119167,
+            119250,
+            116958,
+            120958,
+            121083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            267958,
+            265500,
+            271625,
+            270084,
+            278708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            245917,
+            245334,
+            241875,
+            243583,
+            240208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            291750,
+            293584,
+            290208,
+            288500,
+            289750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1068083,
+            1063000,
+            1053458,
+            1052250,
+            1051750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1196625,
+            1195833,
+            1196541,
+            1194833,
+            1189708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            96875,
+            100875,
+            92542,
+            95500,
+            96083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            141958,
+            142042,
+            142458,
+            144208,
+            142167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            912625,
+            913250,
+            916708,
+            913333,
+            910375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1046667,
+            1045167,
+            1041791,
+            1051000,
+            1050292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            2342833,
+            2345292,
+            2344542,
+            2348833,
+            2339791
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            832000,
+            834083,
+            835541,
+            835667,
+            839041
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            993208,
+            992708,
+            992041,
+            994292,
+            996709
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            3672791,
+            3665583,
+            3675083,
+            3678375,
+            3676167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            4150709,
+            4153167,
+            4165375,
+            4383084,
+            4286167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            335333,
+            331583,
+            332125,
+            335625,
+            331875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            497042,
+            504583,
+            499458,
+            496375,
+            495958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            3175458,
+            3189958,
+            3199458,
+            3203625,
+            3180959
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            3635791,
+            3639625,
+            3656708,
+            3652125,
+            3664084
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            8163625,
+            8271917,
+            8221167,
+            8170375,
+            8245500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "records": [
+        {
+          "n": 16,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            32417,
+            32042,
+            29375,
+            29625,
+            34042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            34667,
+            34667,
+            37750,
+            36208,
+            37750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            121792,
+            121583,
+            118708,
+            123834,
+            121459
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            136459,
+            137291,
+            136875,
+            137750,
+            138708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            11833,
+            11000,
+            10958,
+            11125,
+            10916
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            16833,
+            18959,
+            16417,
+            17084,
+            16292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            102292,
+            105792,
+            104250,
+            101917,
+            105666
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            119584,
+            120334,
+            117416,
+            122042,
+            120125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            268666,
+            264959,
+            268583,
+            271083,
+            267584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            270333,
+            267333,
+            249250,
+            248667,
+            246417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            304667,
+            294083,
+            295208,
+            298833,
+            295625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1066250,
+            1065542,
+            1066042,
+            1064709,
+            1079208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1202791,
+            1199000,
+            1202792,
+            1200500,
+            1202708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            97083,
+            95666,
+            93542,
+            98042,
+            95709
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            145625,
+            144333,
+            143125,
+            144250,
+            143042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            912542,
+            919084,
+            925417,
+            909583,
+            914583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1048041,
+            1048291,
+            1050250,
+            1041541,
+            1049333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            2361875,
+            2361459,
+            2480750,
+            2373500,
+            2362292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            838041,
+            841542,
+            840917,
+            840750,
+            844875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            998834,
+            999375,
+            995625,
+            1009916,
+            997042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            3685250,
+            3688750,
+            3692041,
+            3693209,
+            3700000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            4164958,
+            4170166,
+            4149875,
+            4203250,
+            4175000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            342084,
+            332833,
+            333709,
+            336375,
+            334167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            498417,
+            498084,
+            499083,
+            494459,
+            504875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            3174000,
+            3183542,
+            3175375,
+            3187917,
+            3176083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            3643125,
+            3643125,
+            3652167,
+            3747750,
+            3650875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            8165416,
+            8350792,
+            8114917,
+            8142583,
+            8154750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "records": [
+        {
+          "n": 16,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            10542,
+            10291,
+            10167,
+            10208,
+            11500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            15000,
+            15750,
+            14875,
+            14750,
+            14708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            205333,
+            204917,
+            204708,
+            198459,
+            142375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            151875,
+            155875,
+            154042,
+            158542,
+            156083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 16,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            344292,
+            341583,
+            338292,
+            334292,
+            340500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            79792,
+            79542,
+            80250,
+            81333,
+            81459
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            126083,
+            125750,
+            125416,
+            125541,
+            125791
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1278666,
+            1264667,
+            1271750,
+            1264625,
+            1276167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            1366625,
+            1377166,
+            1371459,
+            1350666,
+            1358625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 32,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            3018250,
+            3002333,
+            3010125,
+            3017416,
+            3006666
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            278125,
+            354958,
+            357833,
+            281500,
+            279042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            439167,
+            433166,
+            434000,
+            437458,
+            430541
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_scalar",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            4359209,
+            4424042,
+            4359833,
+            4389875,
+            4334458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_vector",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            4628583,
+            4692708,
+            4663292,
+            4709042,
+            4729916
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "n": 48,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": false,
+          "times_ns": [
+            10307166,
+            10191958,
+            10256583,
+            10387042,
+            10205000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "allocations",
+      "records": [
+        {
+          "n": 16,
+          "case": "point_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            10125,
+            9959,
+            10042,
+            11458,
+            10000
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            54619,
+            54619,
+            54619,
+            54619,
+            54619
+          ]
+        },
+        {
+          "n": 16,
+          "case": "point_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            15083,
+            14791,
+            14750,
+            16000,
+            14667
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            162619,
+            162619,
+            162619,
+            162619,
+            162619
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            203000,
+            202166,
+            205583,
+            199125,
+            143875
+          ],
+          "allocation_calls": [
+            6760,
+            6760,
+            6760,
+            6760,
+            6760
+          ],
+          "allocated_bytes": [
+            1130691,
+            1130691,
+            1130691,
+            1130691,
+            1130691
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            149792,
+            150583,
+            149667,
+            149791,
+            150042
+          ],
+          "allocation_calls": [
+            6760,
+            6760,
+            6760,
+            6760,
+            6760
+          ],
+          "allocated_bytes": [
+            1327299,
+            1327299,
+            1327299,
+            1327299,
+            1327299
+          ]
+        },
+        {
+          "n": 16,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            336042,
+            333083,
+            333250,
+            336209,
+            337041
+          ],
+          "allocation_calls": [
+            13534,
+            13534,
+            13534,
+            13534,
+            13534
+          ],
+          "allocated_bytes": [
+            2675228,
+            2675228,
+            2675228,
+            2675228,
+            2675228
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            82625,
+            83125,
+            83208,
+            83125,
+            83250
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            477275,
+            477275,
+            477275,
+            477275,
+            477275
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            123375,
+            123041,
+            123209,
+            124083,
+            124292
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            1430587,
+            1430587,
+            1430587,
+            1430587,
+            1430587
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            1265292,
+            1266041,
+            1261167,
+            1283208,
+            1282167
+          ],
+          "allocation_calls": [
+            59592,
+            59592,
+            59592,
+            59592,
+            59592
+          ],
+          "allocated_bytes": [
+            9867331,
+            9867331,
+            9867331,
+            9867331,
+            9867331
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            1357208,
+            1347291,
+            1355625,
+            1358750,
+            1374667
+          ],
+          "allocation_calls": [
+            59592,
+            59592,
+            59592,
+            59592,
+            59592
+          ],
+          "allocated_bytes": [
+            11440195,
+            11440195,
+            11440195,
+            11440195,
+            11440195
+          ]
+        },
+        {
+          "n": 32,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            3180042,
+            3116625,
+            3160958,
+            3170542,
+            3145125
+          ],
+          "allocation_calls": [
+            119198,
+            119198,
+            119198,
+            119198,
+            119198
+          ],
+          "allocated_bytes": [
+            23215388,
+            23215388,
+            23215388,
+            23215388,
+            23215388
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            315250,
+            305583,
+            297000,
+            296958,
+            303042
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            1661787,
+            1661787,
+            1661787,
+            1661787,
+            1661787
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            435083,
+            461417,
+            450334,
+            450459,
+            466083
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            4984123,
+            4984123,
+            4984123,
+            4984123,
+            4984123
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            4419041,
+            4418875,
+            4633709,
+            4442458,
+            4631375
+          ],
+          "allocation_calls": [
+            207656,
+            207656,
+            207656,
+            207656,
+            207656
+          ],
+          "allocated_bytes": [
+            34271171,
+            34271171,
+            34271171,
+            34271171,
+            34271171
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            4804166,
+            4772250,
+            4771458,
+            4800292,
+            4843500
+          ],
+          "allocation_calls": [
+            207656,
+            207656,
+            207656,
+            207656,
+            207656
+          ],
+          "allocated_bytes": [
+            39579587,
+            39579587,
+            39579587,
+            39579587,
+            39579587
+          ]
+        },
+        {
+          "n": 48,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            10491666,
+            10291875,
+            10269167,
+            10274042,
+            10527750
+          ],
+          "allocation_calls": [
+            415326,
+            415326,
+            415326,
+            415326,
+            415326
+          ],
+          "allocated_bytes": [
+            80496668,
+            80496668,
+            80496668,
+            80496668,
+            80496668
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "allocations",
+      "records": [
+        {
+          "n": 16,
+          "case": "point_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            28792,
+            28584,
+            28500,
+            28334,
+            29292
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            54616,
+            54616,
+            54616,
+            54616,
+            54616
+          ]
+        },
+        {
+          "n": 16,
+          "case": "point_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            33792,
+            35416,
+            35250,
+            34916,
+            33791
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            162616,
+            162616,
+            162616,
+            162616,
+            162616
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            120916,
+            119667,
+            117041,
+            120334,
+            121750
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            98920,
+            98920,
+            98920,
+            98920,
+            98920
+          ]
+        },
+        {
+          "n": 16,
+          "case": "cell_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            136583,
+            136583,
+            135917,
+            134916,
+            133916
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            229992,
+            229992,
+            229992,
+            229992,
+            229992
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            11083,
+            11000,
+            11166,
+            10875,
+            10875
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            54616,
+            54616,
+            54616,
+            54616,
+            54616
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            16791,
+            16208,
+            19083,
+            16166,
+            16250
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            162616,
+            162616,
+            162616,
+            162616,
+            162616
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            103417,
+            104333,
+            107792,
+            102084,
+            104584
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            98920,
+            98920,
+            98920,
+            98920,
+            98920
+          ]
+        },
+        {
+          "n": 16,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            119084,
+            116208,
+            119584,
+            119459,
+            119167
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            229992,
+            229992,
+            229992,
+            229992,
+            229992
+          ]
+        },
+        {
+          "n": 16,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            267916,
+            269625,
+            270000,
+            269167,
+            267375
+          ],
+          "allocation_calls": [
+            26,
+            26,
+            26,
+            26,
+            26
+          ],
+          "allocated_bytes": [
+            546144,
+            546144,
+            546144,
+            546144,
+            546144
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            262917,
+            262958,
+            239375,
+            241042,
+            237666
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            477272,
+            477272,
+            477272,
+            477272,
+            477272
+          ]
+        },
+        {
+          "n": 32,
+          "case": "point_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            293125,
+            287917,
+            285583,
+            284125,
+            283875
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            1430584,
+            1430584,
+            1430584,
+            1430584,
+            1430584
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            1047292,
+            1049542,
+            1050333,
+            1049125,
+            1053084
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            787048,
+            787048,
+            787048,
+            787048,
+            787048
+          ]
+        },
+        {
+          "n": 32,
+          "case": "cell_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            1189250,
+            1186666,
+            1182500,
+            1183833,
+            1187208
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            1835624,
+            1835624,
+            1835624,
+            1835624,
+            1835624
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            118209,
+            118166,
+            114875,
+            96000,
+            95542
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            477272,
+            477272,
+            477272,
+            477272,
+            477272
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            142292,
+            141958,
+            141583,
+            141875,
+            142125
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            1430584,
+            1430584,
+            1430584,
+            1430584,
+            1430584
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            906334,
+            902625,
+            903583,
+            902167,
+            902791
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            787048,
+            787048,
+            787048,
+            787048,
+            787048
+          ]
+        },
+        {
+          "n": 32,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            1042458,
+            1096959,
+            1039584,
+            1037417,
+            1038334
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            1835624,
+            1835624,
+            1835624,
+            1835624,
+            1835624
+          ]
+        },
+        {
+          "n": 32,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            2362542,
+            2398625,
+            2341167,
+            2345458,
+            2343542
+          ],
+          "allocation_calls": [
+            26,
+            26,
+            26,
+            26,
+            26
+          ],
+          "allocated_bytes": [
+            4530528,
+            4530528,
+            4530528,
+            4530528,
+            4530528
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            910583,
+            838583,
+            833625,
+            835333,
+            833875
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            1661784,
+            1661784,
+            1661784,
+            1661784,
+            1661784
+          ]
+        },
+        {
+          "n": 48,
+          "case": "point_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            996750,
+            995416,
+            995791,
+            995417,
+            1001833
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            4984120,
+            4984120,
+            4984120,
+            4984120,
+            4984120
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            3672166,
+            3666041,
+            3656417,
+            3660584,
+            3660708
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            2654824,
+            2654824,
+            2654824,
+            2654824,
+            2654824
+          ]
+        },
+        {
+          "n": 48,
+          "case": "cell_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            4137584,
+            4137875,
+            4142250,
+            4131583,
+            4131209
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            6193768,
+            6193768,
+            6193768,
+            6193768,
+            6193768
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_point_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            330000,
+            331708,
+            327917,
+            328583,
+            334500
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            1661784,
+            1661784,
+            1661784,
+            1661784,
+            1661784
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_point_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            491958,
+            491250,
+            491125,
+            490750,
+            503750
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            4984120,
+            4984120,
+            4984120,
+            4984120,
+            4984120
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_cell_scalar",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            3146541,
+            3152375,
+            3158167,
+            3149417,
+            3150667
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            2654824,
+            2654824,
+            2654824,
+            2654824,
+            2654824
+          ]
+        },
+        {
+          "n": 48,
+          "case": "retained_cell_vector",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            3626750,
+            3623208,
+            3664209,
+            3620125,
+            3628208
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            6193768,
+            6193768,
+            6193768,
+            6193768,
+            6193768
+          ]
+        },
+        {
+          "n": 48,
+          "case": "batch_validate_once",
+          "allocator_instrumentation": true,
+          "times_ns": [
+            8243125,
+            8136458,
+            8156500,
+            8141292,
+            8151250
+          ],
+          "allocation_calls": [
+            26,
+            26,
+            26,
+            26,
+            26
+          ],
+          "allocated_bytes": [
+            15494496,
+            15494496,
+            15494496,
+            15494496,
+            15494496
+          ]
+        }
+      ]
+    }
+  ]
+}

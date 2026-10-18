@@ -17,3 +17,6 @@ name = "gpui_mesh"
 
 [dependencies]
 thiserror = { workspace = true }
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+gpui-profiler = { path = "../gpui-profiler", features = ["global-allocator"] }

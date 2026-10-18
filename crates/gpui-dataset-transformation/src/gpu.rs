@@ -11,7 +11,7 @@
 // Rust guideline compliant 2026-02-21
 
 use crate::TransformError;
-use gpui_mesh::{Association, CellType, DataSet, Field};
+use gpui_mesh::{Association, DataSet, Field};
 use std::sync::Arc;
 
 /// WGSL per-tetrahedron Jacobian kernel (one invocation per tetrahedron).
@@ -85,26 +85,7 @@ pub enum GpuError {
     Readback(String),
 }
 
-fn tetrahedralize(kind: CellType, n: &[u32]) -> Vec<[u32; 4]> {
-    match kind {
-        CellType::Tetra => vec![[n[0], n[1], n[2], n[3]]],
-        CellType::Hexahedron => vec![
-            [n[0], n[1], n[2], n[6]],
-            [n[0], n[2], n[3], n[6]],
-            [n[0], n[3], n[7], n[6]],
-            [n[0], n[7], n[4], n[6]],
-            [n[0], n[4], n[5], n[6]],
-            [n[0], n[5], n[1], n[6]],
-        ],
-        CellType::Wedge => vec![
-            [n[0], n[1], n[2], n[3]],
-            [n[1], n[2], n[3], n[4]],
-            [n[2], n[3], n[4], n[5]],
-        ],
-        CellType::Pyramid => vec![[n[0], n[1], n[2], n[4]], [n[0], n[2], n[3], n[4]]],
-        _ => Vec::new(),
-    }
-}
+use gpui_mesh::tetrahedra as tetrahedralize;
 
 /// A retained wgpu compute context for flow diagnostics.
 #[derive(Debug)]

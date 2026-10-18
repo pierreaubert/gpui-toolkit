@@ -29,6 +29,18 @@ pub enum CellType {
 }
 
 impl CellType {
+    /// Topological dimension: vertex 0, line 1, surface 2, volume 3.
+    #[inline]
+    #[must_use]
+    pub const fn dimension(self) -> u8 {
+        match self {
+            Self::Vertex => 0,
+            Self::Line => 1,
+            Self::Triangle | Self::Quad | Self::Polygon => 2,
+            Self::Tetra | Self::Hexahedron | Self::Wedge | Self::Pyramid => 3,
+        }
+    }
+
     /// Fixed node count for this cell kind.
     #[must_use]
     pub fn node_count(self) -> usize {
@@ -185,7 +197,7 @@ pub enum MeshError {
         /// What is inconsistent.
         reason: String,
     },
-    /// Positions must not be empty.
+    /// Nonempty cells require positions.
     #[error("positions array is empty")]
     EmptyPositions,
     /// Every position component must be finite.
@@ -237,6 +249,24 @@ pub enum MeshError {
         /// Field association.
         association: Association,
     },
+    /// A field's declared association must match the array that stores it.
+    #[error("field '{field}' declares {declared:?} association but is stored in {stored:?} data")]
+    FieldAssociationMismatch {
+        /// Field name.
+        field: String,
+        /// Association declared by the field.
+        declared: Association,
+        /// Association implied by its storage array.
+        stored: Association,
+    },
+    /// Field names must be unique within each association.
+    #[error("duplicate {association:?} field '{field}'")]
+    DuplicateField {
+        /// Ambiguous field name.
+        field: String,
+        /// Association containing the duplicate.
+        association: Association,
+    },
     /// A validity mask must match the field length.
     #[error("field '{field}' validity mask length {mask} != values length {values}")]
     MaskLengthMismatch {
@@ -278,7 +308,62 @@ pub struct DataSet {
     pub cell_data: Vec<Field>,
 }
 
+/// Immutable dataset view whose schema, geometry and fields were validated.
+///
+/// Retain this borrow to share one validation across multiple read-only
+/// operations. The view never copies backing arrays. Mutation of the source is
+/// prevented while a view remains in use.
+///
+/// ```compile_fail
+/// use gpui_mesh::{Cells, DataSet};
+/// let mut data = DataSet::new("points", vec![[0.0; 3]], Cells::from_cells(&[]));
+/// let checked = data.validated().unwrap();
+/// data.positions = vec![[f64::NAN; 3]].into();
+/// assert_eq!(checked.as_dataset().point_count(), 1);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct ValidatedDataSet<'a> {
+    dataset: &'a DataSet,
+    uniform_dimension: Option<u8>,
+}
+
+impl<'a> ValidatedDataSet<'a> {
+    /// Returns the immutable, validated source dataset.
+    #[must_use]
+    pub fn as_dataset(self) -> &'a DataSet {
+        self.dataset
+    }
+
+    /// Uniform cell dimension, or `None` for empty/mixed-dimensional cells.
+    #[must_use]
+    pub fn uniform_cell_dimension(self) -> Option<u8> {
+        self.uniform_dimension
+    }
+}
+
 impl DataSet {
+    /// Validates once and returns a reusable immutable view.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::validate`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use gpui_mesh::{Cells, DataSet};
+    /// let data = DataSet::new("points", vec![[0.0; 3]], Cells::from_cells(&[]));
+    /// let checked = data.validated().unwrap();
+    /// assert_eq!(checked.as_dataset().point_count(), 1);
+    /// ```
+    pub fn validated(&self) -> Result<ValidatedDataSet<'_>, MeshError> {
+        let uniform_dimension = self.validate_inner::<true>()?;
+        Ok(ValidatedDataSet {
+            dataset: self,
+            uniform_dimension,
+        })
+    }
+
     /// Creates a dataset from raw parts. Call [`DataSet::validate`] before use.
     pub fn new(
         id: impl Into<Arc<str>>,
@@ -494,6 +579,10 @@ impl DataSet {
     ///
     /// Returns the first [`MeshError`] encountered.
     pub fn validate(&self) -> Result<(), MeshError> {
+        self.validate_inner::<false>().map(|_| ())
+    }
+
+    fn validate_inner<const SUMMARY: bool>(&self) -> Result<Option<u8>, MeshError> {
         if self.positions.is_empty() && !self.cells.is_empty() {
             return Err(MeshError::EmptyPositions);
         }
@@ -514,7 +603,15 @@ impl DataSet {
         {
             return Err(MeshError::InvalidOffsets);
         }
+        let mut uniform_dimension = if SUMMARY {
+            self.cells.types.first().map(|kind| kind.dimension())
+        } else {
+            None
+        };
         for (cell, ty) in self.cells.types.iter().enumerate() {
+            if SUMMARY && uniform_dimension.is_some_and(|dimension| dimension != ty.dimension()) {
+                uniform_dimension = None;
+            }
             let nodes = self.cells.cell(cell).unwrap_or(&[]);
             let bad_len = if *ty == CellType::Polygon {
                 nodes.len() < 3
@@ -538,10 +635,38 @@ impl DataSet {
                 }
             }
         }
-        for field in self.point_data.iter().chain(&self.cell_data) {
-            self.validate_field(field)?;
+        for (association, fields) in [
+            (Association::Point, &self.point_data),
+            (Association::Cell, &self.cell_data),
+        ] {
+            // Ordinary schemas avoid allocation; large schemas avoid quadratic
+            // name comparisons. Borrowed names need no string copies or entropy.
+            let mut names = (fields.len() > 16).then(std::collections::BTreeSet::new);
+            for (index, field) in fields.iter().enumerate() {
+                if field.association != association {
+                    return Err(MeshError::FieldAssociationMismatch {
+                        field: field.name.to_string(),
+                        declared: field.association,
+                        stored: association,
+                    });
+                }
+                let duplicate = if let Some(names) = &mut names {
+                    !names.insert(field.name.as_ref())
+                } else {
+                    fields[..index]
+                        .iter()
+                        .any(|previous| previous.name == field.name)
+                };
+                if duplicate {
+                    return Err(MeshError::DuplicateField {
+                        field: field.name.to_string(),
+                        association,
+                    });
+                }
+                self.validate_field(field)?;
+            }
         }
-        Ok(())
+        Ok(uniform_dimension)
     }
 
     fn validate_field(&self, field: &Field) -> Result<(), MeshError> {

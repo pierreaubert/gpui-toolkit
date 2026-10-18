@@ -5,7 +5,7 @@
 use crate::TransformError;
 use gpui_mesh::{Association, DataSet, Field, FieldData};
 
-fn magnitude<const N: usize>(components: [f64; N]) -> f64 {
+pub(crate) fn magnitude<const N: usize>(components: [f64; N]) -> f64 {
     let squared: f64 = components.iter().map(|v| v * v).sum();
     if squared.is_normal() || components.iter().all(|&v| v == 0.0) {
         squared.sqrt()

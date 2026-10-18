@@ -57,7 +57,10 @@ pub use analysis::{FieldStats, calculator, field_statistics, histogram, resample
 pub use calculator::{complex_magnitude, complex_phase, vector_magnitude};
 pub use clip::{clip_halfspace, slice};
 pub use contours::contour_lines;
-pub use convert::{cell_data_to_point_data, point_data_to_cell_data};
+pub use convert::{
+    cell_data_to_point_data, cell_data_to_point_data_validated, point_data_to_cell_data,
+    point_data_to_cell_data_validated,
+};
 pub use flow::{
     divergence, lambda2, q_criterion, swirling_strength, vorticity, vorticity_magnitude,
 };

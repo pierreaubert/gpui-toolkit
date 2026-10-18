@@ -2660,6 +2660,7 @@ dependencies = [
  "delaunator",
  "flate2",
  "gpui-mesh",
+ "gpui-profiler",
  "pollster",
  "sotf-wgpu",
  "thiserror 2.0.21",
@@ -2761,6 +2762,7 @@ dependencies = [
 name = "gpui-mesh"
 version = "0.10.44"
 dependencies = [
+ "gpui-profiler",
  "thiserror 2.0.21",
 ]
 

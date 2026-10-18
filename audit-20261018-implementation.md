@@ -543,3 +543,62 @@ qualification, remains active.
 Extractor verification completed: 64 default-feature / 66 GPU-feature library
 tests and all four public validity tests pass. The required-Metal pressure
 pipeline, strict core Clippy and the wasm transformation library also pass.
+
+## Validated point/cell conversion and shared decomposition checkpoint
+
+- Point/cell conversion now handles scalar, vector, tensor and complex data
+  componentwise, preserves labels and units, replaces the requested output name,
+  excludes masked contributors, and emits masked NaNs when support is absent.
+  Cell-to-point conversion uses positive representable geometric measures and
+  the highest supported topological dimension at each point. Concave planar
+  polygon weights use signed vector area; degenerate cells do not contribute.
+  Finite averages survive overflowing intermediate sums/products through a rare
+  bounded convex fallback. Measures that cannot be represented remain excluded;
+  this does not close general extreme-coordinate requirements under C4.
+- Dataset validation rejects association/storage mismatches and duplicate field
+  names within one association. The same name across point/cell data is valid.
+  Ordinary schemas validate without temporary name storage; larger schemas use
+  borrowed sorted names. Public immutable `ValidatedDataSet` views allow a caller
+  to pay full input validation once across multiple conversions. Rust's borrow
+  rules prevent mutation while the view is reused; a compile-fail example tests
+  that property. A dimension summary computed during validation selects compact
+  eight-byte per-point weight scratch for uniform meshes. Mixed-dimensional
+  meshes retain dimension-aware weights.
+- One allocation-free `gpui_mesh::tetrahedra` iterator replaces seven duplicated
+  allocating decomposition implementations across transforms and volume rendering.
+  Tests verify cell counts, mapped indices, malformed arity and reference volumes;
+  10,000 hexahedron decompositions make zero allocations. Conversion allocation
+  tests bound calls and bytes as grid sizes increase, including wholly missing
+  input. These are bounded fixtures, not proofs of aggregate memory limits.
+- `qa/perf/20261019-conversion-paired.json` records identical release probe source,
+  baseline `e812e685`, candidate source hashes, raw samples and separate allocation
+  measurements. CPU instrumentation is disabled; ABBA is repeated twice, each
+  process has a warmup and five samples, and outputs are checked outside timing.
+  At 48³, cold cell-to-point scalar/vector medians improve 16.0%/11.6%; allocation
+  calls fall from 207,656 to 7 and allocated bytes from 34.27/39.58 MB to 2.65/6.19
+  MB. The batch includes one full validation and all four scalar/vector direction
+  conversions in both variants: median CPU time falls 19.6%, calls 415,326 to 26,
+  and bytes 80.50 MB to 15.49 MB. These are allocated bytes, not peak RSS.
+- Point-to-cell is a measured regression: cold scalar/vector medians are
+  2.98x/2.30x baseline because the old implementation skipped input validation and
+  overflow protection. Reusing a prevalidated view reduces ratios to 1.31x/1.15x.
+  This cost is explicit; callers doing multiple operations should retain the
+  view rather than repeatedly validate unchanged input. No universal speedup,
+  mobile budget or energy acceptance is claimed from these shared-host timings.
+- Public validity integration coverage now includes all field shapes, partial and
+  wholly missing input, isolated points, geometric weighting, mixed dimensions in
+  both orders, concave polygon orientation, scale changes, finite extreme means,
+  output replacement, schema errors and validation-view reuse. C3 stays unchecked:
+  CPU/GPU stencil diagnostics and other field consumers still require adoption.
+
+Strict core Clippy and the full core wasm library closure pass for this checkpoint.
+The original audit remains the requirements source. TokenSave's served main graph
+is stale relative to this worktree, so worktree source was checked directly. Its
+absolute-path reader also rejected the unindexed worktree; a sanitized tool-gap
+report can be filed at https://github.com/aovestdipaperino/tokensave.
+
+Final conversion verification: 66 transformation, 15 mesh and 91 scene library
+tests pass with Metal required, as do ten public validity tests, allocation
+contracts and the pressure/large-dataset integrations. Two positive rustdoc
+examples and the compile-fail mutation example pass. The lockfile adds only the
+two native test allocator dependency edges; no production dependency is added.
