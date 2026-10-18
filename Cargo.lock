@@ -12,12 +12,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "accesskit"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad442f58ee04714aaa0ba0a2768c1ea1935b29507bb22ddece8cbbc76db02932"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
 name = "accesskit_atspi_common"
 version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "023da0e5097f46df7092d5280b02efb9bbf8d93298daeced42652463e357d636"
 dependencies = [
- "accesskit",
+ "accesskit 0.24.1",
  "accesskit_consumer",
  "atspi-common",
  "phf",
@@ -31,7 +40,7 @@ version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d10a236f96f87d70732e44520046785431ef01d5bcd6b041317bfadd2f88245"
 dependencies = [
- "accesskit",
+ "accesskit 0.24.1",
  "hashbrown 0.16.1",
 ]
 
@@ -41,7 +50,7 @@ version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce02dc63b43f0c9296af9ac946312a2dc8814427d7a64d2d600971dac55b6076"
 dependencies = [
- "accesskit",
+ "accesskit 0.24.1",
  "accesskit_consumer",
  "hashbrown 0.16.1",
  "objc2 0.5.3",
@@ -55,7 +64,7 @@ version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03e156ed3802e35eefe894ef2671bc6c889303d8a7e110b5e1b48f504b91362f"
 dependencies = [
- "accesskit",
+ "accesskit 0.24.1",
  "accesskit_atspi_common",
  "async-channel",
  "async-executor",
@@ -2503,7 +2512,7 @@ dependencies = [
 name = "gpui-android"
 version = "0.10.44"
 dependencies = [
- "accesskit",
+ "accesskit 0.25.1",
  "android-activity",
  "android_logger",
  "anyhow",
@@ -2708,7 +2717,7 @@ dependencies = [
 name = "gpui-ios"
 version = "0.10.45"
 dependencies = [
- "accesskit",
+ "accesskit 0.25.1",
  "anyhow",
  "block2 0.6.2",
  "core-foundation 0.10.1",
@@ -6405,7 +6414,7 @@ name = "sotf-gpui-toolkit-gpui"
 version = "0.2.3"
 source = "git+https://github.com/pierreaubert/sotf-3rdparties#d476ae9bc3165145d4a8e43b6bafbef11b196a04"
 dependencies = [
- "accesskit",
+ "accesskit 0.24.1",
  "anyhow",
  "async-channel",
  "async-task",
@@ -6486,7 +6495,7 @@ name = "sotf-gpui-toolkit-gpui-linux"
 version = "0.1.0"
 source = "git+https://github.com/pierreaubert/sotf-3rdparties#d476ae9bc3165145d4a8e43b6bafbef11b196a04"
 dependencies = [
- "accesskit",
+ "accesskit 0.24.1",
  "accesskit_unix",
  "anyhow",
  "as-raw-xcb-connection",
@@ -6538,7 +6547,7 @@ name = "sotf-gpui-toolkit-gpui-macos"
 version = "0.1.2"
 source = "git+https://github.com/pierreaubert/sotf-3rdparties#d476ae9bc3165145d4a8e43b6bafbef11b196a04"
 dependencies = [
- "accesskit",
+ "accesskit 0.24.1",
  "accesskit_macos",
  "anyhow",
  "async-task",

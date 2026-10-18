@@ -29,7 +29,7 @@ tokio = []
 urlencoding = []
 
 [dependencies]
-accesskit = "0.24.0"
+accesskit = "0.25.1"
 anyhow = { workspace = true }
 futures = { workspace = true }
 gpui = { workspace = true }
