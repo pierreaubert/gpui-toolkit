@@ -53,18 +53,30 @@ impl IsoBuilder<'_> {
         }
         let va = self.scalars[a as usize];
         let vb = self.scalars[b as usize];
-        let t = if (vb - va).abs() < f64::EPSILON {
+        let span = vb - va;
+        let t = if span == 0.0 {
             0.5
+        } else if span.is_finite() {
+            (self.value - va) / span
         } else {
-            (self.value - va) / (vb - va)
+            // Straddling finite endpoints can have an overflowing difference.
+            // Halving preserves their interpolation ratio without infinities.
+            (self.value * 0.5 - va * 0.5) / (vb * 0.5 - va * 0.5)
         };
         let pa = self.dataset.positions[a as usize];
         let pb = self.dataset.positions[b as usize];
-        let p = [
-            pa[0] + (pb[0] - pa[0]) * t,
-            pa[1] + (pb[1] - pa[1]) * t,
-            pa[2] + (pb[2] - pa[2]) * t,
-        ];
+        let p = std::array::from_fn(|axis| {
+            let (a, b) = (pa[axis], pb[axis]);
+            if a.is_sign_negative() == b.is_sign_negative() {
+                if t <= 0.5 {
+                    a + (b - a) * t
+                } else {
+                    b + (a - b) * (1.0 - t)
+                }
+            } else {
+                a * (1.0 - t) + b * t
+            }
+        });
         let id = self.positions.len() as u32;
         self.positions.push(p);
         self.weights.push(vec![(a, 1.0 - t), (b, t)]);

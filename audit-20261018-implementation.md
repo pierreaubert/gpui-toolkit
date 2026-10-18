@@ -518,3 +518,28 @@ The next C3 work is conversion and CPU/GPU stencil diagnostics, followed by the
 remaining consumers, time sampling and import/export validity boundaries. The
 full audit objective, including Taffy and CUDA/MLX experiments and physical-device
 qualification, remains active.
+
+## Isosurface scalar-unit and extreme interpolation checkpoint
+
+- A newly added metamorphic test failed on committed `c5c590d1`: multiplying
+  scalar values and the iso level by `1e-200` moved the same extracted point from
+  x=0.25 to x=0.5. The kernel compared a scalar difference with absolute machine
+  epsilon and substituted a midpoint, making geometry depend on chosen units.
+- Interpolation now treats only an exactly zero span as equal. Finite nonzero
+  spans retain their ratio, including subnormal values; overflowing differences
+  between finite endpoints use a half-scaled ratio. Position interpolation uses
+  a finite weighted sum across opposite signs and anchors same-sign interpolation
+  at the nearer endpoint, preserving exact endpoint coordinates.
+- The regression checks unchanged geometry and controlling scalar values for
+  scale factors `1e-200`, a representable subnormal and `f64::MAX`. Separate
+  coordinates at ±`f64::MAX` remain finite, and an endpoint at -`1e-200` is retained
+  beside a coordinate at -`f64::MAX`. These tests use four-point datasets and do
+  not request large allocations. The public validity suite now has four tests.
+- This closes this specific extractor precision bug, not C4 as a whole. Raw f32
+  scalar preparation, cross-backend interpolation, wireframe/line paths and
+  general transparency remain open. Conversions/diagnostics and the remaining
+  C3 consumers remain the next validity work.
+
+Extractor verification completed: 64 default-feature / 66 GPU-feature library
+tests and all four public validity tests pass. The required-Metal pressure
+pipeline, strict core Clippy and the wasm transformation library also pass.

@@ -165,3 +165,47 @@ fn empty_selections_validate_and_remain_empty_through_further_filters() {
         Err(gpui_mesh::MeshError::EmptyPositions)
     ));
 }
+
+#[test]
+fn isosurface_geometry_is_invariant_to_scalar_units_and_avoids_position_overflow() {
+    let reference = isosurface(
+        &tetrahedron().with_field(Field::scalar("p", vec![-1.0, 1.0, 1.0, 1.0])),
+        "p",
+        -0.5,
+    )
+    .unwrap();
+    for scale in [1e-200, f64::from_bits(16), f64::MAX] {
+        let dataset =
+            tetrahedron().with_field(Field::scalar("p", vec![-scale, scale, scale, scale]));
+        let output = isosurface(&dataset, "p", -0.5 * scale).unwrap();
+        output.validate().unwrap();
+        assert_eq!(output.positions.len(), reference.positions.len());
+        for (actual, expected) in output.positions.iter().zip(reference.positions.iter()) {
+            for axis in 0..3 {
+                assert!(
+                    (actual[axis] - expected[axis]).abs() < 1e-14,
+                    "scale {scale}: {actual:?} != {expected:?}"
+                );
+            }
+        }
+        for &value in output.point_data[0].as_scalar().unwrap() {
+            assert!((value / scale + 0.5).abs() < 1e-14);
+        }
+    }
+    let mut wide_geometry = tetrahedron().with_field(Field::scalar("p", vec![-1.0, 1.0, 1.0, 1.0]));
+    wide_geometry.positions = vec![
+        [-f64::MAX, 0.0, 0.0],
+        [f64::MAX, 0.0, 0.0],
+        [-f64::MAX, 1.0, 0.0],
+        [-f64::MAX, 0.0, 1.0],
+    ]
+    .into();
+    let output = isosurface(&wide_geometry, "p", -0.5).unwrap();
+    output.validate().unwrap();
+    assert!((output.positions[0][0] / f64::MAX + 0.5).abs() < 1e-14);
+    assert!(output.positions.iter().flatten().all(|v| v.is_finite()));
+    let mut exact_endpoint = wide_geometry;
+    std::sync::Arc::make_mut(&mut exact_endpoint.positions)[1][0] = -1e-200;
+    let output = isosurface(&exact_endpoint, "p", 1.0).unwrap();
+    assert!(output.positions.contains(&[-1e-200, 0.0, 0.0]));
+}
