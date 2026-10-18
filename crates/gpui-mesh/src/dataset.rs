@@ -487,11 +487,14 @@ impl DataSet {
 
     /// Validates positions, cells, and every field.
     ///
+    /// Empty filter results are valid when they contain no cells and all
+    /// point/cell fields are empty. Their bounds are `None`.
+    ///
     /// # Errors
     ///
     /// Returns the first [`MeshError`] encountered.
     pub fn validate(&self) -> Result<(), MeshError> {
-        if self.positions.is_empty() {
+        if self.positions.is_empty() && !self.cells.is_empty() {
             return Err(MeshError::EmptyPositions);
         }
         for (index, p) in self.positions.iter().enumerate() {

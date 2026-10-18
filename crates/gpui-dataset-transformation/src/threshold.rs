@@ -43,12 +43,8 @@ pub fn threshold(
             field: field_name.to_string(),
             reason: "threshold requires a scalar field".into(),
         })?;
-    let in_range = |index: usize| {
-        field.valid.as_ref().is_none_or(|mask| mask[index])
-            && values[index].is_finite()
-            && values[index] >= lower
-            && values[index] <= upper
-    };
+    let in_range =
+        |index: usize| field.is_valid(index) && values[index] >= lower && values[index] <= upper;
 
     let mut keep = vec![false; dataset.cell_count()];
     for (cell, kept) in keep.iter_mut().enumerate() {

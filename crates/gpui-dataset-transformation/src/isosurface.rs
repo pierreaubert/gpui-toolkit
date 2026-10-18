@@ -118,17 +118,24 @@ impl IsoBuilder<'_> {
 ///
 /// Volume cells are tetrahedralized and processed with marching
 /// tetrahedra. Interpolated points are deduplicated per edge, so the
-/// output is a watertight indexed triangle surface for a closed input.
+/// output is a watertight indexed triangle surface for a closed, fully valid
+/// input. Tetrahedra with any missing scalar node are omitted; missing regions
+/// may therefore leave open boundaries.
 ///
 /// # Errors
 ///
-/// Returns an error when the field is missing, not scalar, or the dataset
-/// holds no volume cells.
+/// Returns an error for a nonfinite level, invalid dataset, missing/non-scalar
+/// field, or a dataset with no volume cells.
 pub fn isosurface(
     dataset: &DataSet,
     field_name: &str,
     value: f64,
 ) -> Result<DataSet, TransformError> {
+    if !value.is_finite() {
+        return Err(TransformError::Degenerate(
+            "isosurface value must be finite".into(),
+        ));
+    }
     dataset.validate()?;
     let field = dataset
         .field(Association::Point, field_name)
@@ -160,7 +167,9 @@ pub fn isosurface(
             let cell = volume_cells[index];
             let nodes = dataset.cells.cell(cell).unwrap_or(&[]);
             for tet in tetrahedralize(dataset.cells.types[cell], nodes) {
-                builder.march_tet(tet);
+                if field.valid.is_none() || tet.iter().all(|&node| field.is_valid(node as usize)) {
+                    builder.march_tet(tet);
+                }
             }
         }
         builder

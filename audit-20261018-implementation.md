@@ -452,3 +452,69 @@ return `SegmentMetrics` by value. Shared arrays remain cheap to clone. A zero
 `with_budgets` entry limit now explicitly disables retention. New public APIs:
 `MeasureCacheStats`, `MeasureCache::stats`/`trim`, current-thread scratch byte/
 trim hooks and `MAX_RETAINED_METRIC_SCRATCH_BYTES`.
+
+## Validity, empty results and retained volume inputs checkpoint
+
+- `Field::is_valid` now defines the common sample predicate: an existing,
+  unmasked entry whose components are all finite. `FieldData::entry_is_finite`
+  supplies the shape-independent component test. Missing mask slots fail closed;
+  dataset validation still reports malformed lengths and rejects infinities.
+- Newly computed fields use one validity completion path. Unsupported/nonfinite
+  outputs become masked NaNs, so finite placeholders cannot establish validity.
+  Fully valid results avoid a mask allocation. Point calculators share the source
+  mask when it remains exact; a new computed failure creates a new mask without
+  changing the source. Magnitudes use a cheap ordinary squared-norm path with
+  `hypot` fallback for overflow/underflow, covering representable values around
+  `1e±200`. Magnitudes preserve source units; complex phase records radians.
+- Interpolation requires every nonzero contributor to be valid, without
+  renormalizing away missing contributors. Exact zero weights are skipped before
+  multiplication and validity checks, so a valid endpoint beside a masked NaN
+  stays valid. Scalar/vector/tensor/complex interpolation shares the same rule
+  and writes output directly without an intermediate scalar buffer.
+- Volume probing, volume rendering and controlling-field isosurface extraction
+  require all four tetrahedral nodes to be valid. A missing region cannot create
+  a finite probe or isosurface from placeholders. Surface probing returns `None`
+  at a missing nearest node; it does not substitute a distant valid sample.
+  Nonfinite queries/computed probes return `None`; nonfinite iso levels error.
+  Auxiliary interpolated fields retain their own nonzero-support validity rule.
+- Empty filter results are valid datasets when cells and attached fields are
+  also empty. Empty selections can be filtered/probed again, and both CPU and
+  Metal scene rendering produce only the requested background. Bounds remain
+  `None`; geometry-dependent operations may still return explicit empty-input
+  errors. Empty positions with nonempty cells continue to fail validation.
+- `VolumeRenderer` shares immutable positions and selected scalar storage instead
+  of cloning the dataset and copying scalars. This removes one eight-byte scalar
+  copy per source point and stops retaining unrelated fields. Storage-identity
+  and weak-reference tests prove sharing and release. Valid support is resolved
+  when building the tetrahedral index; wholly missing input renders background
+  without ray marching. Compact grid storage, budgets and field-only updates
+  remain P5/C5 work.
+- Regression evidence covers finite masked placeholders, masked NaNs, every
+  component shape, short masks, zero interpolation weights, representable tiny/
+  huge norms, computed overflow, mask sharing/invalidation, partial volume support,
+  all-invalid volumes, missing nearest probes, empty pipelines and CPU/Metal empty
+  presentation. Core library tests: 66 transformation, 14 mesh, 91 scene tests,
+  with Metal required. The three public validity integration tests and existing
+  large-dataset/pressure integrations pass. Further checks are logged below.
+- C3 stays unchecked: point/cell conversion, CPU/GPU diagnostics, warp/glyph/trace
+  and other field-consuming paths still need contract adoption and qualification.
+  No whole-platform validity, total-memory or energy completion is claimed.
+
+API addition: `Field::is_valid` and `FieldData::entry_is_finite`. Dataset validation
+now accepts a consistently empty result. Calculator outputs expose validity masks
+and correct derived units; unrepresentable derived magnitudes are missing rather
+than valid infinities. The audit report remains the original requirements source.
+
+Validity checkpoint verification completed: strict Clippy for all three core
+libraries passes, the native 2x-DPI viewer passes, all scene examples compile,
+and the final core wasm closure compiles. Rustdoc targets complete with zero
+runnable examples; this is not additional behavioral coverage. The bounded
+release probe still reports two allocations / 131,072 bytes for warmed 128x128
+software frames on 16³, 32³ and 48³ inputs; preparation allocation counts remain
+60/71/77. The original mask and measure-cache reproducers report zero retained
+threshold cells and widths 3/6. Wireframe remains unchanged and open under C4.
+
+The next C3 work is conversion and CPU/GPU stencil diagnostics, followed by the
+remaining consumers, time sampling and import/export validity boundaries. The
+full audit objective, including Taffy and CUDA/MLX experiments and physical-device
+qualification, remains active.

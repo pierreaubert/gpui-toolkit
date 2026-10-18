@@ -1417,6 +1417,34 @@ mod tests {
     }
 
     #[test]
+    fn empty_filtered_content_is_a_valid_background_in_both_backends() {
+        let Some(renderer) = renderer() else { return };
+        let dataset = DataSet::new(
+            "empty",
+            Vec::<[f64; 3]>::new(),
+            gpui_mesh::Cells::from_cells(&[]),
+        )
+        .with_field(Field::scalar("p", Vec::<f64>::new()));
+        dataset.validate().unwrap();
+        let mut scene = Scene::new().with_actor(
+            Actor::new(dataset).coloured_by("p", TransferFunction::viridis([0.0, 1.0])),
+        );
+        scene.background = [0.2, 0.4, 0.6, 1.0];
+        let cpu = crate::render(&scene, &Camera::default(), 16, 16).unwrap();
+        let mut gpu = renderer.upload(&scene).unwrap();
+        let target = renderer.create_target(16, 16).unwrap();
+        renderer
+            .render(&mut gpu, &Camera::default(), &target)
+            .unwrap();
+        assert_eq!(cpu.rgba, renderer.read_rgba(&target).unwrap().rgba);
+        assert!(
+            cpu.rgba
+                .chunks_exact(4)
+                .all(|pixel| pixel == [51, 102, 153, 255])
+        );
+    }
+
+    #[test]
     fn rejected_transfer_updates_preserve_uploaded_materials_and_background() {
         let Some(renderer) = renderer() else { return };
         let dataset = DataSet::structured_grid("transaction", [2; 3], [-0.5; 3], [1.0; 3])

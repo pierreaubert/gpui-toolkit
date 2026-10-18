@@ -5,7 +5,17 @@
 use crate::TransformError;
 use gpui_mesh::{Association, DataSet, Field, FieldData};
 
+fn magnitude<const N: usize>(components: [f64; N]) -> f64 {
+    let squared: f64 = components.iter().map(|v| v * v).sum();
+    if squared.is_normal() || components.iter().all(|&v| v == 0.0) {
+        squared.sqrt()
+    } else {
+        components.into_iter().fold(0.0, f64::hypot)
+    }
+}
+
 fn point_field<'a>(dataset: &'a DataSet, name: &str) -> Result<&'a Field, TransformError> {
+    dataset.validate()?;
     dataset
         .field(Association::Point, name)
         .ok_or_else(|| TransformError::FieldNotFound(name.to_string()))
@@ -17,16 +27,25 @@ fn with_point_scalar(dataset: &DataSet, name: &str, values: Vec<f64>, out_name: 
     let mut field = Field::scalar(out_name.to_string(), values);
     if let Some(source) = dataset.field(Association::Point, name) {
         field.label = source.label.clone();
+        field.unit.clone_from(&source.unit);
     }
-    result.point_data.push(field);
+    let source = dataset
+        .field(Association::Point, name)
+        .expect("checked source field");
+    field.valid.clone_from(&source.valid);
+    result
+        .point_data
+        .push(crate::validity::finish(field, |index| {
+            source.is_valid(index)
+        }));
     result
 }
 
-/// Appends the magnitude of a vector point field as a scalar field.
+/// Appends vector magnitude, preserving missing entries as masked NaNs.
 ///
 /// # Errors
 ///
-/// Returns an error when the field is missing or not a vector field.
+/// Returns an error for an invalid dataset or a missing/non-vector field.
 pub fn vector_magnitude(
     dataset: &DataSet,
     field_name: &str,
@@ -41,16 +60,23 @@ pub fn vector_magnitude(
         })?;
     let values: Vec<f64> = vectors
         .iter()
-        .map(|v| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt())
+        .enumerate()
+        .map(|(index, v)| {
+            if field.is_valid(index) {
+                magnitude(*v)
+            } else {
+                f64::NAN
+            }
+        })
         .collect();
     Ok(with_point_scalar(dataset, field_name, values, out_name))
 }
 
-/// Appends the magnitude of a complex point field as a scalar field.
+/// Appends complex magnitude, preserving missing entries as masked NaNs.
 ///
 /// # Errors
 ///
-/// Returns an error when the field is missing or not complex.
+/// Returns an error for an invalid dataset or a missing/non-complex field.
 pub fn complex_magnitude(
     dataset: &DataSet,
     field_name: &str,
@@ -65,16 +91,23 @@ pub fn complex_magnitude(
     };
     let values: Vec<f64> = values
         .iter()
-        .map(|c| (c[0] * c[0] + c[1] * c[1]).sqrt())
+        .enumerate()
+        .map(|(index, c)| {
+            if field.is_valid(index) {
+                magnitude(*c)
+            } else {
+                f64::NAN
+            }
+        })
         .collect();
     Ok(with_point_scalar(dataset, field_name, values, out_name))
 }
 
-/// Appends the phase, in radians, of a complex point field.
+/// Appends complex phase in radians, preserving missing entries as masked NaNs.
 ///
 /// # Errors
 ///
-/// Returns an error when the field is missing or not complex.
+/// Returns an error for an invalid dataset or a missing/non-complex field.
 pub fn complex_phase(
     dataset: &DataSet,
     field_name: &str,
@@ -87,8 +120,24 @@ pub fn complex_phase(
             reason: "expected a complex field".into(),
         });
     };
-    let values: Vec<f64> = values.iter().map(|c| c[1].atan2(c[0])).collect();
-    Ok(with_point_scalar(dataset, field_name, values, out_name))
+    let values: Vec<f64> = values
+        .iter()
+        .enumerate()
+        .map(|(index, c)| {
+            if field.is_valid(index) {
+                c[1].atan2(c[0])
+            } else {
+                f64::NAN
+            }
+        })
+        .collect();
+    let mut output = with_point_scalar(dataset, field_name, values, out_name);
+    output
+        .point_data
+        .last_mut()
+        .expect("derived field appended")
+        .unit = Some("rad".into());
+    Ok(output)
 }
 
 #[cfg(test)]

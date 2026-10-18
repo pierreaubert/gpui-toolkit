@@ -12,7 +12,8 @@ use crate::camera::Camera;
 use crate::scene::ClipPlane;
 use crate::transfer::TransferFunction;
 use crate::{Frame, SceneError};
-use gpui_mesh::{Association, CellType, DataSet};
+use gpui_mesh::{Association, CellType, DataSet, Field, FieldData};
+use std::sync::Arc;
 
 fn tetrahedralize(kind: CellType, n: &[u32]) -> Vec<[u32; 4]> {
     match kind {
@@ -75,13 +76,15 @@ struct TetGrid {
 }
 
 impl TetGrid {
-    fn build(dataset: &DataSet, bounds: gpui_mesh::Bounds) -> Self {
+    fn build(dataset: &DataSet, field: &Field, bounds: gpui_mesh::Bounds) -> Self {
         let mut tets = Vec::new();
         for cell in 0..dataset.cell_count() {
             let kind = dataset.cells.types[cell];
             if kind.is_volume() {
                 let nodes = dataset.cells.cell(cell).unwrap_or(&[]);
-                tets.extend(tetrahedralize(kind, nodes));
+                tets.extend(tetrahedralize(kind, nodes).into_iter().filter(|tet| {
+                    field.valid.is_none() || tet.iter().all(|&node| field.is_valid(node as usize))
+                }));
             }
         }
         // About 8 grid cells per axis per 1000 tets, clamped to sane sizes.
@@ -126,7 +129,7 @@ impl TetGrid {
         }
     }
 
-    fn sample(&self, dataset: &DataSet, scalars: &[f64], point: [f64; 3]) -> Option<f64> {
+    fn sample(&self, positions: &[[f64; 3]], scalars: &[f64], point: [f64; 3]) -> Option<f64> {
         let mut grid_index = [0usize; 3];
         for axis in 0..3 {
             let c = ((point[axis] - self.origin[axis]) / self.cell[axis]).floor();
@@ -141,18 +144,18 @@ impl TetGrid {
         for &tet_index in bucket {
             let tet = self.tets[tet_index as usize];
             let corners = [
-                dataset.positions[tet[0] as usize],
-                dataset.positions[tet[1] as usize],
-                dataset.positions[tet[2] as usize],
-                dataset.positions[tet[3] as usize],
+                positions[tet[0] as usize],
+                positions[tet[1] as usize],
+                positions[tet[2] as usize],
+                positions[tet[3] as usize],
             ];
             if let Some(w) = barycentric(corners, point) {
-                return Some(
-                    w.iter()
-                        .enumerate()
-                        .map(|(i, weight)| weight * scalars[tet[i] as usize])
-                        .sum(),
-                );
+                let value: f64 = w
+                    .iter()
+                    .enumerate()
+                    .map(|(i, weight)| weight * scalars[tet[i] as usize])
+                    .sum();
+                return value.is_finite().then_some(value);
             }
         }
         None
@@ -184,10 +187,13 @@ impl Default for VolumeOptions {
 ///
 /// Building the grid is the expensive step; retaining it makes per-frame
 /// raycasting (movies, interactive camera moves) pay only for marching.
+/// Positions and selected scalars share immutable source storage; unrelated
+/// fields are not retained. Only tetrahedra with four valid scalar nodes are
+/// indexed, so wholly missing fields render as background.
 #[derive(Debug)]
 pub struct VolumeRenderer {
-    dataset: DataSet,
-    scalars: Vec<f64>,
+    positions: Arc<[[f64; 3]]>,
+    scalars: Arc<[f64]>,
     bounds: gpui_mesh::Bounds,
     grid: TetGrid,
 }
@@ -197,29 +203,29 @@ impl VolumeRenderer {
     ///
     /// # Errors
     ///
-    /// Returns an error for a missing or non-scalar field, or a dataset
-    /// without volume cells.
+    /// Returns an error for an invalid dataset, a missing/non-scalar field,
+    /// or a dataset without volume cells.
     pub fn new(dataset: &DataSet, field_name: &str) -> Result<Self, SceneError> {
+        dataset.validate()?;
         let field = dataset
             .field(Association::Point, field_name)
             .ok_or_else(|| SceneError::FieldNotFound(field_name.to_string()))?;
-        let scalars = field
-            .as_scalar()
-            .ok_or_else(|| SceneError::FieldNotFound(field_name.to_string()))?
-            .to_vec();
+        let FieldData::Scalar(scalars) = &field.data else {
+            return Err(SceneError::FieldNotFound(field_name.to_string()));
+        };
         let bounds = dataset
             .bounds()
             .ok_or_else(|| SceneError::FieldNotFound(field_name.to_string()))?;
-        let grid = TetGrid::build(dataset, bounds);
-        if grid.tets.is_empty() {
+        if !dataset.cells.types.iter().any(|kind| kind.is_volume()) {
             return Err(SceneError::FieldNotFound(format!(
                 "dataset '{}' holds no volume cells",
                 dataset.id
             )));
         }
+        let grid = TetGrid::build(dataset, field, bounds);
         Ok(Self {
-            dataset: dataset.clone(),
-            scalars,
+            positions: dataset.positions.clone(),
+            scalars: scalars.clone(),
             bounds,
             grid,
         })
@@ -267,7 +273,7 @@ impl VolumeRenderer {
         let transfer = transfer.prepare()?;
         crate::scene::validate_rgba(options.background)?;
         let pixels = limits.pixel_count(width, height, 4)?;
-        let dataset = &self.dataset;
+        let positions = &self.positions;
         let scalars: &[f64] = &self.scalars;
         let bounds = self.bounds;
         let grid = &self.grid;
@@ -284,6 +290,16 @@ impl VolumeRenderer {
         let bg = options.background;
 
         let mut rgba = crate::limits::frame_buffer(pixels * 4, 0u8)?;
+        if grid.tets.is_empty() {
+            for index in (0..rgba.len()).step_by(4) {
+                write_pixel(&mut rgba, index, bg);
+            }
+            return Ok(Frame {
+                width,
+                height,
+                rgba,
+            });
+        }
         for y in 0..height {
             for x in 0..width {
                 let idx = (y as usize * width as usize + x as usize) * 4;
@@ -319,7 +335,7 @@ impl VolumeRenderer {
                         continue;
                     }
                     let Some(value) = grid.sample(
-                        dataset,
+                        positions,
                         scalars,
                         std::array::from_fn(|axis| point[axis] + origin[axis]),
                     ) else {
@@ -462,6 +478,90 @@ mod tests {
     use super::*;
     use crate::camera::multiply;
     use gpui_mesh::Field;
+
+    #[test]
+    fn missing_volume_support_excludes_finite_placeholders_and_masked_nans() {
+        let malformed = DataSet::structured_grid("short", [2; 3], [0.0; 3], [1.0; 3])
+            .unwrap()
+            .with_field(gpui_mesh::Field::scalar("p", vec![0.5; 7]));
+        assert!(matches!(
+            VolumeRenderer::new(&malformed, "p"),
+            Err(SceneError::Mesh(
+                gpui_mesh::MeshError::FieldLengthMismatch { .. }
+            ))
+        ));
+        for placeholder in [123.0, f64::NAN] {
+            let mut field = gpui_mesh::Field::scalar("p", vec![placeholder; 8]);
+            field.valid = Some(vec![false; 8].into());
+            let dataset = DataSet::structured_grid("missing", [2; 3], [0.0; 3], [1.0; 3])
+                .unwrap()
+                .with_field(field);
+            let renderer = VolumeRenderer::new(&dataset, "p").unwrap();
+            assert!(renderer.grid.tets.is_empty());
+            let options = VolumeOptions {
+                background: [0.2, 0.4, 0.6, 1.0],
+                ..Default::default()
+            };
+            let frame = renderer
+                .render(
+                    &TransferFunction::viridis([0.0, 1.0]),
+                    &Camera::fitted(dataset.bounds().unwrap()),
+                    24,
+                    24,
+                    &options,
+                )
+                .unwrap();
+            assert!(
+                frame
+                    .rgba
+                    .chunks_exact(4)
+                    .all(|pixel| pixel == [51, 102, 153, 255])
+            );
+        }
+        let mut field = gpui_mesh::Field::scalar("p", vec![0.5; 8]);
+        field.valid = Some(vec![true, false, true, true, true, true, true, true].into());
+        let dataset = DataSet::structured_grid("partial", [2; 3], [0.0; 3], [1.0; 3])
+            .unwrap()
+            .with_field(field);
+        let renderer = VolumeRenderer::new(&dataset, "p").unwrap();
+        assert_eq!(renderer.grid.tets.len(), 4);
+        assert_eq!(
+            renderer
+                .grid
+                .sample(&renderer.positions, &renderer.scalars, [0.9, 0.1, 0.1]),
+            None
+        );
+        assert!(
+            renderer
+                .grid
+                .sample(&renderer.positions, &renderer.scalars, [0.1, 0.9, 0.5])
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn retained_volume_shares_geometry_and_scalars_without_retaining_other_fields() {
+        let dataset = DataSet::structured_grid("shared", [2; 3], [0.0; 3], [1.0; 3])
+            .unwrap()
+            .with_field(gpui_mesh::Field::scalar("p", vec![0.5; 8]))
+            .with_field(gpui_mesh::Field::vector("unrelated", vec![[1.0; 3]; 8]));
+        let renderer = VolumeRenderer::new(&dataset, "p").unwrap();
+        let FieldData::Scalar(scalars) = &dataset.point_data[0].data else {
+            unreachable!()
+        };
+        let FieldData::Vector(unrelated) = &dataset.point_data[1].data else {
+            unreachable!()
+        };
+        assert!(Arc::ptr_eq(&renderer.positions, &dataset.positions));
+        assert!(Arc::ptr_eq(&renderer.scalars, scalars));
+        let weak_selected = Arc::downgrade(scalars);
+        let weak_unrelated = Arc::downgrade(unrelated);
+        drop(dataset);
+        assert!(weak_selected.upgrade().is_some());
+        assert!(weak_unrelated.upgrade().is_none());
+        drop(renderer);
+        assert!(weak_selected.upgrade().is_none());
+    }
 
     fn gaussian_room() -> DataSet {
         let mut ds = DataSet::structured_grid("room", [10, 10, 10], [-1.0; 3], [0.2; 3]).unwrap();

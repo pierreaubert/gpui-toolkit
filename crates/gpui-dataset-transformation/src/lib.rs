@@ -47,6 +47,7 @@ mod surface_io;
 mod tensor_trace;
 mod threshold;
 mod triangulate;
+mod validity;
 mod vtk_io;
 mod vtu;
 mod warp;

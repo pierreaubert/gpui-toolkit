@@ -55,6 +55,24 @@ impl FieldData {
         }
     }
 
+    /// Whether an existing entry has only finite components.
+    #[inline]
+    #[must_use]
+    pub fn entry_is_finite(&self, index: usize) -> bool {
+        match self {
+            Self::Scalar(values) => values.get(index).is_some_and(|v| v.is_finite()),
+            Self::Vector(values) => values
+                .get(index)
+                .is_some_and(|v| v.iter().all(|c| c.is_finite())),
+            Self::Tensor(values) => values
+                .get(index)
+                .is_some_and(|v| v.iter().all(|c| c.is_finite())),
+            Self::Complex(values) => values
+                .get(index)
+                .is_some_and(|v| v.iter().all(|c| c.is_finite())),
+        }
+    }
+
     /// Checked byte size of the backing storage, without allocation.
     #[must_use]
     pub fn byte_len(&self) -> u64 {
@@ -82,11 +100,24 @@ pub struct Field {
     /// Backing values.
     pub data: FieldData,
     /// Explicit validity mask; `false` entries are excluded everywhere.
-    /// Masked entries may be NaN. Unmasked infinities are never valid.
+    /// Masked entries may be NaN. Dataset validation rejects infinities.
     pub valid: Option<Arc<[bool]>>,
 }
 
 impl Field {
+    /// Whether an entry exists, is unmasked and has only finite components.
+    ///
+    /// Missing mask entries fail closed; dataset validation separately reports
+    /// malformed lengths. Raw data views do not apply this predicate.
+    #[inline]
+    #[must_use]
+    pub fn is_valid(&self, index: usize) -> bool {
+        self.valid
+            .as_ref()
+            .is_none_or(|mask| mask.get(index) == Some(&true))
+            && self.data.entry_is_finite(index)
+    }
+
     /// Creates a scalar point field.
     pub fn scalar(name: impl Into<Arc<str>>, values: impl Into<Arc<[f64]>>) -> Self {
         let name = name.into();
@@ -187,6 +218,30 @@ impl Field {
         match &self.data {
             FieldData::Complex(v) => Some(v),
             _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validity_requires_existing_unmasked_finite_components_for_every_shape() {
+        let data = [
+            FieldData::Scalar(vec![1.0, 99.0, f64::NAN, f64::INFINITY].into()),
+            FieldData::Vector(vec![[1.0; 3], [99.0; 3], [f64::NAN; 3], [f64::INFINITY; 3]].into()),
+            FieldData::Tensor(vec![[1.0; 6], [99.0; 6], [f64::NAN; 6], [f64::INFINITY; 6]].into()),
+            FieldData::Complex(vec![[1.0; 2], [99.0; 2], [f64::NAN; 2], [f64::INFINITY; 2]].into()),
+        ];
+        for data in data {
+            let mut field = Field::scalar("test", Vec::<f64>::new());
+            field.data = data;
+            field.valid = Some(vec![true, false, true, true].into());
+            assert!(field.is_valid(0));
+            assert!((1..=4).all(|index| !field.is_valid(index)));
+            field.valid = Some(vec![true].into());
+            assert!(!field.is_valid(1), "short masks fail closed");
         }
     }
 }

@@ -59,16 +59,20 @@ fn barycentric(tet: [[f64; 3]; 4], p: [f64; 3]) -> Option<[f64; 4]> {
 ///
 /// Volume datasets use barycentric interpolation inside the containing
 /// tetrahedron. Surface datasets fall back to the nearest point. Points
-/// outside a volume dataset yield `None`.
+/// outside a volume dataset yield `None`. Volume interpolation requires all four
+/// tetrahedron nodes to be valid; surface probing returns `None` when the nearest
+/// node is missing, rather than substituting a more distant sample. Nonfinite
+/// query points or computed results also yield `None`.
 ///
 /// # Errors
 ///
-/// Returns an error when the field is missing or not scalar.
+/// Returns an error for an invalid dataset or a missing/non-scalar field.
 pub fn probe(
     dataset: &DataSet,
     field_name: &str,
     points: &[[f64; 3]],
 ) -> Result<Vec<Option<f64>>, TransformError> {
+    dataset.validate()?;
     let field = dataset
         .field(Association::Point, field_name)
         .ok_or_else(|| TransformError::FieldNotFound(field_name.to_string()))?;
@@ -78,17 +82,24 @@ pub fn probe(
             field: field_name.to_string(),
             reason: "probe requires a scalar field".into(),
         })?;
+    let has_volume = dataset.cells.types.iter().any(|kind| kind.is_volume());
     let mut tets: Vec<[u32; 4]> = Vec::new();
     for cell in 0..dataset.cell_count() {
         let kind = dataset.cells.types[cell];
         if kind.is_volume() {
             let nodes = dataset.cells.cell(cell).unwrap_or(&[]);
-            tets.extend(tetrahedralize(kind, nodes));
+            tets.extend(tetrahedralize(kind, nodes).into_iter().filter(|tet| {
+                field.valid.is_none() || tet.iter().all(|&node| field.is_valid(node as usize))
+            }));
         }
     }
     let mut out = Vec::with_capacity(points.len());
     for &point in points {
-        if tets.is_empty() {
+        if !point.iter().all(|v| v.is_finite()) {
+            out.push(None);
+            continue;
+        }
+        if !has_volume {
             // Nearest-point fallback for surface datasets.
             let nearest = dataset
                 .positions
@@ -99,7 +110,7 @@ pub fn probe(
                         .partial_cmp(&dist2(**b, point))
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
-                .map(|(i, _)| values[i]);
+                .and_then(|(i, _)| field.is_valid(i).then_some(values[i]));
             out.push(nearest);
             continue;
         }
@@ -112,12 +123,12 @@ pub fn probe(
                 dataset.positions[tet[3] as usize],
             ];
             if let Some(w) = barycentric(corners, point) {
-                found = Some(
-                    w.iter()
-                        .enumerate()
-                        .map(|(i, weight)| weight * values[tet[i] as usize])
-                        .sum(),
-                );
+                let value: f64 = w
+                    .iter()
+                    .enumerate()
+                    .map(|(i, weight)| weight * values[tet[i] as usize])
+                    .sum();
+                found = value.is_finite().then_some(value);
                 break;
             }
         }
