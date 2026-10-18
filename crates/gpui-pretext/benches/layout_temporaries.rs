@@ -14,6 +14,13 @@ impl TextMeasure for FixedWidthMeasure {
     fn measure_width(&self, text: &str) -> f64 {
         text.chars().count() as f64 * self.char_width
     }
+
+    fn cache_key(&self) -> u64 {
+        self.char_width.to_bits()
+    }
+    fn cache_key_is_stable(&self) -> bool {
+        true
+    }
 }
 
 fn bench_grapheme_prefix_widths(c: &mut Criterion) {

@@ -359,3 +359,33 @@ Goal turn 4: progress. The full audit implementation remains active.
 Additional API: `PreparedTransfer` and `TransferFunction::prepare` are public;
 render entry points can return `SceneError::InvalidMaterial` for invalid active
 RGBA, opacity or transfer settings. No broad completion claim is made.
+
+## Raw measurement identity checkpoint
+
+- Raw `MeasureCache` lookups now select the provider's semantic key/revision
+  before returning any width, grapheme or prefix metric. Unkeyed providers start
+  fresh on each raw request, so recycled stack addresses cannot reuse old data.
+  The original bounded reproducer now returns **3 and 6**, rather than 3 and 3.
+- `MeasureCache::scope` returns a borrowed `MeasurementSession` whose methods
+  accept only text. This enforces one provider during a solve while allowing
+  cached lookups for default, unkeyed providers. New unkeyed sessions invalidate
+  prior metrics; stable semantic keys may reuse across sessions. Interior metric
+  changes still require a new `cache_key`, as documented by `TextMeasure`.
+- Ordinary pretext preparation now uses that scoped path. Existing cache-hit
+  allocation tests and benchmarks declare their immutable provider's semantic
+  key explicitly. A new allocation contract covers 1,000 warmed width, grapheme
+  and prefix requests through an unkeyed session, with zero allocation traffic.
+- Regression tests cover different temporary providers, unkeyed in-place changes
+  between raw requests, all three metric kinds, reuse within one borrow, a fresh
+  session at the same address, and semantic revision changes inside a session.
+- Verification: 166 pretext library tests and its selected integration/corpus/
+  property/allocation tests pass; 134 builder library tests and its selected
+  integrations pass. Strict pretext Clippy, benchmark compilation and wasm
+  compilation pass. Raw unkeyed lookups intentionally remeasure; callers needing
+  repeated caching should use a session or a truthful stable semantic key.
+- C7 remains open for grapheme editing/native text contracts. P3 remains open for
+  O(1) recency, full payload byte accounting, oversized-entry admission and the
+  other toolkit caches. Identity correctness does not complete those requirements.
+
+Cache benchmark smoke operations, release allocation contracts and both public
+documentation examples also pass. Smoke execution is not a latency comparison.

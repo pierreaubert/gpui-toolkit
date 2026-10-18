@@ -64,7 +64,7 @@ pub use layout::{
 pub use line_break::{KnuthPlassParams, LineBreakStrategy};
 pub use measurement::{
     DEFAULT_MEASURE_CACHE_CAPACITY, DEFAULT_MEASURE_CACHE_MAX_BYTES, EngineProfile, MeasureCache,
-    ShapedGlyph, ShapedRun, TextMeasure, shape_run,
+    MeasurementSession, ShapedGlyph, ShapedRun, TextMeasure, shape_run,
 };
 pub use rich_text::{
     AccessibleTextRole, AccessibleTextRun, FontVariationSettings, RichTextSpan, RichTextStyle,

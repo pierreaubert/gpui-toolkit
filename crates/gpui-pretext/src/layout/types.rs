@@ -112,10 +112,11 @@ pub(super) fn measure_analysis(
     profile: &EngineProfile,
     include_segments: bool,
 ) -> (PreparedCore, Option<Vec<String>>) {
-    let mut cache = MeasureCache::new();
+    let mut cache_storage = MeasureCache::new();
+    let mut cache = cache_storage.scope(measure);
 
-    let discretionary_hyphen_width = cache.get_width("-", measure);
-    let space_width = cache.get_width(" ", measure);
+    let discretionary_hyphen_width = cache.get_width("-");
+    let space_width = cache.get_width(" ");
     let tab_stop_advance = space_width * 8.0;
 
     if analysis.is_empty() {
@@ -242,7 +243,7 @@ pub(super) fn measure_analysis(
         // Check CJK — split into per-grapheme units, using byte-offset slices
         // into the original segment text instead of allocating a new String per
         // grapheme.
-        let seg_metrics = cache.get_segment_metrics(seg_text, measure);
+        let seg_metrics = cache.get_segment_metrics(seg_text);
         if seg_kind == SegmentBreakKind::Text && seg_metrics.contains_cjk {
             let mut unit_start = 0usize;
             let mut unit_end = 0usize;
@@ -268,7 +269,7 @@ pub(super) fn measure_analysis(
                     continue;
                 }
 
-                let w = cache.get_width(unit_text, measure);
+                let w = cache.get_width(unit_text);
                 push_segment(
                     unit_text,
                     w,
@@ -295,7 +296,7 @@ pub(super) fn measure_analysis(
 
             if unit_start < unit_end {
                 let unit_text = &seg_text[unit_start..unit_end];
-                let w = cache.get_width(unit_text, measure);
+                let w = cache.get_width(unit_text);
                 push_segment(
                     unit_text,
                     w,
@@ -320,7 +321,7 @@ pub(super) fn measure_analysis(
             continue;
         }
 
-        let w = cache.get_width(seg_text, measure);
+        let w = cache.get_width(seg_text);
         let line_end_fit = match seg_kind {
             SegmentBreakKind::Space
             | SegmentBreakKind::PreservedSpace
@@ -333,9 +334,9 @@ pub(super) fn measure_analysis(
         };
 
         let (breakable, breakable_prefix) = if seg_word_like && seg_text.len() > 1 {
-            let bw = cache.get_grapheme_widths(seg_text, measure);
+            let bw = cache.get_grapheme_widths(seg_text);
             let bpw = if profile.prefer_prefix_widths_for_breakable_runs {
-                cache.get_grapheme_prefix_widths(seg_text, measure)
+                cache.get_grapheme_prefix_widths(seg_text)
             } else {
                 None
             };

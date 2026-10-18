@@ -36,7 +36,8 @@ pub trait TextMeasure {
     ///
     /// Implementations whose metrics change in place should override this and
     /// change the token whenever font, scale, locale, or shaping state changes.
-    /// The default distinguishes measure instances for compatibility.
+    /// Semantic keys must identify all metric-affecting settings, including the
+    /// backend. The default address is valid only inside a [`MeasureCache::scope`].
     fn cache_key(&self) -> u64 {
         (std::ptr::from_ref::<Self>(self).cast::<()>() as usize) as u64
     }
@@ -185,6 +186,10 @@ pub struct SegmentMetrics {
 /// least-recently-used entries are evicted. This bounds worst-case memory for
 /// adversarial inputs (e.g. per-grapheme CJK segments) where an unbounded map
 /// would grow without limit.
+///
+/// Raw lookups retain measurements only when [`TextMeasure::cache_key_is_stable`]
+/// is true. Use [`Self::scope`] for repeated lookups with an unkeyed provider;
+/// the session borrows one provider and cannot accidentally switch instances.
 pub struct MeasureCache {
     cache: HashMap<Arc<str>, SegmentMetrics>,
     /// LRU order, front = least recently used.
@@ -194,6 +199,7 @@ pub struct MeasureCache {
     /// Maximum retained segment-text bytes. `usize::MAX` means unbounded.
     max_bytes: usize,
     retained_bytes: usize,
+    measurement_key: Option<(bool, u64)>,
 }
 
 /// Defaults for [`MeasureCache::new`]: generous enough that ordinary
@@ -226,6 +232,7 @@ impl MeasureCache {
             capacity: capacity.max(1),
             max_bytes,
             retained_bytes: 0,
+            measurement_key: None,
         }
     }
 
@@ -245,6 +252,45 @@ impl MeasureCache {
         self.cache.clear();
         self.order.clear();
         self.retained_bytes = 0;
+        self.measurement_key = None;
+    }
+
+    /// Borrows one measurement provider for a series of cached lookups.
+    ///
+    /// Unkeyed providers start a fresh cache session. Stable semantic keys may
+    /// reuse metrics across sessions; changing the key invalidates all metrics.
+    /// Metrics must remain unchanged within a session unless `cache_key` changes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use gpui_pretext::{MeasureCache, TextMeasure};
+    /// struct Monospace;
+    /// impl TextMeasure for Monospace {
+    ///     fn measure_width(&self, text: &str) -> f64 {
+    ///         text.chars().count() as f64 * 8.0
+    ///     }
+    /// }
+    /// let mut cache = MeasureCache::new();
+    /// let measure = Monospace;
+    /// let mut session = cache.scope(&measure);
+    /// assert_eq!(session.get_width("hello"), 40.0);
+    /// assert_eq!(session.get_width("hello"), 40.0); // Cached.
+    /// ```
+    pub fn scope<'a>(&'a mut self, measure: &'a dyn TextMeasure) -> MeasurementSession<'a> {
+        self.select_measure(measure, false);
+        MeasurementSession {
+            cache: self,
+            measure,
+        }
+    }
+
+    fn select_measure(&mut self, measure: &dyn TextMeasure, scoped: bool) {
+        let key = (measure.cache_key_is_stable(), measure.cache_key());
+        if (!key.0 && !scoped) || self.measurement_key != Some(key) {
+            self.clear();
+            self.measurement_key = Some(key);
+        }
     }
 
     fn touch(&mut self, key: &Arc<str>) {
@@ -272,7 +318,13 @@ impl MeasureCache {
         }
     }
 
+    /// Returns metrics for the provider's current measurement identity.
     pub fn get_segment_metrics(&mut self, seg: &str, measure: &dyn TextMeasure) -> &SegmentMetrics {
+        self.select_measure(measure, false);
+        self.segment_metrics(seg, measure)
+    }
+
+    fn segment_metrics(&mut self, seg: &str, measure: &dyn TextMeasure) -> &SegmentMetrics {
         if self.cache.contains_key(seg) {
             let stored_key = self.cache.get_key_value(seg).map(|(k, _)| Arc::clone(k));
             if let Some(k) = stored_key {
@@ -318,7 +370,7 @@ impl MeasureCache {
     }
 
     fn ensure_parent_entry(&mut self, seg: &str, measure: &dyn TextMeasure) {
-        let _ = self.get_segment_metrics(seg, measure);
+        let _ = self.segment_metrics(seg, measure);
     }
 
     /// Get per-grapheme widths for a segment (measured individually).
@@ -328,6 +380,11 @@ impl MeasureCache {
         seg: &str,
         measure: &dyn TextMeasure,
     ) -> Option<Arc<[f64]>> {
+        self.select_measure(measure, false);
+        self.grapheme_widths(seg, measure)
+    }
+
+    fn grapheme_widths(&mut self, seg: &str, measure: &dyn TextMeasure) -> Option<Arc<[f64]>> {
         // Check if already computed
         if let Some(metrics) = self.cache.get(seg)
             && let Some(ref gw) = metrics.grapheme_widths
@@ -395,6 +452,15 @@ impl MeasureCache {
         seg: &str,
         measure: &dyn TextMeasure,
     ) -> Option<Arc<[f64]>> {
+        self.select_measure(measure, false);
+        self.grapheme_prefix_widths(seg, measure)
+    }
+
+    fn grapheme_prefix_widths(
+        &mut self,
+        seg: &str,
+        measure: &dyn TextMeasure,
+    ) -> Option<Arc<[f64]>> {
         // Check if already computed
         if let Some(metrics) = self.cache.get(seg)
             && let Some(ref pw) = metrics.grapheme_prefix_widths
@@ -407,7 +473,7 @@ impl MeasureCache {
 
         // Reuse per-grapheme widths and compute prefix sums in O(n) instead of
         // measuring every prefix substring (O(n²) calls into the measurer).
-        let Some(widths) = self.get_grapheme_widths(seg, measure) else {
+        let Some(widths) = self.grapheme_widths(seg, measure) else {
             self.ensure_parent_entry(seg, measure);
             if let Some(metrics) = self.cache.get_mut(seg) {
                 metrics.grapheme_prefix_widths = Some(Arc::from(Vec::new()));
@@ -437,6 +503,40 @@ impl MeasureCache {
     }
 }
 
+/// Cached measurements tied to one borrowed provider.
+///
+/// Created by [`MeasureCache::scope`]. A new unkeyed session cannot reuse a
+/// previous provider's address, even when stack slots are recycled.
+pub struct MeasurementSession<'a> {
+    cache: &'a mut MeasureCache,
+    measure: &'a dyn TextMeasure,
+}
+
+impl MeasurementSession<'_> {
+    /// Returns segment metrics for this session's measurement provider.
+    pub fn get_segment_metrics(&mut self, seg: &str) -> &SegmentMetrics {
+        self.cache.select_measure(self.measure, true);
+        self.cache.segment_metrics(seg, self.measure)
+    }
+
+    /// Returns advance width for this session's measurement provider.
+    pub fn get_width(&mut self, seg: &str) -> f64 {
+        self.get_segment_metrics(seg).width
+    }
+
+    /// Returns per-grapheme advances, or `None` for a single grapheme.
+    pub fn get_grapheme_widths(&mut self, seg: &str) -> Option<Arc<[f64]>> {
+        self.cache.select_measure(self.measure, true);
+        self.cache.grapheme_widths(seg, self.measure)
+    }
+
+    /// Returns cumulative advances, or `None` for a single grapheme.
+    pub fn get_grapheme_prefix_widths(&mut self, seg: &str) -> Option<Arc<[f64]>> {
+        self.cache.select_measure(self.measure, true);
+        self.cache.grapheme_prefix_widths(seg, self.measure)
+    }
+}
+
 impl Default for MeasureCache {
     fn default() -> Self {
         Self::new()
@@ -447,6 +547,135 @@ impl Default for MeasureCache {
 mod tests {
     use super::*;
 
+    #[test]
+    fn raw_unkeyed_lookups_remeasure_each_provider_and_all_metric_kinds() {
+        struct Unkeyed(std::cell::Cell<f64>);
+        impl TextMeasure for Unkeyed {
+            fn measure_width(&self, text: &str) -> f64 {
+                text.graphemes(true).count() as f64 * self.0.get()
+            }
+        }
+        let mut cache = MeasureCache::new();
+        assert_eq!(
+            cache.get_width("abc", &Unkeyed(std::cell::Cell::new(1.0))),
+            3.0
+        );
+        assert_eq!(
+            cache.get_width("abc", &Unkeyed(std::cell::Cell::new(2.0))),
+            6.0
+        );
+        let measure = Unkeyed(std::cell::Cell::new(1.0));
+        assert_eq!(
+            cache.get_grapheme_widths("ab", &measure).unwrap().as_ref(),
+            &[1.0, 1.0]
+        );
+        measure.0.set(2.0);
+        assert_eq!(
+            cache.get_grapheme_widths("ab", &measure).unwrap().as_ref(),
+            &[2.0, 2.0]
+        );
+        assert_eq!(
+            cache
+                .get_grapheme_prefix_widths("ab", &measure)
+                .unwrap()
+                .as_ref(),
+            &[2.0, 4.0]
+        );
+        measure.0.set(3.0);
+        assert_eq!(
+            cache
+                .get_grapheme_prefix_widths("ab", &measure)
+                .unwrap()
+                .as_ref(),
+            &[3.0, 6.0]
+        );
+        assert_eq!(cache.get_segment_metrics("ab", &measure).width, 6.0);
+    }
+
+    #[test]
+    fn unkeyed_sessions_cache_within_one_borrow_and_start_fresh_afterwards() {
+        struct Counting {
+            width: f64,
+            calls: std::cell::Cell<usize>,
+        }
+        impl TextMeasure for Counting {
+            fn measure_width(&self, text: &str) -> f64 {
+                self.calls.set(self.calls.get() + 1);
+                self.width * text.graphemes(true).count() as f64
+            }
+        }
+        let mut measure = Counting {
+            width: 1.0,
+            calls: std::cell::Cell::new(0),
+        };
+        let mut storage = MeasureCache::new();
+        {
+            let mut session = storage.scope(&measure);
+            assert_eq!(session.get_width("abc"), 3.0);
+            assert_eq!(session.get_width("abc"), 3.0);
+            let first = session.get_grapheme_widths("abc").unwrap();
+            let second = session.get_grapheme_widths("abc").unwrap();
+            assert!(Arc::ptr_eq(&first, &second));
+            let first = session.get_grapheme_prefix_widths("abc").unwrap();
+            let second = session.get_grapheme_prefix_widths("abc").unwrap();
+            assert!(Arc::ptr_eq(&first, &second));
+            assert_eq!(measure.calls.get(), 4);
+        }
+        measure.width = 2.0;
+        let mut session = storage.scope(&measure);
+        assert_eq!(session.get_width("abc"), 6.0);
+        assert_eq!(
+            session.get_grapheme_prefix_widths("abc").unwrap().as_ref(),
+            &[2.0, 4.0, 6.0]
+        );
+    }
+
+    #[test]
+    fn semantic_identity_and_revision_invalidate_widths_graphemes_and_prefixes() {
+        struct Revisioned(std::cell::Cell<u64>);
+        impl TextMeasure for Revisioned {
+            fn measure_width(&self, text: &str) -> f64 {
+                self.0.get() as f64 * text.graphemes(true).count() as f64
+            }
+            fn cache_key(&self) -> u64 {
+                self.0.get()
+            }
+            fn cache_key_is_stable(&self) -> bool {
+                true
+            }
+        }
+        let measure = Revisioned(std::cell::Cell::new(1));
+        let mut cache = MeasureCache::new();
+        let first = cache.get_grapheme_prefix_widths("ab", &measure).unwrap();
+        let same_metrics = Revisioned(std::cell::Cell::new(1));
+        assert!(Arc::ptr_eq(
+            &first,
+            &cache
+                .get_grapheme_prefix_widths("ab", &same_metrics)
+                .unwrap()
+        ));
+        measure.0.set(2);
+        assert_eq!(cache.get_segment_metrics("ab", &measure).width, 4.0);
+        assert_eq!(
+            cache.get_grapheme_widths("ab", &measure).unwrap().as_ref(),
+            &[2.0, 2.0]
+        );
+        assert_eq!(
+            cache
+                .get_grapheme_prefix_widths("ab", &measure)
+                .unwrap()
+                .as_ref(),
+            &[2.0, 4.0]
+        );
+        let mut session = cache.scope(&measure);
+        measure.0.set(3);
+        assert_eq!(session.get_width("ab"), 6.0);
+        assert_eq!(
+            session.get_grapheme_prefix_widths("ab").unwrap().as_ref(),
+            &[3.0, 6.0]
+        );
+    }
+
     struct FixedWidthMeasure {
         char_width: f64,
     }
@@ -454,6 +683,13 @@ mod tests {
     impl TextMeasure for FixedWidthMeasure {
         fn measure_width(&self, text: &str) -> f64 {
             text.chars().count() as f64 * self.char_width
+        }
+
+        fn cache_key(&self) -> u64 {
+            self.char_width.to_bits()
+        }
+        fn cache_key_is_stable(&self) -> bool {
+            true
         }
     }
 
