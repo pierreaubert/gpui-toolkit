@@ -8,9 +8,9 @@ use std::sync::{Arc, Mutex};
 
 /// A clipping plane: the positive half-space is kept.
 ///
-/// The same plane list drives the software rasterizer, the volume
-/// raycaster, and the GPU shader uniform layout, so all paths clip
-/// identically.
+/// Origins use world coordinates. Renderers subtract their local origin before
+/// projection and clipping. The GPU surface backend accepts up to six planes;
+/// unsupported configurations return explicit errors.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClipPlane {
     /// A point on the plane.
@@ -20,6 +20,13 @@ pub struct ClipPlane {
 }
 
 impl ClipPlane {
+    pub(crate) fn relative_to(self, origin: [f64; 3]) -> Self {
+        Self {
+            origin: std::array::from_fn(|axis| self.origin[axis] - origin[axis]),
+            normal: self.normal,
+        }
+    }
+
     /// Signed distance of a point; negative points are clipped away.
     #[must_use]
     pub fn distance(&self, point: [f64; 3]) -> f64 {
@@ -249,6 +256,34 @@ pub struct Scene {
     /// Text annotations for hosts with a text system (GPUI element).
     pub annotations: Vec<crate::legend::Annotation>,
     pub(crate) preparation: Arc<Mutex<crate::retained::PreparationCache>>,
+}
+
+#[cfg(test)]
+pub(crate) fn translated_clipped_scene(offset: f64) -> Scene {
+    let mut scene = Scene::new();
+    for (index, delta) in [-1.25, 1.25].into_iter().enumerate() {
+        let center = [offset + delta, offset, offset];
+        let dataset =
+            DataSet::structured_grid("translated", [3; 3], center.map(|v| v - 0.5), [0.5; 3])
+                .unwrap();
+        let color = if index == 0 {
+            [1.0, 0.0, 0.0, 1.0]
+        } else {
+            [0.0, 1.0, 0.0, 1.0]
+        };
+        let normal = if index == 0 {
+            [1.0, 0.5, -0.25]
+        } else {
+            [-0.5, 1.0, 0.25]
+        };
+        scene
+            .actors
+            .push(Actor::new(dataset).color(color).clip(ClipPlane {
+                origin: center,
+                normal,
+            }));
+    }
+    scene
 }
 
 impl Scene {

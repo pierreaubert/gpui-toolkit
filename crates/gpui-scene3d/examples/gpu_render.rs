@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let upload_ms = started.elapsed().as_secs_f64() * 1e3;
     let target = renderer.create_target(1920, 1080)?;
     let started = std::time::Instant::now();
-    renderer.render(&mut gpu_scene, &camera, &target);
+    renderer.render(&mut gpu_scene, &camera, &target)?;
     let frame = renderer.read_rgba(&target)?;
     let gpu_ms = started.elapsed().as_secs_f64() * 1e3;
     std::fs::write(format!("{out_dir}/gpu_hero.png"), frame.to_png()?)?;

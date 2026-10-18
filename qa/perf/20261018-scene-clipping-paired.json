@@ -1,0 +1,255 @@
+{
+  "schema": "gpui-scene3d-paired-probe-v1",
+  "baseline_commit": "9d50f5bf",
+  "candidate_source_sha256": {
+    "camera.rs": "02dc5df7f5b3eb8e4a3cb2676de0101f335ad7bf06bee30a9adf8d126c7f8ac3",
+    "clipping.rs": "f24b0c8c7e752de54dfca3cebdb736eb95df4abd2bb45844f383b3c004e89201",
+    "raster.rs": "f5aad9d435731cd9652b9c657b750c38aa0d6785fb5b21b82a1320b8a0d3939c",
+    "scene.rs": "d086aea44a92fd4c8bd2b3b5411d6398d50db416d11c9babe603ec05b125273e"
+  },
+  "probe_source_sha256": "3742f77ce610199ccb267c2d81837ba69181b5ea3ef6a1c7e6d040979f8c4bc7",
+  "cpu": "Apple M4 Pro",
+  "os": "27.0.1",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "camera": "fixed original distance = 1.2 * diagonal, minimum 1.0; same near/far/azimuth/elevation",
+  "method": "Appendix A grid/allocation recipe; one warm process each, then ABBA twice; one per-process warmup and five samples per case",
+  "order": [
+    "base",
+    "candidate",
+    "candidate",
+    "base",
+    "base",
+    "candidate",
+    "candidate",
+    "base"
+  ],
+  "summary": {
+    "render_16cubed_128x128": {
+      "samples_ms": {
+        "base": [
+          0.368,
+          0.51,
+          0.371,
+          0.357
+        ],
+        "candidate": [
+          0.265,
+          0.297,
+          0.298,
+          0.385
+        ]
+      },
+      "medians_ms": {
+        "base": 0.3695,
+        "candidate": 0.2975
+      },
+      "candidate_over_base": 0.8051420838971582
+    },
+    "render_32cubed_128x128": {
+      "samples_ms": {
+        "base": [
+          1.026,
+          0.883,
+          1.044,
+          0.938
+        ],
+        "candidate": [
+          0.928,
+          0.874,
+          0.904,
+          0.971
+        ]
+      },
+      "medians_ms": {
+        "base": 0.982,
+        "candidate": 0.916
+      },
+      "candidate_over_base": 0.9327902240325866
+    },
+    "render_48cubed_128x128": {
+      "samples_ms": {
+        "base": [
+          1.805,
+          1.793,
+          1.91,
+          1.841
+        ],
+        "candidate": [
+          1.962,
+          1.772,
+          1.856,
+          1.74
+        ]
+      },
+      "medians_ms": {
+        "base": 1.823,
+        "candidate": 1.814
+      },
+      "candidate_over_base": 0.9950630828304993
+    }
+  },
+  "runs": [
+    {
+      "name": "base",
+      "records": {
+        "render_16cubed_128x128": {
+          "ms": 0.368,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_32cubed_128x128": {
+          "ms": 1.026,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_48cubed_128x128": {
+          "ms": 1.805,
+          "calls": 2,
+          "bytes": 131072
+        }
+      }
+    },
+    {
+      "name": "candidate",
+      "records": {
+        "render_16cubed_128x128": {
+          "ms": 0.265,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_32cubed_128x128": {
+          "ms": 0.928,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_48cubed_128x128": {
+          "ms": 1.962,
+          "calls": 2,
+          "bytes": 131072
+        }
+      }
+    },
+    {
+      "name": "candidate",
+      "records": {
+        "render_16cubed_128x128": {
+          "ms": 0.297,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_32cubed_128x128": {
+          "ms": 0.874,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_48cubed_128x128": {
+          "ms": 1.772,
+          "calls": 2,
+          "bytes": 131072
+        }
+      }
+    },
+    {
+      "name": "base",
+      "records": {
+        "render_16cubed_128x128": {
+          "ms": 0.51,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_32cubed_128x128": {
+          "ms": 0.883,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_48cubed_128x128": {
+          "ms": 1.793,
+          "calls": 2,
+          "bytes": 131072
+        }
+      }
+    },
+    {
+      "name": "base",
+      "records": {
+        "render_16cubed_128x128": {
+          "ms": 0.371,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_32cubed_128x128": {
+          "ms": 1.044,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_48cubed_128x128": {
+          "ms": 1.91,
+          "calls": 2,
+          "bytes": 131072
+        }
+      }
+    },
+    {
+      "name": "candidate",
+      "records": {
+        "render_16cubed_128x128": {
+          "ms": 0.298,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_32cubed_128x128": {
+          "ms": 0.904,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_48cubed_128x128": {
+          "ms": 1.856,
+          "calls": 2,
+          "bytes": 131072
+        }
+      }
+    },
+    {
+      "name": "candidate",
+      "records": {
+        "render_16cubed_128x128": {
+          "ms": 0.385,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_32cubed_128x128": {
+          "ms": 0.971,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_48cubed_128x128": {
+          "ms": 1.74,
+          "calls": 2,
+          "bytes": 131072
+        }
+      }
+    },
+    {
+      "name": "base",
+      "records": {
+        "render_16cubed_128x128": {
+          "ms": 0.357,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_32cubed_128x128": {
+          "ms": 0.938,
+          "calls": 2,
+          "bytes": 131072
+        },
+        "render_48cubed_128x128": {
+          "ms": 1.841,
+          "calls": 2,
+          "bytes": 131072
+        }
+      }
+    }
+  ],
+  "energy_measured": false,
+  "caveat": "Shared host; diagnostic CPU comparison, not an energy or full-application latency qualification."
+}

@@ -678,7 +678,9 @@ jobs:
       - name: Require Metal scene and flow correctness tests
         env:
           GPUI_REQUIRE_GPU: "1"
-        run: cargo test --locked -p gpui-scene3d -p gpui-dataset-transformation --features gpu,gpui-scene3d/gpui-gpu --lib
+        run: |
+          cargo test --locked -p gpui-scene3d -p gpui-dataset-transformation --features gpu,gpui-scene3d/gpui-gpu --lib
+          cargo test --locked -p gpui-scene3d --features gpui-gpu --example interactive_viewer -- --test-threads=1
 
       - name: Upload Metal captures, diffs, reports, and contact sheets
         uses: actions/upload-artifact@v4

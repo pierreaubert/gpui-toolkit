@@ -8,6 +8,8 @@ item requires implementation and verification evidence, not just a planned API.
 ## Correctness
 
 - [ ] C1: camera-relative clipping, translation invariance and precision.
+  Camera/surface/line/volume coordinates and frustum regressions are implemented.
+  Extreme plane-coefficient validation and normalization remain to be qualified.
 - [x] C2: coherent prepared-flow field updates and provenance.
 - [ ] C3: validity masks across transforms and rendering.
 - [ ] C4: alpha/interpolation/wireframe/line/capability/transparency semantics.
@@ -194,3 +196,78 @@ Additional API changes:
 Goal turn 2: progress. The full audit scope is still open, including Taffy
 experiments, CUDA/MLX adoption experiments, remaining correctness findings,
 other platform hot paths and physical mobile memory/energy qualification.
+
+## Camera, clipping and raster checkpoint
+
+- Camera targets and world-space eye positions now use `f64`. Orientation comes
+  from orbit angles without subtracting rounded world positions. View matrices
+  subtract the origin before the float conversion. Fitted fractional targets,
+  panning and projection are tested through origins of `1e12 + 0.125`.
+- Software surface vertices remain local throughout clipping and projection.
+  User planes use the same local origin, and polygons are clipped against all
+  six homogeneous camera planes before perspective division. Near/far-outside
+  triangles leave the background unchanged; crossing geometry is compared with
+  an independently constructed clipped mesh.
+- Two actors with distinct origins and oblique planes produce identical images
+  after translation within each backend. Metal/software coverage differs by at
+  most four pixels per color at 96×64; color interpolation is evaluated separately.
+  Axis-plane coverage also agrees at all tested origins. Existing scene3d has no
+  picking implementation; its new analytic ray/projection agreement tests do not
+  claim to qualify the separate d3rs picking implementation.
+- Volume rays are precomputed analytically in local coordinates. Orthographic
+  rays are parallel, and both projections respect near/far limits. Changing
+  orthographic eye distance preserves the image. Translated-volume coverage is
+  unchanged through `1e12 + 0.125`, with mean byte error no greater than one.
+- `Camera::fitted` now encloses the bounds' sphere with a field-of-view margin.
+  The old `1.2 * diagonal` radius could crop a cube corner. Validated
+  `fitted_for_aspect` also fits portrait and landscape viewports. Tests project
+  every corner and reject invalid aspect/bounds.
+- Invalid cameras fail before presentation retention or frame/staging work.
+  Narrow valid frustums can dolly without a reversed-clamp panic. GPU render,
+  encode and caller-view methods now return `Result`; examples and host drawing
+  handle it. Uniform staging checks the device buffer limit. Equal GPU sort
+  distances have a deterministic actor-order tie break.
+- Clipped lines retain their crossing segment instead of being dropped. Frustum
+  clipping bounds raster iteration by viewport size. A very long segment is
+  tested in the clipping helper without running an unbounded pixel loop.
+  Line composition visits each pixel once per segment, preserves straight alpha,
+  and writes opaque depth; reversing opaque actor order preserves the image.
+- Eight-bit subpixel edge equations and the top-left rule remove coverage changes
+  caused by triangulation and prevent double blending on shared edges. Transparent
+  quads have identical images under either diagonal and no alpha seam. Surface
+  and line source-over composition preserves destination alpha. A constant planar
+  translucent triangle agrees with Metal's straight RGBA within two byte levels.
+  Volume background alpha, varying-field interpolation, wireframe and general
+  intersecting transparency still need the remaining C4 work.
+- Ordinary unclipped triangles now project and rasterize directly. Conservative
+  bounds classification skips unnecessary per-triangle clipping checks, while
+  boundary cases use the full clipper. The first corrected version showed a
+  28–34% larger-mesh CPU cost increase in a paired diagnostic. The direct triangle
+  path removed that observed regression:
+
+  | Fixed camera, warm 128×128 frame | `9d50f5bf` median ms | Current median ms |
+  |---|---:|---:|
+  | 16³ | 0.3695 | 0.2975 |
+  | 32³ | 0.9820 | 0.9160 |
+  | 48³ | 1.8230 | 1.8140 |
+
+  Four process medians per version, ordered ABBA twice after process warmup;
+  each process uses the audit's one-warmup/five-sample recipe. Both probes use
+  the old fixed camera radius, so the fitting correction cannot appear as a CPU
+  gain. All process records report median counts of two allocations and
+  131,072 allocated bytes. The
+  [raw evidence](qa/perf/20261018-scene-clipping-paired.json) includes CPU/OS/Rust
+  identity, source hashes, sample arrays and methodology. Shared-host variation
+  prevents interpreting these as energy or full-application latency evidence.
+- Verification: 67 scene library tests pass with required Metal; strict scene
+  Clippy passes. The actual native viewer test passes at 2× DPI, driving orbit,
+  pan, zoom, reset and clipping controls while checking state and rendered-image
+  changes. Required-Metal CI now runs that test and fails instead of skipping
+  when its renderer is unavailable. Existing pressure-pipeline and large-dataset
+  integrations pass, all scene examples compile, and the wasm library compiles.
+- C1 remains unchecked pending extreme plane-coefficient contracts: world plane
+  normals are still cast to shader floats, and nonfinite/overflowing coefficients
+  need explicit validation or robust rescaling. The tested coordinate fixes do
+  not prove correctness for those inputs. The full objective remains open.
+
+Goal turn 3: progress. No broad completion or physical power/memory claim.

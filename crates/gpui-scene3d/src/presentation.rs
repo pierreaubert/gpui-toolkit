@@ -32,6 +32,7 @@ pub(crate) struct RenderKey {
 
 impl RenderKey {
     pub(crate) fn new(scene: &Scene, camera: Camera, size: [u32; 2]) -> Result<Self, SceneError> {
+        camera.validate()?;
         Ok(Self {
             prepared: SceneRevision::new(scene)?,
             camera,
@@ -87,6 +88,18 @@ mod tests {
     use crate::Actor;
     use gpui_mesh::{DataSet, Field};
     use std::sync::Arc;
+
+    #[test]
+    fn invalid_cameras_fail_before_presentation_retention() {
+        let mut camera = Camera::default();
+        camera.projection = crate::Projection::Perspective { fov_y: 0.0 };
+        let scene = Scene::new();
+        assert!(matches!(
+            RenderKey::new(&scene, camera, [32, 32]),
+            Err(SceneError::InvalidCamera(_))
+        ));
+        assert_eq!(scene.preparation_stats().geometry_builds, 0);
+    }
 
     #[test]
     fn frame_key_reuses_static_frames_and_invalidates_every_render_input() {

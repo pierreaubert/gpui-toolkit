@@ -120,7 +120,7 @@ pub struct ViewerProbe {
     /// Camera distance.
     pub distance: f32,
     /// Camera target.
-    pub target: [f32; 3],
+    pub target: [f64; 3],
     /// Whether the cutting plane is enabled.
     pub clip_enabled: bool,
     /// Cutting-plane axis (0 = X, 1 = Y, 2 = Z).
@@ -774,6 +774,10 @@ mod interaction_tests {
     fn drives_every_control() {
         let _lock = platform_lock();
         if MetalHeadlessRenderer::try_new().is_none() {
+            assert!(
+                std::env::var_os("GPUI_REQUIRE_GPU").is_none(),
+                "required Metal viewer renderer unavailable"
+            );
             eprintln!("viewer interaction test skipped: no Metal device");
             return;
         }

@@ -270,11 +270,17 @@ impl VolumeRenderer {
         let bounds = self.bounds;
         let grid = &self.grid;
         let aspect = width as f32 / height as f32;
-        let view_projection = camera.view_projection(aspect);
-        let inverse = invert4(view_projection)
-            .ok_or_else(|| SceneError::FieldNotFound("camera matrix is singular".into()))?;
-        let eye = camera.eye();
-        let eye64 = [f64::from(eye[0]), f64::from(eye[1]), f64::from(eye[2])];
+        let origin = bounds.center();
+        let rays = camera.ray_grid_relative_to(origin, aspect)?;
+        let local_bounds = gpui_mesh::Bounds {
+            min: std::array::from_fn(|axis| bounds.min[axis] - origin[axis]),
+            max: std::array::from_fn(|axis| bounds.max[axis] - origin[axis]),
+        };
+        let planes: smallvec::SmallVec<[ClipPlane; 6]> = options
+            .clip_planes
+            .iter()
+            .map(|plane| plane.relative_to(origin))
+            .collect();
         let diagonal = bounds.diagonal();
         let step = (diagonal * options.step_fraction).max(diagonal / 4096.0);
         let bg = options.background;
@@ -283,46 +289,42 @@ impl VolumeRenderer {
         for y in 0..height {
             for x in 0..width {
                 let idx = (y as usize * width as usize + x as usize) * 4;
-                // Unproject the pixel centre at the near and far planes.
+                // Analytic near/far-plane rays preserve both orthographic
+                // projection and local precision, without per-pixel inversion.
                 let ndc_x = (x as f32 + 0.5) / width as f32 * 2.0 - 1.0;
                 let ndc_y = 1.0 - (y as f32 + 0.5) / height as f32 * 2.0;
-                let Some(far_point) = unproject(&inverse, [ndc_x, ndc_y, 1.0]) else {
-                    write_pixel(&mut rgba, idx, bg);
-                    continue;
-                };
-                let mut dir = [
-                    far_point[0] - eye64[0],
-                    far_point[1] - eye64[1],
-                    far_point[2] - eye64[2],
-                ];
+                let [near_point, far_point] = rays.segment([ndc_x, ndc_y]);
+                let mut dir =
+                    std::array::from_fn::<_, 3, _>(|axis| far_point[axis] - near_point[axis]);
                 let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
                 if len < 1e-300 {
                     write_pixel(&mut rgba, idx, bg);
                     continue;
                 }
                 dir = [dir[0] / len, dir[1] / len, dir[2] / len];
-                let Some((t_enter, t_exit)) = ray_bounds(eye64, dir, bounds) else {
+                let Some((t_enter, t_exit)) = ray_bounds(near_point, dir, local_bounds) else {
                     write_pixel(&mut rgba, idx, bg);
                     continue;
                 };
+                let t_exit = t_exit.min(len);
                 // Front-to-back compositing with early termination.
                 let mut accumulated = [0.0f32; 4];
                 let mut t = t_enter;
                 while t < t_exit && accumulated[3] < 0.98 {
                     let point = [
-                        eye64[0] + dir[0] * t,
-                        eye64[1] + dir[1] * t,
-                        eye64[2] + dir[2] * t,
+                        near_point[0] + dir[0] * t,
+                        near_point[1] + dir[1] * t,
+                        near_point[2] + dir[2] * t,
                     ];
                     t += step;
-                    if options
-                        .clip_planes
-                        .iter()
-                        .any(|plane| plane.distance(point) < 0.0)
-                    {
+                    if planes.iter().any(|plane| plane.distance(point) < 0.0) {
                         continue;
                     }
-                    let Some(value) = grid.sample(dataset, scalars, point) else {
+                    let Some(value) = grid.sample(
+                        dataset,
+                        scalars,
+                        std::array::from_fn(|axis| point[axis] + origin[axis]),
+                    ) else {
                         continue;
                     };
                     let colour = transfer.map(value);
@@ -384,18 +386,6 @@ fn write_pixel(rgba: &mut [u8], idx: usize, colour: [f32; 4]) {
     rgba[idx + 1] = (colour[1].clamp(0.0, 1.0) * 255.0) as u8;
     rgba[idx + 2] = (colour[2].clamp(0.0, 1.0) * 255.0) as u8;
     rgba[idx + 3] = (colour[3].clamp(0.0, 1.0) * 255.0) as u8;
-}
-
-fn unproject(inverse: &[f32; 16], ndc: [f32; 3]) -> Option<[f64; 3]> {
-    let clip = crate::camera::transform(inverse, ndc);
-    if clip[3].abs() < 1e-12 {
-        return None;
-    }
-    Some([
-        f64::from(clip[0] / clip[3]),
-        f64::from(clip[1] / clip[3]),
-        f64::from(clip[2] / clip[3]),
-    ])
 }
 
 /// Slab intersection of a ray with the dataset bounds.
@@ -562,6 +552,107 @@ mod tests {
                 "diag {i}: {}",
                 product[i * 4 + i]
             );
+        }
+    }
+
+    #[test]
+    fn orthographic_volume_size_is_distance_invariant_and_obeys_near_far() {
+        let dataset = DataSet::structured_grid("box", [3; 3], [-1.0; 3], [1.0; 3])
+            .unwrap()
+            .with_field(Field::scalar("p", vec![0.5; 27]));
+        let renderer = VolumeRenderer::new(&dataset, "p").unwrap();
+        let transfer = TransferFunction::from_stops([0.0, 1.0], &[(0.0, [1.0, 0.0, 0.0, 0.2])]);
+        let options = VolumeOptions {
+            background: [0.0, 0.0, 0.0, 1.0],
+            ..VolumeOptions::default()
+        };
+        let camera = Camera {
+            azimuth: 0.0,
+            elevation: 0.0,
+            distance: 2.5,
+            near: 0.1,
+            far: 8.0,
+            projection: crate::Projection::Orthographic { half_height: 1.5 },
+            ..Camera::default()
+        };
+        let draw = |camera: &Camera| {
+            renderer
+                .render(&transfer, camera, 24, 24, &options)
+                .unwrap()
+        };
+        let reference = draw(&camera);
+        assert!(
+            reference
+                .rgba
+                .chunks_exact(4)
+                .filter(|pixel| pixel[0] > 10)
+                .count()
+                > 100
+        );
+        assert_eq!(
+            reference.rgba,
+            draw(&Camera {
+                distance: 5.5,
+                ..camera
+            })
+            .rgba
+        );
+        for clipped in [
+            Camera {
+                distance: 3.0,
+                far: 1.5,
+                ..camera
+            },
+            Camera {
+                distance: 3.0,
+                near: 4.5,
+                ..camera
+            },
+        ] {
+            assert!(
+                draw(&clipped)
+                    .rgba
+                    .chunks_exact(4)
+                    .all(|pixel| pixel == [0, 0, 0, 255])
+            );
+        }
+    }
+
+    #[test]
+    fn volume_rays_preserve_coverage_after_large_fractional_translation() {
+        let transfer = TransferFunction::from_stops([0.0, 1.0], &[(0.0, [1.0, 0.0, 0.0, 0.2])]);
+        let options = VolumeOptions {
+            background: [0.0, 0.0, 0.0, 1.0],
+            ..VolumeOptions::default()
+        };
+        let mut reference: Option<Vec<u8>> = None;
+        for offset in [0.0, 1e9 + 0.125, 1e12 + 0.125] {
+            let dataset =
+                DataSet::structured_grid("translated", [3; 3], [offset - 1.0; 3], [1.0; 3])
+                    .unwrap()
+                    .with_field(Field::scalar("p", vec![0.5; 27]));
+            let camera = Camera::fitted(dataset.bounds().unwrap());
+            let frame = VolumeRenderer::new(&dataset, "p")
+                .unwrap()
+                .render(&transfer, &camera, 24, 24, &options)
+                .unwrap();
+            if let Some(reference) = &reference {
+                let error: usize = reference
+                    .iter()
+                    .zip(&frame.rgba)
+                    .map(|(a, b)| usize::from(a.abs_diff(*b)))
+                    .sum();
+                assert!(
+                    error <= frame.rgba.len(),
+                    "mean byte error <= 1, offset {offset}, error {error}"
+                );
+                assert_eq!(
+                    reference.chunks_exact(4).filter(|p| p[0] > 0).count(),
+                    frame.rgba.chunks_exact(4).filter(|p| p[0] > 0).count()
+                );
+            } else {
+                reference = Some(frame.rgba);
+            }
         }
     }
 }

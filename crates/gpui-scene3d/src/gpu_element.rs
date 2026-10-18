@@ -308,12 +308,18 @@ impl WgpuCustomDraw for SceneDraw {
                 return;
             }
             input.scene.clear_preparation();
-            resource.renderer.encode(
-                encoder,
-                &mut resource.scene,
-                &input.camera,
-                &resource.target,
-            );
+            if resource
+                .renderer
+                .encode(
+                    encoder,
+                    &mut resource.scene,
+                    &input.camera,
+                    &resource.target,
+                )
+                .is_err()
+            {
+                return;
+            }
             resource.rendered_revision = Some(input.revision);
         }
         let Some((quad, scissor)) = composite_quad(bounds, full_bounds, scale_factor, target_size)
@@ -506,7 +512,8 @@ mod tests {
             size: size(px(36.0), px(48.0)),
         };
         let mut encoder = ctx.device.create_command_encoder(&Default::default());
-        host.encode(&mut encoder, &mut host_scene, &Camera::default(), &target);
+        host.encode(&mut encoder, &mut host_scene, &Camera::default(), &target)
+            .unwrap();
         draw.draw.draw_wgpu(
             &ctx,
             &mut encoder,

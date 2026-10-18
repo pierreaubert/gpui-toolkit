@@ -593,24 +593,38 @@ impl GpuRenderer {
 
     /// Draws an uploaded scene into a target. Only uniform buffers are
     /// rewritten; geometry buffers are untouched (GPU-resident).
-    pub fn render(&self, scene: &mut GpuScene, camera: &Camera, target: &GpuTarget) {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid camera parameters or staging limits.
+    pub fn render(
+        &self,
+        scene: &mut GpuScene,
+        camera: &Camera,
+        target: &GpuTarget,
+    ) -> Result<(), GpuRenderError> {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("gpui-scene3d frame"),
             });
-        self.encode(&mut encoder, scene, camera, target);
+        self.encode(&mut encoder, scene, camera, target)?;
         self.queue.submit([encoder.finish()]);
+        Ok(())
     }
 
     /// Encodes a scene without submitting the host's command encoder.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid camera parameters or staging limits.
     pub fn encode(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         scene: &mut GpuScene,
         camera: &Camera,
         target: &GpuTarget,
-    ) {
+    ) -> Result<(), GpuRenderError> {
         let background = scene.background;
         self.encode_to_views(
             encoder,
@@ -627,19 +641,36 @@ impl GpuRenderer {
                     a: f64::from(background[3]),
                 }),
             },
-        );
+        )
     }
 
     /// Encodes into caller-owned views without a submit or pixel readback.
     ///
     /// The host owns attachment lifetime, format, size and submission ordering.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid dimensions, camera parameters or staging limits.
     pub fn encode_to_views(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         scene: &mut GpuScene,
         camera: &Camera,
         target: GpuAttachments<'_>,
-    ) {
+    ) -> Result<(), GpuRenderError> {
+        camera.validate()?;
+        if target.size.contains(&0) {
+            return Err(SceneError::InvalidSize(target.size[0], target.size[1]).into());
+        }
+        let uniform_bytes = (scene.actors.len() as u64).saturating_mul(288);
+        if uniform_bytes > self.device.limits().max_buffer_size {
+            return Err(SceneError::ResourceLimit {
+                resource: "scene uniform staging bytes",
+                requested: uniform_bytes,
+                limit: self.device.limits().max_buffer_size,
+            }
+            .into());
+        }
         let aspect = target.size[0] as f32 / target.size[1].max(1) as f32;
         let eye = camera.eye();
         for actor in &mut scene.actors {
@@ -647,10 +678,9 @@ impl GpuRenderer {
             // dataset centre, so use the first chunk's origin.
             if let Some(first) = actor.chunks.first() {
                 let o = first.origin;
-                actor.distance = ((o[0] - f64::from(eye[0])).powi(2)
-                    + (o[1] - f64::from(eye[1])).powi(2)
-                    + (o[2] - f64::from(eye[2])).powi(2))
-                .sqrt();
+                actor.distance =
+                    ((o[0] - eye[0]).powi(2) + (o[1] - eye[1]).powi(2) + (o[2] - eye[2]).powi(2))
+                        .sqrt();
             }
         }
         // Copies belong to this encoder, so encoding two cameras before one
@@ -659,7 +689,7 @@ impl GpuRenderer {
         let staging = (!scene.actors.is_empty()).then(|| {
             self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("gpui-scene3d frame uniforms"),
-                size: scene.actors.len() as u64 * 288,
+                size: uniform_bytes,
                 usage: wgpu::BufferUsages::COPY_SRC,
                 mapped_at_creation: true,
             })
@@ -687,15 +717,18 @@ impl GpuRenderer {
                 encoder.copy_buffer_to_buffer(staging, index as u64 * 288, &actor.uniform, 0, 288);
             }
         }
-        scene.order.sort_unstable_by(|&a, &b| {
-            let (a, b) = (&scene.actors[a], &scene.actors[b]);
-            a.transparent.cmp(&b.transparent).then_with(|| {
-                if a.transparent {
-                    b.distance.total_cmp(&a.distance)
-                } else {
-                    std::cmp::Ordering::Equal
-                }
-            })
+        scene.order.sort_unstable_by(|&left, &right| {
+            let (a, b) = (&scene.actors[left], &scene.actors[right]);
+            a.transparent
+                .cmp(&b.transparent)
+                .then_with(|| {
+                    if a.transparent {
+                        b.distance.total_cmp(&a.distance)
+                    } else {
+                        std::cmp::Ordering::Equal
+                    }
+                })
+                .then_with(|| left.cmp(&right))
         });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -738,6 +771,7 @@ impl GpuRenderer {
                 }
             }
         }
+        Ok(())
     }
 
     /// Reads a target back to a CPU frame (QA and movie export only).
@@ -955,7 +989,7 @@ mod tests {
         let mut gpu_scene = renderer.upload(&scene).unwrap();
         assert!(gpu_scene.geometry_bytes > 0);
         let target = renderer.create_target(96, 96).unwrap();
-        renderer.render(&mut gpu_scene, &camera, &target);
+        renderer.render(&mut gpu_scene, &camera, &target).unwrap();
         let frame = renderer.read_rgba(&target).unwrap();
         let centre = frame.rgba[((48 * 96 + 48) * 4) as usize..][..3].to_vec();
         assert_ne!(centre, vec![20, 23, 28], "centre shows the surface");
@@ -963,7 +997,7 @@ mod tests {
         // Orbit and re-render: same buffers, different picture.
         let mut orbited = camera;
         orbited.orbit(1.2, 0.3);
-        renderer.render(&mut gpu_scene, &orbited, &target);
+        renderer.render(&mut gpu_scene, &orbited, &target).unwrap();
         let frame2 = renderer.read_rgba(&target).unwrap();
         let changed = frame
             .rgba
@@ -995,15 +1029,23 @@ mod tests {
         let first = renderer.create_target(48, 48).unwrap();
         let second = renderer.create_target(48, 48).unwrap();
         let mut encoder = owner.device.create_command_encoder(&Default::default());
-        renderer.encode(&mut encoder, &mut uploaded, &first_camera, &first);
-        renderer.encode(&mut encoder, &mut uploaded, &second_camera, &second);
+        renderer
+            .encode(&mut encoder, &mut uploaded, &first_camera, &first)
+            .unwrap();
+        renderer
+            .encode(&mut encoder, &mut uploaded, &second_camera, &second)
+            .unwrap();
         owner.queue.submit([encoder.finish()]);
         let actual_first = renderer.read_rgba(&first).unwrap();
         let actual_second = renderer.read_rgba(&second).unwrap();
         assert_ne!(actual_first.rgba, actual_second.rgba);
-        renderer.render(&mut uploaded, &first_camera, &first);
+        renderer
+            .render(&mut uploaded, &first_camera, &first)
+            .unwrap();
         assert_eq!(actual_first.rgba, renderer.read_rgba(&first).unwrap().rgba);
-        renderer.render(&mut uploaded, &second_camera, &second);
+        renderer
+            .render(&mut uploaded, &second_camera, &second)
+            .unwrap();
         assert_eq!(
             actual_second.rgba,
             renderer.read_rgba(&second).unwrap().rgba
@@ -1012,17 +1054,19 @@ mod tests {
         // A host can preserve its existing color when encoding empty content.
         let mut empty = renderer.upload(&Scene::new()).unwrap();
         let mut encoder = owner.device.create_command_encoder(&Default::default());
-        renderer.encode_to_views(
-            &mut encoder,
-            &mut empty,
-            &first_camera,
-            GpuAttachments {
-                color: first.color_view(),
-                depth: &first.depth_view,
-                size: [48, 48],
-                load: wgpu::LoadOp::Load,
-            },
-        );
+        renderer
+            .encode_to_views(
+                &mut encoder,
+                &mut empty,
+                &first_camera,
+                GpuAttachments {
+                    color: first.color_view(),
+                    depth: &first.depth_view,
+                    size: [48, 48],
+                    load: wgpu::LoadOp::Load,
+                },
+            )
+            .unwrap();
         owner.queue.submit([encoder.finish()]);
         assert_eq!(actual_first.rgba, renderer.read_rgba(&first).unwrap().rgba);
     }
@@ -1041,7 +1085,9 @@ mod tests {
         let red = renderer.create_target(32, 32).unwrap();
         let green = renderer.create_target(32, 32).unwrap();
         let mut encoder = renderer.device.create_command_encoder(&Default::default());
-        renderer.encode(&mut encoder, &mut uploaded, &camera, &red);
+        renderer
+            .encode(&mut encoder, &mut uploaded, &camera, &red)
+            .unwrap();
         scene.actors[0].color = [0.0, 1.0, 0.0, 1.0];
         assert!(!renderer.sync(&mut uploaded, &scene).unwrap());
         assert_eq!(
@@ -1050,7 +1096,9 @@ mod tests {
         );
         assert_eq!(scene.preparation_stats().retained_bytes, 0);
         assert_eq!(scene.preparation_stats().geometry_builds, 1);
-        renderer.encode(&mut encoder, &mut uploaded, &camera, &green);
+        renderer
+            .encode(&mut encoder, &mut uploaded, &camera, &green)
+            .unwrap();
         renderer.queue.submit([encoder.finish()]);
         let center = ((16 * 32 + 16) * 4) as usize;
         let r = renderer.read_rgba(&red).unwrap();
@@ -1079,7 +1127,9 @@ mod tests {
         scene.background = [1.0, 0.0, 0.0, 0.5];
         let target = renderer.create_target(4, 4).unwrap();
         let mut uploaded = renderer.upload(&scene).unwrap();
-        renderer.render(&mut uploaded, &Camera::default(), &target);
+        renderer
+            .render(&mut uploaded, &Camera::default(), &target)
+            .unwrap();
         let frame = renderer.read_rgba(&target).unwrap();
         assert_eq!(&frame.rgba[..4], &[255, 0, 0, 128]);
         let mut flat = Actor::new(DataSet::surface(
@@ -1094,7 +1144,7 @@ mod tests {
         let camera = Camera::fitted(flat_scene.bounds().unwrap());
         let target = renderer.create_target(32, 32).unwrap();
         let mut uploaded = renderer.upload(&flat_scene).unwrap();
-        renderer.render(&mut uploaded, &camera, &target);
+        renderer.render(&mut uploaded, &camera, &target).unwrap();
         let frame = renderer.read_rgba(&target).unwrap();
         // Flat colors pass through the byte LUT: 0.5 truncates to 127.
         let green = frame
@@ -1106,6 +1156,19 @@ mod tests {
             green[0] == 0 && green[1] > 100 && green[2] == 0 && green[3] == 127,
             "flat color with inactive transfer: {green:?}"
         );
+        let cpu = crate::render(&flat_scene, &camera, 32, 32).unwrap();
+        let mut compared = 0;
+        for (gpu, cpu) in frame.rgba.chunks_exact(4).zip(cpu.rgba.chunks_exact(4)) {
+            if gpu[3] > 0 && cpu[3] > 0 {
+                compared += 1;
+                assert_eq!(gpu[3], cpu[3]);
+                assert!(
+                    gpu.iter().zip(cpu).all(|(a, b)| a.abs_diff(*b) <= 2),
+                    "straight RGBA CPU/GPU quantization: {cpu:?}, {gpu:?}"
+                );
+            }
+        }
+        assert!(compared > 50);
         let actor = Actor::new(DataSet::surface(
             "triangle",
             vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
@@ -1122,7 +1185,7 @@ mod tests {
     fn clipped_surface_is_translation_invariant() {
         let Some(renderer) = renderer() else { return };
         let mut expected = None;
-        for center in [0.0, 1000.0, 1_000_000_000.0] {
+        for center in [0.0, 1000.125, 1e9 + 0.125, 1e12 + 0.125] {
             let dataset = DataSet::structured_grid(
                 "translated",
                 [3; 3],
@@ -1140,7 +1203,7 @@ mod tests {
             let camera = Camera::fitted(scene.bounds().unwrap());
             let mut uploaded = renderer.upload(&scene).unwrap();
             let target = renderer.create_target(64, 64).unwrap();
-            renderer.render(&mut uploaded, &camera, &target);
+            renderer.render(&mut uploaded, &camera, &target).unwrap();
             let frame = renderer.read_rgba(&target).unwrap();
             let red = frame
                 .rgba
@@ -1153,7 +1216,7 @@ mod tests {
             } else {
                 expected = Some(red);
             }
-            if center <= 1000.0 {
+            {
                 let cpu = crate::render(&scene, &camera, 64, 64).unwrap();
                 let cpu_red = cpu
                     .rgba
@@ -1163,6 +1226,61 @@ mod tests {
                 assert_eq!(red, cpu_red);
             }
         }
+    }
+
+    #[test]
+    fn oblique_multi_actor_clipping_matches_cpu_coverage_at_large_origins() {
+        let Some(renderer) = renderer() else {
+            return;
+        };
+        let target = renderer.create_target(96, 64).unwrap();
+        let coverage = |frame: &Frame, channel: usize| {
+            frame
+                .rgba
+                .chunks_exact(4)
+                .filter(|pixel| pixel[channel] > pixel[1 - channel].saturating_add(20))
+                .count()
+        };
+        let mut reference = None;
+        for offset in [0.0, 1000.125, 1e9 + 0.125, 1e12 + 0.125] {
+            let scene = crate::scene::translated_clipped_scene(offset);
+            let camera = Camera::fitted(scene.bounds().unwrap());
+            let mut uploaded = renderer.upload(&scene).unwrap();
+            renderer.render(&mut uploaded, &camera, &target).unwrap();
+            let gpu = renderer.read_rgba(&target).unwrap();
+            let cpu = crate::render(&scene, &camera, 96, 64).unwrap();
+            for channel in 0..2 {
+                let (gpu_count, cpu_count) = (coverage(&gpu, channel), coverage(&cpu, channel));
+                assert!(gpu_count > 20);
+                assert!(
+                    gpu_count.abs_diff(cpu_count) <= 4,
+                    "channel {channel}, offset {offset}: GPU {gpu_count}, CPU {cpu_count}"
+                );
+            }
+            if let Some(reference) = &reference {
+                assert_eq!(&gpu.rgba, reference, "GPU translation {offset}");
+            } else {
+                reference = Some(gpu.rgba);
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_camera_errors_before_changing_the_render_target() {
+        let Some(renderer) = renderer() else {
+            return;
+        };
+        let mut uploaded = renderer.upload(&Scene::new()).unwrap();
+        let target = renderer.create_target(4, 4).unwrap();
+        let mut camera = Camera::default();
+        renderer.render(&mut uploaded, &camera, &target).unwrap();
+        let before = renderer.read_rgba(&target).unwrap();
+        camera.near = camera.far;
+        assert!(matches!(
+            renderer.render(&mut uploaded, &camera, &target),
+            Err(GpuRenderError::Scene(SceneError::InvalidCamera(_)))
+        ));
+        assert_eq!(before.rgba, renderer.read_rgba(&target).unwrap().rgba);
     }
 
     #[test]
@@ -1179,10 +1297,10 @@ mod tests {
         let camera = Camera::fitted(scene.bounds().unwrap());
         let target = renderer.create_target(32, 32).unwrap();
         let mut uploaded = renderer.upload(&scene).unwrap();
-        renderer.render(&mut uploaded, &camera, &target);
+        renderer.render(&mut uploaded, &camera, &target).unwrap();
         let masked = renderer.read_rgba(&target).unwrap();
         let mut empty = renderer.upload(&Scene::new()).unwrap();
-        renderer.render(&mut empty, &camera, &target);
+        renderer.render(&mut empty, &camera, &target).unwrap();
         assert_eq!(masked.rgba, renderer.read_rgba(&target).unwrap().rgba);
     }
 

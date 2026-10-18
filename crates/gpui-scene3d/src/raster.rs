@@ -3,6 +3,10 @@
 // Rust guideline compliant 2026-02-21
 
 use crate::camera::{Camera, transform};
+use crate::clipping::{
+    BoundsVisibility, Polygon, Vertex, classify_bounds, clip_frustum, clip_frustum_line, clip_line,
+    clip_planes, triangle_visibility,
+};
 use crate::limits::frame_buffer;
 use crate::retained::PreparedGeometry;
 use crate::scene::Scene;
@@ -88,6 +92,7 @@ pub fn render_with_limits(
     height: u32,
     limits: RenderLimits,
 ) -> Result<Frame, SceneError> {
+    camera.validate()?;
     let pixels = limits.pixel_count(width, height, 8)?;
     let prepared = scene.prepare()?;
     let bg = scene.background;
@@ -99,8 +104,6 @@ pub fn render_with_limits(
         px[3] = (bg[3].clamp(0.0, 1.0) * 255.0) as u8;
     }
     let mut depth = frame_buffer(pixels, f32::INFINITY)?;
-    let aspect = width as f32 / height as f32;
-    let view_projection = camera.view_projection(aspect);
     let light = normalize3([-0.4, 0.7, 0.6]);
     let eye = camera.eye();
 
@@ -116,7 +119,7 @@ pub fn render_with_limits(
             prepared.actors[index]
                 .as_ref()
                 .expect("visible actor prepared"),
-            &view_projection,
+            camera,
             width,
             height,
             light,
@@ -141,7 +144,7 @@ pub fn render_with_limits(
             prepared.actors[*b].as_ref().and_then(|actor| actor.bounds),
             eye,
         );
-        db.partial_cmp(&da).unwrap_or(std::cmp::Ordering::Equal)
+        db.total_cmp(&da)
     });
     for (index, actor) in transparent {
         draw_actor(
@@ -149,7 +152,7 @@ pub fn render_with_limits(
             prepared.actors[index]
                 .as_ref()
                 .expect("visible actor prepared"),
-            &view_projection,
+            camera,
             width,
             height,
             light,
@@ -174,70 +177,13 @@ type ScreenTriangle = (
     f32,
 );
 
-fn actor_distance(bounds: Option<gpui_mesh::Bounds>, eye: [f32; 3]) -> f32 {
+fn actor_distance(bounds: Option<gpui_mesh::Bounds>, eye: [f64; 3]) -> f64 {
     let Some(bounds) = bounds else {
         return 0.0;
     };
     let centre = bounds.center();
-    let d = [
-        centre[0] as f32 - eye[0],
-        centre[1] as f32 - eye[1],
-        centre[2] as f32 - eye[2],
-    ];
+    let d = [centre[0] - eye[0], centre[1] - eye[1], centre[2] - eye[2]];
     (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
-}
-
-/// A world-space vertex with its scalar, for clipping interpolation.
-#[derive(Debug, Clone, Copy)]
-struct ClipVertex {
-    world: [f32; 3],
-    scalar: f32,
-}
-
-fn clip_triangle(
-    tri: [ClipVertex; 3],
-    planes: &[crate::scene::ClipPlane],
-) -> SmallVec<[ClipVertex; 12]> {
-    // A triangle clipped by six planes has at most nine vertices. Keep the
-    // ordinary case on the stack, while safely supporting longer plane lists.
-    let mut poly = SmallVec::<[ClipVertex; 12]>::new();
-    poly.extend_from_slice(&tri);
-    for plane in planes {
-        if poly.is_empty() {
-            break;
-        }
-        let mut out = SmallVec::<[ClipVertex; 12]>::new();
-        for i in 0..poly.len() {
-            let a = poly[i];
-            let b = poly[(i + 1) % poly.len()];
-            let da = plane.distance([
-                f64::from(a.world[0]),
-                f64::from(a.world[1]),
-                f64::from(a.world[2]),
-            ]);
-            let db = plane.distance([
-                f64::from(b.world[0]),
-                f64::from(b.world[1]),
-                f64::from(b.world[2]),
-            ]);
-            if da >= 0.0 {
-                out.push(a);
-            }
-            if (da >= 0.0) != (db >= 0.0) {
-                let t = (da / (da - db)) as f32;
-                out.push(ClipVertex {
-                    world: [
-                        a.world[0] + (b.world[0] - a.world[0]) * t,
-                        a.world[1] + (b.world[1] - a.world[1]) * t,
-                        a.world[2] + (b.world[2] - a.world[2]) * t,
-                    ],
-                    scalar: a.scalar + (b.scalar - a.scalar) * t,
-                });
-            }
-        }
-        poly = out;
-    }
-    poly
 }
 
 #[allow(
@@ -247,7 +193,7 @@ fn clip_triangle(
 fn draw_actor(
     actor: &crate::scene::Actor,
     geometry: &PreparedGeometry,
-    view_projection: &[f32; 16],
+    camera: &Camera,
     width: u32,
     height: u32,
     light: [f32; 3],
@@ -259,6 +205,21 @@ fn draw_actor(
     // Screen triangles with their mean depth, for transparent sorting.
     let mut triangles: Vec<ScreenTriangle> = Vec::new();
     for chunk in &geometry.chunks {
+        let view_projection =
+            camera.view_projection_relative_to(chunk.origin, width as f32 / height as f32);
+        let visibility = geometry
+            .bounds
+            .map_or(BoundsVisibility::Intersecting, |bounds| {
+                classify_bounds(bounds, chunk.origin, &view_projection)
+            });
+        if visibility == BoundsVisibility::Outside {
+            continue;
+        }
+        let planes: SmallVec<[crate::ClipPlane; 6]> = actor
+            .clip_planes
+            .iter()
+            .map(|plane| plane.relative_to(chunk.origin))
+            .collect();
         for tri in chunk.indices.as_chunks::<3>().0 {
             if tri
                 .iter()
@@ -266,70 +227,100 @@ fn draw_actor(
             {
                 continue;
             }
-            let mut world_tri = [ClipVertex {
-                world: [0.0; 3],
-                scalar: 0.0,
-            }; 3];
-            for (slot, vertex) in tri.iter().enumerate() {
-                let i = *vertex as usize;
-                world_tri[slot] = ClipVertex {
-                    world: [
-                        chunk.positions[i * 3] + chunk.origin[0] as f32,
-                        chunk.positions[i * 3 + 1] + chunk.origin[1] as f32,
-                        chunk.positions[i * 3 + 2] + chunk.origin[2] as f32,
+            let local_tri = tri.map(|vertex| {
+                let i = vertex as usize;
+                Vertex {
+                    position: [
+                        chunk.positions[i * 3],
+                        chunk.positions[i * 3 + 1],
+                        chunk.positions[i * 3 + 2],
+                        1.0,
                     ],
                     scalar: chunk.scalars[i],
+                }
+            });
+            let normal_index = tri[0] as usize * 3;
+            let normal = [
+                chunk.normals[normal_index],
+                chunk.normals[normal_index + 1],
+                chunk.normals[normal_index + 2],
+            ];
+            let project = |clip: [f32; 4]| {
+                if clip[3] <= 0.0 {
+                    return None;
+                }
+                Some((
+                    (clip[0] / clip[3] * 0.5 + 0.5) * width as f32,
+                    (0.5 - clip[1] / clip[3] * 0.5) * height as f32,
+                    clip[2] / clip[3],
+                ))
+            };
+            let mut emit = |[a, b, c]: [(f32, f32, f32); 3], mean_scalar: f32| {
+                let mut colour = transfer.map_or(actor.color, |tf| tf.map(f64::from(mean_scalar)));
+                colour[3] *= actor.opacity;
+                let shaded = shade_with_normal(colour, normal, light);
+                if blend {
+                    triangles.push((a, b, c, shaded, (a.2 + b.2 + c.2) / 3.0));
+                } else {
+                    rasterize(a, b, c, shaded, width, height, depth, rgba, false);
+                }
+            };
+            let mut poly = if planes.is_empty() {
+                let clip_tri = local_tri.map(|vertex| Vertex {
+                    position: transform(
+                        &view_projection,
+                        [vertex.position[0], vertex.position[1], vertex.position[2]],
+                    ),
+                    ..vertex
+                });
+                let tri_visibility = if visibility == BoundsVisibility::Inside {
+                    BoundsVisibility::Inside
+                } else {
+                    triangle_visibility(&clip_tri)
                 };
+                match tri_visibility {
+                    BoundsVisibility::Outside => continue,
+                    BoundsVisibility::Inside => {
+                        let [Some(a), Some(b), Some(c)] = clip_tri.map(|v| project(v.position))
+                        else {
+                            continue;
+                        };
+                        emit(
+                            [a, b, c],
+                            (clip_tri[0].scalar + clip_tri[1].scalar + clip_tri[2].scalar) / 3.0,
+                        );
+                        continue;
+                    }
+                    BoundsVisibility::Intersecting => clip_tri.into_iter().collect::<Polygon>(),
+                }
+            } else {
+                let mut poly = local_tri.into_iter().collect::<Polygon>();
+                clip_planes(&mut poly, &planes);
+                for vertex in &mut poly {
+                    vertex.position = transform(
+                        &view_projection,
+                        [vertex.position[0], vertex.position[1], vertex.position[2]],
+                    );
+                }
+                poly
+            };
+            if visibility != BoundsVisibility::Inside {
+                clip_frustum(&mut poly);
             }
-            let poly = clip_triangle(world_tri, &actor.clip_planes);
             if poly.len() < 3 {
                 continue;
             }
-            // Project the clipped polygon once, then fan-triangulate.
-            let mut projected =
-                SmallVec::<[Option<(f32, f32, f32)>; 12]>::with_capacity(poly.len());
-            for vertex in &poly {
-                let clip = transform(view_projection, vertex.world);
-                if clip[3] <= 0.0 {
-                    projected.push(None);
-                    continue;
-                }
-                let ndc = [clip[0] / clip[3], clip[1] / clip[3], clip[2] / clip[3]];
-                projected.push(Some((
-                    (ndc[0] * 0.5 + 0.5) * width as f32,
-                    (1.0 - (ndc[1] * 0.5 + 0.5)) * height as f32,
-                    ndc[2],
-                )));
-            }
+            let projected: SmallVec<[Option<(f32, f32, f32)>; 16]> =
+                poly.iter().map(|vertex| project(vertex.position)).collect();
             for i in 1..poly.len() - 1 {
                 let (Some(a), Some(b), Some(c)) = (projected[0], projected[i], projected[i + 1])
                 else {
                     continue;
                 };
-                let mean_scalar = (poly[0].scalar + poly[i].scalar + poly[i + 1].scalar) / 3.0;
-                let colour = match &transfer {
-                    Some(tf) => tf.map(f64::from(mean_scalar)),
-                    None => actor.color,
-                };
-                let mut colour = colour;
-                colour[3] *= actor.opacity;
-                // Flat shading from the first vertex normal of the source
-                // triangle (clip preserves the face orientation).
-                let normal_index = tri[0] as usize * 3;
-                let normal = [
-                    chunk.normals[normal_index],
-                    chunk.normals[normal_index + 1],
-                    chunk.normals[normal_index + 2],
-                ];
-                let shaded = shade_with_normal(colour, normal, light);
-                let mean_depth = (a.2 + b.2 + c.2) / 3.0;
-                if blend {
-                    triangles.push((a, b, c, shaded, mean_depth));
-                } else {
-                    // Opaque depth testing does not require retaining a second
-                    // screen-space copy of all scene triangles.
-                    rasterize(a, b, c, shaded, width, height, depth, rgba, false);
-                }
+                emit(
+                    [a, b, c],
+                    (poly[0].scalar + poly[i].scalar + poly[i + 1].scalar) / 3.0,
+                );
             }
         }
     }
@@ -341,65 +332,56 @@ fn draw_actor(
     }
     // Line cells (streamlines, glyphs) draw as 1px projected segments.
     if !geometry.lines.is_empty() {
-        draw_lines(
-            actor,
-            &geometry.lines,
-            view_projection,
-            width,
-            height,
-            depth,
-            rgba,
-        );
+        draw_lines(actor, &geometry.lines, camera, width, height, depth, rgba);
     }
 }
 
-/// Projects and rasterizes an actor's line cells with a midpoint depth test.
+/// Clips and projects line cells before performing bounded screen-space work.
 fn draw_lines(
     actor: &crate::scene::Actor,
     lines: &[[u32; 2]],
-    view_projection: &[f32; 16],
+    camera: &Camera,
     width: u32,
     height: u32,
-    depth: &[f32],
+    depth: &mut [f32],
     rgba: &mut [u8],
 ) {
     let dataset = &actor.dataset;
+    let origin = camera.target;
+    let matrix = camera.view_projection_relative_to(origin, width as f32 / height as f32);
+    let planes: SmallVec<[crate::ClipPlane; 6]> = actor
+        .clip_planes
+        .iter()
+        .map(|plane| plane.relative_to(origin))
+        .collect();
     let colour = [
         (actor.color[0].clamp(0.0, 1.0) * 255.0) as u8,
         (actor.color[1].clamp(0.0, 1.0) * 255.0) as u8,
         (actor.color[2].clamp(0.0, 1.0) * 255.0) as u8,
         (actor.color[3].clamp(0.0, 1.0) * actor.opacity * 255.0) as u8,
     ];
-    let project = |point: [f64; 3]| -> Option<(f32, f32, f32)> {
-        let clip = transform(
-            view_projection,
-            [point[0] as f32, point[1] as f32, point[2] as f32],
-        );
-        if clip[3] <= 0.0 {
-            return None;
-        }
-        let ndc = [clip[0] / clip[3], clip[1] / clip[3], clip[2] / clip[3]];
-        Some((
-            (ndc[0] * 0.5 + 0.5) * width as f32,
-            (1.0 - (ndc[1] * 0.5 + 0.5)) * height as f32,
-            ndc[2],
-        ))
-    };
     for nodes in lines {
-        let (Some(a), Some(b)) = (
-            project(dataset.positions[nodes[0] as usize]),
-            project(dataset.positions[nodes[1] as usize]),
-        ) else {
+        let points = nodes.map(|node| {
+            std::array::from_fn(|axis| dataset.positions[node as usize][axis] - origin[axis])
+        });
+        let Some(points) = clip_line(points, &planes) else {
             continue;
         };
-        // Skip segments clipped away by any plane (endpoint test).
-        if actor.clip_planes.iter().any(|plane| {
-            plane.distance(dataset.positions[nodes[0] as usize]) < 0.0
-                || plane.distance(dataset.positions[nodes[1] as usize]) < 0.0
-        }) {
+        let points = points.map(|point| transform(&matrix, point.map(|v| v as f32)));
+        let Some(points) = clip_frustum_line(points) else {
             continue;
-        }
-        let steps = ((b.0 - a.0).abs().max((b.1 - a.1).abs()) as usize).max(1);
+        };
+        let [a, b] = points.map(|clip| {
+            (
+                (clip[0] / clip[3] * 0.5 + 0.5) * width as f32,
+                (0.5 - clip[1] / clip[3] * 0.5) * height as f32,
+                clip[2] / clip[3],
+            )
+        });
+        // Frustum clipping bounds this work by the viewport, including segments
+        // whose original endpoints are far outside it.
+        let steps = ((b.0 - a.0).abs().max((b.1 - a.1).abs()).ceil() as usize).max(1);
+        let mut previous = None;
         for step in 0..=steps {
             let t = step as f32 / steps as f32;
             let x = a.0 + (b.0 - a.0) * t;
@@ -409,8 +391,15 @@ fn draw_lines(
                 continue;
             }
             let idx = y as usize * width as usize + x as usize;
-            if z <= depth[idx] + 1e-3 {
-                rgba[idx * 4..idx * 4 + 4].copy_from_slice(&colour);
+            if previous == Some(idx) {
+                continue;
+            }
+            previous = Some(idx);
+            if z <= depth[idx] {
+                source_over(&mut rgba[idx * 4..idx * 4 + 4], colour);
+                if colour[3] == 255 {
+                    depth[idx] = z;
+                }
             }
         }
     }
@@ -427,6 +416,61 @@ fn shade_with_normal(colour: [f32; 4], n: [f32; 3], light: [f32; 3]) -> [u8; 4] 
         (colour[2].clamp(0.0, 1.0) * intensity * 255.0) as u8,
         (colour[3].clamp(0.0, 1.0) * 255.0) as u8,
     ]
+}
+
+#[derive(Clone, Copy)]
+struct CoverageEdge {
+    coefficients: [f64; 3],
+    inclusive: bool,
+}
+
+impl CoverageEdge {
+    fn new(a: [f64; 2], b: [f64; 2]) -> Self {
+        Self {
+            coefficients: [a[1] - b[1], b[0] - a[0], a[0] * b[1] - a[1] * b[0]],
+            inclusive: b[1] < a[1] || (b[1] == a[1] && b[0] > a[0]),
+        }
+    }
+
+    #[inline]
+    fn at(&self, point: [f64; 2]) -> f64 {
+        self.coefficients[0] * point[0] + self.coefficients[1] * point[1] + self.coefficients[2]
+    }
+
+    #[inline]
+    fn contains(&self, value: f64) -> bool {
+        value > 0.0 || (value == 0.0 && self.inclusive)
+    }
+}
+
+fn source_over(destination: &mut [u8], source: [u8; 4]) {
+    let alpha = u32::from(source[3]);
+    if alpha == 0 {
+        return;
+    }
+    if alpha == 255 {
+        destination.copy_from_slice(&source);
+        return;
+    }
+    let inverse = 255 - alpha;
+    let destination_alpha = u32::from(destination[3]);
+    if destination_alpha == 255 {
+        for channel in 0..3 {
+            destination[channel] = ((u32::from(source[channel]) * alpha
+                + u32::from(destination[channel]) * inverse
+                + 127)
+                / 255) as u8;
+        }
+    } else {
+        let output_alpha = alpha * 255 + destination_alpha * inverse;
+        for channel in 0..3 {
+            destination[channel] = ((u32::from(source[channel]) * alpha * 255
+                + u32::from(destination[channel]) * destination_alpha * inverse
+                + output_alpha / 2)
+                / output_alpha) as u8;
+        }
+        destination[3] = ((output_alpha + 127) / 255) as u8;
+    }
 }
 
 #[allow(
@@ -456,34 +500,60 @@ fn rasterize(
             .max(c.1)
             .ceil()
             .min(height.saturating_sub(1) as f32) as u32;
-    let denom = (b.1 - c.1) * (a.0 - c.0) + (c.0 - b.0) * (a.1 - c.1);
-    if denom.abs() < 1e-12 {
+    // Match conventional raster coverage on an eight-bit subpixel grid.
+    // Consistent edge equations and the top-left rule avoid cracks and double
+    // blending when a polygon's triangulation changes after clipping.
+    let mut points = [a, b, c].map(|(x, y, z)| {
+        (
+            [
+                (f64::from(x) * 256.0).round(),
+                (f64::from(y) * 256.0).round(),
+            ],
+            z,
+        )
+    });
+    let area = CoverageEdge::new(points[0].0, points[1].0).at(points[2].0);
+    if area == 0.0 || colour[3] == 0 {
         return;
     }
+    if area < 0.0 {
+        points.swap(1, 2);
+    }
+    let inverse_area = (1.0 / area.abs()) as f32;
+    let edges = [
+        CoverageEdge::new(points[1].0, points[2].0),
+        CoverageEdge::new(points[2].0, points[0].0),
+        CoverageEdge::new(points[0].0, points[1].0),
+    ];
+    let start = [
+        (f64::from(min_x) + 0.5) * 256.0,
+        (f64::from(min_y) + 0.5) * 256.0,
+    ];
+    let mut row = edges.map(|edge| edge.at(start));
+    let x_step = edges.map(|edge| edge.coefficients[0] * 256.0);
+    let y_step = edges.map(|edge| edge.coefficients[1] * 256.0);
     for y in min_y..=max_y {
+        let mut values = row;
+        for axis in 0..3 {
+            row[axis] += y_step[axis];
+        }
         for x in min_x..=max_x {
-            let px = x as f32 + 0.5;
-            let py = y as f32 + 0.5;
-            let w0 = ((b.1 - c.1) * (px - c.0) + (c.0 - b.0) * (py - c.1)) / denom;
-            let w1 = ((c.1 - a.1) * (px - c.0) + (a.0 - c.0) * (py - c.1)) / denom;
-            let w2 = 1.0 - w0 - w1;
-            if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+            let [e0, e1, e2] = values;
+            for axis in 0..3 {
+                values[axis] += x_step[axis];
+            }
+            if !edges[0].contains(e0) || !edges[1].contains(e1) || !edges[2].contains(e2) {
                 continue;
             }
-            let z = w0 * a.2 + w1 * b.2 + w2 * c.2;
+            let z = (e0 as f32 * points[0].1 + e1 as f32 * points[1].1 + e2 as f32 * points[2].1)
+                * inverse_area;
             let idx = y as usize * width as usize + x as usize;
             if z >= depth[idx] {
                 continue;
             }
             if blend {
-                // Source-over blending; transparent pass does not write depth.
-                let alpha = f32::from(colour[3]) / 255.0;
-                for channel in 0..3 {
-                    let dst = f32::from(rgba[idx * 4 + channel]);
-                    let src = f32::from(colour[channel]);
-                    rgba[idx * 4 + channel] = (src * alpha + dst * (1.0 - alpha)).round() as u8;
-                }
-                rgba[idx * 4 + 3] = 255;
+                // Transparent passes preserve the destination's alpha contract.
+                source_over(&mut rgba[idx * 4..idx * 4 + 4], colour);
             } else {
                 depth[idx] = z;
                 rgba[idx * 4..idx * 4 + 4].copy_from_slice(&colour);
@@ -555,6 +625,247 @@ mod tests {
             reference.rgba,
             render(&scene, &camera, 32, 32).unwrap().rgba
         );
+    }
+
+    #[test]
+    fn oblique_clipping_multiple_origins_and_fractional_translations_are_invariant() {
+        let mut reference = None;
+        for offset in [0.0, 1000.125, 1e9 + 0.125, 1e12 + 0.125] {
+            let scene = crate::scene::translated_clipped_scene(offset);
+            let camera = Camera::fitted(scene.bounds().unwrap());
+            let frame = render(&scene, &camera, 96, 64).unwrap();
+            let red = frame
+                .rgba
+                .chunks_exact(4)
+                .filter(|pixel| pixel[0] > pixel[1].saturating_add(20))
+                .count();
+            let green = frame
+                .rgba
+                .chunks_exact(4)
+                .filter(|pixel| pixel[1] > pixel[0].saturating_add(20))
+                .count();
+            assert!(
+                red > 20 && green > 20,
+                "both origins visible: {red}, {green}"
+            );
+            if let Some(reference) = &reference {
+                assert_eq!(&frame.rgba, reference, "offset {offset}");
+            } else {
+                reference = Some(frame.rgba);
+            }
+        }
+    }
+
+    fn forward_camera() -> Camera {
+        Camera {
+            azimuth: 0.0,
+            elevation: 0.0,
+            distance: 3.0,
+            near: 1.0,
+            far: 4.0,
+            projection: crate::Projection::Perspective {
+                fov_y: std::f32::consts::FRAC_PI_2,
+            },
+            ..Camera::default()
+        }
+    }
+
+    #[test]
+    fn triangles_outside_near_and_far_planes_do_not_write_pixels() {
+        let camera = forward_camera();
+        let empty = render(&Scene::new(), &camera, 48, 48).unwrap();
+        for z in [-2.0, 2.5, 4.0] {
+            let dataset = DataSet::surface(
+                "outside",
+                vec![[-1.0, -1.0, z], [1.0, -1.0, z], [0.0, 1.0, z]],
+                &[[0, 1, 2]],
+            );
+            let scene = Scene::new().with_actor(Actor::new(dataset).color([1.0, 0.0, 0.0, 1.0]));
+            assert_eq!(
+                empty.rgba,
+                render(&scene, &camera, 48, 48).unwrap().rgba,
+                "z={z}"
+            );
+        }
+        let mut invalid = camera;
+        invalid.far = invalid.near;
+        assert!(matches!(
+            render(&Scene::new(), &invalid, 48, 48),
+            Err(SceneError::InvalidCamera(_))
+        ));
+    }
+
+    #[test]
+    fn triangle_crossing_near_plane_matches_explicitly_clipped_geometry() {
+        let camera = forward_camera();
+        let original = DataSet::surface(
+            "crossing",
+            vec![[-1.0, -1.0, 1.0], [1.0, -1.0, 1.0], [0.0, 1.0, 2.5]],
+            &[[0, 1, 2]],
+        );
+        let clipped = DataSet::surface(
+            "reference",
+            vec![
+                [-1.0, -1.0, 1.0],
+                [1.0, -1.0, 1.0],
+                [1.0 / 3.0, 1.0 / 3.0, 2.0],
+                [-1.0 / 3.0, 1.0 / 3.0, 2.0],
+            ],
+            &[[0, 1, 2], [0, 2, 3]],
+        );
+        let draw = |dataset| {
+            render(
+                &Scene::new().with_actor(Actor::new(dataset).color([1.0, 0.0, 0.0, 1.0])),
+                &camera,
+                64,
+                64,
+            )
+            .unwrap()
+        };
+        let coverage = |frame: &Frame| {
+            frame
+                .rgba
+                .chunks_exact(4)
+                .map(|pixel| pixel[0] > pixel[1].saturating_add(20))
+                .collect::<Vec<_>>()
+        };
+        let actual = coverage(&draw(original));
+        let expected = coverage(&draw(clipped));
+        assert!(actual.iter().filter(|&&covered| covered).count() > 100);
+        let mismatches: Vec<_> = actual
+            .iter()
+            .zip(&expected)
+            .enumerate()
+            .filter(|(_, (a, b))| a != b)
+            .map(|(i, (a, b))| (i % 64, i / 64, *a, *b))
+            .collect();
+        assert!(
+            mismatches.len() <= 2,
+            "coverage differences: {} {:?}",
+            mismatches.len(),
+            &mismatches[..mismatches.len().min(24)]
+        );
+    }
+
+    #[test]
+    fn crossing_line_matches_explicitly_clipped_segment_at_large_origins() {
+        let camera = Camera {
+            near: 0.1,
+            far: 10.0,
+            ..forward_camera()
+        };
+        let line = |points: Vec<[f64; 3]>, clip: bool| {
+            let mut dataset = DataSet::surface("line", points, &[]);
+            dataset.cells = gpui_mesh::Cells::from_cells(&[(gpui_mesh::CellType::Line, &[0, 1])]);
+            let actor = Actor::new(dataset).color([1.0; 4]);
+            if clip {
+                actor.clip(crate::ClipPlane {
+                    origin: [0.0; 3],
+                    normal: [1.0, 0.0, 0.0],
+                })
+            } else {
+                actor
+            }
+        };
+        let expected = render(
+            &Scene::new().with_actor(line(vec![[0.0; 3], [1.0, 0.0, 0.0]], false)),
+            &camera,
+            64,
+            64,
+        )
+        .unwrap();
+        for offset in [0.0, 1e12 + 0.125] {
+            for reverse in [false, true] {
+                let mut actor = line(vec![[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]], true);
+                let mut points = actor.dataset.positions.to_vec();
+                if reverse {
+                    points.reverse();
+                }
+                for point in &mut points {
+                    for value in point {
+                        *value += offset;
+                    }
+                }
+                actor.dataset.positions = points.into();
+                actor.clip_planes[0].origin = [offset; 3];
+                let shifted = Camera {
+                    target: [offset; 3],
+                    ..camera
+                };
+                assert_eq!(
+                    expected.rgba,
+                    render(&Scene::new().with_actor(actor), &shifted, 64, 64)
+                        .unwrap()
+                        .rgba
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn transparent_quad_has_no_triangulation_seams_and_preserves_alpha() {
+        let camera = Camera {
+            near: 0.1,
+            far: 10.0,
+            ..forward_camera()
+        };
+        let draw = |triangles: &[[u32; 3]], alpha: f32| {
+            let dataset = DataSet::surface(
+                "quad",
+                vec![
+                    [-1.0, -1.0, 0.0],
+                    [1.0, -1.0, 0.0],
+                    [1.0, 1.0, 0.0],
+                    [-1.0, 1.0, 0.0],
+                ],
+                triangles,
+            );
+            let mut scene =
+                Scene::new().with_actor(Actor::new(dataset).color([1.0, 0.0, 0.0, alpha]));
+            scene.background = [0.0; 4];
+            render(&scene, &camera, 64, 64).unwrap()
+        };
+        let first = draw(&[[0, 1, 2], [0, 2, 3]], 0.5);
+        let second = draw(&[[0, 1, 3], [1, 2, 3]], 0.5);
+        assert_eq!(
+            first.rgba, second.rgba,
+            "coverage/composition independent of the internal diagonal"
+        );
+        let covered: Vec<_> = first.rgba.chunks_exact(4).filter(|p| p[3] > 0).collect();
+        assert!(covered.len() > 100);
+        assert!(covered.iter().all(|p| p[3] == 127 && p[0] == covered[0][0]));
+        assert!(
+            draw(&[[0, 1, 2], [0, 2, 3]], 0.0)
+                .rgba
+                .iter()
+                .all(|&v| v == 0)
+        );
+    }
+
+    #[test]
+    fn lines_blend_once_per_pixel_and_opaque_depth_is_order_independent() {
+        let camera = Camera {
+            near: 0.1,
+            far: 10.0,
+            ..forward_camera()
+        };
+        let line = |z: f64, color| {
+            let mut dataset = DataSet::surface("line", vec![[-1.0, -0.3, z], [1.0, 0.3, z]], &[]);
+            dataset.cells = gpui_mesh::Cells::from_cells(&[(gpui_mesh::CellType::Line, &[0, 1])]);
+            Actor::new(dataset).color(color)
+        };
+        let mut scene = Scene::new().with_actor(line(0.0, [1.0, 0.0, 0.0, 0.5]));
+        scene.background = [0.0; 4];
+        let blended = render(&scene, &camera, 64, 64).unwrap();
+        let covered: Vec<_> = blended.rgba.chunks_exact(4).filter(|p| p[3] > 0).collect();
+        assert!(covered.len() > 10);
+        assert!(covered.iter().all(|p| *p == [255, 0, 0, 127]));
+        let mut opaque = Scene::new()
+            .with_actor(line(1.0, [1.0, 0.0, 0.0, 1.0]))
+            .with_actor(line(0.0, [0.0, 0.0, 1.0, 1.0]));
+        let first = render(&opaque, &camera, 64, 64).unwrap();
+        opaque.actors.reverse();
+        assert_eq!(first.rgba, render(&opaque, &camera, 64, 64).unwrap().rgba);
     }
 
     #[test]

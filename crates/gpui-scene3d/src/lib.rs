@@ -13,6 +13,7 @@
 
 pub mod animate;
 pub mod camera;
+mod clipping;
 #[cfg(feature = "gpui")]
 pub mod element;
 #[cfg(feature = "gpui-gpu")]
@@ -63,6 +64,9 @@ pub enum SceneError {
     /// A render target dimension is zero.
     #[error("render size must be non-zero, got {0}x{1}")]
     InvalidSize(u32, u32),
+    /// Camera parameters cannot define a finite visible frustum.
+    #[error("invalid scene camera: {0}")]
+    InvalidCamera(&'static str),
     /// A requested resource exceeds the host's working-set allowance.
     #[error("{resource} requires {requested}, limit is {limit}")]
     ResourceLimit {
