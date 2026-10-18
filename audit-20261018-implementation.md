@@ -602,3 +602,50 @@ tests pass with Metal required, as do ten public validity tests, allocation
 contracts and the pressure/large-dataset integrations. Two positive rustdoc
 examples and the compile-fail mutation example pass. The lockfile adds only the
 two native test allocator dependency edges; no production dependency is added.
+
+## CPU/Metal flow validity and combined CPU diagnostics checkpoint
+
+- CPU and both GPU flow paths now require all four velocity nodes of a
+  tetrahedral stencil to be valid. Unsupported points produce masked NaNs,
+  including isolated points, wholly missing input and degenerate cells. Computed
+  nonfinite results and nonfinite accumulated support cannot establish validity.
+  GPU velocity packing carries a validity flag and substitutes zero storage for
+  masked samples so NaNs cannot contaminate supported neighbors.
+- Cold CPU/GPU flow entry points validate input schemas before indexing. Cold
+  GPU diagnostic outputs replace existing names and carry the same labels/units
+  as CPU outputs. Unsupported raw GPU Jacobians contain NaNs. Unrepresentable
+  f32 velocity/local-position input errors explicitly instead of silently
+  overflowing; callers can use CPU diagnostics. This does not resolve C4's
+  scale-dependent determinant cutoff or general CPU/GPU precision differences.
+- Prepared velocity updates retain their prepared validity mask. Invalid length,
+  unmasked NaN/infinity and unrepresentable f32 updates fail before modifying the
+  GPU buffer or retained input revision. Masked NaN updates are supported. Tests
+  confirm a failed update leaves subsequent `diagnostics(None)` coherent.
+- New CPU `flow_diagnostics` computes vorticity, Q and divergence from one
+  Jacobian pass. `vorticity_magnitude` computes directly and preserves a user
+  field named `__vorticity_tmp`; it also replaces an existing requested output
+  correctly and uses the robust magnitude helper. Fixed output units retain the
+  existing assumption that coordinates and velocity use matching length units
+  and seconds; general dimensional metadata remains outside this checkpoint.
+- Three public flow regression tests include analytic rotation, finite masked
+  placeholders, masked NaNs, partial stencil support, isolated points, wholly
+  missing fields, degenerate geometry, output replacement, preserved user fields,
+  malformed input and rejected-update rollback. Metal is required in verification.
+- `qa/perf/20261019-flow-combined.json` compares two APIs in the same candidate
+  build: a three-operation chain and the combined call. Four allocator-disabled
+  release processes alternate case order; separate allocation builds record
+  calls/bytes. At 48³ the combined median is 12.55 ms versus 34.89 ms (64.0% less
+  wall time), with 98 versus 267 calls and 144.11 MB versus 414.64 MB allocated.
+  Analytic outputs are checked outside timing. This is not a comparison against
+  the previous commit, a total CPU-time measurement, peak RSS or energy evidence.
+  The large allocation totals expose remaining materialization of tetrahedra
+  and gradients in the CPU algorithm; bounded scratch remains necessary.
+- Strict transformation all-target Clippy passes after fixing audit test
+  assertions for the current lint set. The core wasm closure passes. Default
+  CPU tests and required-Metal transform library/public tests pass; full core
+  verification follows before committing. C3 remains unchecked because other
+  field consumers, time sampling and IO boundaries are still open.
+
+Flow checkpoint full-core verification completed: 66 transformation, 15 mesh and
+91 scene library tests, thirteen public validity/flow tests, allocation contracts
+and pressure/large-dataset integrations pass with Metal required.

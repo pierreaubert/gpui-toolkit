@@ -312,14 +312,14 @@ fn field_association_and_names_are_validated_before_conversions_index_data() {
         misplaced.validate(),
         Err(gpui_mesh::MeshError::FieldAssociationMismatch { .. })
     ));
-    assert!(point_data_to_cell_data(&misplaced, "p", "mean").is_err());
+    point_data_to_cell_data(&misplaced, "p", "mean").unwrap_err();
     misplaced.point_data.clear();
     misplaced.cell_data.push(Field::scalar("p", vec![1.0; 4]));
     assert!(matches!(
         misplaced.validate(),
         Err(gpui_mesh::MeshError::FieldAssociationMismatch { .. })
     ));
-    assert!(cell_data_to_point_data(&misplaced, "p", "mean").is_err());
+    cell_data_to_point_data(&misplaced, "p", "mean").unwrap_err();
     let mut names = tetrahedron()
         .with_field(Field::scalar("p", vec![1.0; 4]))
         .with_field(Field::scalar("p", vec![1.0]).on_cells());
@@ -352,7 +352,7 @@ fn validated_views_reuse_one_check_without_changing_conversion_semantics() {
         .with_field(Field::scalar("p", vec![1.0, 2.0, 3.0, 4.0]))
         .with_field(Field::vector("v", vec![[2.0, 4.0, 6.0]]).on_cells());
     let checked = dataset.validated().unwrap();
-    assert!(std::ptr::eq(checked.as_dataset(), &dataset));
+    assert!(std::ptr::eq(checked.as_dataset(), std::ptr::from_ref(&dataset)));
     assert_eq!(checked.uniform_cell_dimension(), Some(3));
     assert_eq!(
         point_data_to_cell_data(&dataset, "p", "mean").unwrap(),
@@ -362,8 +362,8 @@ fn validated_views_reuse_one_check_without_changing_conversion_semantics() {
         cell_data_to_point_data(&dataset, "v", "mean").unwrap(),
         cell_data_to_point_data_validated(checked, "v", "mean").unwrap()
     );
-    assert!(point_data_to_cell_data_validated(checked, "missing", "out").is_err());
-    assert!(cell_data_to_point_data_validated(checked, "missing", "out").is_err());
+    point_data_to_cell_data_validated(checked, "missing", "out").unwrap_err();
+    cell_data_to_point_data_validated(checked, "missing", "out").unwrap_err();
 
     let surface = DataSet::new(
         "surface-kinds",
@@ -473,7 +473,7 @@ fn probe_and_isosurface_require_valid_tetrahedral_support() {
     let mut field = Field::scalar("p", vec![-1.0, 1.0, 1.0, 1.0]);
     let mut dataset = tetrahedron().with_field(field.clone());
     for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-        assert!(isosurface(&dataset, "p", value).is_err());
+        isosurface(&dataset, "p", value).unwrap_err();
     }
     assert!(!isosurface(&dataset, "p", 0.0).unwrap().cells.is_empty());
     for placeholder in [123.0, f64::NAN] {

@@ -883,7 +883,7 @@ mod tests {
             let mut payload: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
             payload.extend_from_slice(&0u64.to_le_bytes());
             let mut allowance = budget(VtuReadLimits::default());
-            assert!(decompress_block(&payload, &mut allowance).is_err());
+            decompress_block(&payload, &mut allowance).unwrap_err();
             assert_eq!(allowance.decoded, 0);
         }
     }

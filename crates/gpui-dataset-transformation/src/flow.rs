@@ -8,7 +8,7 @@
 // Rust guideline compliant 2026-02-21
 
 use crate::TransformError;
-use gpui_mesh::{Association, DataSet, Field, FieldData};
+use gpui_mesh::{Association, DataSet, Field};
 
 use gpui_mesh::tetrahedra as tetrahedralize;
 
@@ -37,7 +37,11 @@ fn solve3(m: [[f64; 3]; 3], rhs: [f64; 3]) -> Option<[f64; 3]> {
 ///
 /// Returns `(jacobian, volume)` per point; volume is the accumulated
 /// element weight and is zero for points outside every volume cell.
-fn point_jacobian(dataset: &DataSet, vectors: &[[f64; 3]]) -> Vec<([[f64; 3]; 3], f64)> {
+fn point_jacobian(
+    dataset: &DataSet,
+    field: &Field,
+    vectors: &[[f64; 3]],
+) -> Vec<([[f64; 3]; 3], f64)> {
     // Gather every tetrahedron first; per-tet gradients are computed in
     // parallel, then accumulated sequentially in cell order so results
     // are bit-identical to the sequential version.
@@ -48,7 +52,9 @@ fn point_jacobian(dataset: &DataSet, vectors: &[[f64; 3]]) -> Vec<([[f64; 3]; 3]
             continue;
         }
         let nodes = dataset.cells.cell(cell).unwrap_or(&[]);
-        tets.extend(tetrahedralize(kind, nodes));
+        tets.extend(tetrahedralize(kind, nodes).filter(|tet| {
+            field.valid.is_none() || tet.iter().all(|&node| field.is_valid(node as usize))
+        }));
     }
     let gradients = crate::parallel::parallel_map(tets.len(), |index| {
         let tet = tets[index];
@@ -103,7 +109,7 @@ fn tet_jacobian(
         - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
         + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
     let volume = det.abs() / 6.0;
-    if volume < 1e-300 {
+    if !volume.is_finite() || volume < 1e-300 {
         return None;
     }
     let mt = [
@@ -121,22 +127,107 @@ fn tet_jacobian(
         ];
         jac[component] = solve3(mt, dv)?;
     }
-    Some((jac, volume))
+    jac.iter()
+        .flatten()
+        .all(|v| v.is_finite())
+        .then_some((jac, volume))
 }
 
 fn velocity_field<'a>(
     dataset: &'a DataSet,
     field_name: &str,
-) -> Result<&'a [[f64; 3]], TransformError> {
+) -> Result<(&'a Field, &'a [[f64; 3]]), TransformError> {
+    dataset.validate()?;
     let field = dataset
         .field(Association::Point, field_name)
         .ok_or_else(|| TransformError::FieldNotFound(field_name.to_string()))?;
     field
         .as_vector()
+        .map(|vectors| (field, vectors))
         .ok_or_else(|| TransformError::WrongFieldShape {
             field: field_name.to_string(),
             reason: "flow diagnostics require a 3-vector field".into(),
         })
+}
+
+fn finish_diagnostic(field: Field, jacobian: &[([[f64; 3]; 3], f64)]) -> Field {
+    crate::validity::finish(field, |index| {
+        let (jac, volume) = &jacobian[index];
+        *volume > 0.0 && volume.is_finite() && jac.iter().flatten().all(|v| v.is_finite())
+    })
+}
+
+pub(crate) fn curl(j: &[[f64; 3]; 3]) -> [f64; 3] {
+    [j[2][1] - j[1][2], j[0][2] - j[2][0], j[1][0] - j[0][1]]
+}
+
+pub(crate) fn q_value(j: &[[f64; 3]; 3]) -> f64 {
+    let mut omega2 = 0.0;
+    let mut strain2 = 0.0;
+    for (a, row) in j.iter().enumerate() {
+        for (b, &jab) in row.iter().enumerate() {
+            let omega = 0.5 * jab - 0.5 * j[b][a];
+            let strain = f64::midpoint(jab, j[b][a]);
+            omega2 += omega * omega;
+            strain2 += strain * strain;
+        }
+    }
+    0.5 * (omega2 - strain2)
+}
+
+/// Appends vorticity, Q-criterion and divergence using one CPU Jacobian pass.
+///
+/// All four tetrahedral velocity samples must be valid. Supported incident
+/// tetrahedra contribute by volume; points without support receive masked NaNs.
+/// Existing diagnostic output names are replaced. Units assume velocity in
+/// length units per second and positions in the corresponding length units.
+///
+/// # Errors
+///
+/// Returns an error for invalid input, a missing field or a non-vector field.
+pub fn flow_diagnostics(dataset: &DataSet, field_name: &str) -> Result<DataSet, TransformError> {
+    let (source, vectors) = velocity_field(dataset, field_name)?;
+    let jacobian = point_jacobian(dataset, source, vectors);
+    let fields = [
+        (
+            Field::vector(
+                "vorticity",
+                jacobian.iter().map(|(j, _)| curl(j)).collect::<Vec<_>>(),
+            ),
+            "Vorticity",
+            "1/s",
+        ),
+        (
+            Field::scalar(
+                "q_criterion",
+                jacobian.iter().map(|(j, _)| q_value(j)).collect::<Vec<_>>(),
+            ),
+            "Q-criterion",
+            "1/s^2",
+        ),
+        (
+            Field::scalar(
+                "divergence",
+                jacobian
+                    .iter()
+                    .map(|(j, _)| j[0][0] + j[1][1] + j[2][2])
+                    .collect::<Vec<_>>(),
+            ),
+            "Divergence",
+            "1/s",
+        ),
+    ];
+    let mut result = dataset.clone();
+    for (mut field, label, unit) in fields {
+        field.label = label.into();
+        field.unit = Some(unit.into());
+        let field = finish_diagnostic(field, &jacobian);
+        result
+            .point_data
+            .retain(|existing| existing.name != field.name);
+        result.point_data.push(field);
+    }
+    Ok(result)
 }
 
 fn append(dataset: &DataSet, field: Field) -> DataSet {
@@ -150,23 +241,19 @@ fn append(dataset: &DataSet, field: Field) -> DataSet {
 ///
 /// # Errors
 ///
-/// Returns an error when the field is missing, not a vector field, or the
-/// dataset holds no volume cells.
+/// Returns an error when the dataset is invalid or the field is missing/not a vector.
 pub fn vorticity(
     dataset: &DataSet,
     field_name: &str,
     out_name: &str,
 ) -> Result<DataSet, TransformError> {
-    let vectors = velocity_field(dataset, field_name)?;
-    let jacobian = point_jacobian(dataset, vectors);
-    let values: Vec<[f64; 3]> = jacobian
-        .iter()
-        .map(|(j, _)| [j[2][1] - j[1][2], j[0][2] - j[2][0], j[1][0] - j[0][1]])
-        .collect();
+    let (source, vectors) = velocity_field(dataset, field_name)?;
+    let jacobian = point_jacobian(dataset, source, vectors);
+    let values: Vec<[f64; 3]> = jacobian.iter().map(|(j, _)| curl(j)).collect();
     let mut field = Field::vector(out_name.to_string(), values);
     field.label = "Vorticity".into();
     field.unit = Some("1/s".into());
-    Ok(append(dataset, field))
+    Ok(append(dataset, finish_diagnostic(field, &jacobian)))
 }
 
 /// Appends divergence `tr(J)` as a scalar point field.
@@ -179,8 +266,8 @@ pub fn divergence(
     field_name: &str,
     out_name: &str,
 ) -> Result<DataSet, TransformError> {
-    let vectors = velocity_field(dataset, field_name)?;
-    let jacobian = point_jacobian(dataset, vectors);
+    let (source, vectors) = velocity_field(dataset, field_name)?;
+    let jacobian = point_jacobian(dataset, source, vectors);
     let values: Vec<f64> = jacobian
         .iter()
         .map(|(j, _)| j[0][0] + j[1][1] + j[2][2])
@@ -188,7 +275,7 @@ pub fn divergence(
     let mut field = Field::scalar(out_name.to_string(), values);
     field.label = "Divergence".into();
     field.unit = Some("1/s".into());
-    Ok(append(dataset, field))
+    Ok(append(dataset, finish_diagnostic(field, &jacobian)))
 }
 
 /// Appends the Q-criterion `0.5*(||Omega||^2 - ||S||^2)` as a scalar field.
@@ -204,28 +291,13 @@ pub fn q_criterion(
     field_name: &str,
     out_name: &str,
 ) -> Result<DataSet, TransformError> {
-    let vectors = velocity_field(dataset, field_name)?;
-    let jacobian = point_jacobian(dataset, vectors);
-    let values: Vec<f64> = jacobian
-        .iter()
-        .map(|(j, _)| {
-            let mut omega2 = 0.0;
-            let mut strain2 = 0.0;
-            for (a, row) in j.iter().enumerate() {
-                for (b, &jab) in row.iter().enumerate() {
-                    let omega = 0.5 * (jab - j[b][a]);
-                    let strain = f64::midpoint(jab, j[b][a]);
-                    omega2 += omega * omega;
-                    strain2 += strain * strain;
-                }
-            }
-            0.5 * (omega2 - strain2)
-        })
-        .collect();
+    let (source, vectors) = velocity_field(dataset, field_name)?;
+    let jacobian = point_jacobian(dataset, source, vectors);
+    let values: Vec<f64> = jacobian.iter().map(|(j, _)| q_value(j)).collect();
     let mut field = Field::scalar(out_name.to_string(), values);
     field.label = "Q-criterion".into();
     field.unit = Some("1/s^2".into());
-    Ok(append(dataset, field))
+    Ok(append(dataset, finish_diagnostic(field, &jacobian)))
 }
 
 /// Appends the lambda-2 vortex criterion as a scalar field.
@@ -243,8 +315,8 @@ pub fn lambda2(
     field_name: &str,
     out_name: &str,
 ) -> Result<DataSet, TransformError> {
-    let vectors = velocity_field(dataset, field_name)?;
-    let jacobian = point_jacobian(dataset, vectors);
+    let (source, vectors) = velocity_field(dataset, field_name)?;
+    let jacobian = point_jacobian(dataset, source, vectors);
     let values: Vec<f64> = jacobian
         .iter()
         .map(|(j, _)| {
@@ -285,7 +357,7 @@ pub fn lambda2(
     let mut field = Field::scalar(out_name.to_string(), values);
     field.label = "Lambda-2".into();
     field.unit = Some("1/s^2".into());
-    Ok(append(dataset, field))
+    Ok(append(dataset, finish_diagnostic(field, &jacobian)))
 }
 
 /// Appends swirling strength (lambda-ci) as a scalar field.
@@ -302,8 +374,8 @@ pub fn swirling_strength(
     field_name: &str,
     out_name: &str,
 ) -> Result<DataSet, TransformError> {
-    let vectors = velocity_field(dataset, field_name)?;
-    let jacobian = point_jacobian(dataset, vectors);
+    let (source, vectors) = velocity_field(dataset, field_name)?;
+    let jacobian = point_jacobian(dataset, source, vectors);
     let values: Vec<f64> = jacobian
         .iter()
         .map(|(j, _)| crate::eigen::swirling_strength(*j))
@@ -311,10 +383,10 @@ pub fn swirling_strength(
     let mut field = Field::scalar(out_name.to_string(), values);
     field.label = "Swirling strength".into();
     field.unit = Some("1/s".into());
-    Ok(append(dataset, field))
+    Ok(append(dataset, finish_diagnostic(field, &jacobian)))
 }
 
-/// Appends vorticity magnitude as a scalar field (convenience composition).
+/// Appends vorticity magnitude directly, without a temporary vector field.
 ///
 /// # Errors
 ///
@@ -324,29 +396,16 @@ pub fn vorticity_magnitude(
     field_name: &str,
     out_name: &str,
 ) -> Result<DataSet, TransformError> {
-    let with_vorticity = vorticity(dataset, field_name, "__vorticity_tmp")?;
-    let field = with_vorticity
-        .field(Association::Point, "__vorticity_tmp")
-        .ok_or_else(|| TransformError::FieldNotFound("__vorticity_tmp".into()))?;
-    let FieldData::Vector(vectors) = &field.data else {
-        return Err(TransformError::WrongFieldShape {
-            field: field_name.to_string(),
-            reason: "expected a vector field".into(),
-        });
-    };
-    let values: Vec<f64> = vectors
+    let (source, vectors) = velocity_field(dataset, field_name)?;
+    let jacobian = point_jacobian(dataset, source, vectors);
+    let values: Vec<f64> = jacobian
         .iter()
-        .map(|v| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt())
+        .map(|(j, _)| crate::calculator::magnitude(curl(j)))
         .collect();
-    let mut result = with_vorticity;
-    result
-        .point_data
-        .retain(|f| f.name.as_ref() != "__vorticity_tmp");
     let mut field = Field::scalar(out_name.to_string(), values);
     field.label = "Vorticity magnitude".into();
     field.unit = Some("1/s".into());
-    result.point_data.push(field);
-    Ok(result)
+    Ok(append(dataset, finish_diagnostic(field, &jacobian)))
 }
 
 #[cfg(test)]

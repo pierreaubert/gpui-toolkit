@@ -62,7 +62,8 @@ pub use convert::{
     point_data_to_cell_data_validated,
 };
 pub use flow::{
-    divergence, lambda2, q_criterion, swirling_strength, vorticity, vorticity_magnitude,
+    divergence, flow_diagnostics, lambda2, q_criterion, swirling_strength, vorticity,
+    vorticity_magnitude,
 };
 pub use ftle::ftle;
 pub use geometry::{append_datasets, clip_sphere, decimate, smooth, transform_dataset};
