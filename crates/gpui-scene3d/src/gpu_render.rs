@@ -5,16 +5,19 @@
 //! frame only rewrites the 288-byte per-actor uniform block (camera and
 //! clip planes): geometry never returns to the CPU, which is the whole
 //! point on Metal / CUDA-class adapters. Hosts present the target texture
-//! themselves (surface or GPUI custom draw); [`GpuRenderer::read_rgba`]
+//! themselves (surface or GPUI custom draw); the native `read_rgba` method
 //! exists only for headless QA and movie export.
 
 // Rust guideline compliant 2026-02-21
 
+#[cfg(not(target_family = "wasm"))]
+use crate::Frame;
 use crate::camera::Camera;
-use crate::prepare::prepare_chunks;
+use crate::retained::SceneRevision;
 use crate::scene::Scene;
-use crate::shaders::{SURFACE_WGSL, scene_uniform_bytes_relative_to};
-use crate::{Frame, RenderLimits, SceneError};
+use crate::shaders::{SURFACE_WGSL, scene_uniform_block_relative_to};
+use crate::{RenderLimits, SceneError};
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
 /// Failures reported by the GPU renderer.
@@ -29,6 +32,9 @@ pub enum GpuRenderError {
     /// The renderer/readback requires an RGBA8 or BGRA8 color format.
     #[error("unsupported scene color format: {0:?}")]
     UnsupportedFormat(wgpu::TextureFormat),
+    /// The requested scene feature has no implementation in this backend.
+    #[error("unsupported GPU scene feature: {0}")]
+    UnsupportedFeature(&'static str),
     /// Scene preparation failed.
     #[error(transparent)]
     Scene(#[from] SceneError),
@@ -49,7 +55,10 @@ struct GpuActor {
     opacity: f32,
     clip_planes: Vec<crate::scene::ClipPlane>,
     transparent: bool,
-    distance: f32,
+    distance: f64,
+    lut: wgpu::Texture,
+    transfer: Option<crate::TransferFunction>,
+    color: [f32; 4],
 }
 
 /// A scene whose geometry lives entirely in GPU buffers.
@@ -59,12 +68,17 @@ pub struct GpuScene {
     /// Total bytes of uploaded geometry (positions, normals, scalars,
     /// indices) — proof of residency for diagnostics.
     pub geometry_bytes: u64,
+    order: Vec<usize>,
+    prepared: SceneRevision,
 }
 
 /// An offscreen render target owned by the renderer.
 pub struct GpuTarget {
+    #[cfg(not(target_family = "wasm"))]
     color: wgpu::Texture,
-    depth: wgpu::Texture,
+    color_view: wgpu::TextureView,
+    depth_view: wgpu::TextureView,
+    #[cfg(not(target_family = "wasm"))]
     limits: RenderLimits,
     /// Width in pixels.
     pub width: u32,
@@ -72,10 +86,31 @@ pub struct GpuTarget {
     pub height: u32,
 }
 
+impl GpuTarget {
+    /// Sampleable premultiplied color view, for GPU-only host compositing.
+    #[must_use]
+    pub fn color_view(&self) -> &wgpu::TextureView {
+        &self.color_view
+    }
+}
+
+/// Caller-owned attachments for encoding a scene in a host command stream.
+#[derive(Debug)]
+pub struct GpuAttachments<'a> {
+    /// Color view matching the renderer's format.
+    pub color: &'a wgpu::TextureView,
+    /// `Depth32Float` view with the same physical dimensions.
+    pub depth: &'a wgpu::TextureView,
+    /// Physical target width and height.
+    pub size: [u32; 2],
+    /// Whether the host preserves or clears existing color content.
+    pub load: wgpu::LoadOp<wgpu::Color>,
+}
+
 /// wgpu surface renderer: one device, pipelines per colour format.
 pub struct GpuRenderer {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
     pipeline_opaque: wgpu::RenderPipeline,
     pipeline_transparent: wgpu::RenderPipeline,
     bind_layout: wgpu::BindGroupLayout,
@@ -90,32 +125,71 @@ impl GpuRenderer {
     ///
     /// Returns an error for unsupported color formats, unavailable adapters,
     /// or device initialization failure.
+    #[cfg(not(target_family = "wasm"))]
     pub fn new(format: wgpu::TextureFormat) -> Result<Self, GpuRenderError> {
-        if !matches!(
-            format,
-            wgpu::TextureFormat::Rgba8Unorm
-                | wgpu::TextureFormat::Rgba8UnormSrgb
-                | wgpu::TextureFormat::Bgra8Unorm
-                | wgpu::TextureFormat::Bgra8UnormSrgb
-        ) {
-            return Err(GpuRenderError::UnsupportedFormat(format));
-        }
+        pollster::block_on(Self::new_async(format, wgpu::PowerPreference::LowPower))
+    }
+
+    /// Initializes a standalone device without blocking a platform event loop.
+    ///
+    /// Interactive hosts should use `from_shared_device` to share presentation
+    /// resources. The power preference is explicit for standalone/offline use.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unsupported formats, missing adapters or device failure.
+    pub async fn new_async(
+        format: wgpu::TextureFormat,
+        power_preference: wgpu::PowerPreference,
+    ) -> Result<Self, GpuRenderError> {
+        validate_format(format)?;
+        #[cfg(not(target_family = "wasm"))]
+        let backends = wgpu::Backends::PRIMARY;
+        #[cfg(target_family = "wasm")]
+        let backends = wgpu::Backends::BROWSER_WEBGPU;
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
+            backends,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            ..Default::default()
-        }))
-        .map_err(|_| GpuRenderError::NoAdapter)?;
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("gpui-scene3d renderer"),
-            ..Default::default()
-        }))
-        .map_err(|e| GpuRenderError::Device(e.to_string()))?;
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference,
+                compatible_surface: None,
+                ..Default::default()
+            })
+            .await
+            .map_err(|_| GpuRenderError::NoAdapter)?;
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("gpui-scene3d renderer"),
+                ..Default::default()
+            })
+            .await
+            .map_err(|error| GpuRenderError::Device(error.to_string()))?;
+        Self::from_shared_device(Arc::new(device), Arc::new(queue), format)
+    }
 
+    /// Builds pipelines on the host's existing presentation device and queue.
+    ///
+    /// No adapter is requested and no second device is created.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unsupported color formats.
+    pub fn from_shared_device(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self, GpuRenderError> {
+        validate_format(format)?;
+        Ok(Self::build(device, queue, format))
+    }
+
+    fn build(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        format: wgpu::TextureFormat,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gpui-scene3d surface"),
             source: wgpu::ShaderSource::Wgsl(SURFACE_WGSL.into()),
@@ -229,7 +303,7 @@ impl GpuRenderer {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             ..Default::default()
         });
-        Ok(Self {
+        Self {
             pipeline_opaque: make_pipeline(true, None),
             pipeline_transparent: make_pipeline(false, Some(wgpu::BlendState::ALPHA_BLENDING)),
             device,
@@ -237,7 +311,7 @@ impl GpuRenderer {
             bind_layout,
             sampler,
             format,
-        })
+        }
     }
 
     /// The underlying device, for hosts sharing the wgpu context.
@@ -252,12 +326,39 @@ impl GpuRenderer {
     ///
     /// Returns [`SceneError`] when an actor references a missing field.
     pub fn upload(&self, scene: &Scene) -> Result<GpuScene, GpuRenderError> {
+        for actor in scene.actors.iter().filter(|actor| actor.visible) {
+            if actor.wireframe {
+                return Err(GpuRenderError::UnsupportedFeature("wireframe"));
+            }
+            if actor.clip_planes.len() > crate::shaders::MAX_CLIP_PLANES {
+                return Err(GpuRenderError::UnsupportedFeature(
+                    "more than six clipping planes",
+                ));
+            }
+            if actor
+                .dataset
+                .cells
+                .types
+                .contains(&gpui_mesh::CellType::Line)
+            {
+                return Err(GpuRenderError::UnsupportedFeature("line cells"));
+            }
+        }
+        let prepared = scene.prepare()?;
         let mut actors = Vec::new();
         let mut geometry_bytes = 0u64;
-        for actor in scene.actors.iter().filter(|a| a.visible) {
-            let chunks = prepare_chunks(actor, crate::prepare::DEFAULT_MAX_TRIANGLES)?;
+        for (index, actor) in scene
+            .actors
+            .iter()
+            .enumerate()
+            .filter(|(_, actor)| actor.visible)
+        {
+            let chunks = &prepared.actors[index]
+                .as_ref()
+                .expect("visible actor prepared")
+                .chunks;
             let mut gpu_chunks = Vec::with_capacity(chunks.len());
-            for chunk in &chunks {
+            for chunk in chunks {
                 if chunk.indices.is_empty() {
                     continue;
                 }
@@ -288,24 +389,7 @@ impl GpuRenderer {
                 });
             }
             // Colour LUT: the actor's transfer function, or a flat ramp.
-            let (lut_bytes, scalar_range) =
-                if let (Some(transfer), Some(_)) = (&actor.transfer, actor.scalars()) {
-                    (
-                        transfer.lut_bytes(),
-                        [transfer.range[0] as f32, transfer.range[1] as f32],
-                    )
-                } else {
-                    let mut bytes = Vec::with_capacity(256 * 4);
-                    for _ in 0..256 {
-                        bytes.extend_from_slice(&[
-                            (actor.color[0] * 255.0) as u8,
-                            (actor.color[1] * 255.0) as u8,
-                            (actor.color[2] * 255.0) as u8,
-                            (actor.color[3] * 255.0) as u8,
-                        ]);
-                    }
-                    (bytes, [0.0, 1.0])
-                };
+            let (lut_bytes, scalar_range) = material_lut(actor);
             let lut = self.device.create_texture_with_data(
                 &self.queue,
                 &wgpu::TextureDescriptor {
@@ -319,7 +403,7 @@ impl GpuRenderer {
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D1,
                     format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                     view_formats: &[],
                 },
                 wgpu::wgt::TextureDataOrder::LayerMajor,
@@ -331,26 +415,7 @@ impl GpuRenderer {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("gpui-scene3d actor"),
-                layout: &self.bind_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: uniform.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(
-                            &lut.create_view(&Default::default()),
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                ],
-            });
+            let bind_group = self.actor_bind_group(&uniform, &lut);
             actors.push(GpuActor {
                 chunks: gpu_chunks,
                 uniform,
@@ -360,12 +425,106 @@ impl GpuRenderer {
                 clip_planes: actor.clip_planes.clone(),
                 transparent: actor.is_transparent(),
                 distance: 0.0,
+                lut,
+                transfer: actor.transfer.clone(),
+                color: actor.color,
             });
         }
         Ok(GpuScene {
+            order: (0..actors.len()).collect(),
             actors,
             background: scene.background,
             geometry_bytes,
+            prepared: SceneRevision::new(scene)?,
+        })
+    }
+
+    /// Synchronizes live materials and source revisions before drawing.
+    ///
+    /// Camera, background, opacity, clipping and LUT changes preserve geometry
+    /// buffers. Geometry changes currently replace the uploaded scene.
+    /// Returns `true` when geometry was uploaded.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same preparation errors as [`Self::upload`].
+    pub fn sync(&self, uploaded: &mut GpuScene, scene: &Scene) -> Result<bool, GpuRenderError> {
+        if !uploaded.prepared.matches(scene)? {
+            *uploaded = self.upload(scene)?;
+            return Ok(true);
+        }
+        if scene
+            .actors
+            .iter()
+            .filter(|actor| actor.visible)
+            .any(|actor| actor.clip_planes.len() > crate::shaders::MAX_CLIP_PLANES)
+        {
+            return Err(GpuRenderError::UnsupportedFeature(
+                "more than six clipping planes",
+            ));
+        }
+        uploaded.background = scene.background;
+        for (gpu, actor) in uploaded
+            .actors
+            .iter_mut()
+            .zip(scene.actors.iter().filter(|a| a.visible))
+        {
+            if gpu.transfer != actor.transfer || gpu.color != actor.color {
+                let (bytes, range) = material_lut(actor);
+                // New material resources keep already-encoded passes immutable.
+                // A queue write into the old LUT would affect earlier passes
+                // when the host batches both revisions in one submission.
+                gpu.lut = self.device.create_texture_with_data(
+                    &self.queue,
+                    &wgpu::TextureDescriptor {
+                        label: Some("gpui-scene3d lut"),
+                        size: wgpu::Extent3d {
+                            width: 256,
+                            height: 1,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D1,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                        view_formats: &[],
+                    },
+                    wgpu::wgt::TextureDataOrder::LayerMajor,
+                    &bytes,
+                );
+                gpu.bind_group = self.actor_bind_group(&gpu.uniform, &gpu.lut);
+                gpu.scalar_range = range;
+                gpu.transfer.clone_from(&actor.transfer);
+                gpu.color = actor.color;
+            }
+            gpu.opacity = actor.opacity;
+            gpu.clip_planes.clone_from(&actor.clip_planes);
+            gpu.transparent = actor.is_transparent();
+        }
+        Ok(false)
+    }
+
+    fn actor_bind_group(&self, uniform: &wgpu::Buffer, lut: &wgpu::Texture) -> wgpu::BindGroup {
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("gpui-scene3d actor"),
+            layout: &self.bind_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(
+                        &lut.create_view(&Default::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
         })
     }
 
@@ -405,7 +564,9 @@ impl GpuRenderer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: self.format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         let depth = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -419,8 +580,11 @@ impl GpuRenderer {
             view_formats: &[],
         });
         Ok(GpuTarget {
+            color_view: color.create_view(&Default::default()),
+            depth_view: depth.create_view(&Default::default()),
+            #[cfg(not(target_family = "wasm"))]
             color,
-            depth,
+            #[cfg(not(target_family = "wasm"))]
             limits,
             width,
             height,
@@ -430,66 +594,123 @@ impl GpuRenderer {
     /// Draws an uploaded scene into a target. Only uniform buffers are
     /// rewritten; geometry buffers are untouched (GPU-resident).
     pub fn render(&self, scene: &mut GpuScene, camera: &Camera, target: &GpuTarget) {
-        let aspect = target.width as f32 / target.height.max(1) as f32;
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("gpui-scene3d frame"),
+            });
+        self.encode(&mut encoder, scene, camera, target);
+        self.queue.submit([encoder.finish()]);
+    }
+
+    /// Encodes a scene without submitting the host's command encoder.
+    pub fn encode(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        scene: &mut GpuScene,
+        camera: &Camera,
+        target: &GpuTarget,
+    ) {
+        let background = scene.background;
+        self.encode_to_views(
+            encoder,
+            scene,
+            camera,
+            GpuAttachments {
+                color: &target.color_view,
+                depth: &target.depth_view,
+                size: [target.width, target.height],
+                load: wgpu::LoadOp::Clear(wgpu::Color {
+                    r: f64::from(background[0] * background[3]),
+                    g: f64::from(background[1] * background[3]),
+                    b: f64::from(background[2] * background[3]),
+                    a: f64::from(background[3]),
+                }),
+            },
+        );
+    }
+
+    /// Encodes into caller-owned views without a submit or pixel readback.
+    ///
+    /// The host owns attachment lifetime, format, size and submission ordering.
+    pub fn encode_to_views(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        scene: &mut GpuScene,
+        camera: &Camera,
+        target: GpuAttachments<'_>,
+    ) {
+        let aspect = target.size[0] as f32 / target.size[1].max(1) as f32;
         let eye = camera.eye();
         for actor in &mut scene.actors {
             // Distance for transparent sorting: chunk origins are all the
             // dataset centre, so use the first chunk's origin.
             if let Some(first) = actor.chunks.first() {
                 let o = first.origin;
-                actor.distance = ((o[0] as f32 - eye[0]).powi(2)
-                    + (o[1] as f32 - eye[1]).powi(2)
-                    + (o[2] as f32 - eye[2]).powi(2))
+                actor.distance = ((o[0] - f64::from(eye[0])).powi(2)
+                    + (o[1] - f64::from(eye[1])).powi(2)
+                    + (o[2] - f64::from(eye[2])).powi(2))
                 .sqrt();
             }
         }
-        for actor in &scene.actors {
-            if let Some(first) = actor.chunks.first() {
-                let mvp = camera.view_projection_relative_to(first.origin, aspect);
-                let bytes = scene_uniform_bytes_relative_to(
-                    &mvp,
-                    actor.scalar_range,
-                    actor.opacity,
-                    &actor.clip_planes,
-                    first.origin,
-                );
-                self.queue.write_buffer(&actor.uniform, 0, &bytes);
+        // Copies belong to this encoder, so encoding two cameras before one
+        // host submission preserves both views. Queue::write_buffer would
+        // otherwise make both passes observe the last camera's uniforms.
+        let staging = (!scene.actors.is_empty()).then(|| {
+            self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("gpui-scene3d frame uniforms"),
+                size: scene.actors.len() as u64 * 288,
+                usage: wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: true,
+            })
+        });
+        if let Some(staging) = &staging {
+            let mut mapped = staging.slice(..).get_mapped_range_mut();
+            for (index, actor) in scene.actors.iter().enumerate() {
+                if let Some(first) = actor.chunks.first() {
+                    let mvp = camera.view_projection_relative_to(first.origin, aspect);
+                    let bytes = scene_uniform_block_relative_to(
+                        &mvp,
+                        actor.scalar_range,
+                        actor.opacity,
+                        &actor.clip_planes,
+                        first.origin,
+                    );
+                    mapped
+                        .slice(index * 288..(index + 1) * 288)
+                        .copy_from_slice(&bytes);
+                }
+            }
+            drop(mapped);
+            staging.unmap();
+            for (index, actor) in scene.actors.iter().enumerate() {
+                encoder.copy_buffer_to_buffer(staging, index as u64 * 288, &actor.uniform, 0, 288);
             }
         }
-        let mut order: Vec<usize> = (0..scene.actors.len()).collect();
-        order.sort_by_key(|&i| {
-            let actor = &scene.actors[i];
-            if actor.transparent {
-                // Opaque first, then transparent back-to-front.
-                (1, -ordered_float(actor.distance))
-            } else {
-                (0, 0)
-            }
+        scene.order.sort_unstable_by(|&a, &b| {
+            let (a, b) = (&scene.actors[a], &scene.actors[b]);
+            a.transparent.cmp(&b.transparent).then_with(|| {
+                if a.transparent {
+                    b.distance.total_cmp(&a.distance)
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
         });
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("gpui-scene3d frame"),
-            });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("gpui-scene3d pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &target.color.create_view(&Default::default()),
+                    view: target.color,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: f64::from(scene.background[0]),
-                            g: f64::from(scene.background[1]),
-                            b: f64::from(scene.background[2]),
-                            a: f64::from(scene.background[3]),
-                        }),
+                        load: target.load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &target.depth.create_view(&Default::default()),
+                    view: target.depth,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -500,7 +721,7 @@ impl GpuRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            for &index in &order {
+            for &index in &scene.order {
                 let actor = &scene.actors[index];
                 pass.set_pipeline(if actor.transparent {
                     &self.pipeline_transparent
@@ -517,7 +738,6 @@ impl GpuRenderer {
                 }
             }
         }
-        self.queue.submit([encoder.finish()]);
     }
 
     /// Reads a target back to a CPU frame (QA and movie export only).
@@ -526,6 +746,7 @@ impl GpuRenderer {
     ///
     /// Returns an error when staging/CPU storage exceeds the target's budget,
     /// allocation fails, or GPU mapping/readback fails.
+    #[cfg(not(target_family = "wasm"))]
     pub fn read_rgba(&self, target: &GpuTarget) -> Result<Frame, GpuRenderError> {
         let layout = readback_layout(target.width, target.height, target.limits)?;
         if layout.buffer_bytes > self.device.limits().max_buffer_size {
@@ -606,6 +827,21 @@ impl GpuRenderer {
                 px.swap(0, 2);
             }
         }
+        // The sampleable target is premultiplied for compositing; exported
+        // frames use straight RGBA, as required by PNG and image consumers.
+        for pixel in rgba.as_chunks_mut::<4>().0 {
+            let alpha = u32::from(pixel[3]);
+            if alpha == 255 {
+                continue;
+            }
+            for channel in &mut pixel[..3] {
+                *channel = if alpha == 0 {
+                    0
+                } else {
+                    ((u32::from(*channel) * 255 + alpha / 2) / alpha).min(255) as u8
+                };
+            }
+        }
         Ok(Frame {
             width: target.width,
             height: target.height,
@@ -614,6 +850,7 @@ impl GpuRenderer {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 struct ReadbackLayout {
     bytes_per_row: u32,
     padded: u32,
@@ -621,6 +858,7 @@ struct ReadbackLayout {
     rgba_len: usize,
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn readback_layout(
     width: u32,
     height: u32,
@@ -660,12 +898,29 @@ fn readback_layout(
     })
 }
 
-fn ordered_float(value: f32) -> i64 {
-    // Reverse-sort key helper: distances are finite scene scales.
-    (value * 1000.0) as i64
+fn material_lut(actor: &crate::Actor) -> (Vec<u8>, [f32; 2]) {
+    if let (Some(transfer), Some(_)) = (&actor.transfer, actor.scalars()) {
+        (
+            transfer.lut_bytes(),
+            [transfer.range[0] as f32, transfer.range[1] as f32],
+        )
+    } else {
+        let color = actor.color.map(|value| (value * 255.0) as u8);
+        (color.repeat(256), [0.0, 1.0])
+    }
 }
 
-#[cfg(test)]
+fn validate_format(format: wgpu::TextureFormat) -> Result<(), GpuRenderError> {
+    match format {
+        wgpu::TextureFormat::Rgba8Unorm
+        | wgpu::TextureFormat::Rgba8UnormSrgb
+        | wgpu::TextureFormat::Bgra8Unorm
+        | wgpu::TextureFormat::Bgra8UnormSrgb => Ok(()),
+        _ => Err(GpuRenderError::UnsupportedFormat(format)),
+    }
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use super::*;
     use crate::{Actor, TransferFunction};
@@ -717,6 +972,150 @@ mod tests {
             .filter(|(a, b)| a != b)
             .count();
         assert!(changed > 1_000, "orbit changes the frame ({changed})");
+    }
+
+    #[test]
+    fn shared_device_encoding_preserves_cameras_in_one_host_submission() {
+        let Some(owner) = renderer() else { return };
+        let renderer = GpuRenderer::from_shared_device(
+            Arc::clone(&owner.device),
+            Arc::clone(&owner.queue),
+            owner.format,
+        )
+        .unwrap();
+        assert!(Arc::ptr_eq(&owner.device, &renderer.device));
+        assert!(Arc::ptr_eq(&owner.queue, &renderer.queue));
+        let dataset =
+            DataSet::structured_grid("asymmetric", [3, 4, 5], [-1.0; 3], [0.5; 3]).unwrap();
+        let scene = Scene::new().with_actor(Actor::new(dataset).color([1.0, 0.2, 0.1, 1.0]));
+        let first_camera = Camera::fitted(scene.bounds().unwrap());
+        let mut second_camera = first_camera;
+        second_camera.orbit(1.4, 0.4);
+        let mut uploaded = renderer.upload(&scene).unwrap();
+        let first = renderer.create_target(48, 48).unwrap();
+        let second = renderer.create_target(48, 48).unwrap();
+        let mut encoder = owner.device.create_command_encoder(&Default::default());
+        renderer.encode(&mut encoder, &mut uploaded, &first_camera, &first);
+        renderer.encode(&mut encoder, &mut uploaded, &second_camera, &second);
+        owner.queue.submit([encoder.finish()]);
+        let actual_first = renderer.read_rgba(&first).unwrap();
+        let actual_second = renderer.read_rgba(&second).unwrap();
+        assert_ne!(actual_first.rgba, actual_second.rgba);
+        renderer.render(&mut uploaded, &first_camera, &first);
+        assert_eq!(actual_first.rgba, renderer.read_rgba(&first).unwrap().rgba);
+        renderer.render(&mut uploaded, &second_camera, &second);
+        assert_eq!(
+            actual_second.rgba,
+            renderer.read_rgba(&second).unwrap().rgba
+        );
+
+        // A host can preserve its existing color when encoding empty content.
+        let mut empty = renderer.upload(&Scene::new()).unwrap();
+        let mut encoder = owner.device.create_command_encoder(&Default::default());
+        renderer.encode_to_views(
+            &mut encoder,
+            &mut empty,
+            &first_camera,
+            GpuAttachments {
+                color: first.color_view(),
+                depth: &first.depth_view,
+                size: [48, 48],
+                load: wgpu::LoadOp::Load,
+            },
+        );
+        owner.queue.submit([encoder.finish()]);
+        assert_eq!(actual_first.rgba, renderer.read_rgba(&first).unwrap().rgba);
+    }
+
+    #[test]
+    fn material_updates_keep_geometry_and_encoded_material_revisions() {
+        let Some(renderer) = renderer() else {
+            return;
+        };
+        let dataset = DataSet::structured_grid("material", [2; 3], [-0.5; 3], [1.0; 3]).unwrap();
+        let mut scene = Scene::new().with_actor(Actor::new(dataset).color([1.0, 0.0, 0.0, 1.0]));
+        let camera = Camera::fitted(scene.bounds().unwrap());
+        let mut uploaded = renderer.upload(&scene).unwrap();
+        let buffer = &uploaded.actors[0].chunks[0].vertices[0] as *const wgpu::Buffer;
+        scene.clear_preparation();
+        let red = renderer.create_target(32, 32).unwrap();
+        let green = renderer.create_target(32, 32).unwrap();
+        let mut encoder = renderer.device.create_command_encoder(&Default::default());
+        renderer.encode(&mut encoder, &mut uploaded, &camera, &red);
+        scene.actors[0].color = [0.0, 1.0, 0.0, 1.0];
+        assert!(!renderer.sync(&mut uploaded, &scene).unwrap());
+        assert_eq!(
+            buffer,
+            &uploaded.actors[0].chunks[0].vertices[0] as *const wgpu::Buffer
+        );
+        assert_eq!(scene.preparation_stats().retained_bytes, 0);
+        assert_eq!(scene.preparation_stats().geometry_builds, 1);
+        renderer.encode(&mut encoder, &mut uploaded, &camera, &green);
+        renderer.queue.submit([encoder.finish()]);
+        let center = ((16 * 32 + 16) * 4) as usize;
+        let r = renderer.read_rgba(&red).unwrap();
+        let g = renderer.read_rgba(&green).unwrap();
+        assert!(r.rgba[center] > 100 && r.rgba[center + 1] == 0);
+        assert!(g.rgba[center] == 0 && g.rgba[center + 1] > 100);
+        scene.actors[0].clip_planes = vec![
+            crate::ClipPlane {
+                origin: [0.0; 3],
+                normal: [1.0, 0.0, 0.0]
+            };
+            7
+        ];
+        assert!(matches!(
+            renderer.sync(&mut uploaded, &scene),
+            Err(GpuRenderError::UnsupportedFeature(_))
+        ));
+    }
+
+    #[test]
+    fn readback_exports_straight_rgba_and_rejects_silent_feature_loss() {
+        let Some(renderer) = renderer() else {
+            return;
+        };
+        let mut scene = Scene::new();
+        scene.background = [1.0, 0.0, 0.0, 0.5];
+        let target = renderer.create_target(4, 4).unwrap();
+        let mut uploaded = renderer.upload(&scene).unwrap();
+        renderer.render(&mut uploaded, &Camera::default(), &target);
+        let frame = renderer.read_rgba(&target).unwrap();
+        assert_eq!(&frame.rgba[..4], &[255, 0, 0, 128]);
+        let mut flat = Actor::new(DataSet::surface(
+            "flat",
+            vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2]],
+        ))
+        .color([0.0, 1.0, 0.0, 0.5]);
+        flat.transfer = Some(TransferFunction::viridis([0.0, 1.0]));
+        let mut flat_scene = Scene::new().with_actor(flat);
+        flat_scene.background = [0.0; 4];
+        let camera = Camera::fitted(flat_scene.bounds().unwrap());
+        let target = renderer.create_target(32, 32).unwrap();
+        let mut uploaded = renderer.upload(&flat_scene).unwrap();
+        renderer.render(&mut uploaded, &camera, &target);
+        let frame = renderer.read_rgba(&target).unwrap();
+        // Flat colors pass through the byte LUT: 0.5 truncates to 127.
+        let green = frame
+            .rgba
+            .chunks_exact(4)
+            .max_by_key(|pixel| pixel[1])
+            .unwrap();
+        assert!(
+            green[0] == 0 && green[1] > 100 && green[2] == 0 && green[3] == 127,
+            "flat color with inactive transfer: {green:?}"
+        );
+        let actor = Actor::new(DataSet::surface(
+            "triangle",
+            vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2]],
+        ))
+        .wireframe(true);
+        assert!(matches!(
+            renderer.upload(&Scene::new().with_actor(actor)),
+            Err(GpuRenderError::UnsupportedFeature("wireframe"))
+        ));
     }
 
     #[test]

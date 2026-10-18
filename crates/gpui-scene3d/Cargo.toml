@@ -23,6 +23,8 @@ png = ["dep:image"]
 # it directly; browser hosts keep the default software path and drive the
 # same scene through their own canvas element.
 gpui = ["dep:gpui", "dep:image"]
+# GPU-only presentation on the host GPUI wgpu context, with software fallback.
+gpui-gpu = ["gpui", "gpu", "dep:gpui_wgpu"]
 # MP4 muxing of rendered frames through the system `ffmpeg` (H.264/yuv420p).
 # Native only: wasm hosts download the PNG sequence instead. The encoder is
 # located at runtime, so builds never depend on it.
@@ -42,6 +44,7 @@ gpui_macos = { workspace = true, features = ["test-support"] }
 
 [dependencies]
 gpui = { workspace = true, optional = true }
+gpui_wgpu = { workspace = true, optional = true }
 gpui-mesh = { workspace = true }
 image = { workspace = true, optional = true }
 thiserror = { workspace = true }

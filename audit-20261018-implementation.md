@@ -18,7 +18,11 @@ item requires implementation and verification evidence, not just a planned API.
 ## CPU, memory and power
 
 - [ ] P1: retained scene preparation, bounded topology extraction and DPI.
+  Scene-owned retention and DPI-aware presentation are implemented; bounded
+  topology extraction and aggregate preparation budgets remain open.
 - [ ] P2: shared GPU context, resident outputs, asynchronous staging and limits.
+  Shared-device host encoding and resident GPUI presentation are implemented;
+  staging/resource budgets, other renderers and device qualification remain.
 - [ ] P3: byte-budgeted caches, error-state retention and trim hooks.
 - [ ] P4: shared table rows, viewport virtualization and stable interaction.
 - [ ] P5: compact volume acceleration and bounded streaming export.
@@ -116,3 +120,77 @@ item requires implementation and verification evidence, not just a planned API.
 - `RenderLimits` and explicit limited render methods allow smaller host budgets.
 - `VtuReadLimits` and limited text/byte readers allow constrained import budgets.
 - `axis::clear_tick_label_cache` invalidates formatter state and handles pressure.
+
+## Retained scene and host GPU checkpoint
+
+- `Scene::prepare` retains immutable geometry across camera and material changes.
+  Copy-on-write changes to positions, topology, selected scalar values or masks
+  invalidate it. Scene clones share one cache; duplicate/reordered actors reuse
+  prepared geometry. Unrelated fields are not retained by that cache.
+- `Scene::clear_preparation`, `preparation_stats` and `PreparedScene::byte_len`
+  expose cache release and counters. Revision keys pin source allocations for
+  safe identity checks without retaining derived CPU geometry. A weak-reference
+  test verifies that clearing the cache actually releases those derived buffers.
+- The software frame loop borrows prepared chunks and cached line indices.
+  The same bounded release probe now reports:
+
+  | Operation, 48³ grid | Initial audit calls | Previous checkpoint calls | Current calls | Current allocated bytes |
+  |---|---:|---:|---:|---:|
+  | Explicit preparation | 1,245,941 | 77 | 77 | 45,090,288 |
+  | Warm 128×128 software frame | 1,298,975 | 80 | 2 | 131,072 |
+
+  The two frame allocations are RGBA and depth buffers. This is cumulative
+  allocation traffic for warmed rendering, not live/RSS memory: one-time
+  preparation and retained geometry still cost memory. Grids 16³ and 32³ also
+  produce two allocations and 131,072 bytes per warmed frame. Timings are not
+  used to claim latency or energy gains on this shared host.
+- `SceneElement::id` opts into window-owned presentation state. Identified views
+  reuse a single unchanged image, rasterize at physical display dimensions, and
+  invalidate on camera, data, material, clipping, background or size changes.
+  The showcase and interactive viewer now use stable IDs.
+- With `gpui-gpu`, identified views on wgpu hosts render on the existing host
+  device, encode into the host command encoder and composite a resident texture.
+  There is no pixel readback or second device. Camera/material updates preserve
+  geometry buffers, and unchanged scene frames reuse the offscreen target.
+  The view unregisters its custom draw when its window-owned state is dropped.
+- GPU view upload releases derived CPU geometry. Native Metal tests verify zero
+  retained preparation bytes afterwards, with no rebuild for material changes.
+  This does not eliminate canonical source arrays or initial preparation peaks.
+- Uniform copies are ordered inside the host encoder. LUT changes create new
+  material resources, preserving earlier encoded passes. Tests encode two
+  cameras and two material revisions before one host submission and check both
+  images, rather than testing only separate submissions.
+- Offscreen color is premultiplied for host compositing. Native export converts
+  it to straight RGBA, skipping opaque pixels. Tests check alpha, host pixels
+  outside the visible rectangle and clipped texture coordinates. An unused
+  transfer function no longer overrides flat-color alpha or software color.
+- GPU wireframe, line cells and more than six clip planes now return explicit
+  unsupported-feature errors. GPUI uses software for those scenes. Implementing
+  the missing features and remaining CPU/GPU parity issues is still required.
+- Verification: 48 scene library tests pass with `GPUI_REQUIRE_GPU=1` on Metal;
+  65 transformation and 13 mesh tests pass. GPU-enabled scene examples and the
+  software-only GPUI library compile. Strict Clippy passes for the three core
+  libraries including the GPUI GPU path. The scene library compiles cleanly for
+  wasm with `gpui-gpu`, nightly and the repository's build-std configuration.
+  Browser runtime/device behavior and native non-wgpu presentation are not
+  qualified by those compile and offscreen tests.
+- Probe correction: the wireframe comparison now uses a valid scalar field.
+  Comparing an entirely masked surface could not establish a wireframe bug.
+  The corrected probe still reports identical images; the feature remains open.
+
+Additional API changes:
+
+- Construct scenes with `Scene::new()` or `Scene::default()`; scene-owned cache
+  state makes external field-only struct literals incompatible.
+- `GpuRenderer::from_shared_device`, `encode` and `encode_to_views` support host
+  presentation; `sync` updates materials and reports geometry replacement.
+  Geometry/field revisions currently replace the whole uploaded scene; finer
+  per-actor and field-buffer updates remain open.
+- Standalone `new_async` takes an explicit power preference. Native `new` now
+  defaults to low power. Blocking initialization and `read_rgba` are native-only.
+- `GpuTarget::color_view` exposes the premultiplied sampleable texture. Caller
+  attachments use `GpuAttachments` and retain caller-owned submission ordering.
+
+Goal turn 2: progress. The full audit scope is still open, including Taffy
+experiments, CUDA/MLX adoption experiments, remaining correctness findings,
+other platform hot paths and physical mobile memory/energy qualification.

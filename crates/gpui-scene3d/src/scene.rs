@@ -4,6 +4,7 @@
 
 use crate::transfer::TransferFunction;
 use gpui_mesh::{Association, DataSet};
+use std::sync::{Arc, Mutex};
 
 /// A clipping plane: the positive half-space is kept.
 ///
@@ -185,9 +186,12 @@ impl Actor {
     pub fn is_transparent(&self) -> bool {
         self.opacity < 1.0
             || self
-                .transfer
-                .as_ref()
+                .active_transfer()
                 .map_or(self.color[3] < 1.0, |tf| !tf.is_opaque())
+    }
+
+    pub(crate) fn active_transfer(&self) -> Option<&TransferFunction> {
+        self.field.as_ref().and(self.transfer.as_ref())
     }
 
     /// Toggles the wireframe overlay.
@@ -222,9 +226,15 @@ mod material_tests {
             assert_eq!(actor.is_transparent(), alpha < 1.0);
         }
         assert!(
-            Actor::new(dataset)
+            Actor::new(dataset.clone())
                 .coloured_by("p", TransferFunction::from_stops([0.0, 1.0], &[]))
                 .is_transparent()
+        );
+        let mut flat = Actor::new(dataset).color([1.0, 0.0, 0.0, 0.5]);
+        flat.transfer = Some(TransferFunction::viridis([0.0, 1.0]));
+        assert!(
+            flat.is_transparent(),
+            "an unused transfer must not hide flat-color alpha"
         );
     }
 }
@@ -238,6 +248,7 @@ pub struct Scene {
     pub background: [f32; 4],
     /// Text annotations for hosts with a text system (GPUI element).
     pub annotations: Vec<crate::legend::Annotation>,
+    pub(crate) preparation: Arc<Mutex<crate::retained::PreparationCache>>,
 }
 
 impl Scene {
@@ -247,6 +258,7 @@ impl Scene {
             actors: Vec::new(),
             background: [0.08, 0.09, 0.11, 1.0],
             annotations: Vec::new(),
+            preparation: Arc::default(),
         }
     }
 
@@ -255,6 +267,51 @@ impl Scene {
     pub fn with_actor(mut self, actor: Actor) -> Self {
         self.actors.push(actor);
         self
+    }
+
+    /// Returns shared geometry, rebuilding only changed dataset revisions.
+    ///
+    /// Scene clones share this cache. Cameras and materials do not invalidate
+    /// geometry; safe Arc mutations of positions, topology, scalars or masks do.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid datasets or missing/non-scalar fields.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a previous preparation panicked while owning the cache lock.
+    pub fn prepare(&self) -> Result<Arc<crate::PreparedScene>, crate::SceneError> {
+        self.preparation
+            .lock()
+            .expect("scene preparation poisoned")
+            .prepare(self)
+    }
+
+    /// Releases cached derived geometry, for example under memory pressure.
+    ///
+    /// Existing render snapshots remain valid until their owners drop them.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a previous preparation poisoned the cache lock.
+    pub fn clear_preparation(&self) {
+        self.preparation
+            .lock()
+            .expect("scene preparation poisoned")
+            .clear();
+    }
+
+    /// Returns geometry build, hit and retained-byte counters.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a previous preparation poisoned the cache lock.
+    pub fn preparation_stats(&self) -> crate::PreparationStats {
+        self.preparation
+            .lock()
+            .expect("scene preparation poisoned")
+            .stats()
     }
 
     /// Adds a text annotation at normalised frame coordinates.

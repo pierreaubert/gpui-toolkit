@@ -65,8 +65,16 @@ impl GpuChunk {
 /// Returns [`SceneError::FieldNotFound`] when the actor's colouring field
 /// is missing or not scalar.
 pub fn prepare_chunks(actor: &Actor, max_triangles: usize) -> Result<Vec<GpuChunk>, SceneError> {
+    prepare_chunks_with_bounds(actor, max_triangles).map(|(_, chunks)| chunks)
+}
+
+pub(crate) fn prepare_chunks_with_bounds(
+    actor: &Actor,
+    max_triangles: usize,
+) -> Result<(Option<gpui_mesh::Bounds>, Vec<GpuChunk>), SceneError> {
     let dataset = &actor.dataset;
-    let origin = dataset.bounds().map_or([0.0; 3], |b| b.center());
+    let bounds = dataset.bounds();
+    let origin = bounds.map_or([0.0; 3], |b| b.center());
     let scalar_lookup: Option<(Association, &[f64])> = if let Some(pair) = actor.scalars() {
         Some(pair)
     } else {
@@ -167,7 +175,7 @@ pub fn prepare_chunks(actor: &Actor, max_triangles: usize) -> Result<Vec<GpuChun
             edges,
         });
     }
-    Ok(out)
+    Ok((bounds, out))
 }
 
 fn smooth_normals(positions: &[f32], indices: &[u32]) -> Vec<f32> {

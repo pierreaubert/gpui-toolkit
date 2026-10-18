@@ -123,7 +123,7 @@ impl ShowcaseApp {
     }
 
     fn viewport(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let element = SceneElement::new(self.scene.clone(), self.camera.clone());
+        let element = SceneElement::new(self.scene.clone(), self.camera.clone()).id("mesh-scene");
         div()
             .relative()
             .flex_1()
@@ -137,7 +137,9 @@ impl ShowcaseApp {
                     if event.click_count == 2 {
                         *this.camera.borrow_mut() = this.home;
                     } else {
-                        this.drag = Some(DragState { last: event.position });
+                        this.drag = Some(DragState {
+                            last: event.position,
+                        });
                     }
                     cx.notify();
                 }),

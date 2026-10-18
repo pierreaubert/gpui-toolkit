@@ -119,12 +119,30 @@ pub fn scene_uniform_bytes_relative_to(
     clip_planes: &[crate::scene::ClipPlane],
     origin: [f64; 3],
 ) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(288);
+    scene_uniform_block_relative_to(view_projection, scalar_range, opacity, clip_planes, origin)
+        .to_vec()
+}
+
+/// Builds the fixed-size uniform block without a heap allocation.
+#[must_use]
+pub fn scene_uniform_block_relative_to(
+    view_projection: &[f32; 16],
+    scalar_range: [f32; 2],
+    opacity: f32,
+    clip_planes: &[crate::scene::ClipPlane],
+    origin: [f64; 3],
+) -> [u8; 288] {
+    let mut bytes = [0u8; 288];
+    let mut offset = 0;
+    let mut append = |value: [u8; 4]| {
+        bytes[offset..offset + 4].copy_from_slice(&value);
+        offset += 4;
+    };
     for value in view_projection {
-        bytes.extend_from_slice(&value.to_le_bytes());
+        append(value.to_le_bytes());
     }
     for value in [scalar_range[0], scalar_range[1], opacity, 0.0] {
-        bytes.extend_from_slice(&value.to_le_bytes());
+        append(value.to_le_bytes());
     }
     let mut origins = [[0.0f32; 4]; MAX_CLIP_PLANES];
     let mut normals = [[0.0f32; 4]; MAX_CLIP_PLANES];
@@ -137,11 +155,10 @@ pub fn scene_uniform_bytes_relative_to(
     }
     for plane in origins.iter().chain(normals.iter()) {
         for value in plane {
-            bytes.extend_from_slice(&value.to_le_bytes());
+            append(value.to_le_bytes());
         }
     }
-    bytes.extend_from_slice(&(clip_planes.len().min(MAX_CLIP_PLANES) as u32).to_le_bytes());
-    bytes.extend_from_slice(&[0u8; 12]);
+    append((clip_planes.len().min(MAX_CLIP_PLANES) as u32).to_le_bytes());
     bytes
 }
 

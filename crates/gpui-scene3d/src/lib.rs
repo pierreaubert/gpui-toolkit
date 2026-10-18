@@ -15,13 +15,18 @@ pub mod animate;
 pub mod camera;
 #[cfg(feature = "gpui")]
 pub mod element;
+#[cfg(feature = "gpui-gpu")]
+mod gpu_element;
 #[cfg(feature = "gpu")]
 pub mod gpu_render;
 pub mod legend;
 pub mod limits;
 pub mod movie;
 pub mod prepare;
+#[cfg(any(feature = "gpui", test))]
+mod presentation;
 pub mod raster;
+pub mod retained;
 pub mod scene;
 pub mod shaders;
 pub mod transfer;
@@ -30,7 +35,7 @@ pub mod volume;
 pub use animate::Player;
 pub use camera::{Camera, Projection};
 #[cfg(feature = "gpu")]
-pub use gpu_render::{GpuRenderError, GpuRenderer, GpuScene, GpuTarget};
+pub use gpu_render::{GpuAttachments, GpuRenderError, GpuRenderer, GpuScene, GpuTarget};
 pub use legend::{
     Annotation, ColorBar, ColorBarLayout, Rect, draw_axis_triad, draw_colorbar, layout_colorbar,
     nice_ticks,
@@ -40,6 +45,8 @@ pub use limits::RenderLimits;
 pub use movie::{MovieError, TimedFrame, frame_rate, validate_frames};
 pub use prepare::{GpuChunk, prepare_chunks};
 pub use raster::{Frame, render, render_with_limits};
+#[doc(inline)]
+pub use retained::{PreparationStats, PreparedScene};
 pub use scene::{Actor, ClipBox, ClipPlane, Scene};
 pub use transfer::TransferFunction;
 pub use volume::{VolumeOptions, VolumeRenderer, raycast_volume};

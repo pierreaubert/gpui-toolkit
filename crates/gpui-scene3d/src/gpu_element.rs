@@ -1,0 +1,542 @@
+//! Window-owned scene presentation on the host's wgpu context.
+
+// Rust guideline compliant 2026-02-21
+
+use crate::presentation::RenderKey;
+use crate::{Camera, GpuRenderError, GpuRenderer, GpuScene, GpuTarget, Scene, SceneError};
+use gpui::{Bounds, Pixels};
+use gpui_wgpu::{WgpuContext, WgpuCustomDraw, WgpuCustomDrawAdapter};
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::Arc;
+use wgpu::util::DeviceExt;
+
+pub(crate) fn supports(scene: &Scene) -> bool {
+    scene
+        .actors
+        .iter()
+        .filter(|actor| actor.visible)
+        .all(|actor| {
+            !actor.wireframe
+                && actor.clip_planes.len() <= crate::shaders::MAX_CLIP_PLANES
+                && !actor
+                    .dataset
+                    .cells
+                    .types
+                    .contains(&gpui_mesh::CellType::Line)
+        })
+}
+
+pub(crate) struct RegisteredSceneDraw {
+    id: gpui::CustomDrawId,
+    draw: Rc<SceneDraw>,
+}
+
+impl RegisteredSceneDraw {
+    pub(crate) fn new() -> Self {
+        let draw = Rc::new(SceneDraw {
+            state: RefCell::new(DrawState::default()),
+        });
+        let id = gpui::register_custom_draw(Rc::new(WgpuCustomDrawAdapter(draw.clone())));
+        Self { id, draw }
+    }
+
+    pub(crate) fn id(&self) -> gpui::CustomDrawId {
+        self.id
+    }
+
+    pub(crate) fn update(
+        &self,
+        scene: &Scene,
+        camera: Camera,
+        size: [u32; 2],
+    ) -> Result<(), SceneError> {
+        let mut state = self.draw.state.borrow_mut();
+        if let Some(input) = &state.input
+            && input.key.matches(scene, camera, size)?
+        {
+            return Ok(());
+        }
+        let revision = state
+            .input
+            .as_ref()
+            .map_or(1, |input| input.revision.wrapping_add(1));
+        state.input = Some(Input {
+            key: RenderKey::new(scene, camera, size)?,
+            scene: scene.clone(),
+            camera,
+            size,
+            revision,
+        });
+        Ok(())
+    }
+}
+
+impl Drop for RegisteredSceneDraw {
+    fn drop(&mut self) {
+        gpui::unregister_custom_draw(self.id);
+    }
+}
+
+struct Input {
+    key: RenderKey,
+    scene: Scene,
+    camera: Camera,
+    size: [u32; 2],
+    revision: u64,
+}
+
+#[derive(Default)]
+struct DrawState {
+    input: Option<Input>,
+    resources: Option<Resources>,
+}
+
+struct SceneDraw {
+    state: RefCell<DrawState>,
+}
+
+impl gpui::CustomDraw for SceneDraw {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+struct Resources {
+    device: Arc<wgpu::Device>,
+    format: wgpu::TextureFormat,
+    renderer: GpuRenderer,
+    scene: GpuScene,
+    target: GpuTarget,
+    pipeline: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    texture: wgpu::BindGroup,
+    quad: Option<([f32; 24], wgpu::Buffer)>,
+    rendered_revision: Option<u64>,
+}
+
+const COMPOSITE: &str = r"
+@group(0) @binding(0) var image: texture_2d<f32>;
+@group(0) @binding(1) var image_sampler: sampler;
+struct Vertex { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> };
+@vertex fn vs(@location(0) position: vec2<f32>, @location(1) uv: vec2<f32>) -> Vertex {
+    return Vertex(vec4<f32>(position, 0.0, 1.0), uv);
+}
+@fragment fn fs(input: Vertex) -> @location(0) vec4<f32> {
+    return textureSample(image, image_sampler, input.uv);
+}
+";
+
+impl Resources {
+    fn new(
+        ctx: &WgpuContext,
+        format: wgpu::TextureFormat,
+        input: &Input,
+    ) -> Result<Self, GpuRenderError> {
+        let renderer = GpuRenderer::from_shared_device(
+            ctx.device.clone(),
+            ctx.queue.clone(),
+            wgpu::TextureFormat::Rgba8Unorm,
+        )?;
+        let scene = renderer.upload(&input.scene)?;
+        input.scene.clear_preparation();
+        let target = renderer.create_target(input.size[0], input.size[1])?;
+        let layout = ctx
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("scene3d composite"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+        let sampler = ctx.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("scene3d composite"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let texture = texture_binding(&ctx.device, &layout, &sampler, &target);
+        let shader = ctx
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("scene3d composite"),
+                source: wgpu::ShaderSource::Wgsl(COMPOSITE.into()),
+            });
+        let pipeline_layout = ctx
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("scene3d composite"),
+                bind_group_layouts: &[Some(&layout)],
+                immediate_size: 0,
+            });
+        let pipeline = ctx
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("scene3d composite"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs"),
+                    compilation_options: Default::default(),
+                    buffers: &[wgpu::VertexBufferLayout {
+                        array_stride: 16,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2],
+                    }],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: Default::default(),
+                depth_stencil: None,
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            });
+        Ok(Self {
+            device: ctx.device.clone(),
+            format,
+            renderer,
+            scene,
+            target,
+            pipeline,
+            layout,
+            sampler,
+            texture,
+            quad: None,
+            rendered_revision: None,
+        })
+    }
+}
+
+fn texture_binding(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    target: &GpuTarget,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("scene3d composite"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(target.color_view()),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
+}
+
+impl WgpuCustomDraw for SceneDraw {
+    fn draw_wgpu(
+        &self,
+        ctx: &WgpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        target_format: wgpu::TextureFormat,
+        target_size: [u32; 2],
+        bounds: Bounds<Pixels>,
+        full_bounds: Bounds<Pixels>,
+        scale_factor: f32,
+    ) {
+        let mut state = self.state.borrow_mut();
+        let DrawState { input, resources } = &mut *state;
+        let Some(input) = input.as_ref() else {
+            return;
+        };
+        if resources
+            .as_ref()
+            .is_none_or(|r| !Arc::ptr_eq(&r.device, &ctx.device) || r.format != target_format)
+        {
+            // Drop the old device's resources before allocating replacements.
+            *resources = None;
+            let Ok(created) = Resources::new(ctx, target_format, input) else {
+                return;
+            };
+            *resources = Some(created);
+        }
+        let resource = resources.as_mut().expect("resources initialized");
+        if [resource.target.width, resource.target.height] != input.size {
+            let Ok(target) = resource
+                .renderer
+                .create_target(input.size[0], input.size[1])
+            else {
+                return;
+            };
+            resource.target = target;
+            resource.texture = texture_binding(
+                &ctx.device,
+                &resource.layout,
+                &resource.sampler,
+                &resource.target,
+            );
+            resource.rendered_revision = None;
+        }
+        if resource.rendered_revision != Some(input.revision) {
+            if resource
+                .renderer
+                .sync(&mut resource.scene, &input.scene)
+                .is_err()
+            {
+                return;
+            }
+            input.scene.clear_preparation();
+            resource.renderer.encode(
+                encoder,
+                &mut resource.scene,
+                &input.camera,
+                &resource.target,
+            );
+            resource.rendered_revision = Some(input.revision);
+        }
+        let Some((quad, scissor)) = composite_quad(bounds, full_bounds, scale_factor, target_size)
+        else {
+            return;
+        };
+        if resource
+            .quad
+            .as_ref()
+            .is_none_or(|(current, _)| *current != quad)
+        {
+            resource.quad = Some((
+                quad,
+                ctx.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("scene3d composite quad"),
+                        contents: bytemuck::cast_slice(&quad),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    }),
+            ));
+        }
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("scene3d composite"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        pass.set_scissor_rect(scissor[0], scissor[1], scissor[2], scissor[3]);
+        pass.set_pipeline(&resource.pipeline);
+        pass.set_bind_group(0, &resource.texture, &[]);
+        pass.set_vertex_buffer(
+            0,
+            resource
+                .quad
+                .as_ref()
+                .expect("quad initialized")
+                .1
+                .slice(..),
+        );
+        pass.draw(0..6, 0..1);
+    }
+}
+
+fn composite_quad(
+    bounds: Bounds<Pixels>,
+    full: Bounds<Pixels>,
+    scale: f32,
+    target: [u32; 2],
+) -> Option<([f32; 24], [u32; 4])> {
+    if target.contains(&0) || !scale.is_finite() || scale <= 0.0 {
+        return None;
+    }
+    let full = [
+        f32::from(full.origin.x) * scale,
+        f32::from(full.origin.y) * scale,
+        f32::from(full.size.width) * scale,
+        f32::from(full.size.height) * scale,
+    ];
+    let x = f32::from(bounds.origin.x) * scale;
+    let y = f32::from(bounds.origin.y) * scale;
+    let width = f32::from(bounds.size.width) * scale;
+    let height = f32::from(bounds.size.height) * scale;
+    if [x, y, width, height].iter().any(|value| !value.is_finite()) || width <= 0.0 || height <= 0.0
+    {
+        return None;
+    }
+    let rect = [
+        x.max(0.0),
+        y.max(0.0),
+        (x + f32::from(bounds.size.width) * scale).min(target[0] as f32),
+        (y + f32::from(bounds.size.height) * scale).min(target[1] as f32),
+    ];
+    if full.iter().chain(rect.iter()).any(|v| !v.is_finite())
+        || full[2] <= 0.0
+        || full[3] <= 0.0
+        || rect[2] <= rect[0]
+        || rect[3] <= rect[1]
+    {
+        return None;
+    }
+    let vertex = |x: f32, y: f32| {
+        [
+            2.0 * x / target[0] as f32 - 1.0,
+            1.0 - 2.0 * y / target[1] as f32,
+            (x - full[0]) / full[2],
+            (y - full[1]) / full[3],
+        ]
+    };
+    let [left, top, right, bottom] = rect;
+    let vertices = [
+        vertex(left, top),
+        vertex(right, top),
+        vertex(right, bottom),
+        vertex(left, top),
+        vertex(right, bottom),
+        vertex(left, bottom),
+    ];
+    let mut quad = [0.0; 24];
+    for (index, vertex) in vertices.iter().enumerate() {
+        quad[index * 4..index * 4 + 4].copy_from_slice(vertex);
+    }
+    let left = left.floor() as u32;
+    let top = top.floor() as u32;
+    let right = (right.ceil() as u32).min(target[0]);
+    let bottom = (bottom.ceil() as u32).min(target[1]);
+    Some((quad, [left, top, right - left, bottom - top]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{point, px, size};
+
+    #[test]
+    fn registration_lifetime_is_owned_by_the_view() {
+        let draw = RegisteredSceneDraw::new();
+        let id = draw.id();
+        assert!(gpui::lookup_custom_draw(id).is_some());
+        drop(draw);
+        assert!(gpui::lookup_custom_draw(id).is_none());
+    }
+
+    #[test]
+    fn clipped_compositing_keeps_original_texture_coordinates() {
+        let full = Bounds {
+            origin: point(px(-20.0), px(10.0)),
+            size: size(px(100.0), px(50.0)),
+        };
+        let visible = Bounds {
+            origin: point(px(0.0), px(20.0)),
+            size: size(px(80.0), px(30.0)),
+        };
+        let (quad, scissor) = composite_quad(visible, full, 2.0, [200, 200]).unwrap();
+        assert_eq!(scissor, [0, 40, 160, 60]);
+        assert!((quad[2] - 0.2).abs() < 1e-6 && (quad[3] - 0.2).abs() < 1e-6);
+        assert!((quad[6] - 1.0).abs() < 1e-6 && (quad[11] - 0.8).abs() < 1e-6);
+        let invalid = Bounds {
+            origin: point(px(f32::NAN), px(0.0)),
+            ..visible
+        };
+        assert!(composite_quad(invalid, full, 1.0, [200, 200]).is_none());
+    }
+
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn host_compositing_preserves_clip_and_alpha_and_releases_cpu_buffers() {
+        match GpuRenderer::new(wgpu::TextureFormat::Rgba8Unorm) {
+            Ok(_) => {}
+            Err(GpuRenderError::NoAdapter) if std::env::var_os("GPUI_REQUIRE_GPU").is_none() => {
+                eprintln!("SKIP: no scene presentation adapter");
+                return;
+            }
+            Err(error) => panic!("GPU presentation initialization failed: {error}"),
+        }
+        let ctx = WgpuContext::headless().expect("headless host context");
+        let host = GpuRenderer::from_shared_device(
+            ctx.device.clone(),
+            ctx.queue.clone(),
+            wgpu::TextureFormat::Rgba8Unorm,
+        )
+        .unwrap();
+        let target = host.create_target(64, 64).unwrap();
+        let mut background = Scene::new();
+        background.background = [0.0, 0.0, 1.0, 1.0];
+        let mut host_scene = host.upload(&background).unwrap();
+        let dataset =
+            gpui_mesh::DataSet::structured_grid("host", [2; 3], [-0.5; 3], [1.0; 3]).unwrap();
+        let mut scene = Scene::new().with_actor(
+            crate::Actor::new(dataset)
+                .color([1.0, 0.0, 0.0, 1.0])
+                .opacity(0.5),
+        );
+        scene.background = [0.0; 4];
+        let camera = Camera::fitted(scene.bounds().unwrap());
+        let draw = RegisteredSceneDraw::new();
+        draw.update(&scene, camera, [48, 48]).unwrap();
+        let full = Bounds {
+            origin: point(px(8.0), px(8.0)),
+            size: size(px(48.0), px(48.0)),
+        };
+        let visible = Bounds {
+            origin: point(px(20.0), px(8.0)),
+            size: size(px(36.0), px(48.0)),
+        };
+        let mut encoder = ctx.device.create_command_encoder(&Default::default());
+        host.encode(&mut encoder, &mut host_scene, &Camera::default(), &target);
+        draw.draw.draw_wgpu(
+            &ctx,
+            &mut encoder,
+            target.color_view(),
+            wgpu::TextureFormat::Rgba8Unorm,
+            [64, 64],
+            visible,
+            full,
+            1.0,
+        );
+        ctx.queue.submit([encoder.finish()]);
+        let frame = host.read_rgba(&target).unwrap();
+        let pixel = |x: usize, y: usize| &frame.rgba[(y * 64 + x) * 4..][..4];
+        assert_eq!(
+            pixel(15, 32),
+            &[0, 0, 255, 255],
+            "clipped region preserves host pixels"
+        );
+        let center = pixel(32, 32);
+        assert!(
+            center[0] > 40 && center[1] == 0 && center[2] > 20 && center[3] == 255,
+            "premultiplied composite: {center:?}"
+        );
+        assert_eq!(scene.preparation_stats().geometry_builds, 1);
+        assert_eq!(scene.preparation_stats().retained_bytes, 0);
+        draw.update(&scene, camera, [48, 48]).unwrap();
+        assert_eq!(
+            draw.draw.state.borrow().input.as_ref().unwrap().revision,
+            1,
+            "static presentation revision reused"
+        );
+    }
+}

@@ -4,7 +4,7 @@
 
 use crate::camera::{Camera, transform};
 use crate::limits::frame_buffer;
-use crate::prepare::prepare_chunks;
+use crate::retained::PreparedGeometry;
 use crate::scene::Scene;
 use crate::{RenderLimits, SceneError};
 use smallvec::SmallVec;
@@ -89,6 +89,7 @@ pub fn render_with_limits(
     limits: RenderLimits,
 ) -> Result<Frame, SceneError> {
     let pixels = limits.pixel_count(width, height, 8)?;
+    let prepared = scene.prepare()?;
     let bg = scene.background;
     let mut rgba = frame_buffer(pixels * 4, 0u8)?;
     for px in rgba.as_chunks_mut::<4>().0 {
@@ -103,11 +104,18 @@ pub fn render_with_limits(
     let light = normalize3([-0.4, 0.7, 0.6]);
     let eye = camera.eye();
 
-    let visible: Vec<&crate::scene::Actor> = scene.actors.iter().filter(|a| a.visible).collect();
     // Opaque first, in scene order.
-    for actor in visible.iter().filter(|a| !a.is_transparent()) {
+    for (index, actor) in scene
+        .actors
+        .iter()
+        .enumerate()
+        .filter(|(_, actor)| actor.visible && !actor.is_transparent())
+    {
         draw_actor(
             actor,
+            prepared.actors[index]
+                .as_ref()
+                .expect("visible actor prepared"),
             &view_projection,
             width,
             height,
@@ -115,22 +123,32 @@ pub fn render_with_limits(
             false,
             &mut depth,
             &mut rgba,
-        )?;
+        );
     }
     // Transparent actors back-to-front by bounds-centre distance.
-    let mut transparent: Vec<&crate::scene::Actor> = visible
+    let mut transparent: Vec<(usize, &crate::scene::Actor)> = scene
+        .actors
         .iter()
-        .filter(|a| a.is_transparent())
-        .copied()
+        .enumerate()
+        .filter(|(_, actor)| actor.visible && actor.is_transparent())
         .collect();
-    transparent.sort_by(|a, b| {
-        let da = actor_distance(a, eye);
-        let db = actor_distance(b, eye);
+    transparent.sort_by(|(a, _), (b, _)| {
+        let da = actor_distance(
+            prepared.actors[*a].as_ref().and_then(|actor| actor.bounds),
+            eye,
+        );
+        let db = actor_distance(
+            prepared.actors[*b].as_ref().and_then(|actor| actor.bounds),
+            eye,
+        );
         db.partial_cmp(&da).unwrap_or(std::cmp::Ordering::Equal)
     });
-    for actor in transparent {
+    for (index, actor) in transparent {
         draw_actor(
             actor,
+            prepared.actors[index]
+                .as_ref()
+                .expect("visible actor prepared"),
             &view_projection,
             width,
             height,
@@ -138,7 +156,7 @@ pub fn render_with_limits(
             true,
             &mut depth,
             &mut rgba,
-        )?;
+        );
     }
     Ok(Frame {
         width,
@@ -156,8 +174,8 @@ type ScreenTriangle = (
     f32,
 );
 
-fn actor_distance(actor: &crate::scene::Actor, eye: [f32; 3]) -> f32 {
-    let Some(bounds) = actor.dataset.bounds() else {
+fn actor_distance(bounds: Option<gpui_mesh::Bounds>, eye: [f32; 3]) -> f32 {
+    let Some(bounds) = bounds else {
         return 0.0;
     };
     let centre = bounds.center();
@@ -228,6 +246,7 @@ fn clip_triangle(
 )]
 fn draw_actor(
     actor: &crate::scene::Actor,
+    geometry: &PreparedGeometry,
     view_projection: &[f32; 16],
     width: u32,
     height: u32,
@@ -235,12 +254,11 @@ fn draw_actor(
     blend: bool,
     depth: &mut [f32],
     rgba: &mut [u8],
-) -> Result<(), SceneError> {
-    let chunks = prepare_chunks(actor, crate::prepare::DEFAULT_MAX_TRIANGLES)?;
-    let transfer = actor.transfer.as_ref();
+) {
+    let transfer = actor.active_transfer();
     // Screen triangles with their mean depth, for transparent sorting.
     let mut triangles: Vec<ScreenTriangle> = Vec::new();
-    for chunk in &chunks {
+    for chunk in &geometry.chunks {
         for tri in chunk.indices.as_chunks::<3>().0 {
             if tri
                 .iter()
@@ -322,13 +340,23 @@ fn draw_actor(
         rasterize(a, b, c, colour, width, height, depth, rgba, blend);
     }
     // Line cells (streamlines, glyphs) draw as 1px projected segments.
-    draw_lines(actor, view_projection, width, height, depth, rgba);
-    Ok(())
+    if !geometry.lines.is_empty() {
+        draw_lines(
+            actor,
+            &geometry.lines,
+            view_projection,
+            width,
+            height,
+            depth,
+            rgba,
+        );
+    }
 }
 
 /// Projects and rasterizes an actor's line cells with a midpoint depth test.
 fn draw_lines(
     actor: &crate::scene::Actor,
+    lines: &[[u32; 2]],
     view_projection: &[f32; 16],
     width: u32,
     height: u32,
@@ -357,16 +385,7 @@ fn draw_lines(
             ndc[2],
         ))
     };
-    for cell in 0..dataset.cell_count() {
-        if dataset.cells.types[cell] != gpui_mesh::CellType::Line {
-            continue;
-        }
-        let Some(nodes) = dataset.cells.cell(cell) else {
-            continue;
-        };
-        if nodes.len() != 2 {
-            continue;
-        }
+    for nodes in lines {
         let (Some(a), Some(b)) = (
             project(dataset.positions[nodes[0] as usize]),
             project(dataset.positions[nodes[1] as usize]),
@@ -519,6 +538,23 @@ mod tests {
     fn empty_scene_is_background_only() {
         let frame = render(&Scene::new(), &Camera::default(), 8, 8).unwrap();
         assert!(frame.rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 255));
+    }
+
+    #[test]
+    fn unused_transfer_does_not_change_flat_color() {
+        let dataset = DataSet::surface(
+            "flat",
+            vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2]],
+        );
+        let mut scene = Scene::new().with_actor(Actor::new(dataset).color([0.0, 1.0, 0.0, 0.5]));
+        let camera = Camera::fitted(scene.bounds().unwrap());
+        let reference = render(&scene, &camera, 32, 32).unwrap();
+        scene.actors[0].transfer = Some(TransferFunction::viridis([0.0, 1.0]));
+        assert_eq!(
+            reference.rgba,
+            render(&scene, &camera, 32, 32).unwrap().rgba
+        );
     }
 
     #[test]

@@ -284,7 +284,7 @@ impl Render for Viewer {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.publish_probe();
         let scene = self.current_scene();
-        let element = SceneElement::new(scene, self.camera.clone());
+        let element = SceneElement::new(scene, self.camera.clone()).id("interactive-scene");
         let camera_state = self.camera.clone();
         let (azimuth, elevation, distance) = {
             let camera = self.camera.borrow();
