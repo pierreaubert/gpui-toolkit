@@ -67,8 +67,7 @@ impl Gpu2DContext {
             wasm_state::State::Uninit | wasm_state::State::Initializing => {
                 Err("GPU device is initializing")
             }
-            // Leak the message so the cached error can satisfy 'static too.
-            wasm_state::State::Failed(err) => Err(&*Box::leak(err.clone().into_boxed_str())),
+            wasm_state::State::Failed(err) => Err(*err),
         })
     }
 
@@ -107,7 +106,7 @@ mod wasm_state {
         Uninit,
         Initializing,
         Ready(&'static Gpu2DContext),
-        Failed(String),
+        Failed(&'static str),
     }
 
     thread_local! {
@@ -129,7 +128,9 @@ mod wasm_state {
                                 _instance: instance,
                             })))
                         }
-                        Err(err) => State::Failed(err),
+                        // This terminal state retains one message, just as
+                        // Ready retains one context. Reads allocate nothing.
+                        Err(err) => State::Failed(Box::leak(err.into_boxed_str())),
                     };
                     STATE.with(|s| *s.borrow_mut() = next);
                 });

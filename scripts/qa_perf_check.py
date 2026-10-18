@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,6 +75,8 @@ def validate_baseline(data: Any, path: Path) -> dict[str, Any]:
     records = data.get("records")
     if not isinstance(records, list):
         raise InputError(f"{path}: expected 'records' to be a list")
+    if not records:
+        raise InputError(f"{path}: no benchmark records")
 
     metadata = data.get("metadata")
     if not isinstance(metadata, dict):
@@ -111,6 +114,15 @@ def require_comparable_environments(
             f"instead of interpreting host drift as a code regression: {baseline_path} "
             f"has {baseline_environment}, {current_path} has {current_environment}"
         )
+    base_meta, cur_meta = baseline_data["metadata"], current_data["metadata"]
+    if any(meta.get("collection") == "existing-samples" for meta in (base_meta, cur_meta)):
+        raise InputError("comparison requires fresh benchmark runs, not collected cached samples")
+    if base_meta.get("criterion_flags") != cur_meta.get("criterion_flags"):
+        raise InputError("Criterion flags differ between baseline and current")
+    base_specs, cur_specs = base_meta.get("benchmarks", {}), cur_meta.get("benchmarks", {})
+    for key in base_specs.keys() & cur_specs.keys():
+        if base_specs[key] != cur_specs[key]:
+            raise InputError(f"benchmark configuration differs for {key}")
 
 
 def parse_record(raw: dict[str, Any], path: Path) -> Record:
@@ -125,8 +137,13 @@ def parse_record(raw: dict[str, Any], path: Path) -> Record:
     except (TypeError, ValueError) as exc:
         raise InputError(f"{path}: record has non-numeric latency values: {exc}") from exc
 
-    if median_ns < 0 or mean_ns < 0:
-        raise InputError(f"{path}: record has negative latency values")
+    if not all(math.isfinite(value) and value > 0 for value in (median_ns, mean_ns)):
+        raise InputError(f"{path}: record must have finite positive latency values")
+    for name in ("crate", "bench", "group", "function"):
+        if not isinstance(raw[name], str) or not raw[name]:
+            raise InputError(f"{path}: invalid {name}")
+    if raw["unit"] != "ns":
+        raise InputError(f"{path}: expected timing unit 'ns'")
 
     return Record(
         key=RecordKey(
@@ -167,6 +184,7 @@ def compare(
     current: dict[RecordKey, Record],
     threshold: float,
     noise_floor_ns: float,
+    allowed_removed: frozenset[str] = frozenset(),
 ) -> tuple[list[tuple[RecordKey, Record, Record, float]], list[tuple[RecordKey, Record, Record, float]], list[RecordKey], list[RecordKey], list[tuple[RecordKey, float]]]:
     matched: list[tuple[RecordKey, Record, Record, float]] = []
     skipped: list[tuple[RecordKey, Record, Record, float]] = []
@@ -195,6 +213,11 @@ def compare(
     newly_added.sort()
     regressed.sort(key=lambda item: item[1], reverse=True)
 
+    unexpected_missing = [key for key in missing if f"{key.crate}:{key.bench}" not in allowed_removed]
+    if unexpected_missing:
+        raise InputError(f"required benchmarks disappeared: {unexpected_missing}")
+    if not matched:
+        raise InputError("no matched benchmarks above the noise floor")
     return matched, skipped, missing, newly_added, regressed
 
 
@@ -333,12 +356,16 @@ def main(argv: list[str]) -> int:
         help="Report regressions but exit with status 0. Useful while the baseline is being stabilized.",
     )
     parser.add_argument("--output", type=Path, default=ROOT / DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--allow-removed-benchmark", action="append", default=[], metavar="CRATE:BENCH",
+        help="Explicitly acknowledge removal of a baseline benchmark binary",
+    )
     args = parser.parse_args(argv)
 
-    if args.threshold < 0:
+    if not math.isfinite(args.threshold) or args.threshold < 0:
         print("ERROR: --threshold must be non-negative", file=sys.stderr)
         return 2
-    if args.noise_floor_ns < 0:
+    if not math.isfinite(args.noise_floor_ns) or args.noise_floor_ns < 0:
         print("ERROR: --noise-floor-ns must be non-negative", file=sys.stderr)
         return 2
 
@@ -354,9 +381,14 @@ def main(argv: list[str]) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
-    matched, skipped, missing, newly_added, regressed = compare(
-        baseline, current, args.threshold, args.noise_floor_ns,
-    )
+    try:
+        matched, skipped, missing, newly_added, regressed = compare(
+            baseline, current, args.threshold, args.noise_floor_ns,
+            frozenset(args.allow_removed_benchmark),
+        )
+    except InputError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
     report = build_report(
         matched, skipped, missing, newly_added, regressed,

@@ -288,6 +288,8 @@ fn unit_sphere() -> (Vec<[f64; 3]>, Vec<[u32; 3]>) {
     (vertices, triangles)
 }
 
+type ArrowGeometry = (Vec<[f64; 3]>, Vec<[u32; 3]>, f64);
+
 /// One solid arrow: (positions, triangles, speed); `None` for zero or
 /// non-finite vectors.
 fn arrow_geometry(
@@ -295,7 +297,7 @@ fn arrow_geometry(
     v: [f64; 3],
     scale: f64,
     radius_fraction: f64,
-) -> Option<(Vec<[f64; 3]>, Vec<[u32; 3]>, f64)> {
+) -> Option<ArrowGeometry> {
     let speed = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
     if speed == 0.0 || !speed.is_finite() {
         return None;

@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let started = std::time::Instant::now();
     let mut gpu_scene = renderer.upload(&scene)?;
     let upload_ms = started.elapsed().as_secs_f64() * 1e3;
-    let target = renderer.create_target(1920, 1080);
+    let target = renderer.create_target(1920, 1080)?;
     let started = std::time::Instant::now();
     renderer.render(&mut gpu_scene, &camera, &target);
     let frame = renderer.read_rgba(&target)?;

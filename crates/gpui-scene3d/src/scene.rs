@@ -183,7 +183,11 @@ impl Actor {
     /// Whether this actor needs the transparent pass.
     #[must_use]
     pub fn is_transparent(&self) -> bool {
-        self.opacity < 1.0 || self.color[3] < 1.0
+        self.opacity < 1.0
+            || self
+                .transfer
+                .as_ref()
+                .map_or(self.color[3] < 1.0, |tf| !tf.is_opaque())
     }
 
     /// Toggles the wireframe overlay.
@@ -199,6 +203,29 @@ impl Actor {
         let (association, name) = self.field.as_ref()?;
         let field = self.dataset.field(*association, name)?;
         field.as_scalar().map(|values| (*association, values))
+    }
+}
+
+#[cfg(test)]
+mod material_tests {
+    use super::*;
+
+    #[test]
+    fn transfer_alpha_controls_the_render_pass() {
+        let dataset = DataSet::surface("empty", Vec::new(), &[]);
+        for alpha in [0.0, 0.25, 1.0] {
+            let transfer = TransferFunction::from_stops(
+                [0.0, 1.0],
+                &[(0.0, [1.0, 0.0, 0.0, alpha]), (1.0, [0.0, 0.0, 1.0, 1.0])],
+            );
+            let actor = Actor::new(dataset.clone()).coloured_by("p", transfer);
+            assert_eq!(actor.is_transparent(), alpha < 1.0);
+        }
+        assert!(
+            Actor::new(dataset)
+                .coloured_by("p", TransferFunction::from_stops([0.0, 1.0], &[]))
+                .is_transparent()
+        );
     }
 }
 

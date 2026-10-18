@@ -45,6 +45,7 @@ gpui = { workspace = true, optional = true }
 gpui-mesh = { workspace = true }
 image = { workspace = true, optional = true }
 thiserror = { workspace = true }
+smallvec = { workspace = true }
 wgpu = { workspace = true, optional = true }
 bytemuck = { workspace = true, optional = true }
 pollster = { workspace = true, optional = true }

@@ -59,6 +59,10 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    // Invalid point/cell samples are encoded as NaN during preparation.
+    if (input.scalar != input.scalar) {
+        discard;
+    }
     for (var i: u32 = 0u; i < scene.clip_count; i = i + 1u) {
         let origin = scene.clip_origins[i].xyz;
         let normal = scene.clip_normals[i].xyz;
@@ -94,6 +98,27 @@ pub fn scene_uniform_bytes(
     opacity: f32,
     clip_planes: &[crate::scene::ClipPlane],
 ) -> Vec<u8> {
+    scene_uniform_bytes_relative_to(
+        view_projection,
+        scalar_range,
+        opacity,
+        clip_planes,
+        [0.0; 3],
+    )
+}
+
+/// Builds uniforms for vertices rebased on `origin`.
+///
+/// Plane origins are converted in `f64` before upload, matching vertex
+/// preparation and preserving small half-space offsets at large coordinates.
+#[must_use]
+pub fn scene_uniform_bytes_relative_to(
+    view_projection: &[f32; 16],
+    scalar_range: [f32; 2],
+    opacity: f32,
+    clip_planes: &[crate::scene::ClipPlane],
+    origin: [f64; 3],
+) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(288);
     for value in view_projection {
         bytes.extend_from_slice(&value.to_le_bytes());
@@ -104,7 +129,9 @@ pub fn scene_uniform_bytes(
     let mut origins = [[0.0f32; 4]; MAX_CLIP_PLANES];
     let mut normals = [[0.0f32; 4]; MAX_CLIP_PLANES];
     for (i, plane) in clip_planes.iter().take(MAX_CLIP_PLANES).enumerate() {
-        let uniform = plane.to_uniform();
+        let mut local = *plane;
+        local.origin = std::array::from_fn(|axis| plane.origin[axis] - origin[axis]);
+        let uniform = local.to_uniform();
         origins[i] = [uniform[0], uniform[1], uniform[2], 0.0];
         normals[i] = [uniform[4], uniform[5], uniform[6], 0.0];
     }
@@ -141,5 +168,18 @@ mod tests {
     fn shaders_declare_the_clipping_contract() {
         assert!(SURFACE_WGSL.contains("clip_count"));
         assert!(SURFACE_WGSL.contains("discard"));
+    }
+
+    #[test]
+    fn planes_are_rebased_before_float_conversion() {
+        let origin = [1e12, -1e12, 1e12];
+        let plane = crate::ClipPlane {
+            origin: [origin[0] + 0.125, origin[1] + 0.25, origin[2] - 0.5],
+            normal: [1.0, 2.0, -3.0],
+        };
+        let bytes = scene_uniform_bytes_relative_to(&[0.0; 16], [0.0, 1.0], 1.0, &[plane], origin);
+        let read = |offset| f32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+        assert_eq!([read(80), read(84), read(88)], [0.125, 0.25, -0.5]);
+        assert_eq!([read(176), read(180), read(184)], [1.0, 2.0, -3.0]);
     }
 }

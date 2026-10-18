@@ -175,11 +175,11 @@ pub fn smooth(
             adjacency[w[0] as usize].insert(w[1]);
             adjacency[w[1] as usize].insert(w[0]);
         }
-        if nodes.len() > 2 {
-            if let (Some(&first), Some(&last)) = (nodes.first(), nodes.last()) {
-                adjacency[first as usize].insert(last);
-                adjacency[last as usize].insert(first);
-            }
+        if nodes.len() > 2
+            && let (Some(&first), Some(&last)) = (nodes.first(), nodes.last())
+        {
+            adjacency[first as usize].insert(last);
+            adjacency[last as usize].insert(first);
         }
     }
     let mut positions: Vec<[f64; 3]> = dataset.positions.as_ref().to_vec();

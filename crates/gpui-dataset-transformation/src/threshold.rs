@@ -18,7 +18,8 @@ pub enum ThresholdMode {
 ///
 /// Cell fields test the single cell value. Point fields test the cell's
 /// nodes under `mode`. Retained cells are remapped onto the points they
-/// still use; point and cell fields are subset consistently.
+/// still use; point and cell fields are subset consistently. Invalid or
+/// nonfinite entries never match; `All` therefore rejects any invalid node.
 ///
 /// # Errors
 ///
@@ -42,17 +43,22 @@ pub fn threshold(
             field: field_name.to_string(),
             reason: "threshold requires a scalar field".into(),
         })?;
-    let in_range = |v: f64| v >= lower && v <= upper;
+    let in_range = |index: usize| {
+        field.valid.as_ref().is_none_or(|mask| mask[index])
+            && values[index].is_finite()
+            && values[index] >= lower
+            && values[index] <= upper
+    };
 
     let mut keep = vec![false; dataset.cell_count()];
-    for cell in 0..dataset.cell_count() {
-        keep[cell] = match association {
-            Association::Cell => in_range(values[cell]),
+    for (cell, kept) in keep.iter_mut().enumerate() {
+        *kept = match association {
+            Association::Cell => in_range(cell),
             Association::Point => {
                 let nodes = dataset.cells.cell(cell).unwrap_or(&[]);
                 match mode {
-                    ThresholdMode::All => nodes.iter().all(|&n| in_range(values[n as usize])),
-                    ThresholdMode::Any => nodes.iter().any(|&n| in_range(values[n as usize])),
+                    ThresholdMode::All => nodes.iter().all(|&n| in_range(n as usize)),
+                    ThresholdMode::Any => nodes.iter().any(|&n| in_range(n as usize)),
                 }
             }
         };
@@ -166,5 +172,58 @@ mod tests {
         let out = threshold(&ds, "p", Association::Point, 0.0, 2.0, ThresholdMode::All).unwrap();
         assert_eq!(out.cell_count(), 1);
         assert_eq!(out.validate(), Ok(()));
+    }
+
+    #[test]
+    fn invalid_placeholders_never_match_either_threshold_mode() {
+        for association in [Association::Point, Association::Cell] {
+            let count = if association == Association::Point {
+                3
+            } else {
+                1
+            };
+            let mut field = Field::scalar("p", vec![0.5; count]);
+            field.association = association;
+            field.valid = Some(vec![false; count].into());
+            let ds = DataSet::surface(
+                "masked",
+                vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                &[[0, 1, 2]],
+            )
+            .with_field(field);
+            for mode in [ThresholdMode::All, ThresholdMode::Any] {
+                assert_eq!(
+                    threshold(&ds, "p", association, 0.0, 1.0, mode)
+                        .unwrap()
+                        .cell_count(),
+                    0
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn any_requires_one_valid_value_and_preserves_subset_masks() {
+        let mut field = Field::scalar("p", vec![0.5; 3]);
+        field.valid = Some(vec![false, true, false].into());
+        let ds = DataSet::surface(
+            "partial",
+            vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2]],
+        )
+        .with_field(field);
+        assert_eq!(
+            threshold(&ds, "p", Association::Point, 0.0, 1.0, ThresholdMode::All)
+                .unwrap()
+                .cell_count(),
+            0
+        );
+        let selected =
+            threshold(&ds, "p", Association::Point, 0.0, 1.0, ThresholdMode::Any).unwrap();
+        assert_eq!(selected.cell_count(), 1);
+        assert_eq!(
+            selected.point_data[0].valid.as_deref(),
+            Some([false, true, false].as_slice())
+        );
     }
 }

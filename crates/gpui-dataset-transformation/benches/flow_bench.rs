@@ -65,7 +65,7 @@ fn bench_gpu(c: &mut Criterion) {
     c.bench_function("cpu_vorticity_48cubed", |b| {
         b.iter(|| vorticity(&large, "velocity", "vorticity"));
     });
-    let prepared =
+    let mut prepared =
         gpui_dataset_transformation::gpu::PreparedFlow::new(&gpu, &large, "velocity").unwrap();
     c.bench_function("gpu_prepared_48cubed", |b| {
         b.iter(|| prepared.diagnostics(None));

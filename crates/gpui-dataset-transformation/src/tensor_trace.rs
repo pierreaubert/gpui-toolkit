@@ -89,10 +89,10 @@ pub fn hyperstreamlines(
             let mut previous: Option<[f64; 3]> = None;
             for _ in 0..max_steps {
                 let Some(mut dir) = sample(p) else { break };
-                if let Some(prev) = previous {
-                    if dir[0] * prev[0] + dir[1] * prev[1] + dir[2] * prev[2] < 0.0 {
-                        dir = [-dir[0], -dir[1], -dir[2]];
-                    }
+                if let Some(prev) = previous
+                    && dir[0] * prev[0] + dir[1] * prev[1] + dir[2] * prev[2] < 0.0
+                {
+                    dir = [-dir[0], -dir[1], -dir[2]];
                 }
                 let mid = [
                     p[0] + 0.5 * step * direction_sign * dir[0],

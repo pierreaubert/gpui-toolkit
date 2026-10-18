@@ -4,6 +4,41 @@
 
 use crate::dataset::{CellType, DataSet};
 use std::collections::HashMap;
+use std::num::NonZeroU8;
+
+#[derive(Clone, Copy)]
+struct Face {
+    nodes: [u32; 4],
+    // The nonzero length also keeps Option<Face> the same size as Face.
+    len: NonZeroU8,
+}
+
+impl Face {
+    fn new(nodes: &[u32], indices: &[usize; 4]) -> Option<Self> {
+        let mut polygon = [0; 4];
+        let mut len = 0;
+        for &index in indices {
+            let point = nodes[index];
+            if len == 0 || polygon[len - 1] != point {
+                polygon[len] = point;
+                len += 1;
+            }
+        }
+        (len >= 3).then(|| Self {
+            nodes: polygon,
+            len: NonZeroU8::new(len as u8).expect("nonempty face"),
+        })
+    }
+
+    fn key(self) -> [u32; 5] {
+        let len = usize::from(self.len.get());
+        let mut key = [0; 5];
+        key[0] = len as u32;
+        key[1..=len].copy_from_slice(&self.nodes[..len]);
+        key[1..=len].sort_unstable();
+        key
+    }
+}
 
 /// One bounded chunk of extracted surface triangles.
 ///
@@ -25,6 +60,7 @@ pub struct SurfaceChunk {
 /// Hexahedron faces follow VTK node ordering.
 fn volume_faces(kind: CellType) -> &'static [[usize; 4]] {
     match kind {
+        CellType::Tetra => &[[0, 2, 1, 1], [0, 1, 3, 3], [1, 2, 3, 3], [2, 0, 3, 3]],
         CellType::Hexahedron => &[
             [0, 3, 2, 1],
             [4, 5, 6, 7],
@@ -59,11 +95,12 @@ fn volume_faces(kind: CellType) -> &'static [[usize; 4]] {
 /// node set of the whole face polygon, so the culling does not depend on
 /// which diagonal each owner would have chosen; surviving faces are
 /// triangulated from the owning cell's node order.
+/// Boundary faces are emitted in canonical node-set order for repeatability.
 #[must_use]
 pub fn boundary_triangles(dataset: &DataSet) -> Vec<[u32; 3]> {
     let mut triangles: Vec<[u32; 3]> = Vec::new();
     // Sorted-node face key -> owning polygon (None once a second owner appears).
-    let mut faces: HashMap<Vec<u32>, Option<Vec<u32>>> = HashMap::new();
+    let mut faces: HashMap<[u32; 5], Option<Face>> = HashMap::new();
     for cell in 0..dataset.cell_count() {
         let Some(nodes) = dataset.cells.cell(cell) else {
             continue;
@@ -86,35 +123,15 @@ pub fn boundary_triangles(dataset: &DataSet) -> Vec<[u32; 3]> {
             CellType::Tetra | CellType::Hexahedron | CellType::Wedge | CellType::Pyramid => {
                 for face in volume_faces(kind) {
                     // Triangular faces are stored with a repeated last node.
-                    let mut polygon: Vec<u32> = face.iter().map(|&i| nodes[i]).collect();
-                    polygon.dedup();
-                    if polygon.len() < 3 {
+                    let Some(polygon) = Face::new(nodes, face) else {
                         continue;
-                    }
-                    let mut key = polygon.clone();
-                    key.sort_unstable();
-                    match faces.get(&key) {
-                        None => {
-                            faces.insert(key, Some(polygon));
+                    };
+                    match faces.entry(polygon.key()) {
+                        std::collections::hash_map::Entry::Vacant(entry) => {
+                            entry.insert(Some(polygon));
                         }
-                        Some(_) => {
-                            faces.insert(key, None);
-                        }
-                    }
-                }
-                if kind == CellType::Tetra {
-                    // Tetra faces in `volume_faces` are empty; use its triangles.
-                    for face in [[0usize, 2, 1], [0, 1, 3], [1, 2, 3], [2, 0, 3]] {
-                        let polygon: Vec<u32> = face.iter().map(|&i| nodes[i]).collect();
-                        let mut key = polygon.clone();
-                        key.sort_unstable();
-                        match faces.get(&key) {
-                            None => {
-                                faces.insert(key, Some(polygon));
-                            }
-                            Some(_) => {
-                                faces.insert(key, None);
-                            }
+                        std::collections::hash_map::Entry::Occupied(mut entry) => {
+                            entry.insert(None);
                         }
                     }
                 }
@@ -122,10 +139,16 @@ pub fn boundary_triangles(dataset: &DataSet) -> Vec<[u32; 3]> {
             CellType::Vertex | CellType::Line => {}
         }
     }
-    for polygon in faces.into_values().flatten() {
-        triangles.push([polygon[0], polygon[1], polygon[2]]);
-        if polygon.len() == 4 {
-            triangles.push([polygon[0], polygon[2], polygon[3]]);
+    let mut boundary: Vec<_> = faces
+        .into_iter()
+        .filter_map(|(key, polygon)| polygon.map(|polygon| (key, polygon)))
+        .collect();
+    boundary.sort_unstable_by_key(|(key, _)| *key);
+    for (_, polygon) in boundary {
+        let nodes = polygon.nodes;
+        triangles.push([nodes[0], nodes[1], nodes[2]]);
+        if polygon.len.get() == 4 {
+            triangles.push([nodes[0], nodes[2], nodes[3]]);
         }
     }
     triangles
@@ -194,5 +217,41 @@ mod tests {
             }
         }
         let _ = Cells::triangles(&[[0, 1, 2]]);
+    }
+
+    #[test]
+    fn extraction_is_deterministic_and_tetra_shared_faces_are_culled() {
+        let dataset = DataSet::structured_grid("g", [8; 3], [0.0; 3], [1.0; 3]).unwrap();
+        let expected = boundary_triangles(&dataset);
+        for _ in 0..4 {
+            assert_eq!(boundary_triangles(&dataset), expected);
+        }
+        let tetrahedra = DataSet::new(
+            "tets",
+            vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [0.0, 0.0, -1.0],
+            ],
+            Cells::from_cells(&[
+                (CellType::Tetra, &[0, 1, 2, 3]),
+                (CellType::Tetra, &[0, 2, 1, 4]),
+            ]),
+        );
+        tetrahedra.validate().unwrap();
+        assert_eq!(boundary_triangles(&tetrahedra).len(), 6);
+    }
+
+    #[test]
+    fn face_arity_is_part_of_identity_and_optional_storage_stays_compact() {
+        let triangle = Face::new(&[0, 1, 2], &[0, 1, 2, 2]).unwrap();
+        let quad = Face::new(&[0, 1, 2, u32::MAX], &[0, 1, 2, 3]).unwrap();
+        assert_ne!(triangle.key(), quad.key());
+        assert_eq!(
+            std::mem::size_of::<Face>(),
+            std::mem::size_of::<Option<Face>>()
+        );
     }
 }

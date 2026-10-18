@@ -27,6 +27,9 @@ mod orientation;
 mod render;
 #[cfg(feature = "gpui")]
 mod theme;
+#[cfg(all(feature = "gpui", test))]
+#[path = "render/misc.rs"]
+mod tick_label_cache_tests;
 
 pub use config::AxisConfig;
 pub use layout::{
@@ -34,6 +37,6 @@ pub use layout::{
 };
 pub use orientation::AxisOrientation;
 #[cfg(all(feature = "gpui", not(test)))]
-pub use render::render_axis;
+pub use render::{clear_tick_label_cache, render_axis};
 #[cfg(feature = "gpui")]
 pub use theme::{AxisTheme, DefaultAxisTheme};

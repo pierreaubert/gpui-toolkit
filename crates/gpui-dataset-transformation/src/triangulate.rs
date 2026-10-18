@@ -36,7 +36,9 @@ pub fn delaunay_2d(points: &[[f64; 3]]) -> Result<DataSet, TransformError> {
     let triangulation = delaunator::triangulate(&xy);
     let cells: Vec<(CellType, Vec<u32>)> = triangulation
         .triangles
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|tri| {
             (
                 CellType::Triangle,

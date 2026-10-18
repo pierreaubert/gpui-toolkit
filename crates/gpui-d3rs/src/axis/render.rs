@@ -14,6 +14,13 @@ mod misc;
 
 use misc::format_tick;
 
+/// Releases tick labels and invalidates custom formatters on this UI thread.
+///
+/// Call after a formatter's external state changes or on memory pressure.
+pub fn clear_tick_label_cache() {
+    misc::clear_tick_label_cache();
+}
+
 /// Render an axis with the given scale
 ///
 /// # Example

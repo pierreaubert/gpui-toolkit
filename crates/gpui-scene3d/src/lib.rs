@@ -18,6 +18,7 @@ pub mod element;
 #[cfg(feature = "gpu")]
 pub mod gpu_render;
 pub mod legend;
+pub mod limits;
 pub mod movie;
 pub mod prepare;
 pub mod raster;
@@ -34,9 +35,11 @@ pub use legend::{
     Annotation, ColorBar, ColorBarLayout, Rect, draw_axis_triad, draw_colorbar, layout_colorbar,
     nice_ticks,
 };
+#[doc(inline)]
+pub use limits::RenderLimits;
 pub use movie::{MovieError, TimedFrame, frame_rate, validate_frames};
 pub use prepare::{GpuChunk, prepare_chunks};
-pub use raster::{Frame, render};
+pub use raster::{Frame, render, render_with_limits};
 pub use scene::{Actor, ClipBox, ClipPlane, Scene};
 pub use transfer::TransferFunction;
 pub use volume::{VolumeOptions, VolumeRenderer, raycast_volume};
@@ -53,4 +56,20 @@ pub enum SceneError {
     /// A render target dimension is zero.
     #[error("render size must be non-zero, got {0}x{1}")]
     InvalidSize(u32, u32),
+    /// A requested resource exceeds the host's working-set allowance.
+    #[error("{resource} requires {requested}, limit is {limit}")]
+    ResourceLimit {
+        /// Resource being checked.
+        resource: &'static str,
+        /// Requested dimension or byte count.
+        requested: u64,
+        /// Maximum permitted count.
+        limit: u64,
+    },
+    /// The allocator could not reserve a checked buffer.
+    #[error("could not allocate {bytes} bytes")]
+    Allocation {
+        /// Requested backing storage bytes.
+        bytes: u64,
+    },
 }

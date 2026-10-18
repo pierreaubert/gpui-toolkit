@@ -5,6 +5,7 @@
 use crate::SceneError;
 use crate::scene::Actor;
 use gpui_mesh::Association;
+use std::borrow::Cow;
 
 /// Default triangle budget per GPU chunk (about 12 MB of indices).
 pub const DEFAULT_MAX_TRIANGLES: usize = 1_000_000;
@@ -81,12 +82,20 @@ pub fn prepare_chunks(actor: &Actor, max_triangles: usize) -> Result<Vec<GpuChun
     };
     // Cell scalars need triangle -> cell mapping; boundary extraction loses
     // it, so expand cell values to points by averaging owning cells first.
-    let point_scalars: Option<Vec<f64>> = match scalar_lookup {
-        Some((Association::Point, values)) => Some(values.to_vec()),
+    let valid = actor
+        .field
+        .as_ref()
+        .and_then(|(association, name)| dataset.field(*association, name))
+        .and_then(|field| field.valid.as_deref());
+    let point_scalars: Option<Cow<'_, [f64]>> = match scalar_lookup {
+        Some((Association::Point, values)) => Some(Cow::Borrowed(values)),
         Some((Association::Cell, values)) => {
             let mut sums = vec![0.0f64; dataset.point_count()];
             let mut counts = vec![0.0f64; dataset.point_count()];
             for (cell, &value) in values.iter().enumerate() {
+                if !value.is_finite() || valid.is_some_and(|mask| !mask[cell]) {
+                    continue;
+                }
                 let Some(nodes) = dataset.cells.cell(cell) else {
                     continue;
                 };
@@ -95,12 +104,12 @@ pub fn prepare_chunks(actor: &Actor, max_triangles: usize) -> Result<Vec<GpuChun
                     counts[node as usize] += 1.0;
                 }
             }
-            Some(
+            Some(Cow::Owned(
                 sums.iter()
                     .zip(counts.iter())
-                    .map(|(s, c)| if *c > 0.0 { s / c } else { 0.0 })
+                    .map(|(s, c)| if *c > 0.0 { s / c } else { f64::NAN })
                     .collect(),
-            )
+            ))
         }
         None => None,
     };
@@ -117,12 +126,35 @@ pub fn prepare_chunks(actor: &Actor, max_triangles: usize) -> Result<Vec<GpuChun
             positions.push((p[1] - origin[1]) as f32);
             positions.push((p[2] - origin[2]) as f32);
             if let Some(values) = &point_scalars {
-                scalars[local] = values[point as usize] as f32;
+                let invalid = matches!(scalar_lookup, Some((Association::Point, _)))
+                    && valid.is_some_and(|mask| !mask[point as usize]);
+                let scalar = values[point as usize] as f32;
+                scalars[local] = if invalid || !scalar.is_finite() {
+                    f32::NAN
+                } else {
+                    scalar
+                };
             }
         }
-        let normals = smooth_normals(&positions, &chunk.indices);
+        let mut indices = chunk.indices;
+        // Reject triangles touching missing samples before either backend.
+        // GPU correctness must not depend on NaN interpolation/fast-math rules.
+        if scalars.iter().any(|value| !value.is_finite()) {
+            let mut write = 0;
+            for read in (0..indices.len()).step_by(3) {
+                if indices[read..read + 3]
+                    .iter()
+                    .all(|&index| scalars[index as usize].is_finite())
+                {
+                    indices.copy_within(read..read + 3, write);
+                    write += 3;
+                }
+            }
+            indices.truncate(write);
+        }
+        let normals = smooth_normals(&positions, &indices);
         let edges = if actor.wireframe {
-            wireframe_edges(&chunk.indices)
+            wireframe_edges(&indices)
         } else {
             Vec::new()
         };
@@ -131,7 +163,7 @@ pub fn prepare_chunks(actor: &Actor, max_triangles: usize) -> Result<Vec<GpuChun
             positions,
             normals,
             scalars,
-            indices: chunk.indices,
+            indices,
             edges,
         });
     }
@@ -225,5 +257,35 @@ mod tests {
             prepare_chunks(&actor, 100),
             Err(SceneError::FieldNotFound(_))
         ));
+    }
+
+    #[test]
+    fn masked_point_and_cell_values_do_not_become_valid_colors() {
+        for association in [Association::Point, Association::Cell] {
+            let count = if association == Association::Point {
+                3
+            } else {
+                1
+            };
+            let mut field = Field::scalar("p", vec![0.5; count]);
+            field.association = association;
+            field.valid = Some(vec![false; count].into());
+            let dataset = DataSet::surface(
+                "masked",
+                vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                &[[0, 1, 2]],
+            )
+            .with_field(field);
+            let mut actor = Actor::new(dataset);
+            actor.field = Some((association, "p".into()));
+            let chunks = prepare_chunks(&actor, 100).unwrap();
+            assert!(
+                chunks
+                    .iter()
+                    .flat_map(|c| &c.scalars)
+                    .all(|value| value.is_nan())
+            );
+            assert!(chunks.iter().all(|chunk| chunk.indices.is_empty()));
+        }
     }
 }

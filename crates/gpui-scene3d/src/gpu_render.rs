@@ -10,11 +10,11 @@
 
 // Rust guideline compliant 2026-02-21
 
-use crate::camera::{Camera, multiply};
+use crate::camera::Camera;
 use crate::prepare::prepare_chunks;
 use crate::scene::Scene;
-use crate::shaders::{SURFACE_WGSL, scene_uniform_bytes};
-use crate::{Frame, SceneError};
+use crate::shaders::{SURFACE_WGSL, scene_uniform_bytes_relative_to};
+use crate::{Frame, RenderLimits, SceneError};
 use wgpu::util::DeviceExt;
 
 /// Failures reported by the GPU renderer.
@@ -26,6 +26,9 @@ pub enum GpuRenderError {
     /// The device could not be created.
     #[error("wgpu device request failed: {0}")]
     Device(String),
+    /// The renderer/readback requires an RGBA8 or BGRA8 color format.
+    #[error("unsupported scene color format: {0:?}")]
+    UnsupportedFormat(wgpu::TextureFormat),
     /// Scene preparation failed.
     #[error(transparent)]
     Scene(#[from] SceneError),
@@ -62,6 +65,7 @@ pub struct GpuScene {
 pub struct GpuTarget {
     color: wgpu::Texture,
     depth: wgpu::Texture,
+    limits: RenderLimits,
     /// Width in pixels.
     pub width: u32,
     /// Height in pixels.
@@ -84,8 +88,18 @@ impl GpuRenderer {
     ///
     /// # Errors
     ///
-    /// Returns [`GpuRenderError::NoAdapter`] when no adapter exists.
+    /// Returns an error for unsupported color formats, unavailable adapters,
+    /// or device initialization failure.
     pub fn new(format: wgpu::TextureFormat) -> Result<Self, GpuRenderError> {
+        if !matches!(
+            format,
+            wgpu::TextureFormat::Rgba8Unorm
+                | wgpu::TextureFormat::Rgba8UnormSrgb
+                | wgpu::TextureFormat::Bgra8Unorm
+                | wgpu::TextureFormat::Bgra8UnormSrgb
+        ) {
+            return Err(GpuRenderError::UnsupportedFormat(format));
+        }
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -244,6 +258,9 @@ impl GpuRenderer {
             let chunks = prepare_chunks(actor, crate::prepare::DEFAULT_MAX_TRIANGLES)?;
             let mut gpu_chunks = Vec::with_capacity(chunks.len());
             for chunk in &chunks {
+                if chunk.indices.is_empty() {
+                    continue;
+                }
                 geometry_bytes += chunk.byte_len();
                 let make = |data: &[f32], label: &str| {
                     self.device
@@ -353,8 +370,29 @@ impl GpuRenderer {
     }
 
     /// Creates an offscreen colour+depth target.
-    #[must_use]
-    pub fn create_target(&self, width: u32, height: u32) -> GpuTarget {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for zero dimensions or exceeded host/device limits.
+    pub fn create_target(&self, width: u32, height: u32) -> Result<GpuTarget, GpuRenderError> {
+        self.create_target_with_limits(width, height, RenderLimits::default())
+    }
+
+    /// Creates a target within explicit frame-memory and device limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when dimensions or color/depth bytes exceed limits.
+    pub fn create_target_with_limits(
+        &self,
+        width: u32,
+        height: u32,
+        mut limits: RenderLimits,
+    ) -> Result<GpuTarget, GpuRenderError> {
+        limits.max_dimension = limits
+            .max_dimension
+            .min(self.device.limits().max_texture_dimension_2d);
+        limits.pixel_count(width, height, 8)?;
         let size = wgpu::Extent3d {
             width,
             height,
@@ -380,19 +418,19 @@ impl GpuRenderer {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
-        GpuTarget {
+        Ok(GpuTarget {
             color,
             depth,
+            limits,
             width,
             height,
-        }
+        })
     }
 
     /// Draws an uploaded scene into a target. Only uniform buffers are
     /// rewritten; geometry buffers are untouched (GPU-resident).
     pub fn render(&self, scene: &mut GpuScene, camera: &Camera, target: &GpuTarget) {
         let aspect = target.width as f32 / target.height.max(1) as f32;
-        let view_projection = camera.view_projection(aspect);
         let eye = camera.eye();
         for actor in &mut scene.actors {
             // Distance for transparent sorting: chunk origins are all the
@@ -407,30 +445,13 @@ impl GpuRenderer {
         }
         for actor in &scene.actors {
             if let Some(first) = actor.chunks.first() {
-                let translation = [
-                    1.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                    0.0,
-                    first.origin[0] as f32,
-                    first.origin[1] as f32,
-                    first.origin[2] as f32,
-                    1.0,
-                ];
-                let mvp = multiply(view_projection, translation);
-                let bytes = scene_uniform_bytes(
+                let mvp = camera.view_projection_relative_to(first.origin, aspect);
+                let bytes = scene_uniform_bytes_relative_to(
                     &mvp,
                     actor.scalar_range,
                     actor.opacity,
                     &actor.clip_planes,
+                    first.origin,
                 );
                 self.queue.write_buffer(&actor.uniform, 0, &bytes);
             }
@@ -503,13 +524,23 @@ impl GpuRenderer {
     ///
     /// # Errors
     ///
-    /// Returns [`GpuRenderError::Device`] when the readback fails.
+    /// Returns an error when staging/CPU storage exceeds the target's budget,
+    /// allocation fails, or GPU mapping/readback fails.
     pub fn read_rgba(&self, target: &GpuTarget) -> Result<Frame, GpuRenderError> {
-        let bytes_per_row = target.width * 4;
-        let padded = bytes_per_row.div_ceil(256) * 256;
+        let layout = readback_layout(target.width, target.height, target.limits)?;
+        if layout.buffer_bytes > self.device.limits().max_buffer_size {
+            return Err(SceneError::ResourceLimit {
+                resource: "GPU readback buffer bytes",
+                requested: layout.buffer_bytes,
+                limit: self.device.limits().max_buffer_size,
+            }
+            .into());
+        }
+        let bytes_per_row = layout.bytes_per_row;
+        let padded = layout.padded;
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("gpui-scene3d readback"),
-            size: u64::from(padded * target.height),
+            size: layout.buffer_bytes,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -556,7 +587,11 @@ impl GpuRenderer {
             .map_err(|e| GpuRenderError::Device(e.to_string()))?
             .map_err(|e| GpuRenderError::Device(e.to_string()))?;
         let data = slice.get_mapped_range();
-        let mut rgba = Vec::with_capacity((target.width * target.height * 4) as usize);
+        let mut rgba = Vec::new();
+        rgba.try_reserve_exact(layout.rgba_len)
+            .map_err(|_| SceneError::Allocation {
+                bytes: layout.rgba_len as u64,
+            })?;
         for row in 0..target.height as usize {
             let start = row * padded as usize;
             rgba.extend_from_slice(&data[start..start + bytes_per_row as usize]);
@@ -579,6 +614,52 @@ impl GpuRenderer {
     }
 }
 
+struct ReadbackLayout {
+    bytes_per_row: u32,
+    padded: u32,
+    buffer_bytes: u64,
+    rgba_len: usize,
+}
+
+fn readback_layout(
+    width: u32,
+    height: u32,
+    limits: RenderLimits,
+) -> Result<ReadbackLayout, SceneError> {
+    let pixels = limits.pixel_count(width, height, 16)?;
+    let bytes_per_row = u64::from(width) * 4;
+    let padded = bytes_per_row.div_ceil(256) * 256;
+    let buffer_bytes = padded
+        .checked_mul(u64::from(height))
+        .ok_or(SceneError::ResourceLimit {
+            resource: "readback bytes",
+            requested: u64::MAX,
+            limit: limits.max_frame_bytes,
+        })?;
+    // Color, depth, CPU RGBA and padded staging coexist until mapping ends.
+    let working_bytes = (pixels as u64)
+        .checked_mul(12)
+        .and_then(|bytes| bytes.checked_add(buffer_bytes))
+        .ok_or(SceneError::ResourceLimit {
+            resource: "readback bytes",
+            requested: u64::MAX,
+            limit: limits.max_frame_bytes,
+        })?;
+    if working_bytes > limits.max_frame_bytes || padded > u64::from(u32::MAX) {
+        return Err(SceneError::ResourceLimit {
+            resource: "readback bytes",
+            requested: working_bytes,
+            limit: limits.max_frame_bytes,
+        });
+    }
+    Ok(ReadbackLayout {
+        bytes_per_row: bytes_per_row as u32,
+        padded: padded as u32,
+        buffer_bytes,
+        rgba_len: pixels * 4,
+    })
+}
+
 fn ordered_float(value: f32) -> i64 {
     // Reverse-sort key helper: distances are finite scene scales.
     (value * 1000.0) as i64
@@ -590,10 +671,20 @@ mod tests {
     use crate::{Actor, TransferFunction};
     use gpui_mesh::{DataSet, Field};
 
+    fn renderer() -> Option<GpuRenderer> {
+        match GpuRenderer::new(wgpu::TextureFormat::Rgba8Unorm) {
+            Ok(renderer) => Some(renderer),
+            Err(GpuRenderError::NoAdapter) if std::env::var_os("GPUI_REQUIRE_GPU").is_none() => {
+                eprintln!("SKIP: scene3d GPU tests: no adapter");
+                None
+            }
+            Err(error) => panic!("scene3d GPU initialization failed: {error}"),
+        }
+    }
+
     #[test]
     fn gpu_render_matches_scene_and_updates_by_uniform_only() {
-        let Ok(renderer) = GpuRenderer::new(wgpu::TextureFormat::Rgba8Unorm) else {
-            eprintln!("gpu render test skipped: no adapter");
+        let Some(renderer) = renderer() else {
             return;
         };
         let dataset = DataSet::structured_grid("g", [6, 6, 6], [-1.0; 3], [0.4; 3])
@@ -608,7 +699,7 @@ mod tests {
         let camera = Camera::fitted(scene.bounds().unwrap());
         let mut gpu_scene = renderer.upload(&scene).unwrap();
         assert!(gpu_scene.geometry_bytes > 0);
-        let target = renderer.create_target(96, 96);
+        let target = renderer.create_target(96, 96).unwrap();
         renderer.render(&mut gpu_scene, &camera, &target);
         let frame = renderer.read_rgba(&target).unwrap();
         let centre = frame.rgba[((48 * 96 + 48) * 4) as usize..][..3].to_vec();
@@ -626,5 +717,96 @@ mod tests {
             .filter(|(a, b)| a != b)
             .count();
         assert!(changed > 1_000, "orbit changes the frame ({changed})");
+    }
+
+    #[test]
+    fn clipped_surface_is_translation_invariant() {
+        let Some(renderer) = renderer() else { return };
+        let mut expected = None;
+        for center in [0.0, 1000.0, 1_000_000_000.0] {
+            let dataset = DataSet::structured_grid(
+                "translated",
+                [3; 3],
+                [center - 1.0, -1.0, -1.0],
+                [1.0; 3],
+            )
+            .unwrap();
+            let scene =
+                Scene::new().with_actor(Actor::new(dataset).color([1.0, 0.0, 0.0, 1.0]).clip(
+                    crate::ClipPlane {
+                        origin: [center, 0.0, 0.0],
+                        normal: [1.0, 0.0, 0.0],
+                    },
+                ));
+            let camera = Camera::fitted(scene.bounds().unwrap());
+            let mut uploaded = renderer.upload(&scene).unwrap();
+            let target = renderer.create_target(64, 64).unwrap();
+            renderer.render(&mut uploaded, &camera, &target);
+            let frame = renderer.read_rgba(&target).unwrap();
+            let red = frame
+                .rgba
+                .chunks_exact(4)
+                .filter(|p| p[0] > p[1].saturating_add(20))
+                .count();
+            assert!(red > 100, "surface disappeared at {center}");
+            if let Some(count) = expected {
+                assert_eq!(red, count, "translation {center}");
+            } else {
+                expected = Some(red);
+            }
+            if center <= 1000.0 {
+                let cpu = crate::render(&scene, &camera, 64, 64).unwrap();
+                let cpu_red = cpu
+                    .rgba
+                    .chunks_exact(4)
+                    .filter(|p| p[0] > p[1].saturating_add(20))
+                    .count();
+                assert_eq!(red, cpu_red);
+            }
+        }
+    }
+
+    #[test]
+    fn masked_scalar_placeholders_do_not_occlude_the_background() {
+        let Some(renderer) = renderer() else { return };
+        let mut field = Field::scalar("p", vec![0.5; 27]);
+        field.valid = Some(vec![false; 27].into());
+        let dataset = DataSet::structured_grid("masked", [3; 3], [-1.0; 3], [1.0; 3])
+            .unwrap()
+            .with_field(field);
+        let scene = Scene::new().with_actor(
+            Actor::new(dataset).coloured_by("p", TransferFunction::viridis([0.0, 1.0])),
+        );
+        let camera = Camera::fitted(scene.bounds().unwrap());
+        let target = renderer.create_target(32, 32).unwrap();
+        let mut uploaded = renderer.upload(&scene).unwrap();
+        renderer.render(&mut uploaded, &camera, &target);
+        let masked = renderer.read_rgba(&target).unwrap();
+        let mut empty = renderer.upload(&Scene::new()).unwrap();
+        renderer.render(&mut empty, &camera, &target);
+        assert_eq!(masked.rgba, renderer.read_rgba(&target).unwrap().rgba);
+    }
+
+    #[test]
+    fn readback_budget_includes_padding_and_live_targets() {
+        let limits = RenderLimits {
+            max_dimension: 1000,
+            max_frame_bytes: 268,
+        };
+        let layout = readback_layout(1, 1, limits).unwrap();
+        assert_eq!(layout.buffer_bytes, 256);
+        assert_eq!(layout.rgba_len, 4);
+        assert!(
+            readback_layout(
+                1,
+                1,
+                RenderLimits {
+                    max_frame_bytes: 267,
+                    ..limits
+                }
+            )
+            .is_err()
+        );
+        assert!(readback_layout(65_536, 65_536, RenderLimits::default()).is_err());
     }
 }

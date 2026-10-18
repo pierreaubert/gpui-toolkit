@@ -675,6 +675,11 @@ jobs:
           QA_VISUAL_CAPTURE_LIMIT: "200"
         run: just qa-visual
 
+      - name: Require Metal scene and flow correctness tests
+        env:
+          GPUI_REQUIRE_GPU: "1"
+        run: cargo test --locked -p gpui-scene3d -p gpui-dataset-transformation --features gpu --lib
+
       - name: Upload Metal captures, diffs, reports, and contact sheets
         uses: actions/upload-artifact@v4
         with:
@@ -787,7 +792,8 @@ jobs:
         run: |
           git worktree add "$RUNNER_TEMP/gpui-perf-base" "$BASE_SHA"
           CARGO_TARGET_DIR="$RUNNER_TEMP/gpui-perf-base-target" \
-            python3 "$RUNNER_TEMP/gpui-perf-base/scripts/qa_perf_baseline.py" \
+            python3 scripts/qa_perf_baseline.py \
+              --workspace-root "$RUNNER_TEMP/gpui-perf-base" \
               --output "$GITHUB_WORKSPACE/target/qa/perf/base-current-runner.json"
 
       - name: Benchmark candidate and enforce ratchet

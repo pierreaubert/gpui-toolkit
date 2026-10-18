@@ -475,7 +475,7 @@ mod tests {
 
     #[test]
     fn gpu_matches_cpu_on_solid_rotation_when_available() {
-        let Ok(gpu) = GpuFlow::new() else {
+        let Some(gpu) = test_gpu() else {
             // No adapter on this host; CPU remains the reference path.
             return;
         };
@@ -623,6 +623,7 @@ pub struct PreparedFlow {
     queue: Arc<wgpu::Queue>,
     pipeline: wgpu::ComputePipeline,
     base: DataSet,
+    velocity_field: usize,
     velocities_buffer: wgpu::Buffer,
     vorticity_buffer: wgpu::Buffer,
     q_buffer: wgpu::Buffer,
@@ -637,8 +638,16 @@ impl PreparedFlow {
     /// # Errors
     ///
     /// Returns an error when the field is missing, not a vector field, or
-    /// the dataset holds no volume cells.
+    /// the dataset is invalid, holds no volume cells, or the input name
+    /// conflicts with a diagnostic output name.
     pub fn new(gpu: &GpuFlow, dataset: &DataSet, field_name: &str) -> Result<Self, TransformError> {
+        dataset.validate()?;
+        if matches!(field_name, "vorticity" | "q_criterion" | "divergence") {
+            return Err(TransformError::WrongFieldShape {
+                field: field_name.into(),
+                reason: "input name conflicts with diagnostic output".into(),
+            });
+        }
         let field = dataset
             .field(Association::Point, field_name)
             .ok_or_else(|| TransformError::FieldNotFound(field_name.to_string()))?;
@@ -648,6 +657,11 @@ impl PreparedFlow {
                 field: field_name.to_string(),
                 reason: "GPU flow diagnostics require a 3-vector field".into(),
             })?;
+        let velocity_field = dataset
+            .point_data
+            .iter()
+            .position(|field| field.name.as_ref() == field_name)
+            .ok_or_else(|| TransformError::FieldNotFound(field_name.into()))?;
         let mut tets: Vec<[u32; 4]> = Vec::new();
         for cell in 0..dataset.cell_count() {
             let kind = dataset.cells.types[cell];
@@ -829,6 +843,7 @@ impl PreparedFlow {
             queue,
             pipeline,
             base: dataset.clone(),
+            velocity_field,
             velocities_buffer,
             vorticity_buffer,
             q_buffer,
@@ -846,7 +861,10 @@ impl PreparedFlow {
     /// # Errors
     ///
     /// Returns an error when GPU execution or readback fails.
-    pub fn diagnostics(&self, velocities: Option<&[[f64; 3]]>) -> Result<DataSet, TransformError> {
+    pub fn diagnostics(
+        &mut self,
+        velocities: Option<&[[f64; 3]]>,
+    ) -> Result<DataSet, TransformError> {
         if let Some(values) = velocities {
             if values.len() != self.point_count {
                 return Err(TransformError::Degenerate(format!(
@@ -861,6 +879,10 @@ impl PreparedFlow {
                 .collect();
             self.queue
                 .write_buffer(&self.velocities_buffer, 0, bytemuck::cast_slice(&flat));
+            // Commit the same input revision used by subsequent GPU dispatches,
+            // including a later diagnostics(None). Clones share this Arc.
+            self.base.point_data[self.velocity_field].data =
+                gpui_mesh::FieldData::Vector(values.into());
         }
         let mut encoder = self
             .device
@@ -950,7 +972,7 @@ mod prepared_tests {
 
     #[test]
     fn prepared_flow_matches_cpu_and_updates() {
-        let Ok(gpu) = GpuFlow::new() else {
+        let Some(gpu) = test_gpu() else {
             return;
         };
         let mut ds = DataSet::structured_grid("g", [4, 4, 4], [-1.0; 3], [0.5; 3]).unwrap();
@@ -960,7 +982,7 @@ mod prepared_tests {
             .map(|p| [-2.0 * p[1], 2.0 * p[0], 0.0])
             .collect();
         ds.point_data.push(Field::vector("velocity", velocity));
-        let prepared = PreparedFlow::new(&gpu, &ds, "velocity").unwrap();
+        let mut prepared = PreparedFlow::new(&gpu, &ds, "velocity").unwrap();
         let out = prepared.diagnostics(None).unwrap();
         let vorticity = out
             .field(Association::Point, "vorticity")
@@ -982,5 +1004,64 @@ mod prepared_tests {
             .as_scalar()
             .unwrap();
         assert!(q.iter().all(|v| v.abs() < 1e-6));
+        assert_eq!(
+            updated
+                .field(Association::Point, "velocity")
+                .unwrap()
+                .as_vector()
+                .unwrap(),
+            zeros
+        );
+        let repeated = prepared.diagnostics(None).unwrap();
+        assert_eq!(
+            repeated
+                .field(Association::Point, "velocity")
+                .unwrap()
+                .as_vector()
+                .unwrap(),
+            zeros
+        );
+        let cpu = crate::q_criterion(&repeated, "velocity", "q_cpu").unwrap();
+        assert!(
+            cpu.field(Association::Point, "q_cpu")
+                .unwrap()
+                .as_scalar()
+                .unwrap()
+                .iter()
+                .all(|q| q.abs() < 1e-6)
+        );
+        assert!(prepared.diagnostics(Some(&zeros[..1])).is_err());
+        let restored = prepared
+            .diagnostics(Some(
+                ds.field(Association::Point, "velocity")
+                    .unwrap()
+                    .as_vector()
+                    .unwrap(),
+            ))
+            .unwrap();
+        assert!(
+            restored
+                .field(Association::Point, "vorticity")
+                .unwrap()
+                .as_vector()
+                .unwrap()
+                .iter()
+                .all(|v| (v[2] - 4.0).abs() < 1e-2)
+        );
+    }
+}
+
+#[cfg(test)]
+fn test_gpu() -> Option<GpuFlow> {
+    match GpuFlow::new() {
+        Ok(gpu) => {
+            eprintln!("flow test GPU backend: {}", gpu.backend);
+            Some(gpu)
+        }
+        Err(GpuError::NoAdapter) if std::env::var_os("GPUI_REQUIRE_GPU").is_none() => {
+            eprintln!("SKIP: flow GPU tests: no adapter");
+            None
+        }
+        Err(error) => panic!("flow GPU initialization failed: {error}"),
     }
 }

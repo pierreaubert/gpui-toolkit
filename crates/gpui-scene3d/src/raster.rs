@@ -2,10 +2,12 @@
 
 // Rust guideline compliant 2026-02-21
 
-use crate::SceneError;
 use crate::camera::{Camera, transform};
+use crate::limits::frame_buffer;
 use crate::prepare::prepare_chunks;
 use crate::scene::Scene;
+use crate::{RenderLimits, SceneError};
+use smallvec::SmallVec;
 
 /// One rendered frame: tightly packed RGBA8 pixels, row-major.
 #[derive(Debug, Clone, PartialEq)]
@@ -62,25 +64,40 @@ impl Frame {
 ///
 /// # Errors
 ///
-/// Returns an error for a zero size or an actor with a missing field.
+/// Returns an error for invalid dimensions, exceeded default memory limits,
+/// allocation failure, or an actor with a missing field.
 pub fn render(
     scene: &Scene,
     camera: &Camera,
     width: u32,
     height: u32,
 ) -> Result<Frame, SceneError> {
-    if width == 0 || height == 0 {
-        return Err(SceneError::InvalidSize(width, height));
-    }
+    render_with_limits(scene, camera, width, height, RenderLimits::default())
+}
+
+/// Renders a scene within explicit dimension and frame-memory limits.
+///
+/// # Errors
+///
+/// Returns an error for invalid dimensions, exhausted memory, exceeded limits,
+/// or an actor with a missing field.
+pub fn render_with_limits(
+    scene: &Scene,
+    camera: &Camera,
+    width: u32,
+    height: u32,
+    limits: RenderLimits,
+) -> Result<Frame, SceneError> {
+    let pixels = limits.pixel_count(width, height, 8)?;
     let bg = scene.background;
-    let mut rgba = vec![0u8; (width * height * 4) as usize];
+    let mut rgba = frame_buffer(pixels * 4, 0u8)?;
     for px in rgba.as_chunks_mut::<4>().0 {
         px[0] = (bg[0].clamp(0.0, 1.0) * 255.0) as u8;
         px[1] = (bg[1].clamp(0.0, 1.0) * 255.0) as u8;
         px[2] = (bg[2].clamp(0.0, 1.0) * 255.0) as u8;
         px[3] = (bg[3].clamp(0.0, 1.0) * 255.0) as u8;
     }
-    let mut depth = vec![f32::INFINITY; (width * height) as usize];
+    let mut depth = frame_buffer(pixels, f32::INFINITY)?;
     let aspect = width as f32 / height as f32;
     let view_projection = camera.view_projection(aspect);
     let light = normalize3([-0.4, 0.7, 0.6]);
@@ -159,13 +176,19 @@ struct ClipVertex {
     scalar: f32,
 }
 
-fn clip_triangle(tri: [ClipVertex; 3], planes: &[crate::scene::ClipPlane]) -> Vec<ClipVertex> {
-    let mut poly: Vec<ClipVertex> = tri.to_vec();
+fn clip_triangle(
+    tri: [ClipVertex; 3],
+    planes: &[crate::scene::ClipPlane],
+) -> SmallVec<[ClipVertex; 12]> {
+    // A triangle clipped by six planes has at most nine vertices. Keep the
+    // ordinary case on the stack, while safely supporting longer plane lists.
+    let mut poly = SmallVec::<[ClipVertex; 12]>::new();
+    poly.extend_from_slice(&tri);
     for plane in planes {
         if poly.is_empty() {
             break;
         }
-        let mut out: Vec<ClipVertex> = Vec::new();
+        let mut out = SmallVec::<[ClipVertex; 12]>::new();
         for i in 0..poly.len() {
             let a = poly[i];
             let b = poly[(i + 1) % poly.len()];
@@ -214,11 +237,17 @@ fn draw_actor(
     rgba: &mut [u8],
 ) -> Result<(), SceneError> {
     let chunks = prepare_chunks(actor, crate::prepare::DEFAULT_MAX_TRIANGLES)?;
-    let transfer = actor.transfer.clone();
+    let transfer = actor.transfer.as_ref();
     // Screen triangles with their mean depth, for transparent sorting.
     let mut triangles: Vec<ScreenTriangle> = Vec::new();
     for chunk in &chunks {
         for tri in chunk.indices.as_chunks::<3>().0 {
+            if tri
+                .iter()
+                .any(|&index| !chunk.scalars[index as usize].is_finite())
+            {
+                continue;
+            }
             let mut world_tri = [ClipVertex {
                 world: [0.0; 3],
                 scalar: 0.0,
@@ -239,7 +268,8 @@ fn draw_actor(
                 continue;
             }
             // Project the clipped polygon once, then fan-triangulate.
-            let mut projected: Vec<Option<(f32, f32, f32)>> = Vec::with_capacity(poly.len());
+            let mut projected =
+                SmallVec::<[Option<(f32, f32, f32)>; 12]>::with_capacity(poly.len());
             for vertex in &poly {
                 let clip = transform(view_projection, vertex.world);
                 if clip[3] <= 0.0 {
@@ -275,7 +305,13 @@ fn draw_actor(
                 ];
                 let shaded = shade_with_normal(colour, normal, light);
                 let mean_depth = (a.2 + b.2 + c.2) / 3.0;
-                triangles.push((a, b, c, shaded, mean_depth));
+                if blend {
+                    triangles.push((a, b, c, shaded, mean_depth));
+                } else {
+                    // Opaque depth testing does not require retaining a second
+                    // screen-space copy of all scene triangles.
+                    rasterize(a, b, c, shaded, width, height, depth, rgba, false);
+                }
             }
         }
     }
@@ -353,7 +389,7 @@ fn draw_lines(
             if x < 0.0 || y < 0.0 || x >= width as f32 || y >= height as f32 {
                 continue;
             }
-            let idx = (y as u32 * width + x as u32) as usize;
+            let idx = y as usize * width as usize + x as usize;
             if z <= depth[idx] + 1e-3 {
                 rgba[idx * 4..idx * 4 + 4].copy_from_slice(&colour);
             }
@@ -416,7 +452,7 @@ fn rasterize(
                 continue;
             }
             let z = w0 * a.2 + w1 * b.2 + w2 * c.2;
-            let idx = (y * width + x) as usize;
+            let idx = y as usize * width as usize + x as usize;
             if z >= depth[idx] {
                 continue;
             }
@@ -483,6 +519,52 @@ mod tests {
     fn empty_scene_is_background_only() {
         let frame = render(&Scene::new(), &Camera::default(), 8, 8).unwrap();
         assert!(frame.rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 255));
+    }
+
+    #[test]
+    fn frame_limits_reject_before_buffer_allocation() {
+        let limits = RenderLimits {
+            max_dimension: 100,
+            max_frame_bytes: 127,
+        };
+        assert!(matches!(
+            render_with_limits(&Scene::new(), &Camera::default(), 4, 4, limits),
+            Err(SceneError::ResourceLimit { .. })
+        ));
+    }
+
+    #[test]
+    fn transfer_alpha_blends_and_invalid_samples_leave_background() {
+        let dataset = DataSet::surface(
+            "triangle",
+            vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2]],
+        )
+        .with_field(Field::scalar("p", vec![0.5; 3]));
+        let camera = Camera::fitted(dataset.bounds().unwrap());
+        let scene = |alpha| {
+            let actor = Actor::new(dataset.clone()).coloured_by(
+                "p",
+                TransferFunction::from_stops([0.0, 1.0], &[(0.0, [1.0, 0.0, 0.0, alpha])]),
+            );
+            let mut scene = Scene::new().with_actor(actor);
+            scene.background = [0.0, 0.0, 0.0, 1.0];
+            scene
+        };
+        let total_red = |frame: &Frame| {
+            frame
+                .rgba
+                .chunks_exact(4)
+                .map(|p| u64::from(p[0]))
+                .sum::<u64>()
+        };
+        let opaque = render(&scene(1.0), &camera, 64, 64).unwrap();
+        let translucent = render(&scene(0.25), &camera, 64, 64).unwrap();
+        assert!(total_red(&opaque) > 1000);
+        assert!(total_red(&translucent) < total_red(&opaque) / 2);
+        let mut masked = scene(1.0);
+        masked.actors[0].dataset.point_data[0].valid = Some(vec![false; 3].into());
+        assert_eq!(total_red(&render(&masked, &camera, 64, 64).unwrap()), 0);
     }
 }
 

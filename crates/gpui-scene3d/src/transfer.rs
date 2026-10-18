@@ -19,6 +19,12 @@ pub struct TransferFunction {
 }
 
 impl TransferFunction {
+    /// Whether every finite scalar maps to an opaque color.
+    #[must_use]
+    pub fn is_opaque(&self) -> bool {
+        !self.stops.is_empty() && self.stops.iter().all(|(_, color)| color[3] >= 1.0)
+    }
+
     /// Viridis-like perceptually uniform ramp over `range`.
     #[must_use]
     pub fn viridis(range: [f64; 2]) -> Self {

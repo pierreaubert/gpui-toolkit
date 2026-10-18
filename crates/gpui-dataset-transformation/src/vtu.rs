@@ -43,6 +43,65 @@ fn from_vtk_code(code: u32) -> Option<CellType> {
 /// VTK zlib block size for compressed arrays.
 const COMPRESS_BLOCK: usize = 32_768;
 
+/// Limits checked before parsing arrays or expanding compressed input.
+///
+/// Decoded bytes include raw arrays and their expanded numeric storage. XML
+/// input and bounded parser metadata are accounted for separately. Hosts with
+/// tighter working sets should lower these limits before accepting a file.
+#[derive(Debug, Clone, Copy)]
+pub struct VtuReadLimits {
+    /// Maximum complete input bytes, including appended data.
+    pub max_input_bytes: usize,
+    /// Maximum uncompressed bytes in one array.
+    pub max_array_bytes: usize,
+    /// Maximum cumulative decoded raw and numeric-array bytes.
+    pub max_decoded_bytes: usize,
+    /// Maximum array descriptors in one file.
+    pub max_arrays: usize,
+    /// Maximum compressed blocks in one array.
+    pub max_blocks: usize,
+}
+
+impl Default for VtuReadLimits {
+    fn default() -> Self {
+        // Bounded desktop defaults; mobile hosts can supply smaller budgets.
+        Self {
+            max_input_bytes: 64 * 1024 * 1024,
+            max_array_bytes: 32 * 1024 * 1024,
+            max_decoded_bytes: 128 * 1024 * 1024,
+            max_arrays: 4096,
+            max_blocks: 65_536,
+        }
+    }
+}
+
+struct VtuBudget {
+    limits: VtuReadLimits,
+    decoded: usize,
+    arrays: usize,
+}
+
+impl VtuBudget {
+    fn reserve(&mut self, bytes: usize) -> Result<(), String> {
+        let total = self
+            .decoded
+            .checked_add(bytes)
+            .ok_or("decoded VTU size overflow")?;
+        if total > self.limits.max_decoded_bytes {
+            return Err("decoded VTU byte budget exceeded".into());
+        }
+        self.decoded = total;
+        Ok(())
+    }
+
+    fn array(&mut self, bytes: usize) -> Result<(), String> {
+        if bytes > self.limits.max_array_bytes {
+            return Err("VTU array byte budget exceeded".into());
+        }
+        self.reserve(bytes)
+    }
+}
+
 /// Compresses `raw` in the VTK compressed-binary layout: a `UInt64` header
 /// `[num_blocks, block_size, last_block_size, compressed sizes...]`
 /// followed by one zlib stream per block.
@@ -90,7 +149,7 @@ fn binary_block(raw: &[u8]) -> String {
 ///
 /// Returns a description when the header is truncated, a block size is
 /// inconsistent, or a zlib stream fails to inflate.
-fn decompress_block(payload: &[u8]) -> Result<Vec<u8>, String> {
+fn decompress_block(payload: &[u8], budget: &mut VtuBudget) -> Result<Vec<u8>, String> {
     use std::io::Read as _;
     if payload.len() < 24 {
         return Err("compressed DataArray shorter than its header".into());
@@ -99,29 +158,79 @@ fn decompress_block(payload: &[u8]) -> Result<Vec<u8>, String> {
         let at = index * 8;
         u64::from_le_bytes(payload[at..at + 8].try_into().unwrap_or([0; 8]))
     };
-    let num_blocks = header(0) as usize;
-    let block_size = header(1) as usize;
-    let last_size = header(2) as usize;
-    let sizes_at = 24;
-    if payload.len() < sizes_at + num_blocks * 8 {
+    let count = |index| {
+        usize::try_from(header(index))
+            .map_err(|_| "compressed VTU count exceeds address space".to_string())
+    };
+    let num_blocks = count(0)?;
+    let block_size = count(1)?;
+    let last_size = count(2)?;
+    if num_blocks > budget.limits.max_blocks {
+        return Err("compressed VTU block budget exceeded".into());
+    }
+    let header_end = num_blocks
+        .checked_mul(8)
+        .and_then(|bytes| bytes.checked_add(24))
+        .ok_or("compressed VTU header size overflow")?;
+    if payload.len() < header_end {
         return Err("compressed DataArray header is truncated".into());
     }
-    let mut out = Vec::with_capacity(num_blocks.saturating_sub(1) * block_size + last_size);
-    let mut cursor = sizes_at + num_blocks * 8;
+    if (num_blocks > 0 && (block_size == 0 || last_size > block_size))
+        || (num_blocks == 0 && last_size != 0)
+    {
+        return Err("compressed VTU block dimensions are inconsistent".into());
+    }
+    let expected = num_blocks
+        .saturating_sub(1)
+        .checked_mul(block_size)
+        .and_then(|bytes| bytes.checked_add(last_size))
+        .ok_or("decompressed VTU size overflow")?;
+    // Validate every compressed span before trusting the declared output size.
+    let mut cursor = header_end;
     for block in 0..num_blocks {
-        let size = header(3 + block) as usize;
+        cursor = cursor
+            .checked_add(count(3 + block)?)
+            .ok_or("compressed VTU span overflow")?;
+        if cursor > payload.len() {
+            return Err("compressed DataArray block is truncated".into());
+        }
+    }
+    budget.array(expected)?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(expected)
+        .map_err(|_| "cannot allocate decompressed VTU array")?;
+    let mut cursor = header_end;
+    // Fixed scratch avoids a second growable output vector per block.
+    let mut scratch = [0u8; 8192];
+    for block in 0..num_blocks {
+        let size = count(3 + block)?;
         let stream = payload
             .get(cursor..cursor + size)
             .ok_or("compressed DataArray block is truncated")?;
         let mut decoder = flate2::read::ZlibDecoder::new(stream);
-        let mut decoded = Vec::new();
-        decoder
-            .read_to_end(&mut decoded)
-            .map_err(|e| format!("zlib decompression failed: {e}"))?;
-        out.extend_from_slice(&decoded);
+        let mut remaining = if block + 1 == num_blocks {
+            last_size
+        } else {
+            block_size
+        };
+        while remaining > 0 {
+            let length = remaining.min(scratch.len());
+            decoder
+                .read_exact(&mut scratch[..length])
+                .map_err(|e| format!("zlib decompression failed: {e}"))?;
+            out.extend_from_slice(&scratch[..length]);
+            remaining -= length;
+        }
+        let mut extra = [0u8; 1];
+        if decoder
+            .read(&mut extra)
+            .map_err(|e| format!("zlib decompression failed: {e}"))?
+            != 0
+        {
+            return Err("decompressed block exceeds its declared size".into());
+        }
         cursor += size;
     }
-    let expected = num_blocks.saturating_sub(1) * block_size + last_size;
     if out.len() != expected {
         return Err(format!(
             "decompressed size {} does not match header ({expected})",
@@ -282,23 +391,25 @@ fn write_vtu_inner(dataset: &DataSet, compress: bool) -> String {
 }
 
 /// One parsed `DataArray` element.
-struct RawArray {
+struct RawArray<'a> {
     name: Option<String>,
     ty: String,
     components: usize,
     format: String,
-    body: String,
+    body: &'a str,
     offset: Option<usize>,
 }
 
-fn parse_arrays(section: &str) -> Vec<RawArray> {
+fn parse_arrays<'a>(section: &'a str, budget: &mut VtuBudget) -> Result<Vec<RawArray<'a>>, String> {
     let mut arrays = Vec::new();
     let mut rest = section;
     while let Some(start) = rest.find("<DataArray") {
+        if budget.arrays >= budget.limits.max_arrays {
+            return Err("VTU array count budget exceeded".into());
+        }
+        budget.arrays += 1;
         let after = &rest[start..];
-        let Some(tag_end) = after.find('>') else {
-            break;
-        };
+        let tag_end = after.find('>').ok_or("unterminated VTU DataArray tag")?;
         let tag = &after[..tag_end];
         let attr = |key: &str| -> Option<String> {
             let pattern = format!("{key}=\"");
@@ -308,13 +419,14 @@ fn parse_arrays(section: &str) -> Vec<RawArray> {
         };
         let self_closing = tag.ends_with('/');
         let (body, advance) = if self_closing {
-            (String::new(), tag_end + 1)
+            ("", tag_end + 1)
         } else {
             let close = after[tag_end..]
                 .find("</DataArray>")
-                .map_or(after.len(), |c| tag_end + c);
+                .map(|c| tag_end + c)
+                .ok_or("unterminated VTU DataArray body")?;
             (
-                after[tag_end + 1..close].trim().to_string(),
+                after[tag_end + 1..close].trim(),
                 close + "</DataArray>".len().min(after.len() - close),
             )
         };
@@ -333,34 +445,38 @@ fn parse_arrays(section: &str) -> Vec<RawArray> {
             break;
         }
     }
-    arrays
+    Ok(arrays)
 }
 
 fn section<'a>(xml: &'a str, open: &str, close: &str) -> &'a str {
-    let start = xml.find(open).map_or(0, |i| i + open.len());
+    let Some(start) = xml.find(open).map(|i| i + open.len()) else {
+        return "";
+    };
     let end = xml[start..].find(close).map_or(xml.len(), |i| start + i);
     &xml[start..end]
 }
 
 fn decode_array(
-    array: &RawArray,
+    array: &RawArray<'_>,
     appended: Option<&[u8]>,
     compressed: bool,
+    budget: &mut VtuBudget,
 ) -> Result<Vec<u8>, String> {
     match array.format.as_str() {
         "binary" => {
-            let payload = base64::decode(&array.body)?;
+            let payload = base64::decode(array.body)?;
             if compressed {
-                return decompress_block(&payload);
+                return decompress_block(&payload, budget);
             }
             if payload.len() < 8 {
                 return Err("binary DataArray shorter than its header".into());
             }
-            let declared = u64::from_le_bytes(
+            let declared = usize::try_from(u64::from_le_bytes(
                 payload[..8]
                     .try_into()
                     .map_err(|_| "bad header".to_string())?,
-            ) as usize;
+            ))
+            .map_err(|_| "VTU byte count exceeds address space")?;
             let raw = &payload[8..];
             if raw.len() < declared {
                 return Err(format!(
@@ -368,6 +484,7 @@ fn decode_array(
                     raw.len()
                 ));
             }
+            budget.array(declared)?;
             Ok(raw[..declared].to_vec())
         }
         "appended" => {
@@ -377,18 +494,20 @@ fn decode_array(
                 .ok_or("appended DataArray without offset attribute")?;
             let data = blob.get(offset..).ok_or("appended offset out of range")?;
             if compressed {
-                return decompress_block(data);
+                return decompress_block(data, budget);
             }
             if data.len() < 8 {
                 return Err("appended DataArray shorter than its header".into());
             }
-            let declared =
-                u64::from_le_bytes(data[..8].try_into().map_err(|_| "bad header".to_string())?)
-                    as usize;
+            let declared = usize::try_from(u64::from_le_bytes(
+                data[..8].try_into().map_err(|_| "bad header".to_string())?,
+            ))
+            .map_err(|_| "VTU byte count exceeds address space")?;
             let raw = &data[8..];
             if raw.len() < declared {
                 return Err("appended DataArray truncated".into());
             }
+            budget.array(declared)?;
             Ok(raw[..declared].to_vec())
         }
         "ascii" => Err("ascii VTU arrays are not supported by this reader".into()),
@@ -410,17 +529,31 @@ fn appended_blob(bytes: &[u8]) -> Option<&[u8]> {
     let end_marker = b"</AppendedData>";
     let end = bytes[blob_start..]
         .windows(end_marker.len())
-        .position(|w| w == end_marker)?
+        .rposition(|w| w == end_marker)?
         + blob_start;
     Some(&bytes[blob_start..end])
 }
 
 fn array_f64(
-    array: &RawArray,
+    array: &RawArray<'_>,
     appended: Option<&[u8]>,
     compressed: bool,
+    budget: &mut VtuBudget,
 ) -> Result<Vec<f64>, String> {
-    let raw = decode_array(array, appended, compressed)?;
+    let raw = decode_array(array, appended, compressed, budget)?;
+    let element_size = match array.ty.as_str() {
+        "Float64" | "Double" => 8,
+        "Float32" | "Float" => 4,
+        other => return Err(format!("expected a float array, found type '{other}'")),
+    };
+    if !raw.len().is_multiple_of(element_size) {
+        return Err("partial VTU numeric element".into());
+    }
+    budget.reserve(
+        (raw.len() / element_size)
+            .checked_mul(8)
+            .ok_or("numeric VTU size overflow")?,
+    )?;
     match array.ty.as_str() {
         "Float64" | "Double" => Ok(raw
             .as_chunks::<8>()
@@ -439,11 +572,26 @@ fn array_f64(
 }
 
 fn array_i64(
-    array: &RawArray,
+    array: &RawArray<'_>,
     appended: Option<&[u8]>,
     compressed: bool,
+    budget: &mut VtuBudget,
 ) -> Result<Vec<i64>, String> {
-    let raw = decode_array(array, appended, compressed)?;
+    let raw = decode_array(array, appended, compressed, budget)?;
+    let element_size = match array.ty.as_str() {
+        "Int64" => 8,
+        "Int32" | "UInt32" => 4,
+        "UInt8" => 1,
+        other => return Err(format!("expected an integer array, found type '{other}'")),
+    };
+    if !raw.len().is_multiple_of(element_size) {
+        return Err("partial VTU numeric element".into());
+    }
+    budget.reserve(
+        (raw.len() / element_size)
+            .checked_mul(8)
+            .ok_or("numeric VTU size overflow")?,
+    )?;
     match array.ty.as_str() {
         "Int64" => Ok(raw
             .as_chunks::<8>()
@@ -469,15 +617,16 @@ fn array_i64(
 }
 
 fn field_from_array(
-    array: &RawArray,
+    array: &RawArray<'_>,
     appended: Option<&[u8]>,
     compressed: bool,
     association: Association,
+    budget: &mut VtuBudget,
 ) -> Result<Option<Field>, String> {
     let Some(name) = &array.name else {
         return Ok(None);
     };
-    let values = array_f64(array, appended, compressed)?;
+    let values = array_f64(array, appended, compressed, budget)?;
     let mut field = match array.components {
         1 => Field::scalar(name.clone(), values),
         3 => {
@@ -544,9 +693,18 @@ fn field_from_array(
 ///
 /// # Errors
 ///
-/// Returns a description of the first structural problem encountered.
+/// Returns an error for structural problems or exceeded default read limits.
 pub fn read_vtu(xml: &str) -> Result<DataSet, String> {
-    read_vtu_impl(xml, appended_blob(xml.as_bytes()))
+    read_vtu_with_limits(xml, VtuReadLimits::default())
+}
+
+/// Parses VTU text within explicit input and decoded-array budgets.
+///
+/// # Errors
+///
+/// Returns an error for malformed input or an exceeded allocation limit.
+pub fn read_vtu_with_limits(xml: &str, limits: VtuReadLimits) -> Result<DataSet, String> {
+    read_vtu_bytes_with_limits(xml.as_bytes(), limits)
 }
 
 /// Reads a VTU file from raw bytes; required for `format="appended"`
@@ -554,24 +712,50 @@ pub fn read_vtu(xml: &str) -> Result<DataSet, String> {
 ///
 /// # Errors
 ///
-/// Returns a description of the first structural problem encountered.
+/// Returns an error for structural problems or exceeded default read limits.
 pub fn read_vtu_bytes(bytes: &[u8]) -> Result<DataSet, String> {
-    let xml = String::from_utf8_lossy(bytes);
-    read_vtu_impl(&xml, appended_blob(bytes))
+    read_vtu_bytes_with_limits(bytes, VtuReadLimits::default())
 }
 
-fn read_vtu_impl(xml: &str, appended: Option<&[u8]>) -> Result<DataSet, String> {
+/// Parses inline or appended VTU bytes within explicit allocation limits.
+///
+/// # Errors
+///
+/// Returns an error for malformed input, invalid XML encoding, or exceeded limits.
+pub fn read_vtu_bytes_with_limits(bytes: &[u8], limits: VtuReadLimits) -> Result<DataSet, String> {
+    if bytes.len() > limits.max_input_bytes {
+        return Err("VTU input byte budget exceeded".into());
+    }
+    // Raw appended data is not XML text and must not be copied/UTF-8-expanded.
+    let end = bytes
+        .windows(b"<AppendedData".len())
+        .position(|part| part == b"<AppendedData")
+        .unwrap_or(bytes.len());
+    let xml = std::str::from_utf8(&bytes[..end]).map_err(|_| "VTU XML is not UTF-8")?;
+    let mut budget = VtuBudget {
+        limits,
+        decoded: 0,
+        arrays: 0,
+    };
+    read_vtu_impl(xml, appended_blob(bytes), &mut budget)
+}
+
+fn read_vtu_impl(
+    xml: &str,
+    appended: Option<&[u8]>,
+    budget: &mut VtuBudget,
+) -> Result<DataSet, String> {
     if !xml.contains("UnstructuredGrid") {
         return Err("not a VTU unstructured-grid file".into());
     }
     let compressed = xml.contains("vtkZLibDataCompressor");
     // Points.
     let points_section = section(xml, "<Points>", "</Points>");
-    let point_arrays = parse_arrays(points_section);
+    let point_arrays = parse_arrays(points_section, budget)?;
     let point_array = point_arrays
         .first()
         .ok_or("VTU file has no Points DataArray")?;
-    let flat = array_f64(point_array, appended, compressed)?;
+    let flat = array_f64(point_array, appended, compressed, budget)?;
     if flat.len() % 3 != 0 {
         return Err("points array length is not a multiple of 3".into());
     }
@@ -584,25 +768,28 @@ fn read_vtu_impl(xml: &str, appended: Option<&[u8]>) -> Result<DataSet, String> 
 
     // Cells.
     let cells_section = section(xml, "<Cells>", "</Cells>");
-    let cell_arrays = parse_arrays(cells_section);
+    let cell_arrays = parse_arrays(cells_section, budget)?;
     let find = |name: &str| {
         cell_arrays
             .iter()
             .find(|a| a.name.as_deref() == Some(name))
             .ok_or_else(|| format!("VTU Cells section lacks '{name}'"))
     };
-    let connectivity: Vec<u32> = array_i64(find("connectivity")?, appended, compressed)?
+    let connectivity: Vec<u32> = array_i64(find("connectivity")?, appended, compressed, budget)?
         .into_iter()
-        .map(|v| v as u32)
-        .collect();
+        .map(|v| u32::try_from(v).map_err(|_| "VTU point index is outside u32 range".to_string()))
+        .collect::<Result<_, _>>()?;
     let mut offsets: Vec<u64> = vec![0];
-    for value in array_i64(find("offsets")?, appended, compressed)? {
-        offsets.push(value as u64);
+    for value in array_i64(find("offsets")?, appended, compressed, budget)? {
+        offsets.push(u64::try_from(value).map_err(|_| "negative VTU cell offset")?);
     }
-    let types: Vec<CellType> = array_i64(find("types")?, appended, compressed)?
+    let types: Vec<CellType> = array_i64(find("types")?, appended, compressed, budget)?
         .into_iter()
         .map(|code| {
-            from_vtk_code(code as u32).ok_or_else(|| format!("unsupported VTK cell type {code}"))
+            u32::try_from(code)
+                .ok()
+                .and_then(from_vtk_code)
+                .ok_or_else(|| format!("unsupported VTK cell type {code}"))
         })
         .collect::<Result<_, _>>()?;
     let cells = Cells {
@@ -612,13 +799,17 @@ fn read_vtu_impl(xml: &str, appended: Option<&[u8]>) -> Result<DataSet, String> 
     };
 
     let mut dataset = DataSet::new("vtu", positions, cells);
-    for array in parse_arrays(section(xml, "<PointData>", "</PointData>")) {
-        if let Some(field) = field_from_array(&array, appended, compressed, Association::Point)? {
+    for array in parse_arrays(section(xml, "<PointData>", "</PointData>"), budget)? {
+        if let Some(field) =
+            field_from_array(&array, appended, compressed, Association::Point, budget)?
+        {
             dataset.point_data.push(field);
         }
     }
-    for array in parse_arrays(section(xml, "<CellData>", "</CellData>")) {
-        if let Some(field) = field_from_array(&array, appended, compressed, Association::Cell)? {
+    for array in parse_arrays(section(xml, "<CellData>", "</CellData>"), budget)? {
+        if let Some(field) =
+            field_from_array(&array, appended, compressed, Association::Cell, budget)?
+        {
             dataset.cell_data.push(field);
         }
     }
@@ -676,6 +867,104 @@ mod tests {
     fn rejects_non_vtu_input() {
         let err = read_vtu("<html></html>").unwrap_err();
         assert!(err.contains("not a VTU"));
+    }
+
+    fn budget(limits: VtuReadLimits) -> VtuBudget {
+        VtuBudget {
+            limits,
+            decoded: 0,
+            arrays: 0,
+        }
+    }
+
+    #[test]
+    fn forged_compression_headers_fail_before_reserving_output() {
+        for words in [[u64::MAX, 1, 1], [1, u64::MAX, u64::MAX], [2, u64::MAX, 1]] {
+            let mut payload: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
+            payload.extend_from_slice(&0u64.to_le_bytes());
+            let mut allowance = budget(VtuReadLimits::default());
+            assert!(decompress_block(&payload, &mut allowance).is_err());
+            assert_eq!(allowance.decoded, 0);
+        }
+    }
+
+    #[test]
+    fn decompression_stops_at_declared_block_size() {
+        let mut payload = compress_block(&[42u8; 4096]);
+        payload[16..24].copy_from_slice(&8u64.to_le_bytes());
+        let mut allowance = budget(VtuReadLimits::default());
+        assert!(
+            decompress_block(&payload, &mut allowance)
+                .unwrap_err()
+                .contains("exceeds its declared size")
+        );
+        assert_eq!(allowance.decoded, 8);
+    }
+
+    #[test]
+    fn explicit_budgets_cover_input_arrays_and_numeric_expansion() {
+        let dataset = DataSet::surface(
+            "s",
+            vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2]],
+        );
+        for xml in [write_vtu(&dataset), write_vtu_compressed(&dataset)] {
+            for limits in [
+                VtuReadLimits {
+                    max_input_bytes: xml.len() - 1,
+                    ..VtuReadLimits::default()
+                },
+                VtuReadLimits {
+                    max_array_bytes: 8,
+                    ..VtuReadLimits::default()
+                },
+                VtuReadLimits {
+                    max_decoded_bytes: 80,
+                    ..VtuReadLimits::default()
+                },
+                VtuReadLimits {
+                    max_arrays: 1,
+                    ..VtuReadLimits::default()
+                },
+            ] {
+                assert!(
+                    read_vtu_with_limits(&xml, limits)
+                        .unwrap_err()
+                        .contains("budget")
+                );
+            }
+            assert_eq!(read_vtu(&xml).unwrap().point_count(), 3);
+        }
+        let bytes = write_vtu_appended(&dataset);
+        assert_eq!(read_vtu_bytes(&bytes).unwrap().cell_count(), 1);
+    }
+
+    #[test]
+    fn partial_numeric_elements_are_rejected() {
+        let body = binary_block(&[0; 7]);
+        let array = RawArray {
+            name: None,
+            ty: "Float64".into(),
+            components: 1,
+            format: "binary".into(),
+            body: &body,
+            offset: None,
+        };
+        assert!(
+            array_f64(&array, None, false, &mut budget(VtuReadLimits::default()))
+                .unwrap_err()
+                .contains("partial")
+        );
+    }
+
+    #[test]
+    fn absent_sections_do_not_reparse_the_whole_document() {
+        assert_eq!(
+            section("<Cells>data</Cells>", "<PointData>", "</PointData>"),
+            ""
+        );
+        let mut allowance = budget(VtuReadLimits::default());
+        assert!(parse_arrays("<DataArray type=\"Float64\">abc", &mut allowance).is_err());
     }
 }
 

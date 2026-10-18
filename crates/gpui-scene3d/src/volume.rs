@@ -229,7 +229,8 @@ impl VolumeRenderer {
     ///
     /// # Errors
     ///
-    /// Returns an error for a zero render size.
+    /// Returns an error for invalid dimensions, exceeded default memory limits,
+    /// allocation failure, or a singular camera matrix.
     pub fn render(
         &self,
         transfer: &TransferFunction,
@@ -238,13 +239,36 @@ impl VolumeRenderer {
         height: u32,
         options: &VolumeOptions,
     ) -> Result<Frame, SceneError> {
+        self.render_with_limits(
+            transfer,
+            camera,
+            width,
+            height,
+            options,
+            crate::RenderLimits::default(),
+        )
+    }
+
+    /// Raycasts a frame within explicit working-memory limits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid dimensions, exceeded limits, allocation
+    /// failure, or a singular camera matrix.
+    pub fn render_with_limits(
+        &self,
+        transfer: &TransferFunction,
+        camera: &Camera,
+        width: u32,
+        height: u32,
+        options: &VolumeOptions,
+        limits: crate::RenderLimits,
+    ) -> Result<Frame, SceneError> {
+        let pixels = limits.pixel_count(width, height, 4)?;
         let dataset = &self.dataset;
         let scalars: &[f64] = &self.scalars;
         let bounds = self.bounds;
         let grid = &self.grid;
-        if width == 0 || height == 0 {
-            return Err(SceneError::InvalidSize(width, height));
-        }
         let aspect = width as f32 / height as f32;
         let view_projection = camera.view_projection(aspect);
         let inverse = invert4(view_projection)
@@ -255,10 +279,10 @@ impl VolumeRenderer {
         let step = (diagonal * options.step_fraction).max(diagonal / 4096.0);
         let bg = options.background;
 
-        let mut rgba = vec![0u8; (width * height * 4) as usize];
+        let mut rgba = crate::limits::frame_buffer(pixels * 4, 0u8)?;
         for y in 0..height {
             for x in 0..width {
-                let idx = ((y * width + x) * 4) as usize;
+                let idx = (y as usize * width as usize + x as usize) * 4;
                 // Unproject the pixel centre at the near and far planes.
                 let ndc_x = (x as f32 + 0.5) / width as f32 * 2.0 - 1.0;
                 let ndc_y = 1.0 - (y as f32 + 0.5) / height as f32 * 2.0;

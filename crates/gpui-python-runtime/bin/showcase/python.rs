@@ -27,6 +27,33 @@ type SharedResult<T> = Arc<Mutex<Option<Result<T, Box<dyn Error + Send + Sync>>>
 const MAX_OUTBOUND_MESSAGES: usize = 128;
 const MAX_OUTBOUND_BYTES: usize = 2 * 1024 * 1024;
 
+// Diagnostics must not retain arbitrary child output for the session lifetime.
+const MAX_STDERR_LINE_BYTES: usize = 8192;
+const MAX_STDERR_BYTES: usize = 256 * 1024;
+const MAX_STDERR_LINES: usize = 1000;
+
+#[derive(Default)]
+struct StderrLog {
+    lines: VecDeque<String>,
+    bytes: usize,
+}
+
+impl StderrLog {
+    fn push(&mut self, line: String) {
+        if line.len() > MAX_STDERR_BYTES {
+            return;
+        }
+        while self.lines.len() >= MAX_STDERR_LINES || self.bytes + line.len() > MAX_STDERR_BYTES {
+            let Some(removed) = self.lines.pop_front() else {
+                break;
+            };
+            self.bytes -= removed.len();
+        }
+        self.bytes += line.len();
+        self.lines.push_back(line);
+    }
+}
+
 #[derive(Clone)]
 struct PythonOutboundWriter {
     shared: Arc<OutboundWriterShared>,
@@ -426,7 +453,7 @@ pub(super) struct PythonSession {
     /// snapshot (for example restored job updates). Keep them until the host
     /// entity has been constructed instead of treating ordering as fatal.
     pending: Arc<Mutex<VecDeque<PythonMessage>>>,
-    pub stderr: Arc<Mutex<Vec<String>>>,
+    stderr: Arc<Mutex<StderrLog>>,
     wake: PythonSessionWake,
     /// Owns and crash-cleans all mmap publication files for this session.
     resource_directory: Arc<Mutex<Option<tempfile::TempDir>>>,
@@ -560,7 +587,7 @@ impl PythonSession {
     pub fn stderr_diagnostics(&self) -> String {
         self.stderr
             .lock()
-            .map(|lines| lines.iter().rev().take(30).cloned().collect::<Vec<_>>())
+            .map(|log| log.lines.iter().rev().take(30).cloned().collect::<Vec<_>>())
             .unwrap_or_default()
             .into_iter()
             .rev()
@@ -746,15 +773,21 @@ fn spawn_python_session_for_script(
     std::thread::spawn(move || {
         read_python_messages_with_mmap(BufReader::new(stdout), tx, reader_wake, Some(mmap_config));
     });
-    let stderr_lines = Arc::new(Mutex::new(Vec::new()));
+    let stderr_lines = Arc::new(Mutex::new(StderrLog::default()));
     let stderr_sink = stderr_lines.clone();
     std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            let mut lines = stderr_sink.lock().expect("stderr lock");
-            lines.push(line);
-            if lines.len() > 1_000 {
-                lines.remove(0);
-            }
+        let mut reader = BufReader::new(stderr);
+        let mut line = Vec::new();
+        loop {
+            let diagnostic = match read_control_line(&mut reader, &mut line, MAX_STDERR_LINE_BYTES)
+            {
+                Ok(ControlLine::End) | Err(_) => break,
+                Ok(ControlLine::Message) => String::from_utf8_lossy(&line)
+                    .trim_end_matches(['\r', '\n'])
+                    .to_string(),
+                Ok(ControlLine::Oversized) => "[oversized Python stderr line omitted]".into(),
+            };
+            stderr_sink.lock().expect("stderr lock").push(diagnostic);
         }
     });
     Ok(PythonSession {
@@ -812,6 +845,58 @@ fn prepare_mapped_frame(
         .map_err(|error| format!("invalid Python mmap frame: {error}"))
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum ControlLine {
+    End,
+    Message,
+    Oversized,
+}
+
+fn read_control_line<R: BufRead>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+    limit: usize,
+) -> io::Result<ControlLine> {
+    line.clear();
+    // Permit CRLF while keeping the payload limit independent of delimiters.
+    let wire_limit = limit.saturating_add(2);
+    let mut oversized = false;
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return Ok(if oversized {
+                ControlLine::Oversized
+            } else if line.is_empty() {
+                ControlLine::End
+            } else {
+                ControlLine::Message
+            });
+        }
+        let newline = available.iter().position(|&byte| byte == b'\n');
+        let consumed = newline.map_or(available.len(), |index| index + 1);
+        if !oversized {
+            if consumed > wire_limit.saturating_sub(line.len()) {
+                oversized = true;
+                line.clear();
+                // An oversized line cannot permanently retain a giant buffer.
+                line.shrink_to(64 * 1024);
+            } else {
+                line.try_reserve(consumed)
+                    .map_err(|_| io::Error::other("cannot allocate Python control line"))?;
+                line.extend_from_slice(&available[..consumed]);
+            }
+        }
+        reader.consume(consumed);
+        if newline.is_some() {
+            return Ok(if oversized {
+                ControlLine::Oversized
+            } else {
+                ControlLine::Message
+            });
+        }
+    }
+}
+
 fn read_python_messages_with_mmap<R: BufRead>(
     mut reader: R,
     tx: SyncSender<Result<PythonMessage, String>>,
@@ -820,14 +905,23 @@ fn read_python_messages_with_mmap<R: BufRead>(
 ) {
     let mut line = Vec::new();
     loop {
-        line.clear();
-        match reader.read_until(b'\n', &mut line) {
-            Ok(0) => {
+        match read_control_line(&mut reader, &mut line, DEFAULT_MAX_SESSION_MESSAGE_BYTES) {
+            Ok(ControlLine::End) => {
                 let _ = tx.send(Err("Python process closed its session stream".into()));
                 reader_wake.notify();
                 return;
             }
-            Ok(_) => {}
+            Ok(ControlLine::Message) => {}
+            Ok(ControlLine::Oversized) => {
+                if tx
+                    .send(Err("Python session message exceeds maximum size".into()))
+                    .is_err()
+                {
+                    return;
+                }
+                reader_wake.notify();
+                continue;
+            }
             Err(error) => {
                 let _ = tx.send(Err(error.to_string()));
                 reader_wake.notify();
@@ -846,7 +940,7 @@ fn read_python_messages_with_mmap<R: BufRead>(
         if line.len() > DEFAULT_MAX_SESSION_MESSAGE_BYTES {
             let _ = tx.send(Err("Python session message exceeds maximum size".into()));
             reader_wake.notify();
-            // `read_until` consumed the complete control line, so the
+            // The bounded reader consumed the complete control line, so the
             // newline-delimited stream is still synchronized. Keep the
             // child alive and allow a later valid patch or heartbeat to
             // recover the session.
@@ -1435,6 +1529,62 @@ for line in sys.stdin:
             rx.recv().expect("stream-close diagnostic"),
             Err(message) if message.contains("Python process closed its session stream")
         ));
+    }
+
+    #[test]
+    fn bounded_control_reader_drains_chunked_oversized_lines_and_recovers() {
+        let mut input = vec![b'x'; 4096];
+        input.extend_from_slice(b"\nnext\n");
+        let mut reader = BufReader::with_capacity(7, Cursor::new(input));
+        let mut line = Vec::new();
+        assert_eq!(
+            read_control_line(&mut reader, &mut line, 32).unwrap(),
+            ControlLine::Oversized
+        );
+        assert!(
+            line.capacity() <= 68,
+            "reader allocated in proportion to the oversized line"
+        );
+        assert_eq!(
+            read_control_line(&mut reader, &mut line, 32).unwrap(),
+            ControlLine::Message
+        );
+        assert_eq!(line, b"next\n");
+        assert_eq!(
+            read_control_line(&mut reader, &mut line, 32).unwrap(),
+            ControlLine::End
+        );
+    }
+
+    #[test]
+    fn bounded_control_reader_handles_unterminated_input_and_crlf_boundary() {
+        let mut reader = BufReader::with_capacity(3, Cursor::new(vec![b'x'; 4096]));
+        let mut line = Vec::new();
+        assert_eq!(
+            read_control_line(&mut reader, &mut line, 16).unwrap(),
+            ControlLine::Oversized
+        );
+        assert!(line.len() <= 18 && line.capacity() <= 36);
+        let mut reader = BufReader::with_capacity(3, Cursor::new(b"12345678\r\n"));
+        assert_eq!(
+            read_control_line(&mut reader, &mut line, 8).unwrap(),
+            ControlLine::Message
+        );
+        assert_eq!(line, b"12345678\r\n");
+    }
+
+    #[test]
+    fn stderr_history_is_bounded_in_bytes_and_entries() {
+        let mut log = StderrLog::default();
+        for _ in 0..2000 {
+            log.push("x".repeat(MAX_STDERR_LINE_BYTES));
+        }
+        assert!(log.bytes <= MAX_STDERR_BYTES);
+        assert!(log.lines.len() <= MAX_STDERR_LINES);
+        assert_eq!(log.bytes, log.lines.iter().map(String::len).sum::<usize>());
+        let before = log.bytes;
+        log.push("x".repeat(MAX_STDERR_BYTES + 1));
+        assert_eq!(log.bytes, before);
     }
 
     #[test]

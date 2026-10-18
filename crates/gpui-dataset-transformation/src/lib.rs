@@ -77,7 +77,10 @@ pub use tensor_trace::hyperstreamlines;
 pub use threshold::{ThresholdMode, threshold};
 pub use triangulate::{convex_hull, delaunay_2d};
 pub use vtk_io::{read_vtk, write_vtk};
-pub use vtu::{read_vtu, read_vtu_bytes, write_vtu, write_vtu_appended, write_vtu_compressed};
+pub use vtu::{
+    VtuReadLimits, read_vtu, read_vtu_bytes, read_vtu_bytes_with_limits, read_vtu_with_limits,
+    write_vtu, write_vtu_appended, write_vtu_compressed,
+};
 pub use warp::{warp_by_scalar, warp_by_vector};
 pub use xdmf::{XdmfBundle, read_xdmf, write_xdmf};
 

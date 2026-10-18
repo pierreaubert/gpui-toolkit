@@ -7,9 +7,9 @@ Usage:
   python3 scripts/qa_perf_baseline.py --run gpui-builder:solved_tree
   python3 scripts/qa_perf_baseline.py --collect-only --output qa/perf/baseline.json
 
-Baseline JSON schema (version 1):
+Baseline JSON schema (version 2):
 {
-  "version": 1,
+  "version": 2,
   "generated_at": "<ISO-8601 UTC timestamp>",
   "metadata": {"criterion_flags": "...", "generator": "scripts/qa_perf_baseline.py"},
   "records": [
@@ -24,6 +24,8 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import math
+import os
 import platform
 import re
 import shutil
@@ -33,10 +35,17 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
-TARGET_CRITERION = ROOT / "target" / "criterion"
+TARGET_CRITERION = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target")) / "criterion"
 BASELINE_VERSION = 2
+RUN_ID = uuid4().hex
+RUN_SAMPLES: dict[str, str] = {}
+
+
+class CollectionError(Exception):
+    """A required benchmark did not produce trustworthy samples."""
 
 # Stable-but-reasonable Criterion settings for the non-regression suite.
 # Default settings are too slow for `just qa`; these still produce usable medians.
@@ -69,6 +78,14 @@ class BenchSpec:
 # Benchmarks included in the non-regression suite.
 # The `groups` patterns map Criterion group_id values to crate:bench.
 BENCHMARKS: list[BenchSpec] = [
+    BenchSpec(
+        "gpui-scene3d", "render_bench", [],
+        groups=["prepare_chunks_*", "render_surface_*", "raycast_volume_*"],
+    ),
+    BenchSpec(
+        "gpui-dataset-transformation", "flow_bench", [],
+        groups=["vorticity_*", "q_criterion_*", "isosurface_*"],
+    ),
     BenchSpec(
         "gpui-d3rs",
         "mesh_prep",
@@ -147,7 +164,7 @@ def existing_criterion_dirs() -> set[str]:
     return {str(p.relative_to(TARGET_CRITERION)) for p in TARGET_CRITERION.rglob("new") if p.is_dir()}
 
 
-def run_bench(spec: BenchSpec) -> None:
+def run_bench(spec: BenchSpec, sample_dir: Path) -> None:
     print(f"Running {spec.key} ...")
     cmd = ["cargo", "bench", "-p", spec.crate, "--bench", spec.bench]
     if spec.no_default_features:
@@ -156,9 +173,15 @@ def run_bench(spec: BenchSpec) -> None:
         cmd.extend(["--features", ",".join(spec.features)])
     cmd.extend(["--", *CRITERION_FLAGS])
 
-    before = existing_criterion_dirs()
+    # Criterion honors CRITERION_HOME. Never reuse previous samples, including
+    # when a successful benchmark binary accidentally executes no benchmarks.
+    sample_dir.mkdir(parents=True, exist_ok=False)
+    environment = {**os.environ, "CRITERION_HOME": str(sample_dir)}
     try:
-        subprocess.run(resolve_command(cmd), cwd=ROOT, check=True, timeout=BENCH_TIMEOUT_SECS)
+        subprocess.run(
+            resolve_command(cmd), cwd=ROOT, env=environment,
+            check=True, timeout=BENCH_TIMEOUT_SECS,
+        )
     except FileNotFoundError:
         print("ERROR: cargo executable not found; is Rust installed?", file=sys.stderr)
         sys.exit(2)
@@ -168,15 +191,6 @@ def run_bench(spec: BenchSpec) -> None:
     except subprocess.TimeoutExpired:
         print(f"ERROR: benchmark {spec.key} timed out after {BENCH_TIMEOUT_SECS}s", file=sys.stderr)
         sys.exit(2)
-
-    after = existing_criterion_dirs()
-    if not (after - before):
-        print(
-            f"NOTE: {spec.key} did not create any new target/criterion/*/new directories "
-            "(it may have reused existing ones).",
-            file=sys.stderr,
-        )
-
 
 def parse_estimates(new_dir: Path) -> dict[str, Any] | None:
     estimates = new_dir / "estimates.json"
@@ -191,7 +205,7 @@ def _meta_str(value: Any) -> str:
     return "" if value is None else str(value)
 
 
-def read_benchmark_meta(new_dir: Path) -> tuple[str, str, str]:
+def read_benchmark_meta(new_dir: Path, criterion_dir: Path | None = None) -> tuple[str, str, str]:
     """Return (group_id, function_id, value_str) from the nearest benchmark.json."""
     benchmark_json = new_dir / "benchmark.json"
     try:
@@ -205,7 +219,7 @@ def read_benchmark_meta(new_dir: Path) -> tuple[str, str, str]:
         pass
 
     # Fallback: derive from directory layout target/criterion/<group>/<function>/<value>/new
-    parts = new_dir.relative_to(TARGET_CRITERION).parts
+    parts = new_dir.relative_to(criterion_dir or TARGET_CRITERION).parts
     if len(parts) >= 4 and parts[-1] == "new":
         return parts[-4], parts[-3], parts[-2]
     if len(parts) == 3 and parts[-1] == "new":
@@ -215,12 +229,13 @@ def read_benchmark_meta(new_dir: Path) -> tuple[str, str, str]:
     return "", "", ""
 
 
-def discover_records() -> list[dict[str, Any]]:
+def discover_records(criterion_dir: Path | None = None) -> list[dict[str, Any]]:
+    criterion_dir = criterion_dir or TARGET_CRITERION
     records: list[dict[str, Any]] = []
-    if not TARGET_CRITERION.exists():
+    if not criterion_dir.exists():
         return records
 
-    for new_dir in sorted(TARGET_CRITERION.rglob("new")):
+    for new_dir in sorted(criterion_dir.rglob("new")):
         if not new_dir.is_dir():
             continue
         estimates = parse_estimates(new_dir)
@@ -232,8 +247,10 @@ def discover_records() -> list[dict[str, Any]]:
         except (KeyError, TypeError, ValueError) as exc:
             print(f"WARNING: unexpected estimates JSON in {new_dir}: {exc}", file=sys.stderr)
             continue
+        if not all(math.isfinite(value) and value > 0 for value in (median_ns, mean_ns)):
+            raise CollectionError(f"invalid timing sample in {new_dir}")
 
-        group_name, function_name, value_str = read_benchmark_meta(new_dir)
+        group_name, function_name, value_str = read_benchmark_meta(new_dir, criterion_dir)
         if not group_name:
             group_name = new_dir.parent.name
         if not function_name:
@@ -286,33 +303,40 @@ def assign_crates(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def run_all() -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
     for spec in BENCHMARKS:
-        run_bench(spec)
-    records = discover_records()
-    return assign_crates(records)
+        records.extend(run_one(spec))
+    return records
 
 
 def run_one(spec: BenchSpec) -> list[dict[str, Any]]:
     """Run one benchmark and return only that benchmark's records."""
-    run_bench(spec)
-    records = assign_crates(discover_records())
-    return [
+    sample_dir = (
+        TARGET_CRITERION.parent / "qa" / "perf" / "criterion-runs"
+        / RUN_ID / uuid4().hex / spec.crate / spec.bench
+    )
+    run_bench(spec, sample_dir)
+    records = assign_crates(discover_records(sample_dir))
+    selected = [
         record
         for record in records
         if record["crate"] == spec.crate and record["bench"] == spec.bench
     ]
+    if not selected:
+        raise CollectionError(f"no fresh Criterion results for {spec.key} in {sample_dir}")
+    for record in selected:
+        record["run_id"] = RUN_ID
+    RUN_SAMPLES[spec.key] = str(sample_dir)
+    return selected
 
 
 def collect_all() -> list[dict[str, Any]]:
     records = discover_records()
     assigned = assign_crates(records)
     found_keys = {(r["crate"], r["bench"]) for r in assigned}
-    for spec in BENCHMARKS:
-        if (spec.crate, spec.bench) not in found_keys:
-            print(
-                f"WARNING: no Criterion results found for {spec.key}",
-                file=sys.stderr,
-            )
+    missing = [spec.key for spec in BENCHMARKS if (spec.crate, spec.bench) not in found_keys]
+    if missing:
+        raise CollectionError(f"missing required benchmark families: {', '.join(missing)}")
     return assigned
 
 
@@ -324,6 +348,18 @@ def build_baseline(records: list[dict[str, Any]]) -> dict[str, Any]:
             "criterion_flags": " ".join(CRITERION_FLAGS),
             "generator": "scripts/qa_perf_baseline.py",
             "environment": environment_metadata(),
+            "run_id": RUN_ID,
+            "criterion_directory": str(TARGET_CRITERION),
+            "sample_directories": dict(RUN_SAMPLES),
+            "collection": "fresh-run" if RUN_SAMPLES else "existing-samples",
+            "benchmarks": {
+                spec.key: {
+                    "features": sorted(spec.features),
+                    "no_default_features": spec.no_default_features,
+                }
+                for spec in BENCHMARKS
+                if any(r["crate"] == spec.crate and r["bench"] == spec.bench for r in records)
+            },
         },
         "records": records,
     }
@@ -363,20 +399,31 @@ def command_output(command: list[str]) -> str:
     return " ".join(result.stdout.strip().split()) or "unknown"
 
 
+def resolve_criterion_directory(override: Path | None = None) -> Path:
+    """Use Cargo's effective target directory, including config overrides."""
+    if override is not None:
+        return override.resolve()
+    try:
+        result = subprocess.run(
+            resolve_command(["cargo", "metadata", "--no-deps", "--format-version", "1"]),
+            cwd=ROOT, capture_output=True, text=True, check=True, timeout=30,
+        )
+        target = json.loads(result.stdout)["target_directory"]
+        return Path(target).resolve() / "criterion"
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError) as exc:
+        raise CollectionError(f"cannot resolve Cargo target directory: {exc}") from exc
+
+
 def cpu_model() -> str:
     """Return the most useful stable CPU identity available on this host."""
     machine = platform.machine()
-    if sys.platform == "darwin" and machine in {"arm64", "aarch64"}:
-        # macOS sandboxes can deny sysctl even on the same host.  The
-        # architecture remains available and is stable across both contexts.
-        return machine
-
     if sys.platform == "darwin":
-        brand = command_output(["sysctl", "-n", "machdep.cpu.brand_string"])
-        hardware = command_output(["sysctl", "-n", "hw.model"])
+        brand = command_output(["/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string"])
+        hardware = command_output(["/usr/sbin/sysctl", "-n", "hw.model"])
         identity = " | ".join(value for value in (brand, hardware) if value != "unknown")
         if identity:
             return identity
+        return machine
     if sys.platform.startswith("linux"):
         try:
             for line in Path("/proc/cpuinfo").read_text().splitlines():
@@ -416,6 +463,7 @@ def environment_metadata() -> dict[str, Any]:
 
 
 def main(argv: list[str]) -> int:
+    global ROOT, TARGET_CRITERION, RUN_ID
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--output",
@@ -425,7 +473,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--run",
         type=str,
-        help="Run a single benchmark by key (crate:bench) and update the output file",
+        help="Run one benchmark by key (crate:bench) and write only its fresh results",
     )
     parser.add_argument(
         "--no-write",
@@ -437,18 +485,28 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="Re-collect results already present in target/criterion without running benches",
     )
+    parser.add_argument("--workspace-root", type=Path, default=ROOT)
+    parser.add_argument("--criterion-dir", type=Path, help="Explicit Criterion collection directory")
     args = parser.parse_args(argv)
-
-    if args.collect_only:
-        records = collect_all()
-    elif args.run:
-        spec = next((s for s in BENCHMARKS if s.key == args.run), None)
-        if spec is None:
-            print(f"ERROR: unknown benchmark {args.run!r}", file=sys.stderr)
-            return 2
-        records = run_one(spec)
-    else:
-        records = run_all()
+    ROOT = args.workspace_root.resolve()
+    RUN_ID = uuid4().hex
+    RUN_SAMPLES.clear()
+    try:
+        TARGET_CRITERION = resolve_criterion_directory(args.criterion_dir)
+        if args.collect_only:
+            records = collect_all()
+        elif args.run:
+            spec = next((s for s in BENCHMARKS if s.key == args.run), None)
+            if spec is None:
+                raise CollectionError(f"unknown benchmark {args.run!r}")
+            records = run_one(spec)
+        else:
+            records = run_all()
+        if not records:
+            raise CollectionError("no benchmark samples collected")
+    except CollectionError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
     baseline = build_baseline(records)
 

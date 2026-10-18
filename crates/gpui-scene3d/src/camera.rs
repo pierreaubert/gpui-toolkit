@@ -145,6 +145,18 @@ impl Camera {
     pub fn view_projection(&self, aspect: f32) -> [f32; 16] {
         multiply(self.projection_matrix(aspect), self.view_matrix())
     }
+
+    /// Projects positions expressed relative to a world-space origin.
+    ///
+    /// Subtracts the origin before constructing the view matrix, avoiding
+    /// cancellation between large translation terms in `f32` matrices.
+    #[must_use]
+    pub fn view_projection_relative_to(&self, origin: [f64; 3], aspect: f32) -> [f32; 16] {
+        let mut local = *self;
+        local.target =
+            std::array::from_fn(|axis| (f64::from(self.target[axis]) - origin[axis]) as f32);
+        local.view_projection(aspect)
+    }
 }
 
 /// Multiplies two column-major 4x4 matrices: `a * b`.
@@ -295,6 +307,21 @@ mod tests {
         let dist = |p: [f32; 3]| (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
         assert!((dist(before) - dist(after)).abs() < 1e-5);
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn rebased_projection_preserves_camera_offsets_at_large_origins() {
+        let reference = Camera::default().view_projection(1.0);
+        for center in [1000.0_f32, 1_000_000_000.0] {
+            let camera = Camera {
+                target: [center; 3],
+                ..Camera::default()
+            };
+            assert_eq!(
+                camera.view_projection_relative_to([f64::from(center); 3], 1.0),
+                reference
+            );
+        }
     }
 }
 
