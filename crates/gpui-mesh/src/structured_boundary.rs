@@ -74,6 +74,53 @@ impl CanonicalHexGrid {
         })
     }
 
+    /// Boundary point count when the complete triangulation fits one chunk.
+    pub(crate) fn single_chunk_points(self, max_triangles: usize) -> Option<usize> {
+        let [nx, ny, nz] = self.dims.map(|n| n as u64);
+        let faces = (nx - 1)
+            .checked_mul(ny - 1)?
+            .checked_add((nx - 1).checked_mul(nz - 1)?)?
+            .checked_add((ny - 1).checked_mul(nz - 1)?)?;
+        if faces.checked_mul(4)? > max_triangles as u64 {
+            return None;
+        }
+        let points = nx.checked_mul(ny)?.checked_mul(nz)?;
+        let interior = (nx - 2).checked_mul(ny - 2)?.checked_mul(nz - 2)?;
+        usize::try_from(points.checked_sub(interior)?).ok()
+    }
+
+    /// Compact boundary ordinal; interior and out-of-range IDs have no slot.
+    #[inline]
+    pub(crate) fn boundary_slot(self, point: u32) -> Option<usize> {
+        let [nx, ny, nz] = self.dims;
+        let point = point as usize;
+        // Detection proved the full point product fits usize and dimensions >=2.
+        if point >= self.plane * nz {
+            return None;
+        }
+        let z = point / self.plane;
+        let in_plane = point % self.plane;
+        if z == 0 {
+            return Some(in_plane);
+        }
+        let perimeter = 2 * nx + 2 * ny - 4;
+        if z == nz - 1 {
+            return Some(self.plane + (nz - 2) * perimeter + in_plane);
+        }
+        let y = in_plane / nx;
+        let x = in_plane % nx;
+        let ring = if y == 0 {
+            x
+        } else if y == ny - 1 {
+            nx + 2 * (ny - 2) + x
+        } else if x == 0 || x == nx - 1 {
+            nx + 2 * (y - 1) + usize::from(x != 0)
+        } else {
+            return None;
+        };
+        Some(self.plane + (z - 1) * perimeter + ring)
+    }
+
     pub(crate) fn visit<E>(
         self,
         mut visit: impl FnMut(usize, u8) -> Result<(), E>,
@@ -189,6 +236,63 @@ impl FaceCursor {
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn boundary_slots_are_bijective_and_exclude_interior_points() {
+        for nx in 2..=7 {
+            for ny in 2..=7 {
+                for nz in 2..=7 {
+                    let grid = CanonicalHexGrid {
+                        dims: [nx, ny, nz],
+                        plane: nx * ny,
+                    };
+                    let count = grid.single_chunk_points(usize::MAX).unwrap();
+                    assert_eq!(count, nx * ny * nz - (nx - 2) * (ny - 2) * (nz - 2));
+                    let mut used = vec![false; count];
+                    for z in 0..nz {
+                        for y in 0..ny {
+                            for x in 0..nx {
+                                let point = ((z * ny + y) * nx + x) as u32;
+                                let slot = grid.boundary_slot(point);
+                                if x == 0
+                                    || x == nx - 1
+                                    || y == 0
+                                    || y == ny - 1
+                                    || z == 0
+                                    || z == nz - 1
+                                {
+                                    let slot = slot.unwrap();
+                                    assert!(!used[slot], "duplicate boundary ordinal");
+                                    used[slot] = true;
+                                } else {
+                                    assert!(slot.is_none());
+                                }
+                            }
+                        }
+                    }
+                    assert!(used.iter().all(|v| *v));
+                    assert!(grid.boundary_slot((nx * ny * nz) as u32).is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn compact_slot_arithmetic_reaches_u32_endpoints_without_allocation() {
+        let long = 1usize << 30;
+        for dims in [[long, 2, 2], [2, long, 2], [2, 2, long]] {
+            let grid = CanonicalHexGrid {
+                dims,
+                plane: dims[0] * dims[1],
+            };
+            let count = grid.single_chunk_points(usize::MAX).unwrap();
+            assert_eq!(count, u32::MAX as usize + 1);
+            assert_eq!(grid.boundary_slot(0), Some(0));
+            assert_eq!(grid.boundary_slot(u32::MAX), Some(count - 1));
+            assert!(grid.single_chunk_points(u32::MAX as usize / 3).is_none());
+        }
+    }
 
     #[test]
     #[cfg(target_pointer_width = "64")]

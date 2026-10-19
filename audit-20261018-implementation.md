@@ -2890,3 +2890,148 @@ and pressure/large-dataset integrations pass with Metal required.
   retention/attribute updates, aggregate memory, platform/FFI/text, scheduling/
   physical-power, Taffy/CUDA/MLX and full acceptance requirements remain in scope.
   The full implementation goal remains active.
+
+
+## Compact canonical-boundary point remapping checkpoint
+
+- Previous goal turn: progress (`a667a95a`). Its native profiles identified the
+  per-chunk global-to-local point hash map as a large CPU cost. Verified canonical
+  hexahedral grids now use a compact boundary-point ordinal table when their whole
+  triangulated boundary fits the effective chunk cap. The table stores local IDs
+  in **four bytes per boundary point**; it is released after extraction. It is not
+  a volume-sized array, persistent cache or duplicate source dataset.
+- Ordinals cover the bottom/top planes and the perimeter of each interior plane.
+  They only address slots: output IDs are still assigned at first encounter.
+  The complete existing canonical connectivity proof is carried into traversal
+  and remapping once per extraction, with no second grid scan or weakened prefix
+  heuristic. Both limited and legacy collect/owner-visitor APIs share this path.
+  Noncanonical meshes and boundaries needing multiple chunks keep their existing
+  hash map. No faster unkeyed hasher is introduced for caller-controlled keys.
+- For a canonical closed boundary with T triangles, the point count is T/2+2;
+  the slot payload is therefore at most **2 * effective_max_triangles + 8 bytes**.
+  The effective cap retains the existing u32 local-index clamp. Byte/address
+  checks and fallible exact reservation precede callbacks; limited APIs return
+  typed allocation/resource errors, and legacy APIs preserve their documented
+  panic-only allocation interface. The existing face-workspace limit still covers
+  face records, not chunk remapping/output. Aggregate C5 budgets remain separate.
+  At 16/48/96 cubed, actual slot payloads are **5,408 / 53,024 / 216,608 bytes**.
+- Four new library tests raise mesh library coverage from 27 to 31 tests. An
+  independent linear-search renumbering oracle uses the prior general boundary
+  visitor and checks exact first-use point IDs, indices, cell ownership, winding,
+  face culling and chunk order across thin/rectangular/curvilinear grids and caps
+  1, 2, 11, boundary-T minus one/exact/plus one and usize::MAX. It covers limited
+  owned visitation and limited/legacy collection. Other tests exhaust boundary-slot
+  bijection and interior rejection for all 2..=7 axis dimensions, check single-chunk
+  selection/callback errors, and reach the last u32 point for long thin grids
+  without allocating huge inputs. Existing full-connectivity mutation/fallback,
+  malformed input, budget and callback-stop tests remain active.
+- Evidence is in
+  [`qa/perf/20261019-boundary-remap-paired.json`](qa/perf/20261019-boundary-remap-paired.json).
+  It archives exact production/probe/runner/lock sources, source/binary hashes,
+  raw samples, QA/build commands/output and prior reference hashes.
+  Baseline is `a667a95a`. All **136 matched cross-version output hashes and buffer
+  payload lengths are exact**, including all 104 prior scene controls for both
+  versions and 32 new focused mesh cases. No output geometry/material/shader
+  representation or public field changes are introduced.
+- Allocator-disabled release ABBA twice gives four fresh processes/version/case,
+  one warmup and five samples, with separate allocation processes. Existing scene
+  cases cover raw/encoded point/cell/gradient/general 16/48³ preparation, cold
+  scene caches, software frames, upload/submission/range synchronization and
+  line/point primitives at 256/65,536 cells. New mesh cases exercise canonical
+  16/48³ tiny and cutoff-minus-one/exact/plus-one/default caps, canonical 96³
+  small/default caps, general 48³ small/default caps, and a thin 2×48×48 grid.
+- Focused mesh creation/full validation is outside the clock; canonical proof
+  and extraction are inside. Collection wraps output with empty owner Vecs for
+  shared validation; owner visitation retains owner copies in its callback,
+  inside the clock. Scene standalone preparation includes its full validation;
+  cold Scene::prepare includes validation/bounds/cache bookkeeping. Cache
+  clearing/drop, final image/hash/payload validation and output destruction are
+  outside. Software frames use retained geometry, uploads borrow surface arrays
+  and pack primitives, and CPU submissions exclude completion/readback. Both
+  variants retain compatible range changes. Process and checked main-thread CPU
+  clocks are recorded; extra thread-clock reads change overhead relative to older
+  probes, so only this paired comparison supports these implementation costs.
+  No task-owned builds/checks/sampling run during timing. Thermal/affinity remain
+  uncontrolled, and prior timing anomalies are not retrospectively resolved.
+
+  | Case | Baseline process CPU | Candidate process CPU | Change |
+  |---|---:|---:|---:|
+  | Mesh collection, canonical 16³, one chunk | 105.0 µs | 46.0 µs | -56.2% |
+  | Mesh collection, canonical 48³, one chunk | 1.1535 ms | 0.5805 ms | -49.7% |
+  | Mesh owner visitation, canonical 48³, one chunk | 1.1980 ms | 0.5960 ms | -50.3% |
+  | Mesh collection, canonical 96³, one chunk | 5.7000 ms | 3.1980 ms | -43.9% |
+  | Mesh collection, thin 2×48×48 | 327.0 µs | 136.5 µs | -58.3% |
+  | Scene point 48³ standalone preparation | 1.7225 ms | 1.1515 ms | -33.1% |
+  | Scene point 48³ cold cache | 1.7385 ms | 1.1815 ms | -32.0% |
+  | Scene discontinuous-cell 48³ cold cache | 2.6630 ms | 1.9665 ms | -26.2% |
+  | Scene encoded-cell 48³ standalone preparation | 2.6455 ms | 1.9625 ms | -25.8% |
+
+- Main-thread results agree: focused canonical 48³ collection is **1.150125 to
+  0.580438 ms** on the main thread. Raw-cell standalone process CPU is **3.065
+  to 1.958 ms**, while its baseline cold-cache counterpart is 2.663 ms; this
+  difference remains visible rather than using its larger percentage as the
+  primary cell improvement. The matched cold-cache and focused extraction cases,
+  cutoff behavior and exact allocation reductions provide the stronger evidence.
+- Canonical 48³ standalone point preparation drops **47 to 35 allocation calls**
+  and **1,256,332 to 1,014,376 allocated bytes**. Cell preparation drops **80 to
+  68 calls / 2,315,992 to 2,074,036 bytes**. Each removes 12 growth allocations
+  and **241,956 bytes** of traffic. Focused collection is **44 to 32 calls /
+  885,068 to 643,112 bytes** at 48³ and **50 to 36 calls / 3,539,292 to 2,576,168
+  bytes** at 96³. The latter removes **963,124 bytes** of traffic. These are
+  requested Rust allocation traffic, not live/peak/native/GPU bytes. Retained
+  output payloads, source storage, GPU buffers and shader/uniform ABI are unchanged.
+- Fallback allocation calls/bytes remain exact. Canonical 48³ at cap 256 collects
+  in **953 to 957.5 µs (+0.5%)**; just below the cutoff (26,507 triangles) it is
+  **1.1500 to 1.1525 ms (+0.2%)**. At the cutoff (26,508) it is **1.1525 to
+  0.5750 ms (-50.1%)**. Canonical 96³/cap 10,000 is **4.6300 to 4.6405 ms
+  (+0.2%)**; general 48³/default collection is **19.348 to 19.371 ms (+0.1%)**.
+  The whole-grid table therefore does not add allocation traffic to tiny/multiple
+  chunks or general topology. General scene standalone/cold-cache CPU remains
+  **+0.6%/+1.0%**, a visible residual rather than a blanket no-regression claim.
+- Warm frames and unrelated operations are not claimed faster. Raw/encoded
+  software, GPU-upload, CPU-submission and compatible-range allocation counts/
+  bytes remain exact. Raw gradient-48 upload/submission/range CPU is
+  **+3.8%/+6.2%/+8.7%**; general-48 range synchronization is **25 to 27.5 µs
+  (+10.0%)**, and large-point range synchronization is **28.5 to 31.5 µs
+  (+10.5%)**. Primitive cache-building CPU is **326 to 337.5 µs (+3.5%)** for
+  large lines and **311 to 338.5 µs (+8.8%)** for large points. Small-line cache
+  process medians quantize from 2 to 3 µs while main-thread medians are
+  **1.958 to 2.000 µs**. These short-operation/unmodified-path costs and earlier
+  qualification gaps remain recorded; no favorable late-point submission samples
+  are promoted into a causal GPU or whole-app speedup.
+- Separate allocator-disabled time-l RSS runs use ABBA twice and perform a single
+  focused mesh collection, returning before GPU initialization. Maximum process
+  RSS medians are canonical 48³/default **20,922,368 to 20,889,600 bytes**, canonical
+  96³/default **124,370,944 to 122,609,664**, canonical 48³/cap 256 **21,168,128
+  to 21,217,280**, and general 48³/default **40,894,464 to 40,894,464**. Source
+  construction, linked-binary loading, output wrapping and hashing are included;
+  prior peaks/allocator behavior can mask or exceed a workspace difference. These
+  are neither physical mobile/GPU residency nor per-operation peak workspace
+  measurements. No measured energy, whole-app or first-use benefit is claimed.
+- The final evidence verifier caught an orchestration metadata defect: a loop
+  reused the `build` variable and overwrote the saved `build_checks` array with
+  the label `allocations`. Both runners had asserted successful build records
+  before timing, but their saved metadata was wrong. The same defect was found
+  in the earlier isolated scalar-range capture. The original new capture is
+  preserved as `20261019-boundary-remap-initial.json`; the paired artifact now
+  contains the actual four saved successful build results. No numeric sample,
+  source/binary/output hash or payload is changed or rerun.
+  [`qa/perf/20261019-evidence-build-metadata-corrections.json`](qa/perf/20261019-evidence-build-metadata-corrections.json)
+  archives original artifact hashes, both replacement build arrays, saved-record
+  hashes and fixed runner sources using a distinct `build_records` variable.
+  The prior committed isolated artifact stays immutable; the correction manifest
+  supplies its build metadata. Final validation checks field types and every
+  build status explicitly, preventing this malformed field from passing again.
+- QA passes **31 mesh / 74 transformation / 121 required-GPU scene** library tests
+  and integrations, **85 software-only scene** library tests and integrations,
+  **223 Python-runtime Rust** tests, strict mesh library/tests and targeted scene
+  production/integration Clippy, doctests, native viewer and wasm mesh/GPU/GPUI
+  compilation. Measured source/probe/lock/binary/reference hashes are verified;
+  the frozen audit and earlier committed evidence are unchanged.
+- This advances the CPU/memory portion of P1 preparation. It does not cache the
+  topology proof across field revisions, separate per-attribute updates, remove
+  general-mesh remapping or solve GPUI scalar metadata scans. C3/C4/C5 and numeric/
+  transfer/transparency/error-feedback qualification, total source/output/cache/
+  staging/in-flight budgets, platform/FFI/text, earlier performance regressions,
+  demand/thermal/pressure scheduling, physical-device energy, Taffy/CUDA/MLX
+  experiments and full acceptance remain open. The full goal remains active.

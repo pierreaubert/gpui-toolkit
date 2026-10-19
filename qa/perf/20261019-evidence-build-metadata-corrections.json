@@ -1,0 +1,180 @@
+{
+  "kind": "Build-record metadata corrections; measured samples and outputs unchanged",
+  "reason": "Both runners validated saved build record arrays before timing, then reused the module variable build as a loop mode label. The captured build_checks field therefore contained allocations rather than the already-validated records. Saved build records are revalidated as four successful builds each. Current uncommitted capture is preserved as initial before correcting metadata; prior committed isolated capture stays immutable and this manifest supplies its replacement field. No performance run is repeated and no numeric sample, source hash, binary hash, output hash or payload changes. Fixed runners validate the actual result build_checks field type and statuses immediately before writing output.",
+  "entries": [
+    {
+      "artifact": "qa/perf/20261019-boundary-remap-initial.json",
+      "artifact_sha256": "34f744924bf8d3bc57cb69d2945d2cc6199401fb7a4091752aff6d5556f1949a",
+      "original_field_value": "allocations",
+      "replacement_build_checks": [
+        {
+          "version": "baseline",
+          "mode": "timing",
+          "command": [
+            "/Users/pierre/.cargo/bin/cargo",
+            "build",
+            "--offline",
+            "--locked",
+            "--release",
+            "--manifest-path",
+            "/Volumes/home_tmp/tmp/gpui-boundary-remap-baseline-probe/Cargo.toml",
+            "--target-dir",
+            "/Volumes/home_tmp/tmp/gpui-boundary-remap-baseline-probe/target/timing",
+            "--quiet"
+          ],
+          "status": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "version": "baseline",
+          "mode": "allocations",
+          "command": [
+            "/Users/pierre/.cargo/bin/cargo",
+            "build",
+            "--offline",
+            "--locked",
+            "--release",
+            "--manifest-path",
+            "/Volumes/home_tmp/tmp/gpui-boundary-remap-baseline-probe/Cargo.toml",
+            "--target-dir",
+            "/Volumes/home_tmp/tmp/gpui-boundary-remap-baseline-probe/target/allocations",
+            "--features",
+            "allocations",
+            "--quiet"
+          ],
+          "status": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "version": "candidate",
+          "mode": "timing",
+          "command": [
+            "/Users/pierre/.cargo/bin/cargo",
+            "build",
+            "--offline",
+            "--locked",
+            "--release",
+            "--manifest-path",
+            "/Volumes/home_tmp/tmp/gpui-boundary-remap-candidate-probe/Cargo.toml",
+            "--target-dir",
+            "/Volumes/home_tmp/tmp/gpui-boundary-remap-candidate-probe/target/timing",
+            "--quiet"
+          ],
+          "status": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "version": "candidate",
+          "mode": "allocations",
+          "command": [
+            "/Users/pierre/.cargo/bin/cargo",
+            "build",
+            "--offline",
+            "--locked",
+            "--release",
+            "--manifest-path",
+            "/Volumes/home_tmp/tmp/gpui-boundary-remap-candidate-probe/Cargo.toml",
+            "--target-dir",
+            "/Volumes/home_tmp/tmp/gpui-boundary-remap-candidate-probe/target/allocations",
+            "--features",
+            "allocations",
+            "--quiet"
+          ],
+          "status": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "saved_records_sha256": "79b3b06a9b0afc84962097b3cf4a2a2c0f507d8ca60163578682209b94b7ddc4",
+      "fixed_runner_source": "import datetime,hashlib,json,platform,re,statistics,subprocess\nfrom pathlib import Path\nROOT=Path('/Users/pierre/.codex/worktrees/af04/gpui-toolkit');TMP=Path('/Volumes/home_tmp/tmp');OUT=ROOT/'qa/perf/20261019-boundary-remap-paired.json';assert not OUT.exists()\nsha=lambda b:hashlib.sha256(b).hexdigest()\nroots={'baseline':TMP/'gpui-boundary-remap-baseline-a667a95a','candidate':ROOT};packages={v:TMP/f'gpui-boundary-remap-{v}-probe' for v in roots}\nbinary=lambda v,m:packages[v]/'target'/m/'release/gpui-reduction-probe'\nqa=json.loads((TMP/'gpui-boundary-remap-checks.json').read_text());build_records=json.loads((TMP/'gpui-boundary-remap-builds.json').read_text());assert all(x['status']==0 for x in qa+build_records)\nfiles=['crates/gpui-scene3d/src/'+f for f in ['lib.rs','scalar.rs','prepare.rs','retained.rs','raster.rs','primitives.rs','transfer.rs','element.rs','gpu_element.rs','gpu_render.rs','limits.rs']]+['crates/gpui-mesh/src/'+f for f in ['lib.rs','field.rs','dataset.rs','chunk.rs','structured_boundary.rs']]+['crates/gpui-profiler/src/alloc_count.rs','Cargo.lock']\nsources={v:{f:sha((root/f).read_bytes()) for f in files} for v,root in roots.items()};binaries={v:{m:sha(binary(v,m).read_bytes()) for m in ['timing','allocations']} for v in roots}\nprobe=(TMP/'gpui-boundary-remap-probe.rs').read_text();assert all((p/'src/main.rs').read_text()==probe for p in packages.values());locks={v:(p/'Cargo.lock').read_text() for v,p in packages.items()};assert locks['baseline']==locks['candidate']\nstart=datetime.datetime.now(datetime.timezone.utc).isoformat();runs=[]\ndef capture(phase,v,build,args,cap=None):\n command=[str(binary(v,build)),*args];r=subprocess.run(command,capture_output=True,text=True);assert r.returncode==0,(command,r.stdout,r.stderr)\n records=[json.loads(line) for line in r.stdout.splitlines()];expected={'raw':68,'normalized':36,'mesh':2}[phase];assert len(records)==expected\n assert all(x['allocator']==(build=='allocations') for x in records)\n for x in records:x['cap']=cap\n runs.append({'phase':phase,'version':v,'build':build,'command':command,'records':records,'stderr':r.stderr})\n (TMP/'gpui-boundary-remap-paired-partial.json').write_text(json.dumps(runs))\nfor phase in ['raw','normalized']:\n for build,order in [('timing',['baseline','candidate','candidate','baseline']*2),('allocations',['baseline','candidate'])]:\n  for v in order:\n   capture(phase,v,build,['--normalized'] if phase=='normalized' else []);print(phase,v,build,'complete',flush=True)\ndef triangles(n):return 12*(n-1)**2\ncases=[('canonical',16,c) for c in [1,256,triangles(16)-1,triangles(16),triangles(16)+1,1_000_000]]+[('canonical',48,c) for c in [256,triangles(48)-1,triangles(48),triangles(48)+1,1_000_000]]+[('canonical',96,c) for c in [10_000,1_000_000]]+[('general',48,c) for c in [256,1_000_000]]+[('thin',48,1_000_000)]\nfor kind,n,cap in cases:\n for build,order in [('timing',['baseline','candidate','candidate','baseline']*2),('allocations',['baseline','candidate'])]:\n  for v in order:capture('mesh',v,build,['--mesh-remap',kind,str(n),str(cap)],cap)\n print('mesh',kind,n,cap,'complete',flush=True)\nkey=lambda x:(x['kind'],x['n'],x['cap'],x['op'])\nsummary=[]\nfor phase in ['raw','normalized','mesh']:\n first={key(x):x for run in runs if run['phase']==phase for x in run['records']}\n for k,start_record in first.items():\n  row={'mode':phase,'kind':k[0],'n':k[1],'cap':k[2],'operation':k[3]}\n  select=lambda v,m:[x for r in runs if (r['phase'],r['version'],r['build'])==(phase,v,m) for x in r['records'] if key(x)==k]\n  for field in ['payload_bytes','image_hash','chunk_metadata_bytes']:\n   row[field]={}\n   for v in roots:\n    values={x[field] for m in ['timing','allocations'] for x in select(v,m)};assert len(values)==1,(phase,k,v,field);row[field][v]=values.pop()\n  for field in ['payload_bytes','image_hash']:assert row[field]['baseline']==row[field]['candidate'],(phase,k,field)\n  for field in ['cpu_ns','thread_cpu_ns','wall_ns']:row[field]={v:statistics.median(t for x in select(v,'timing') for t in x[field]) for v in roots}\n  row['allocations']={v:{field:statistics.median(t for x in select(v,'allocations') for t in x[field]) for field in ['allocation_calls','allocated_bytes']} for v in roots}\n  row['cpu_ratio']=row['cpu_ns']['candidate']/row['cpu_ns']['baseline'];row['thread_cpu_ratio']=row['thread_cpu_ns']['candidate']/row['thread_cpu_ns']['baseline'];summary.append(row)\nassert len(summary)==136,len(summary)\nreference=ROOT/'qa/perf/20261019-scalar-range-retention-extended.json';prior=json.loads(reference.read_text())\nfor row in summary:\n if row['mode']=='mesh':continue\n old=next(x for x in prior['summary'] if (x['mode'],x['kind'],x['n'],x['operation'])==(row['mode'],row['kind'],row['n'],row['operation']))\n for field in ['image_hash','payload_bytes']:\n  for v in roots:assert row[field][v]==old[field]['candidate'],(row['mode'],row['kind'],row['n'],row['operation'],v,field)\nrss=[]\nfor kind,n,cap in [('canonical',48,1_000_000),('canonical',96,1_000_000),('canonical',48,256),('general',48,1_000_000)]:\n for v in ['baseline','candidate','candidate','baseline']*2:\n  command=['/usr/bin/time','-l',str(binary(v,'timing')),'--mesh-rss',kind,str(n),str(cap)];r=subprocess.run(command,capture_output=True,text=True,check=True);match=re.search(r'(\\d+)\\s+maximum resident set size',r.stderr);assert match\n  rss.append({'kind':kind,'n':n,'cap':cap,'version':v,'max_rss_bytes':int(match[1]),'command':command,'stdout':r.stdout,'stderr':r.stderr})\nfor v,root in roots.items():\n for f,h in sources[v].items():assert sha((root/f).read_bytes())==h,(v,f)\n for m,h in binaries[v].items():assert sha(binary(v,m).read_bytes())==h,(v,m)\nresult={'kind':'Compact canonical boundary remapping: paired CPU/allocation and fallback controls','baseline_commit':'a667a95a','started_utc':start,'finished_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'host':platform.platform(),'methodology':'Identical offline release probe source/lock, isolated targets; prior measured binaries untouched. Allocator-disabled ABBA twice per phase/case, four fresh processes/version, one warmup plus five samples. Separate allocation processes.136 matched cases:104 existing raw/encoded scene preparation/cold-cache/software/upload/submission/range controls plus32 focused mesh collect/owner-visitor cases. Scene inputs point/cell/gradient/general16/48, lines/points256/65536. Mesh inputs canonical16/48 at tiny and one-chunk cutoff-1/exact/+1/default caps, canonical96 small/default, general48 small/default, thin2x48x48 default. Focused source creation/full validation outside clock; complete canonical proof inside extraction. Mesh collect wraps chunks with empty owner Vecs for shared checking; owner visitor retains owner copies in its callback, all within clock. Scene standalone preparation includes validation; cold Scene.prepare includes validation/bounds/cache bookkeeping, clear/drop and subsequent image checks excluded. Warm software uses retained geometry; upload borrows surface arrays and packs primitives; CPU submission excludes completion/readback. Range changes retain compatible geometry in both variants. Process and main-thread CPU clocks captured; wall usesInstant. Extra thread-clock calls change timing overhead relative to prior checkpoint, so only current paired comparisons support code costs. All136 cross-version output hashes/payload lengths exact; all104 prior scene controls match retained checkpoint. Checks/hash/drop outside clock; no task-owned builds/checks/sampling during measurement; thermal/affinity uncontrolled. Focused RSS ABBA twice via time-l performs one mesh collection and exits before GPU init, including linked binaries/source creation/hash; not mobile/GPU residency or whole-app/energy qualification. Existing overdraw/short-sample timing variation remains relevant. Allocation counts measure Rust calls/positive realloc growth, not live/native/GPU storage. Source/output/cache/global budgets remain open.','source_sha256':sources,'production_source':{f:(ROOT/f).read_text() for f in files if f.startswith('crates/gpui-mesh/src/') or f.startswith('crates/gpui-scene3d/src/')},'probe_source':probe,'probe_manifests':{v:(p/'Cargo.toml').read_text() for v,p in packages.items()},'probe_lock':locks['baseline'],'probe_lock_sha256':sha(locks['baseline'].encode()),'binary_sha256':binaries,'orchestration_source':Path(__file__).read_text(),'orchestration_sha256':sha(Path(__file__).read_bytes()),'verification':qa,'build_checks':build_records,'check_runner_source':(TMP/'gpui-boundary-remap-checks.py').read_text(),'build_runner_source':(TMP/'gpui-boundary-remap-builds.py').read_text(),'previous_reference':{'path':str(reference.relative_to(ROOT)),'sha256':sha(reference.read_bytes()),'reason':'All104 shared scene output hashes/payloads remain exact for both versions;32 focused mesh cases extend cutoff/fallback coverage.'},'summary':summary,'runs':runs,'rss':rss,'rss_summary':[{'kind':kind,'n':n,'cap':cap,'bytes':{v:statistics.median(x['max_rss_bytes'] for x in rss if (x['kind'],x['n'],x['cap'],x['version'])==(kind,n,cap,v)) for v in roots}} for kind,n,cap in [('canonical',48,1_000_000),('canonical',96,1_000_000),('canonical',48,256),('general',48,1_000_000)]]}\nassert isinstance(result['build_checks'],list) and all(record['status']==0 for record in result['build_checks'])\nOUT.write_text(json.dumps(result,indent=2)+'\\n');print('written',OUT,flush=True)\nfor row in summary:\n if row['mode']=='mesh' and row['cap']==1_000_000:print(row,flush=True)\nprint('RSS',result['rss_summary'],flush=True)\n",
+      "fixed_runner_sha256": "f3f7a43a0b94e4dd225b3871042d454f46aa2020f821109403b81b7e3bfa3dec",
+      "applied_to_current_paired_capture": true
+    },
+    {
+      "artifact": "qa/perf/20261019-scalar-range-retention-isolated.json",
+      "artifact_sha256": "ff5802ead416521baccf1945f146026a3045ea059f9c3a408da23d7a7582af88",
+      "original_field_value": "allocations",
+      "replacement_build_checks": [
+        {
+          "command": [
+            "/Users/pierre/.cargo/bin/cargo",
+            "build",
+            "--offline",
+            "--locked",
+            "--release",
+            "--manifest-path",
+            "/Volumes/home_tmp/tmp/gpui-scalar-range-baseline-probe/Cargo.toml",
+            "--target-dir",
+            "/Volumes/home_tmp/tmp/gpui-scalar-range-baseline-probe/target/timing",
+            "--quiet"
+          ],
+          "status": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "/Users/pierre/.cargo/bin/cargo",
+            "build",
+            "--offline",
+            "--locked",
+            "--release",
+            "--manifest-path",
+            "/Volumes/home_tmp/tmp/gpui-scalar-range-baseline-probe/Cargo.toml",
+            "--target-dir",
+            "/Volumes/home_tmp/tmp/gpui-scalar-range-baseline-probe/target/allocations",
+            "--features",
+            "allocations",
+            "--quiet"
+          ],
+          "status": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "/Users/pierre/.cargo/bin/cargo",
+            "build",
+            "--offline",
+            "--locked",
+            "--release",
+            "--manifest-path",
+            "/Volumes/home_tmp/tmp/gpui-scalar-range-candidate-probe/Cargo.toml",
+            "--target-dir",
+            "/Volumes/home_tmp/tmp/gpui-scalar-range-candidate-probe/target/timing",
+            "--quiet"
+          ],
+          "status": 0,
+          "stdout": "",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "/Users/pierre/.cargo/bin/cargo",
+            "build",
+            "--offline",
+            "--locked",
+            "--release",
+            "--manifest-path",
+            "/Volumes/home_tmp/tmp/gpui-scalar-range-candidate-probe/Cargo.toml",
+            "--target-dir",
+            "/Volumes/home_tmp/tmp/gpui-scalar-range-candidate-probe/target/allocations",
+            "--features",
+            "allocations",
+            "--quiet"
+          ],
+          "status": 0,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "saved_records_sha256": "022fee54fcb1d947b5d7d7bdc17c03b63a489fa9b28bb88f9c1993e9d0c9b3fe",
+      "fixed_runner_source": "import datetime,hashlib,json,statistics,subprocess\nfrom pathlib import Path\nROOT=Path('/Users/pierre/.codex/worktrees/af04/gpui-toolkit');TMP=Path('/Volumes/home_tmp/tmp');OUT=ROOT/'qa/perf/20261019-scalar-range-retention-isolated.json';assert not OUT.exists()\nsha=lambda b:hashlib.sha256(b).hexdigest()\npackages={v:TMP/f'gpui-scalar-range-{v}-probe' for v in ['baseline','candidate']}\nbinary=lambda v,m:packages[v]/'target'/m/'release/gpui-reduction-probe'\nref=ROOT/'qa/perf/20261019-scalar-range-retention-extended.json';reference=json.loads(ref.read_text());source=(TMP/'gpui-scalar-range-isolated-probe.rs').read_text();assert all((p/'src/main.rs').read_text()==source for p in packages.values())\nbuild_records=json.loads((TMP/'gpui-scalar-range-isolated-build.json').read_text());assert all(x['status']==0 for x in build_records)\nruns=[];start=datetime.datetime.now(datetime.timezone.utc).isoformat()\nfor kind in ['point','cell']:\n for n in [16,48]:\n  for mode in ['raw','normalized']:\n   for build,order in [('timing',['baseline','candidate','candidate','baseline']*2),('allocations',['baseline','candidate'])]:\n    for v in order:\n     command=[str(binary(v,build)),'--cpu-prepare',kind,str(n),mode]\n     r=subprocess.run(command,capture_output=True,text=True,check=True);records=[json.loads(x) for x in r.stdout.splitlines()];assert len(records)==2\n     for x in records:\n      control=next(c for c in reference['summary'] if (c['mode'],c['kind'],c['n'],c['operation'])==(mode,kind,n,x['op']))\n      assert x['image_hash']==control['image_hash'][v] and x['payload_bytes']==control['payload_bytes'][v]\n     runs.append({'kind':kind,'n':n,'mode':mode,'version':v,'build':build,'command':command,'records':records,'stderr':r.stderr})\n   print(kind,n,mode,'complete',flush=True)\nsummary=[]\nfor kind in ['point','cell']:\n for n in [16,48]:\n  for mode in ['raw','normalized']:\n   for op in ['prepare','cache_prepare']:\n    select=lambda v,b:[x for r in runs if (r['kind'],r['n'],r['mode'],r['version'],r['build'])==(kind,n,mode,v,b) for x in r['records'] if x['op']==op]\n    row={'kind':kind,'n':n,'mode':mode,'operation':op}\n    for field in ['cpu_ns','wall_ns']:row[field]={v:statistics.median(t for x in select(v,'timing') for t in x[field]) for v in packages}\n    row['allocations']={v:{f:statistics.median(t for x in select(v,'allocations') for t in x[f]) for f in ['allocation_calls','allocated_bytes']} for v in packages}\n    row['cpu_ratio']=row['cpu_ns']['candidate']/row['cpu_ns']['baseline'];summary.append(row)\nresult={'kind':'CPU-only scalar preparation isolation; no GPU renderer initialization','baseline_commit':'4115ae31','started_utc':start,'finished_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'methodology':'Focused follow-up to recorded mixed-renderer encoded-cell standalone preparation regressions. Identical source/locks; CPU-only mode returns before creating GpuRenderer. ABBA twice separately for point/cell16/48 raw/encoded, four fresh processes/version/case, one warmup plus five samples/operation. Separate allocation processes. Source construction, validation warmup, camera/bounds and image/hash/drop checks outside clock. prepare_chunks is fresh; cache_prepare clears/drops outside clock and times real cold Scene.prepare. All16 geometry/image/payload controls match extended mixed-renderer capture. No source/code change between production variants after prior capture. Process CPU includes threads, thermal/affinity uncontrolled; no task-owned checks/builds during timing. This isolates preparation from initialized GPU context but cannot identify the mixed-context timing cause. Does not erase prior regressions or prove GPU/energy/whole-app performance.','probe_source':source,'probe_manifests':{v:(p/'Cargo.toml').read_text() for v,p in packages.items()},'probe_lock':(packages['baseline']/'Cargo.lock').read_text(),'binary_sha256':{v:{m:sha(binary(v,m).read_bytes()) for m in ['timing','allocations']} for v in packages},'orchestration_source':Path(__file__).read_text(),'orchestration_sha256':sha(Path(__file__).read_bytes()),'reference':{'path':str(ref.relative_to(ROOT)),'sha256':sha(ref.read_bytes())},'source_sha256':reference['source_sha256'],'summary':summary,'runs':runs,'build_checks':build_records}\nassert isinstance(result['build_checks'],list) and all(record['status']==0 for record in result['build_checks'])\nOUT.write_text(json.dumps(result,indent=2)+'\\n')\nfor row in summary:print(row,flush=True)\n",
+      "fixed_runner_sha256": "25600d5495f368a522fbf65bca56c501625c236d831cc9a0a50239a79edae44e",
+      "applied_to_current_paired_capture": false
+    }
+  ]
+}
