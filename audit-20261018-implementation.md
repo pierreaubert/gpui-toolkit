@@ -2376,3 +2376,113 @@ and pressure/large-dataset integrations pass with Metal required.
   C3/C5, platform/FFI/text work, aggregate budgets, earlier performance regressions,
   scheduling/thermal/power, Taffy adoption experiments, CUDA/MLX experiments or full
   acceptance. The full implementation goal remains active.
+
+
+## Surface normal range and source-edge checkpoint
+
+- Previous goal turn: progress (`caf27a0c`). The new public
+  `tests/surface_normals.rs` runs identical source on that unchanged baseline and
+  the candidate. Baseline passes the degenerate-face control and fails five
+  regressions; candidate passes all six. The baseline's valid tiny surface has
+  a zero normal instead of the analytic shared direction `[0,2,1]/sqrt(5)`.
+  Changing physical units also changes an interior software/Metal red channel
+  from **162 to 71**. This is incorrect shading shared by both backends, not a
+  difference that can be qualified by comparing one against the other.
+- Preparation retains ordinary f32 area accumulation and normalization, while
+  recording unsafe squared lengths without an early retry branch in that loop.
+  Zero accumulated vertices get a rare source-face inspection after accumulation.
+  If a real face vanished or squared lengths lose range, all area contributions
+  are recomputed using original f64 source edges and normalized into the existing
+  f32 normal buffer. The original output allocation is reused. A scaled f64 length
+  handles tiny nonzero area vectors whose squares underflow. This preserves area
+  weighting rather than averaging unit face normals, and computes normals before
+  cell-color vertex splits so the split copies retain the geometric direction.
+- A mixed-scale regression first failed the candidate as well: rebasing a tiny
+  face next to a large one loses its edge before f32 conversion. The final
+  fallback therefore reads original source edges through existing point IDs,
+  rather than promoting already rounded coordinates. That unchanged regression
+  now passes. Preparation tests cover scales `1e-100`, `1e-30`, `1e-12`, `1e12`
+  and `1e30`, shared unequal face areas and cell splits. Actual software and
+  required-Metal image tests use representable camera scales `1e-12`/`1e12` and
+  compare more than 100 interior samples within two byte levels against unit
+  scale. Degenerate faces keep zero normals. Positions outside the f32 buffer
+  range return `UnsupportedPrecision` when the reference path needs them, before
+  allocating its workspace, instead of returning NaN normals.
+- No public struct, GPU uniform/vertex ABI or retained normal payload changes.
+  Reference accumulation uses a fallible temporary f64 array: **24 bytes per
+  pre-split vertex** (eight per position component), released before cell splits.
+  It adds one allocation only when needed; ordinary and exactly degenerate
+  preparation retains baseline allocation calls/bytes. This temporary storage is
+  not included in the face-workspace allowance and does not close aggregate C5
+  budgets. Source geometry, conversion buffers and caller-retained data remain
+  separate working sets. A constrained-host allowance for all preparation storage
+  is still needed.
+- Evidence is in
+  [`qa/perf/20261019-surface-normals-paired.json`](qa/perf/20261019-surface-normals-paired.json).
+  It includes original test source/results, final production source, exact probe,
+  runner and lock, source/test/binary hashes, all raw samples, and exact QA commands
+  and output. Allocator-disabled release ABBA twice gives four fresh processes
+  per version and one warmup plus five samples per case. Separate processes
+  measure allocations. Cold standalone `prepare_chunks` includes validation,
+  extraction and attribute gathering; source construction and output validation/
+  hashing/drop are outside its clock. There are **26** cases: canonical and
+  discontinuous-cell grids at 16/48 cubed across five scales, general-topology
+  controls, and 256/65,536 ordinary/degenerate disjoint triangles.
+- All 26 cross-version geometry hashes and payload lengths match exactly. The
+  **ten ordinary normal hashes also match exactly**. All 16 extreme nondegenerate
+  cases change from nonunit baseline normals to unit candidate normals. The
+  original f64-edge calculation deliberately changes 14 extreme normal hashes
+  relative to the first, quantized-edge diagnostic; ordinary normal controls and
+  all geometry/payload controls remain exact. The analytic/mixed-scale tests,
+  rather than the old candidate, determine correctness. A final three-line
+  comment clarification is recorded with pre/post source hashes; both release
+  binaries were rebuilt and confirmed byte-identical to the measured binaries.
+
+  | Cold standalone preparation | Baseline CPU | Candidate CPU | Change |
+  |---|---:|---:|---:|
+  | Canonical 16³, ordinary units | 139 µs | 138.5 µs | -0.4% |
+  | Canonical 48³, ordinary units | 1.7825 ms | 1.8235 ms | +2.3% |
+  | Discontinuous cell 48³, ordinary units | 2.727 ms | 2.867 ms | +5.1% |
+  | General 48³, ordinary units | 21.260 ms | 20.808 ms | -2.1% |
+  | 65,536 disjoint triangles, ordinary units | 4.8915 ms | 4.8545 ms | -0.8% |
+  | 65,536 degenerate triangles | 4.624 ms | 5.1395 ms | +11.1% |
+  | Canonical 48³, scale `1e-12` | 1.684 ms | 2.028 ms | +20.4% |
+  | Discontinuous cell 48³, scale `1e-12` | 2.6195 ms | 3.143 ms | +20.0% |
+
+- Correctness has a visible CPU cost; no across-the-board speedup is claimed.
+  Ordinary cell and degenerate costs remain follow-ups. The first diagnostic
+  (`20261019-surface-normals-initial.json`) used a per-face zero check and a
+  per-vertex early retry branch, with roughly 6% ordinary canonical/triangle
+  overhead. Merely deferring normalization retry did not remove that cost; the
+  intermediate run is retained in `20261019-surface-normals-deferred.json`.
+  Final code moves source-face inspection after accumulation. Runs have separate
+  uncontrolled thermal/affinity conditions, so their absolute timing differences
+  do not establish a precise optimization speedup. Small process-clock samples
+  also have coarse resolution. The final paired baseline is the comparison above.
+- Reference allocation growth is **32,448 bytes** at 16³ and **318,144 bytes** at
+  48³, matching 24 bytes per pre-split boundary vertex. Ordinary allocations and
+  retained payloads do not grow. Separate allocator-disabled `time -l` fresh
+  processes prepare 65,536 triangles at ordinary/`1e-12` units, ABBA twice each;
+  maximum process RSS medians are **21,528,576 to 21,577,728 bytes** in both cases.
+  This includes source construction and output hashing; an unchanged prior peak
+  can conceal temporary workspace growth. RSS does not establish physical mobile
+  or GPU memory usage. No GPU throughput, energy, first-interactive-frame or
+  whole-app improvement is inferred from standalone CPU preparation. Retained
+  scenes still avoid this preparation during unchanged camera motion.
+- Final QA passes 27 mesh / 74 transformation / 116 required-GPU scene library
+  tests and public integrations, 82 software-only scene library tests and
+  integrations, 223 Python-runtime Rust library tests with supported Python,
+  targeted strict production/new integration Clippy, native viewer compilation,
+  doctests and the wasm GPU/GPUI library closure. Existing broad all-target lint
+  failures remain open. The final measured source/verification hashes match the
+  retained code; the frozen audit and earlier committed evidence are unchanged.
+- This advances C4 normal representation only. Original f64 positions/scalars can
+  still lose detail in shared f32 geometry buffers, and the fast ordinary path is
+  not an exact geometric predicate. Source cross products themselves retain f64
+  range/cancellation limits; arbitrary extreme/ill-conditioned geometry and
+  cross-chunk normal continuity are unqualified. Finite f64 scalar conversion,
+  nonlinear/banded GPU transfer parity, surface camera range, arbitrary
+  transparency and GPUI error reporting remain open. P1 needs finer topology/
+  field retention so field changes avoid repeating normal work. C3/C5 and all
+  earlier platform, FFI/text, aggregate memory, scheduling/power, Taffy, CUDA/MLX
+  and full acceptance requirements remain in scope. The full goal remains active.

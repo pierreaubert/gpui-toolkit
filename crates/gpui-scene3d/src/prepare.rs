@@ -58,13 +58,18 @@ impl GpuChunk {
 /// rebased and converted, smooth normals are accumulated, and scalars are
 /// gathered per vertex. Cell values remain constant on their owner's triangles;
 /// vertices split only where converted scalar values disagree. Smooth geometric
-/// normals are preserved across those splits. Point scalars are gathered exactly.
+/// normals are preserved across those splits. Point scalars are gathered per vertex.
+/// Normal accumulation retries from source f64 edges when f32 arithmetic loses
+/// range; this temporary workspace adds eight bytes per position component.
+/// Positions and scalars still use f32 buffers; conversion is not lossless.
 ///
 /// # Errors
 ///
 /// Uses the default face-workspace limit from [`gpui_mesh::SurfaceExtractionLimits`].
 /// Returns a mesh error for invalid geometry, field storage or workspace limits, or
 /// [`SceneError::FieldNotFound`] for a missing or nonscalar coloring field.
+/// Returns allocation errors for reference-normal storage or unsupported precision
+/// when positions used by the reference calculation exceed the f32 buffer range.
 pub fn prepare_chunks(actor: &Actor, max_triangles: usize) -> Result<Vec<GpuChunk>, SceneError> {
     prepare_chunks_with_bounds(actor, max_triangles).map(|(_, chunks)| chunks)
 }
@@ -139,7 +144,7 @@ pub(crate) fn prepare_chunks_with_bounds_and_limits(
             limits,
             |chunk, owners| {
                 if let Some(chunk) =
-                    cell_chunk(dataset, origin, chunk, owners, values, valid, seen.as_mut())
+                    cell_chunk(dataset, origin, chunk, owners, values, valid, seen.as_mut())?
                 {
                     out.push(chunk);
                 }
@@ -189,7 +194,7 @@ pub(crate) fn prepare_chunks_with_bounds_and_limits(
             }
             indices.truncate(write);
         }
-        let normals = smooth_normals(&positions, &indices);
+        let normals = smooth_normals(dataset, &chunk.point_ids, &positions, &indices)?;
         let edges = if actor.wireframe {
             wireframe_edges(&indices, &chunk.point_ids, seen_edges.as_mut())
         } else {
@@ -215,11 +220,11 @@ fn cell_chunk(
     values: &[f64],
     valid: Option<&[bool]>,
     seen_edges: Option<&mut std::collections::HashSet<u64>>,
-) -> Option<GpuChunk> {
+) -> Result<Option<GpuChunk>, SceneError> {
     let valid_cell =
         |cell: usize| valid.is_none_or(|mask| mask[cell]) && (values[cell] as f32).is_finite();
     if !owners.iter().any(|&cell| valid_cell(cell)) {
-        return None;
+        return Ok(None);
     }
     let mut scalars = vec![f32::NAN; chunk.point_ids.len()];
     for (tri, &cell) in chunk.indices.as_chunks::<3>().0.iter().zip(owners) {
@@ -238,6 +243,8 @@ fn cell_chunk(
         positions.extend((0..3).map(|axis| (p[axis] - origin[axis]) as f32));
     }
     let mut normals = smooth_normals_for(
+        dataset,
+        &chunk.point_ids,
         &positions,
         chunk
             .indices
@@ -247,7 +254,7 @@ fn cell_chunk(
             .zip(owners)
             .filter(|(_, cell)| valid_cell(**cell))
             .map(|(tri, _)| *tri),
-    );
+    )?;
     // Reuse the ordinary vertices for their first scalar. Only discontinuities
     // need a map entry and appended position/normal/scalar storage.
     let mut splits = std::collections::HashMap::<(u32, u32), u32>::new();
@@ -293,23 +300,38 @@ fn cell_chunk(
     } else {
         Vec::new()
     };
-    Some(GpuChunk {
+    Ok(Some(GpuChunk {
         origin,
         positions,
         normals,
         scalars,
         indices: chunk.indices,
         edges,
-    })
+    }))
 }
 
-fn smooth_normals(positions: &[f32], indices: &[u32]) -> Vec<f32> {
-    smooth_normals_for(positions, indices.as_chunks::<3>().0.iter().copied())
+fn smooth_normals(
+    dataset: &gpui_mesh::DataSet,
+    point_ids: &[u32],
+    positions: &[f32],
+    indices: &[u32],
+) -> Result<Vec<f32>, SceneError> {
+    smooth_normals_for(
+        dataset,
+        point_ids,
+        positions,
+        indices.as_chunks::<3>().0.iter().copied(),
+    )
 }
 
-fn smooth_normals_for(positions: &[f32], triangles: impl Iterator<Item = [u32; 3]>) -> Vec<f32> {
+fn smooth_normals_for(
+    dataset: &gpui_mesh::DataSet,
+    point_ids: &[u32],
+    positions: &[f32],
+    triangles: impl Iterator<Item = [u32; 3]> + Clone,
+) -> Result<Vec<f32>, SceneError> {
     let mut normals = vec![0.0f32; positions.len()];
-    for tri in triangles {
+    for tri in triangles.clone() {
         let [ia, ib, ic] = [tri[0] as usize, tri[1] as usize, tri[2] as usize];
         let a = [
             positions[ia * 3],
@@ -339,15 +361,102 @@ fn smooth_normals_for(positions: &[f32], triangles: impl Iterator<Item = [u32; 3
             normals[i * 3 + 2] += n[2];
         }
     }
+    let mut needs_reference = 0u32;
+    let mut has_zero = 0u32;
     for n in normals.as_chunks_mut::<3>().0 {
-        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        let squared = n[0] * n[0] + n[1] * n[1] + n[2] * n[2];
+        // Defer the retry branch until after this small arithmetic loop so
+        // ordinary normalization remains amenable to vectorization.
+        let nonzero = u32::from(*n != [0.0; 3]);
+        needs_reference |= u32::from(!squared.is_normal()) & nonzero;
+        has_zero |= 1 - nonzero;
+        let len = squared.sqrt();
         if len > 0.0 {
             n[0] /= len;
             n[1] /= len;
             n[2] /= len;
         }
     }
-    normals
+    // Zero accumulated normals can hide a nondegenerate source face. Check
+    // those vertices after accumulation, keeping this rare source inspection
+    // out of the ordinary per-face loop.
+    let lost_face = has_zero != 0
+        && triangles.clone().any(|tri| {
+            tri.iter().any(|&i| {
+                let i = i as usize * 3;
+                normals[i..i + 3] == [0.0; 3]
+            }) && face_normal_f64(dataset, point_ids, tri) != [0.0; 3]
+        });
+    if needs_reference != 0 || lost_face {
+        // Recompute all contributions to preserve area weighting, including
+        // vertices normalized earlier in this speculative f32 pass.
+        return reference_normals(dataset, point_ids, positions, triangles, normals);
+    }
+    Ok(normals)
+}
+
+fn face_normal_f64(dataset: &gpui_mesh::DataSet, point_ids: &[u32], tri: [u32; 3]) -> [f64; 3] {
+    let [a, b, c] = tri.map(|i| dataset.positions[point_ids[i as usize] as usize]);
+    let ab: [f64; 3] = std::array::from_fn(|axis| b[axis] - a[axis]);
+    let ac: [f64; 3] = std::array::from_fn(|axis| c[axis] - a[axis]);
+    [
+        ab[1] * ac[2] - ab[2] * ac[1],
+        ab[2] * ac[0] - ab[0] * ac[2],
+        ab[0] * ac[1] - ab[1] * ac[0],
+    ]
+}
+
+fn reference_normals(
+    dataset: &gpui_mesh::DataSet,
+    point_ids: &[u32],
+    positions: &[f32],
+    triangles: impl Iterator<Item = [u32; 3]>,
+    mut normals: Vec<f32>,
+) -> Result<Vec<f32>, SceneError> {
+    // Use source edges: subtracting the chunk origin and converting to f32 can
+    // collapse a tiny face next to a large one. Representable rebased positions
+    // bound source edge products well inside f64 range. Only unusual scales
+    // allocate this workspace; ordinary output arithmetic stays unchanged.
+    if positions.iter().any(|value| !value.is_finite()) {
+        return Err(SceneError::UnsupportedPrecision(
+            "surface positions exceed the f32 geometry range",
+        ));
+    }
+    let mut sums = crate::limits::frame_buffer(positions.len(), 0.0f64)?;
+    for tri in triangles {
+        let n = face_normal_f64(dataset, point_ids, tri);
+        for i in tri {
+            for axis in 0..3 {
+                sums[i as usize * 3 + axis] += n[axis];
+            }
+        }
+    }
+    for (sum, normal) in sums
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(normals.as_chunks_mut::<3>().0)
+    {
+        let squared = sum[0] * sum[0] + sum[1] * sum[1] + sum[2] * sum[2];
+        *normal = if squared.is_normal() {
+            let length = squared.sqrt();
+            sum.map(|v| (v / length) as f32)
+        } else {
+            // Source edges may be smaller than the converted positions. Keep
+            // their nonzero area direction when squaring it would underflow.
+            // The source cross products themselves still have finite precision.
+            let scale = sum.iter().map(|v| v.abs()).fold(0.0, f64::max);
+            if scale == 0.0 {
+                [0.0; 3]
+            } else {
+                let scaled = sum.map(|v| v / scale);
+                let length =
+                    (scaled[0] * scaled[0] + scaled[1] * scaled[1] + scaled[2] * scaled[2]).sqrt();
+                scaled.map(|v| (v / length) as f32)
+            }
+        };
+    }
+    Ok(normals)
 }
 
 fn wireframe_edges(
