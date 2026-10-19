@@ -4,7 +4,8 @@
 
 use crate::TransformError;
 use crate::mean::{
-    certified_float_rows, component_sign, exact_average, has_mixed_rows, has_mixed_signs,
+    SmallFieldSum, certified_float_rows, component_sign, exact_average, has_mixed_rows,
+    has_mixed_signs,
 };
 use gpui_mesh::{Cells, DataSet, Field, FieldData};
 use std::collections::{HashMap, HashSet, hash_map::Entry};
@@ -198,7 +199,6 @@ impl Groups<'_> {
     ) -> Vec<[f64; N]> {
         self.counts.fill(0);
         let count = self.counts.len();
-        let mut sums = vec![[0.0_f64; N]; count];
         let mixed = may_cancel
             && has_mixed_rows(
                 values
@@ -217,6 +217,21 @@ impl Groups<'_> {
                     .map(|(_, row)| row),
                 self.max_members,
             );
+        if mixed
+            && !exact_float
+            && self.max_members > 0
+            && let Some(plan) = SmallFieldSum::certify(
+                values
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| valid.is_none_or(|mask| mask[*i]))
+                    .map(|(_, row)| row),
+                self.max_members,
+            )
+        {
+            return self.integer_rows(values, valid, plan);
+        }
+        let mut sums = vec![[0.0_f64; N]; count];
         let mut corrections = (!exact_float).then(|| vec![[0.0; N]; count]);
         let mut signs = (mixed && !exact_float).then(|| vec![0_u16; count]);
         for (index, (&group, value)) in self.assignment.iter().zip(values).enumerate() {
@@ -280,6 +295,60 @@ impl Groups<'_> {
             self.max_members = self.counts.iter().copied().max().unwrap_or(0);
         }
         sums
+    }
+
+    fn integer_rows<const N: usize>(
+        &mut self,
+        values: &[[f64; N]],
+        valid: Option<&[bool]>,
+        plan: SmallFieldSum,
+    ) -> Vec<[f64; N]> {
+        let mut sums = vec![[0_i64; N]; self.counts.len()];
+        if let Some(scale) = plan.integer_scale() {
+            self.accumulate_integers(values, valid, &mut sums, |value| (value * scale) as i64);
+        } else {
+            self.accumulate_integers(values, valid, &mut sums, |value| plan.integer(value));
+        }
+        // Vec's consuming map can reuse equal-sized integer/float row storage.
+        // No correction/sign arrays or membership table are needed in this path.
+        sums.into_iter()
+            .enumerate()
+            .map(|(group, sums)| {
+                let count = self.counts[group];
+                if count == 0 {
+                    [f64::NAN; N]
+                } else {
+                    plan.averages(sums, count)
+                }
+            })
+            .collect()
+    }
+
+    fn accumulate_integers<const N: usize>(
+        &mut self,
+        values: &[[f64; N]],
+        valid: Option<&[bool]>,
+        sums: &mut [[i64; N]],
+        decode: impl Fn(f64) -> i64,
+    ) {
+        let mut include = |index: usize| {
+            let group = self.assignment[index] as usize;
+            self.counts[group] += 1;
+            for (sum, &value) in sums[group].iter_mut().zip(&values[index]) {
+                *sum += decode(value);
+            }
+        };
+        if let Some(mask) = valid {
+            for (index, &present) in mask.iter().enumerate() {
+                if present {
+                    include(index);
+                }
+            }
+        } else {
+            for index in 0..values.len() {
+                include(index);
+            }
+        }
     }
 
     fn field(&mut self, source: &Field) -> Field {

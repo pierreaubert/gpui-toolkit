@@ -1101,3 +1101,76 @@ and pressure/large-dataset integrations pass with Metal required.
   work. The earlier open-diagnostic artifact is historical evidence, not the
   current status. C3/C4/C5 and all previously open platform, rendering, budget,
   streaming, Taffy, CUDA/MLX and physical-device acceptance work stay unchecked.
+
+## Machine-integer reduction optimization checkpoint
+
+- Point-to-cell conversion chooses its arithmetic strategy once per collection.
+  Scalar output consumes the single-component row buffer without another copy.
+  Empty and wholly unsupported selections avoid unnecessary certification work.
+  Direct division is selected outside the loop when certified vector sums have
+  arbitrary contributor counts; complete power-of-two cells retain exact
+  reciprocal multiplication. A regression checks masked and mixed-size cells
+  against the correctly rounded bits of -5/3, which differs from multiplying
+  -5 by the rounded reciprocal of 3.
+- The signed-i64 certificate now carries an optional exact inverse binary unit.
+  Where that inverse is a normal finite power of two, multiplying each supported
+  value by it produces an exact integer below 2^63. Safe float-to-integer
+  conversion replaces per-value bit decoding. Tiny-unit cases retain general
+  decoding, including signed zeros. Division/scaling decisions are shared across
+  the components of a row. General u128 rational rounding stays out of that hot
+  path. No unsafe code, dependencies, approximation mode or relaxed rounding
+  guarantee was introduced.
+- Clustering uses the same certificate and accumulates directly into one
+  machine-integer row per cluster. Consuming conversion to float rows can reuse
+  that allocation; this path needs neither correction/sign arrays nor the
+  membership table. Unsupported values are excluded before integer decoding,
+  and groups with no supported values retain masked NaNs. Wide/adaptive fallback
+  remains for values or contributor counts outside the certificate.
+- The independent oracle expands to 1,305 cases, preserving the earlier 1,125
+  rows byte-for-byte. New cases cover normal inverse-unit boundaries, signed
+  zeros, tiny/general decoding, extreme exponents and either side of the signed
+  machine-word prefix bound. It regenerates exactly. Private checks also compare
+  every eligible floating certificate with the rational result. Public tests
+  check all four component shapes across fixed/variable small cells and
+  clustering, plus masks/empty support in the new integer path. An allocation
+  regression on identical 4,096-point geometry fails on unchanged `fd9eaefc`
+  production source and passes here: ordinary machine-integer cancellation uses
+  no more calls/bytes than overflowing means with the same output topology.
+- `qa/perf/20261019-reduction-machine-integer-paired.json` records the final
+  three-way comparison: correct baseline `fd9eaefc`, candidate and historical
+  inexact `7dd24e2c`. Identical release source/locks, production/test/binary hashes,
+  64 cases, allocator-disabled ABCCBA twice and separate allocation builds are
+  preserved. No agent-owned builds/checks ran during measurement. CPU is actual
+  aggregate process CPU; fixture construction, output checks and destruction
+  remain outside timing. At 24³ points:
+
+  | Case | Correct baseline CPU | Current CPU | Historical inexact CPU | Current calls / cumulative bytes |
+  |---|---:|---:|---:|---:|
+  | Positive scalar conversion, validated | 51 µs | 44 µs | 41 µs | 5 / 195,288 |
+  | Positive vector conversion, validated | 73.5 µs | 68 µs | 65 µs | 5 / 584,632 |
+  | Mixed quantized vector conversion, validated | 106.5 µs | 105 µs | 62.5 µs | 5 / 584,632 |
+  | Mixed full-precision scalar conversion, validated | 120 µs | 68 µs | 42.5 µs | 5 / 195,288 |
+  | Mixed full-precision vector conversion, validated | 336 µs | 117 µs | 62 µs | 5 / 584,632 |
+  | Mixed full-precision clustering | 728.5 µs | 527.5 µs | 524 µs | 40 / 610,030 |
+
+  The full-precision vector case uses 65% less CPU than the correct baseline;
+  clustering uses 28% less. Clustering calls fall from 46 to 40 and cumulative
+  bytes from 796,662 to 610,030. Remaining regressions are retained: separated-sign
+  vector conversion is 106 versus 101.5 µs CPU, separated-sign clustering 578
+  versus 546.5 µs, and the 8³ positive clustering case 24.5 versus 21.5 µs. This
+  shared-host diagnostic does not establish controlled-device thresholds. It
+  also does not qualify non-power-of-two cell CPU costs. Further ordinary-loop
+  specialization and certificate reuse remain performance work; the current
+  full-precision vector cost is still 1.89× the historical inexact path, and
+  quantized vector cost 1.68×. A batched floating-certificate prototype showed
+  no clear benefit and was removed. CPU time is not energy, and cumulative
+  allocation is not peak/live/RSS or mobile qualification.
+- Required-Metal native verification passes: 75 transformation, 15 mesh and 91
+  scene library tests, 68 public regressions, allocation contracts and
+  large-dataset/pressure integrations. Strict mesh/transformation all-target
+  Clippy and the core wasm closure pass. `git diff --check` passes.
+  `qa/numeric/20261019-reduction-machine-integer-status.json` re-executes the
+  current public probes: statistics and point-to-cell residuals remain correct;
+  weighted cell-to-point still returns 4/3 instead of 1. C3/C4/C5 and every
+  previously open platform, rendering, memory-budget, streaming, scheduling,
+  Taffy, CUDA/MLX and physical-device requirement remain open.

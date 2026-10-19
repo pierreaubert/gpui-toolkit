@@ -272,6 +272,7 @@ pub(crate) fn certified_float_rows<'a, const N: usize>(
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct SmallFieldSum {
     shift: usize,
+    scale: Option<f64>,
 }
 
 impl SmallFieldSum {
@@ -298,33 +299,64 @@ impl SmallFieldSum {
                 }
             }
         }
-        (shift != usize::MAX).then_some(Self { shift })
+        if shift == usize::MAX {
+            return None;
+        }
+        // Inverse units in the normal f64 range allow one exact multiply and
+        // machine integer conversion. The certificate bounds the product below
+        // 2^63 and proves it integral, so conversion loses no information.
+        let exponent = 1074 - shift as i32;
+        let scale = (-1022..=1023)
+            .contains(&exponent)
+            .then(|| f64::from_bits(((exponent + 1023) as u64) << 52));
+        Some(Self { shift, scale })
     }
 
     #[inline]
     pub(crate) fn integer(self, value: f64) -> i64 {
-        if value == 0.0 {
-            return 0;
+        if let Some(scale) = self.scale {
+            return (value * scale) as i64;
         }
-        let (significand, unit, negative) = parts(value);
-        let magnitude = (significand << (unit - self.shift)) as i64;
-        if negative { -magnitude } else { magnitude }
+        self.integer_bits(value)
+    }
+
+    pub(crate) fn integer_scale(self) -> Option<f64> {
+        self.scale
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn integer_bits(self, value: f64) -> i64 {
+        let bits = value.to_bits();
+        let exponent = (bits >> 52) & 0x7ff;
+        let significand = (bits & FRACTION) | (u64::from(exponent != 0) << 52);
+        let unit = exponent.saturating_sub(1) as usize;
+        // Nonzero terms have a certified shift in 0..63. Zero may have a lower
+        // unit than the certificate: a masked shift still leaves its zero
+        // significand unchanged, including negative zero. No special zero
+        // branch is needed in this general decoding path.
+        let magnitude = significand.wrapping_shl(unit.wrapping_sub(self.shift) as u32);
+        let sign = ((bits as i64) >> 63) as u64;
+        (magnitude ^ sign).wrapping_sub(sign) as i64
     }
 
     #[inline]
-    pub(crate) fn average(self, sum: i64, count: usize) -> f64 {
+    pub(crate) fn averages<const N: usize>(self, sums: [i64; N], count: usize) -> [f64; N] {
         let exponent = self.shift as i32 - 1074 - count.trailing_zeros() as i32;
         if count.is_power_of_two() && (-1022..=1023).contains(&exponent) {
             // Integer conversion rounds once; the normal power-of-two scale
             // preserves that rounding. The certificate bounds every prefix.
-            return sum as f64 * f64::from_bits(((exponent + 1023) as u64) << 52);
+            let scale = f64::from_bits(((exponent + 1023) as u64) << 52);
+            return sums.map(|sum| sum as f64 * scale);
         }
-        rounded_small(
-            u128::from(sum.unsigned_abs()),
-            count,
-            self.shift as i32 - 1074,
-            sum < 0,
-        )
+        sums.map(|sum| {
+            rounded_small(
+                u128::from(sum.unsigned_abs()),
+                count,
+                self.shift as i32 - 1074,
+                sum < 0,
+            )
+        })
     }
 }
 
@@ -359,6 +391,8 @@ pub(crate) fn has_mixed_signs(bits: u16) -> bool {
     bits & (bits >> 1) & 0x5555 != 0
 }
 
+// Keep general rational rounding out of the certified power-of-two hot path.
+#[inline(never)]
 fn rounded_small(magnitude: u128, count: usize, unit_exponent: i32, negative: bool) -> f64 {
     if magnitude == 0 {
         return 0.0;
@@ -595,10 +629,18 @@ mod tests {
             let expected = words.next().unwrap();
             let values = words.map(f64::from_bits);
             let rows: Vec<_> = values.clone().map(|value| [value]).collect();
+            if certified_float_rows(rows.iter(), rows.len()) {
+                assert_eq!(
+                    (values.clone().fold(0.0, |sum, value| sum + value) / rows.len() as f64)
+                        .to_bits(),
+                    expected,
+                    "certified floating oracle row {index}"
+                );
+            }
             if let Some(plan) = SmallFieldSum::certify(rows.iter(), rows.len()) {
                 let sum = values.clone().map(|value| plan.integer(value)).sum();
                 assert_eq!(
-                    plan.average(sum, rows.len()).to_bits(),
+                    plan.averages([sum], rows.len())[0].to_bits(),
                     expected,
                     "shared integer oracle row {index}"
                 );

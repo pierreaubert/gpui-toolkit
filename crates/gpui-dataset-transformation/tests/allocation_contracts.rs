@@ -295,11 +295,41 @@ fn allocation_cost_is_bounded_by_outputs_and_points_without_per_cell_scratch() {
     let mut allocations = AllocProbe::new();
     allocations.reset();
     let output = black_box(decimate(&data, 1.0).unwrap());
+    let wide_sample = allocations.sample("bounded-exact-clusters");
+    let wide_calls = wide_sample.count;
+    let wide_bytes = wide_sample.bytes;
     AllocationBudget::new("bounded-exact-clusters", 160, 576 * count + 65536)
-        .assert_contains(allocations.sample("bounded-exact-clusters"));
+        .assert_contains(wide_sample);
     output.validate().unwrap();
     assert_eq!(output.point_count(), count / 2);
     assert_eq!(output.point_data[0].as_scalar().unwrap()[0], f64::MAX);
+    let values = (0..count)
+        .map(|i| if i % 2 == 0 { 1.0 + f64::EPSILON } else { -1.0 })
+        .collect::<Vec<_>>();
+    let mut integer_data = data.clone();
+    integer_data.point_data = vec![
+        Field::scalar("s", values.clone()),
+        Field::vector("v", values.iter().map(|&v| [v; 3]).collect::<Vec<_>>()),
+        Field::tensor("t", values.iter().map(|&v| [v; 6]).collect::<Vec<_>>()),
+        Field::complex("z", values.iter().map(|&v| [v; 2]).collect::<Vec<_>>()),
+    ];
+    allocations.reset();
+    let output = black_box(decimate(&integer_data, 1.0).unwrap());
+    let integer_sample = allocations.sample("machine-integer-clusters");
+    // The ordinary integer certificate must not cost more scratch than wide
+    // overflow on identical geometry, regardless of the number of clusters.
+    assert!(integer_sample.count <= wide_calls);
+    assert!(integer_sample.bytes <= wide_bytes);
+    AllocationBudget::new("machine-integer-clusters", 160, 576 * count + 65536)
+        .assert_contains(integer_sample);
+    output.validate().unwrap();
+    assert!(
+        output.point_data[0]
+            .as_scalar()
+            .unwrap()
+            .iter()
+            .all(|&v| v == f64::EPSILON / 2.0)
+    );
     for point_count in [64usize, 4096] {
         let mut values = vec![f64::NAN; point_count];
         values[..3].copy_from_slice(&[1e16, 3.0, -1e16]);

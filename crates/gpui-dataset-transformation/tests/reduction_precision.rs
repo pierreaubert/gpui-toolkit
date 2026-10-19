@@ -44,6 +44,110 @@ fn row(field: &Field) -> Vec<f64> {
 }
 
 #[test]
+fn certified_integer_means_exclude_missing_values_and_empty_support_for_every_shape() {
+    for shape in [1, 3, 6, 2] {
+        let mut field = shaped(shape, &[1.0 + f64::EPSILON, -1.0, f64::NAN, 9.0]);
+        field.valid = Some(vec![true, true, false, false].into());
+        let data = DataSet::new(
+            "certified-support",
+            vec![[0.0; 3], [0.0; 3], [5.0; 3], [5.0; 3]],
+            Cells::from_cells(&[(CellType::Line, &[0, 1]), (CellType::Line, &[2, 3])]),
+        )
+        .with_field(field);
+        let converted = point_data_to_cell_data(&data, "p", "mean").unwrap();
+        converted.validate().unwrap();
+        let clustered = decimate(&data, 1.0).unwrap();
+        clustered.validate().unwrap();
+        for field in [
+            converted.field(Association::Cell, "mean").unwrap(),
+            &clustered.point_data[0],
+        ] {
+            assert!(row(field).iter().all(|&v| v == f64::EPSILON / 2.0));
+            assert!(field.is_valid(0));
+            assert!(!field.is_valid(1));
+        }
+    }
+}
+
+#[test]
+fn certified_vector_means_keep_division_precision_with_masks_and_mixed_cell_sizes() {
+    let vector = Field::vector("v", vec![[2.0; 3], [0.0; 3], [-7.0; 3], [9.0; 3]]);
+    let mut masked = DataSet::new(
+        "masked",
+        vec![[0.0; 3]; 4],
+        Cells::from_cells(&[(CellType::Quad, &[0, 1, 2, 3])]),
+    )
+    .with_field(vector.clone());
+    masked.point_data[0].valid = Some(vec![true, true, true, false].into());
+    let mixed = DataSet::new(
+        "mixed",
+        vec![[0.0; 3]; 4],
+        Cells::from_cells(&[
+            (CellType::Triangle, &[0, 1, 2]),
+            (CellType::Quad, &[0, 1, 2, 3]),
+        ]),
+    )
+    .with_field(vector);
+    // Correctly rounded -5/3 differs from -5 times a rounded reciprocal of 3.
+    let expected = f64::from_bits(0xbffa_aaaa_aaaa_aaab);
+    for data in [masked, mixed] {
+        let out = point_data_to_cell_data(&data, "v", "mean").unwrap();
+        out.validate().unwrap();
+        let values = out
+            .field(Association::Cell, "mean")
+            .unwrap()
+            .as_vector()
+            .unwrap();
+        assert!(values[0].iter().all(|v| v.to_bits() == expected.to_bits()));
+        if values.len() == 2 {
+            assert_eq!(values[1], [1.0; 3]);
+        }
+    }
+}
+
+#[test]
+fn component_means_and_cluster_means_match_rational_oracle_for_small_cells() {
+    let mut checked = 0;
+    for line in include_str!("fixtures/exact_mean.tsv")
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+    {
+        let mut words = line
+            .split_whitespace()
+            .map(|word| u64::from_str_radix(word, 16).unwrap());
+        let expected = words.next().unwrap();
+        let values = words.map(f64::from_bits).collect::<Vec<_>>();
+        if !(2..=8).contains(&values.len())
+            || !values.iter().any(|v| *v < 0.0)
+            || !values.iter().any(|v| *v > 0.0)
+        {
+            continue;
+        }
+        for shape in [1, 3, 6, 2] {
+            let mut data = dataset(values.clone());
+            data.point_data[0] = shaped(shape, &values);
+            let out = point_data_to_cell_data(&data, "p", "mean").unwrap();
+            out.validate().unwrap();
+            assert!(
+                row(out.field(Association::Cell, "mean").unwrap())
+                    .iter()
+                    .all(|v| v.to_bits() == expected)
+            );
+            let out = decimate(&data, 1.0).unwrap();
+            out.validate().unwrap();
+            assert_eq!(out.point_count(), 1);
+            assert!(
+                row(&out.point_data[0])
+                    .iter()
+                    .all(|v| v.to_bits() == expected)
+            );
+        }
+        checked += 1;
+    }
+    assert!(checked > 100);
+}
+
+#[test]
 fn public_means_match_independent_rational_oracle_for_mixed_signs() {
     let mut checked = 0;
     for line in include_str!("fixtures/exact_mean.tsv")

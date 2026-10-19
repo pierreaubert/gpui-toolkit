@@ -68,6 +68,29 @@ def main():
                         for index in range(count - 1)] + [low if pattern != 2 else -low]
                 exact = sum((Fraction.from_float(value) for value in data), Fraction()) / count
                 cases.append([to_bits(float(exact)), *map(to_bits, data)])
+    # Inverse-unit scaling boundaries, signed zeros and the general tiny path.
+    for exponent in [0, 1, 2, 50, 51, 52, 53, 1023, 2046]:
+        for count in [2, 3, 4, 8]:
+            for pattern in range(4):
+                data = [from_bits(((index % 2) << 63)
+                                  | (exponent << 52)
+                                  | generator.getrandbits(52)) for index in range(count)]
+                if pattern < 2:
+                    data[0] = from_bits(pattern << 63)
+                exact = sum((Fraction.from_float(value) for value in data), Fraction()) / count
+                cases.append([to_bits(float(exact)), *map(to_bits, data)])
+    # Either side of the signed-i64 prefix bound; the top sign bit is reserved.
+    for count in [2, 3, 4, 8]:
+        growth = (count - 1).bit_length()
+        for delta in [-1, 0, 1]:
+            spread = 63 - 53 - growth + delta
+            high = from_bits(((1023 + spread) << 52) | ((1 << 52) - 1))
+            low = from_bits((1023 << 52) | ((1 << 52) - 1))
+            for pattern in range(3):
+                data = [high if pattern == 0 or index % 2 == 0 else -high
+                        for index in range(count - 1)] + [low if pattern != 2 else -low]
+                exact = sum((Fraction.from_float(value) for value in data), Fraction()) / count
+                cases.append([to_bits(float(exact)), *map(to_bits, data)])
     root = Path(__file__).resolve().parents[2]
     fixture = root / "crates/gpui-dataset-transformation/tests/fixtures/exact_mean.tsv"
     fixture.parent.mkdir(exist_ok=True)

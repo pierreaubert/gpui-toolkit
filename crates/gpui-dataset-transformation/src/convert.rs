@@ -22,22 +22,25 @@ pub(crate) fn blend(a: f64, b: f64, fraction: f64) -> f64 {
     ((a / scale) * (1.0 - fraction) + (b / scale) * fraction).clamp(-1.0, 1.0) * scale
 }
 
-fn point_means<'a, const N: usize>(
-    dataset: &'a DataSet,
-    field: &'a Field,
-    values: &'a [[f64; N]],
-) -> impl Iterator<Item = [f64; N]> + 'a {
+fn point_means<const N: usize>(
+    dataset: &DataSet,
+    field: &Field,
+    values: &[[f64; N]],
+) -> Vec<[f64; N]> {
+    if dataset.cells.is_empty() {
+        return Vec::new();
+    }
     let all_missing = field
         .valid
         .as_ref()
         .is_some_and(|mask| mask.iter().all(|v| !*v));
+    if all_missing {
+        return vec![[f64::NAN; N]; dataset.cell_count()];
+    }
     // A dense mesh reuses a field sign certificate; sparse selections inspect
     // referenced values only. Within mixed fields, track actual cell signs so
     // that a distant zero crossing cannot force every cell into exact arithmetic.
-    let mixed = (!all_missing
-        && !dataset.cells.is_empty()
-        && dataset.cells.connectivity.len() >= values.len())
-    .then(|| {
+    let mixed = (dataset.cells.connectivity.len() >= values.len()).then(|| {
         crate::mean::has_mixed_rows(
             values
                 .iter()
@@ -65,19 +68,55 @@ fn point_means<'a, const N: usize>(
                 )
             })
             .flatten();
-    (0..dataset.cell_count()).map(move |cell| {
-        if all_missing {
-            return [f64::NAN; N];
-        }
-        let nodes = dataset.cells.cell(cell).unwrap();
-        if let Some(plan) = small_sum {
-            integer_point_mean(nodes, values, field.valid.as_deref(), plan)
-        } else if mixed == Some(false) || exact_float {
-            point_mean::<N, false>(nodes, values, field.valid.as_deref(), exact_float)
+    // Dispatch once so each collection loop has one arithmetic strategy.
+    if let Some(plan) = small_sum {
+        if let Some(scale) = plan.integer_scale() {
+            collect_point_means(dataset, |nodes| {
+                integer_point_mean(nodes, values, field.valid.as_deref(), plan, |value| {
+                    (value * scale) as i64
+                })
+            })
         } else {
-            point_mean::<N, true>(nodes, values, field.valid.as_deref(), false)
+            collect_point_means(dataset, |nodes| {
+                integer_point_mean(nodes, values, field.valid.as_deref(), plan, |value| {
+                    plan.integer(value)
+                })
+            })
         }
-    })
+    } else if mixed == Some(false) || exact_float {
+        // A certified sum needs direct division for arbitrary contributor
+        // counts. With complete power-of-two cells, reciprocal multiplication
+        // is exact and the loop can omit this per-cell arithmetic decision.
+        let direct = exact_float
+            && (field.valid.is_some()
+                || dataset
+                    .cells
+                    .types
+                    .iter()
+                    .any(|kind| !kind.node_count().is_power_of_two()));
+        if direct {
+            collect_point_means(dataset, |nodes| {
+                point_mean::<N, false, true>(nodes, values, field.valid.as_deref())
+            })
+        } else {
+            collect_point_means(dataset, |nodes| {
+                point_mean::<N, false, false>(nodes, values, field.valid.as_deref())
+            })
+        }
+    } else {
+        collect_point_means(dataset, |nodes| {
+            point_mean::<N, true, false>(nodes, values, field.valid.as_deref())
+        })
+    }
+}
+
+fn collect_point_means<const N: usize>(
+    dataset: &DataSet,
+    average: impl Fn(&[u32]) -> [f64; N],
+) -> Vec<[f64; N]> {
+    (0..dataset.cell_count())
+        .map(|cell| average(dataset.cells.cell(cell).unwrap()))
+        .collect()
 }
 
 #[inline]
@@ -86,31 +125,41 @@ fn integer_point_mean<const N: usize>(
     values: &[[f64; N]],
     valid: Option<&[bool]>,
     plan: crate::mean::SmallFieldSum,
+    decode: impl Fn(f64) -> i64,
 ) -> [f64; N] {
     let mut sums = [0; N];
-    let mut count = 0;
-    for &node in nodes {
-        if valid.is_some_and(|mask| !mask[node as usize]) {
-            continue;
-        }
-        count += 1;
+    let mut include = |node: u32| {
         for (sum, &value) in sums.iter_mut().zip(&values[node as usize]) {
-            *sum += plan.integer(value);
+            *sum += decode(value);
         }
-    }
+    };
+    let count = if let Some(mask) = valid {
+        let mut count = 0;
+        for &node in nodes {
+            if mask[node as usize] {
+                include(node);
+                count += 1;
+            }
+        }
+        count
+    } else {
+        for &node in nodes {
+            include(node);
+        }
+        nodes.len()
+    };
     if count == 0 {
         [f64::NAN; N]
     } else {
-        sums.map(|sum| plan.average(sum, count))
+        plan.averages(sums, count)
     }
 }
 
 #[inline]
-fn point_mean<const N: usize, const TRACK_SIGNS: bool>(
+fn point_mean<const N: usize, const TRACK_SIGNS: bool, const DIRECT_DIVISION: bool>(
     nodes: &[u32],
     values: &[[f64; N]],
     valid: Option<&[bool]>,
-    exact_float: bool,
 ) -> [f64; N] {
     let (sum, count, signs) = sum_nodes::<N, TRACK_SIGNS>(nodes, values, valid);
     if count == 0 {
@@ -118,7 +167,7 @@ fn point_mean<const N: usize, const TRACK_SIGNS: bool>(
     }
     let inverse = 1.0 / count as f64;
     if !crate::mean::has_mixed_signs(signs) && sum.iter().all(|v| v.is_finite()) {
-        if N == 1 || (exact_float && !count.is_power_of_two()) {
+        if N == 1 || DIRECT_DIVISION {
             sum.map(|v| v / count as f64)
         } else {
             sum.map(|v| v * inverse)
@@ -488,22 +537,11 @@ pub fn point_data_to_cell_data_validated(
     let converted = match &field.data {
         FieldData::Scalar(values) => Field::scalar(
             out_name,
-            point_means(dataset, field, values.as_chunks::<1>().0)
-                .map(|row| row[0])
-                .collect::<Vec<_>>(),
+            point_means(dataset, field, values.as_chunks::<1>().0).into_flattened(),
         ),
-        FieldData::Vector(values) => Field::vector(
-            out_name,
-            point_means(dataset, field, values).collect::<Vec<_>>(),
-        ),
-        FieldData::Tensor(values) => Field::tensor(
-            out_name,
-            point_means(dataset, field, values).collect::<Vec<_>>(),
-        ),
-        FieldData::Complex(values) => Field::complex(
-            out_name,
-            point_means(dataset, field, values).collect::<Vec<_>>(),
-        ),
+        FieldData::Vector(values) => Field::vector(out_name, point_means(dataset, field, values)),
+        FieldData::Tensor(values) => Field::tensor(out_name, point_means(dataset, field, values)),
+        FieldData::Complex(values) => Field::complex(out_name, point_means(dataset, field, values)),
     };
     Ok(append(
         dataset,
