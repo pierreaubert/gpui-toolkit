@@ -24,6 +24,7 @@ mod base64;
 pub use base64::{decode as decode_base64, encode as encode_base64};
 mod calculator;
 mod cell_mean;
+mod cell_plan;
 mod clip;
 mod contours;
 mod convert;
@@ -64,6 +65,8 @@ pub use analysis::{FieldStats, calculator, field_statistics, histogram, resample
 #[doc(inline)]
 pub use append::append_datasets;
 pub use calculator::{complex_magnitude, complex_phase, vector_magnitude};
+#[doc(inline)]
+pub use cell_plan::{CellToPointLimits, CellToPointPlan};
 pub use clip::{clip_halfspace, slice};
 pub use contours::contour_lines;
 pub use convert::{
@@ -122,6 +125,16 @@ pub enum TransformError {
     /// A geometric input is degenerate.
     #[error("degenerate input: {0}")]
     Degenerate(String),
+    /// A bounded preparation would exceed its requested payload budget.
+    #[error("{resource} requires {required} payload bytes, limit is {limit}")]
+    ResourceLimit {
+        /// Preparation resource being bounded.
+        resource: &'static str,
+        /// Requested simultaneous payload bytes.
+        required: usize,
+        /// Caller-selected maximum payload bytes.
+        limit: usize,
+    },
     /// The input dataset failed validation.
     #[error(transparent)]
     Mesh(#[from] gpui_mesh::MeshError),

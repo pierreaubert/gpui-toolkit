@@ -1,6 +1,8 @@
 // Rust guideline compliant 2026-02-21
 
-use gpui_dataset_transformation::{cell_data_to_point_data, cell_data_to_point_data_validated};
+use gpui_dataset_transformation::{
+    CellToPointPlan, cell_data_to_point_data, cell_data_to_point_data_validated,
+};
 use gpui_mesh::{Association, CellType, Cells, DataSet, Field, FieldData};
 
 fn star(pairs: &[(f64, f64)]) -> DataSet {
@@ -49,22 +51,27 @@ fn weighted_conversion_matches_independent_rational_oracle_in_both_orders() {
             .collect::<Vec<_>>();
         for pairs in [pairs.clone(), pairs.iter().copied().rev().collect()] {
             let data = star(&pairs);
-            let out = cell_data_to_point_data(&data, "p", "mean").unwrap();
-            out.validate().unwrap();
-            let actual = out
-                .field(Association::Point, "mean")
-                .unwrap()
-                .as_scalar()
-                .unwrap();
-            assert_eq!(
-                actual[0].to_bits(),
-                words[0],
-                "public weighted oracle row {index}"
-            );
-            for (actual, &(expected, _)) in actual[1..].iter().zip(&pairs) {
-                // Exact rational zero is normalized to +0; a one-cell point
-                // otherwise retains its finite source value exactly.
-                assert_eq!(*actual, expected);
+            let mut plan = CellToPointPlan::new(data.validated().unwrap()).unwrap();
+            for out in [
+                cell_data_to_point_data(&data, "p", "mean").unwrap(),
+                plan.convert_field("p", "mean").unwrap(),
+            ] {
+                out.validate().unwrap();
+                let actual = out
+                    .field(Association::Point, "mean")
+                    .unwrap()
+                    .as_scalar()
+                    .unwrap();
+                assert_eq!(
+                    actual[0].to_bits(),
+                    words[0],
+                    "public weighted oracle row {index}"
+                );
+                for (actual, &(expected, _)) in actual[1..].iter().zip(&pairs) {
+                    // Exact rational zero is normalized to +0; a one-cell point
+                    // otherwise retains its finite source value exactly.
+                    assert_eq!(*actual, expected);
+                }
             }
         }
     }

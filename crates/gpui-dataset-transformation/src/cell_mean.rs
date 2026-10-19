@@ -6,6 +6,7 @@
 
 // Rust guideline compliant 2026-02-21
 
+use crate::TransformError;
 use crate::mean::{FieldSum128, SmallFieldSum, certified_float_rows, exact_average};
 use crate::weighted_mean::{ProductPlan, exact_weighted_average};
 use gpui_mesh::{DataSet, Field};
@@ -16,7 +17,7 @@ pub(crate) struct ComputedRows<const N: usize> {
     pub(crate) all_supported: bool,
 }
 
-struct CellWeights {
+pub(crate) struct CellWeights {
     common: f64,
     dense: Option<Vec<f64>>,
     zeros: Option<Vec<u64>>,
@@ -51,6 +52,63 @@ impl CellWeights {
             );
         }
         weights
+    }
+
+    pub(crate) fn prepare_geometry(
+        dataset: &DataSet,
+        limit: usize,
+    ) -> Result<Self, TransformError> {
+        let mut weights = Self::new(dataset.cell_count());
+        for cell in 0..dataset.cell_count() {
+            let weight = crate::convert::cell_measure(dataset, cell);
+            let weight = if weight.is_finite() && weight > 0.0 {
+                weight
+            } else {
+                0.0
+            };
+            let additional = if weights.dense.is_some() {
+                0
+            } else if weight == 0.0 && weights.zeros.is_none() {
+                weights
+                    .len
+                    .div_ceil(64)
+                    .checked_mul(size_of::<u64>())
+                    .ok_or_else(|| {
+                        TransformError::Degenerate("cell-weight bitmap size overflow".into())
+                    })?
+            } else if weight > 0.0 && weights.common != 0.0 && weight != weights.common {
+                weights.len.checked_mul(size_of::<f64>()).ok_or_else(|| {
+                    TransformError::Degenerate("cell-weight array size overflow".into())
+                })?
+            } else {
+                0
+            };
+            let required = weights
+                .payload_bytes()
+                .checked_add(additional)
+                .ok_or_else(|| {
+                    TransformError::Degenerate("cell-weight preparation size overflow".into())
+                })?;
+            if required > limit {
+                return Err(TransformError::ResourceLimit {
+                    resource: "cell-to-point weights",
+                    required,
+                    limit,
+                });
+            }
+            weights.record(cell, weight);
+        }
+        Ok(weights)
+    }
+
+    pub(crate) fn payload_bytes(&self) -> usize {
+        self.dense
+            .as_ref()
+            .map_or(0, |values| values.len() * size_of::<f64>())
+            + self
+                .zeros
+                .as_ref()
+                .map_or(0, |values| values.len() * size_of::<u64>())
     }
 
     fn record(&mut self, cell: usize, weight: f64) {
@@ -95,14 +153,49 @@ impl CellWeights {
     }
 }
 
-struct Contributors {
-    weights: CellWeights,
+trait WeightSource: Copy {
+    fn get(self, cell: usize) -> f64;
+    fn is_equal(self) -> bool;
+}
+
+impl WeightSource for &CellWeights {
+    #[inline]
+    fn get(self, cell: usize) -> f64 {
+        CellWeights::get(self, cell)
+    }
+    fn is_equal(self) -> bool {
+        self.dense.is_none()
+    }
+}
+
+#[derive(Clone, Copy)]
+struct MaskedWeights<'a> {
+    weights: &'a CellWeights,
+    valid: &'a [bool],
+}
+
+impl WeightSource for MaskedWeights<'_> {
+    #[inline]
+    fn get(self, cell: usize) -> f64 {
+        if self.valid[cell] {
+            self.weights.get(cell)
+        } else {
+            0.0
+        }
+    }
+    fn is_equal(self) -> bool {
+        self.weights.dense.is_none()
+    }
+}
+
+struct Contributors<W: WeightSource> {
+    weights: W,
     counts: Vec<usize>,
     dimensions: Option<Vec<u8>>,
 }
 
-impl Contributors {
-    fn new(dataset: &DataSet, weights: CellWeights, uniform: bool) -> Self {
+impl<W: WeightSource> Contributors<W> {
+    fn new(dataset: &DataSet, weights: W, uniform: bool) -> Self {
         // The spare first slot lets counts become CSR offsets in place.
         let mut counts = vec![0; dataset.point_count() + 1];
         let mut dimensions = (!uniform).then(|| vec![0; dataset.point_count()]);
@@ -158,9 +251,43 @@ pub(crate) fn cell_means<const N: usize>(
         };
     }
     let weights = CellWeights::prepare(dataset, field);
+    rows_with_weights(dataset, values, uniform, &weights)
+}
+
+pub(crate) fn cell_means_prepared<const N: usize>(
+    dataset: &DataSet,
+    field: &Field,
+    values: &[[f64; N]],
+    uniform: bool,
+    weights: &CellWeights,
+) -> ComputedRows<N> {
+    if values.is_empty()
+        || field
+            .valid
+            .as_ref()
+            .is_some_and(|mask| mask.iter().all(|v| !*v))
+    {
+        return ComputedRows {
+            values: vec![[f64::NAN; N]; dataset.point_count()],
+            all_supported: dataset.point_count() == 0,
+        };
+    }
+    if let Some(valid) = field.valid.as_deref() {
+        rows_with_weights(dataset, values, uniform, MaskedWeights { weights, valid })
+    } else {
+        rows_with_weights(dataset, values, uniform, weights)
+    }
+}
+
+fn rows_with_weights<const N: usize, W: WeightSource>(
+    dataset: &DataSet,
+    values: &[[f64; N]],
+    uniform: bool,
+    weights: W,
+) -> ComputedRows<N> {
     // Connectivity bounds every point's incidence count, including repeated
     // node indices. An inexpensive global proof avoids building point counts.
-    let equal = weights.dense.is_none();
+    let equal = weights.is_equal();
     let supported = || {
         values.iter().enumerate().filter_map(|(cell, value)| {
             let weight = weights.get(cell);
@@ -185,7 +312,7 @@ pub(crate) fn cell_means<const N: usize>(
             all_supported,
         };
     }
-    if contributors.weights.dense.is_none() {
+    if contributors.weights.is_equal() {
         let supported = || {
             values
                 .iter()
@@ -316,10 +443,10 @@ pub(crate) fn cell_means<const N: usize>(
     }
 }
 
-fn floating_rows<const N: usize>(
+fn floating_rows<const N: usize, W: WeightSource>(
     dataset: &DataSet,
     values: &[[f64; N]],
-    cell_weights: CellWeights,
+    cell_weights: W,
     uniform: bool,
     equal: bool,
 ) -> ComputedRows<N> {
@@ -387,10 +514,10 @@ fn floating_rows<const N: usize>(
     }
 }
 
-fn scatter<const N: usize, T: Copy + Default + AddAssign>(
+fn scatter<const N: usize, T: Copy + Default + AddAssign, W: WeightSource>(
     dataset: &DataSet,
     values: &[[f64; N]],
-    contributors: &Contributors,
+    contributors: &Contributors<W>,
     decode: impl Fn(&[f64; N]) -> [T; N],
 ) -> Vec<[T; N]> {
     let mut sums = vec![[T::default(); N]; dataset.point_count()];
@@ -412,10 +539,15 @@ fn scatter<const N: usize, T: Copy + Default + AddAssign>(
     sums
 }
 
-fn weighted_rows<const N: usize, T: Copy + Default + AddAssign, W: Copy + Default + AddAssign>(
+fn weighted_rows<
+    const N: usize,
+    T: Copy + Default + AddAssign,
+    W: Copy + Default + AddAssign,
+    S: WeightSource,
+>(
     dataset: &DataSet,
     values: &[[f64; N]],
-    mut contributors: Contributors,
+    mut contributors: Contributors<S>,
     decode: impl Fn(&[f64; N], f64) -> ([T; N], W),
     average: impl Fn([T; N], W) -> [f64; N],
 ) -> Vec<[f64; N]> {
@@ -445,10 +577,10 @@ fn weighted_rows<const N: usize, T: Copy + Default + AddAssign, W: Copy + Defaul
         .collect()
 }
 
-fn indexed_rows<const N: usize, I: Copy>(
+fn indexed_rows<const N: usize, I: Copy, W: WeightSource>(
     dataset: &DataSet,
     values: &[[f64; N]],
-    contributors: Contributors,
+    contributors: Contributors<W>,
     encode: impl Fn(usize) -> I,
     decode: impl Fn(I) -> usize,
 ) -> Vec<[f64; N]> {
@@ -482,7 +614,7 @@ fn indexed_rows<const N: usize, I: Copy>(
     offsets.copy_within(1.., 0);
     offsets[dataset.point_count()] = total;
     drop(dimensions);
-    let equal_weights = weights.dense.is_none();
+    let equal_weights = weights.is_equal();
     (0..dataset.point_count())
         .map(|point| {
             let incident = &cells[offsets[point]..offsets[point + 1]];

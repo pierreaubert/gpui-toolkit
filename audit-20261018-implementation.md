@@ -122,6 +122,8 @@ item requires implementation and verification evidence, not just a planned API.
 - `RenderLimits` and explicit limited render methods allow smaller host budgets.
 - `VtuReadLimits` and limited text/byte readers allow constrained import budgets.
 - `axis::clear_tick_label_cache` invalidates formatter state and handles pressure.
+- `CellToPointPlan` and `CellToPointLimits` expose bounded snapshot preparation;
+  `TransformError::ResourceLimit` adds a preparation-budget rejection variant.
 
 ## Retained scene and host GPU checkpoint
 
@@ -1267,3 +1269,98 @@ and pressure/large-dataset integrations pass with Metal required.
   unchanged. C3/C4/C5 and all previously open platform, rendering, budget,
   streaming, scheduling, Taffy, CUDA/MLX and physical-device requirements remain
   open; this checkpoint is not full performance or audit acceptance.
+
+## Retained cell-to-point preparation checkpoint
+
+- `CellToPointPlan<'a>` borrows one immutable validated dataset and prepares
+  geometric weights once. Positions, topology, cell values and masks cannot
+  change through that borrowed dataset while the plan is live. A compile-fail
+  doctest checks this; mutation of independent dataset clones still uses normal
+  copy-on-write ownership. Rebuild the plan after changing the source. No global
+  cache, content fingerprint, revision collision or source-buffer copy is used.
+  Per-field masks overlay the geometric weights without changing per-point
+  dimension priority or correctly rounded weighted means.
+- `convert_field` starts from the original snapshot; `convert_fields` preserves
+  multiple outputs with one dataset metadata clone. Every source cell name is
+  resolved before conversion/cache changes, and repeated output names follow
+  request order. Scalar flattening reuses the computed buffer. The raw and
+  validated legacy entry points remain available. `CellToPointLimits` defaults
+  to an eight-MiB simultaneous geometry payload limit and no output cache.
+  Bitmap-to-dense promotion is checked before allocating both payloads. The new
+  `TransformError::ResourceLimit { resource, required, limit }` variant exposes
+  rejection details; downstream exhaustive matches must handle that addition.
+- Callers can explicitly enable a byte-limited, single latest-source-field
+  cache. Numeric and validity buffers are shared with outputs, including aliases;
+  changing returned buffers through copy-on-write cannot corrupt the entry.
+  A miss releases the old cache reference before computing. Oversized results
+  are returned without retention. `clear_output_cache` releases the plan's
+  reference; returned datasets can still own those buffers. Weak-reference tests
+  prove cache-only numeric payloads are released on an oversized miss and clear.
+  Drop the plan to release its geometry. Limits exclude borrowed source,
+  returned outputs, metadata, allocator overhead and temporary conversion scratch;
+  they are not total-memory, peak-RSS or process-pressure guarantees.
+- Both Python mesh request paths now coalesce consecutive existing
+  `cell_to_point` operations automatically, using one validation/preparation and
+  ordered batch conversion. There is no request-format change. Every other
+  operation ends the group, so geometry changes rebuild preparation. Malformed
+  field syntax runs sequentially to preserve error precedence. A geometry-budget
+  rejection also falls back to the existing sequential path to preserve valid
+  pipelines; that fallback retains the old temporary-memory behavior and is not
+  an aggregate pipeline memory cap. The Python path keeps output caching disabled
+  and releases the plan after each group; cross-request/scene retention is still
+  separate work.
+- The 590 independent weighted Fraction cases pass bit-for-bit through both raw
+  and prepared conversion in both cell orders. Six public plan tests cover all
+  field shapes, masks/metadata, mixed dimensions, aliases/replacements, budgets,
+  source changes after dropping plans, copy-on-write, cache release and name
+  preflight. The single serial allocation contract verifies zero-allocation
+  common-weight preparation, bitmap/dense allocation peaks and cache hits at
+  64/4,096 points across all four shapes. A hit stays within 16 allocations and
+  8,192 cumulative bytes regardless of point count. Coverage's skip guard was
+  absent. Three added bridge tests cover grouped equivalence, both request entry
+  points, errors, geometry changes and forced budget fallback. The bridge's old
+  24-triangle arrow assertion failed on unchanged `300a2e0c`; it now checks the
+  existing closed 34-triangle arrow contract. All nine bridge tests pass.
+- `qa/perf/20261019-prepared-conversion-paired.json` compares correct committed
+  `300a2e0c` with the candidate using identical release probe source/locks,
+  separate targets, allocator-disabled ABBA twice and separate allocation builds.
+  The artifact retains source/test/binary hashes, all raw blocks, 60 baseline
+  cases and 216 candidate cases. CPU uses aggregate process CPU time. Warm
+  preparation and cache hits explicitly exclude initialization; cold preparation
+  and batch cases include it. Output checks compare every component bit and
+  mask. At 24 cubed points:
+
+  | Case | Correct baseline CPU | Candidate CPU | Candidate cumulative bytes | Additional retained payload |
+  |---|---:|---:|---:|---:|
+  | Uniform positive vector, legacy cold | 427.1 µs | 434.9 µs | 774,952 | 0 |
+  | Uniform positive vector, prepared | 427.1 µs | 126.2 µs | 774,952 | 0 |
+  | Uniform positive vector, primed cache hit | 427.1 µs | 0.117 µs | 792 | 331,776 |
+  | Unequal full-precision vector, legacy cold | 623.9 µs | 643.9 µs | 982,888 | 0 |
+  | Unequal full-precision vector, prepared | 623.9 µs | 334.3 µs | 885,552 | 97,336 |
+  | Unequal full-precision vector, primed cache hit | 623.9 µs | 0.141 µs | 792 | 429,112 |
+  | Uniform positive scalar/vector/scalar batch | 1,401.1 µs | 663.0 µs | 1,438,584 | 0 after return |
+  | Unequal full-precision scalar/vector/scalar batch | 1,763.3 µs | 1,043.5 µs | 1,867,720 | 0 after return |
+
+  Prepared unequal-vector calls eliminate one allocation and 97,336 cumulative
+  bytes by retaining those weights. The unequal batch reduces 26 calls /
+  2,063,928 bytes to 18 / 1,867,720. Single cache hits need three metadata
+  allocations, not new point arrays. Costs remain visible: legacy cold single
+  calls have median candidate/baseline CPU ratio 1.020, worst 1.041; creating a
+  fresh plan for one conversion has median ratio 1.024, worst 1.044. Preparation
+  is intended for reuse, and these cold regressions remain optimization work.
+  The measurements cover core batches used by the bridge, not JSON parsing,
+  serialization or end-to-end Python latency. Shared-host thermal/affinity state
+  was uncontrolled. CPU savings are not energy measurements, and cumulative
+  allocation is not live/peak/RSS or mobile acceptance. Certificates/incidence
+  still rebuild per uncached field; broad revisioned scene retention remains open.
+- A clean candidate rebuild passes required-Metal core verification: 76
+  transformation, 15 mesh and 91 scene library tests, 78 public regressions,
+  allocation contracts and large-dataset/pressure integrations. Both public
+  doctests (including compile-fail), strict mesh/transformation/Python all-target
+  Clippy, changed-file formatting and the core wasm closure pass. Baseline test
+  comparison exposed shared-target stale bridge artifacts; affected task-local
+  packages were cleaned, candidate checks rebuilt, and release measurements use
+  separate baseline/candidate targets. Frozen `audit-20261018.md` is unchanged.
+  C3/C4/C5, retained scene/GPU work, all remaining platform, memory-pressure,
+  scheduling, text/FFI, Taffy, CUDA/MLX and physical-device requirements remain
+  open. This checkpoint does not complete the audit implementation.

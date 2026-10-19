@@ -11,12 +11,13 @@
 // Rust guideline compliant 2026-02-21
 
 use gpui_dataset_transformation::{
-    ParticleOptions, Plane, ThresholdMode, append_datasets, calculator, cell_data_to_point_data,
-    clip_halfspace, clip_sphere, contour_lines, convex_hull, dashed_lines, decimate, delaunay_2d,
-    divergence, feature_edges, field_statistics, histogram, hyperstreamlines, isosurface, lambda2,
-    lic, particle_frames, point_data_to_cell_data, q_criterion, resample_to_grid, slice, smooth,
-    solid_arrows, stream_ribbons, streamlines, streamtubes, surface_normals, swirling_strength,
-    tensor_glyphs, threshold, transform_dataset, vector_magnitude, vorticity, vorticity_magnitude,
+    CellToPointLimits, CellToPointPlan, ParticleOptions, Plane, ThresholdMode, TransformError,
+    append_datasets, calculator, cell_data_to_point_data, clip_halfspace, clip_sphere,
+    contour_lines, convex_hull, dashed_lines, decimate, delaunay_2d, divergence, feature_edges,
+    field_statistics, histogram, hyperstreamlines, isosurface, lambda2, lic, particle_frames,
+    point_data_to_cell_data, q_criterion, resample_to_grid, slice, smooth, solid_arrows,
+    stream_ribbons, streamlines, streamtubes, surface_normals, swirling_strength, tensor_glyphs,
+    threshold, transform_dataset, vector_magnitude, vorticity, vorticity_magnitude,
 };
 use gpui_mesh::{Association, DataSet, Field};
 use serde::Deserialize;
@@ -279,6 +280,64 @@ pub fn apply_op(dataset: &DataSet, op: &Value) -> Result<DataSet, String> {
     }
 }
 
+fn apply_ops(mut dataset: DataSet, ops: &[Value]) -> Result<DataSet, String> {
+    let mut cursor = 0;
+    while cursor < ops.len() {
+        let mut end = cursor;
+        while end < ops.len() && ops[end].get("op").and_then(Value::as_str) == Some("cell_to_point")
+        {
+            end += 1;
+        }
+        if end - cursor >= 2 {
+            dataset = apply_cell_run(&dataset, &ops[cursor..end], CellToPointLimits::default())?;
+            cursor = end;
+        } else {
+            dataset = apply_op(&dataset, &ops[cursor])?;
+            cursor += 1;
+        }
+    }
+    Ok(dataset)
+}
+
+fn apply_cell_run(
+    dataset: &DataSet,
+    ops: &[Value],
+    limits: CellToPointLimits,
+) -> Result<DataSet, String> {
+    // Cell-to-point changes only point fields. All cell selections therefore
+    // refer to the same snapshot, including when an output replaces a name.
+    let selections = ops
+        .iter()
+        .map(|op| {
+            Some((
+                op.get("field")?.as_str()?,
+                op.get("output")
+                    .and_then(Value::as_str)
+                    .unwrap_or("point_value"),
+            ))
+        })
+        .collect::<Option<Vec<_>>>();
+    if let Some(selections) = selections {
+        let source = dataset.validated().map_err(|error| error.to_string())?;
+        match CellToPointPlan::with_limits(source, limits) {
+            Ok(mut plan) => {
+                return plan
+                    .convert_fields(&selections)
+                    .map_err(|error| error.to_string());
+            }
+            Err(TransformError::ResourceLimit { .. }) => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    // Preserve sequential error precedence for malformed syntax, and keep
+    // previously valid pipelines working when reusable weights exceed budget.
+    let mut output = apply_op(dataset, &ops[0])?;
+    for op in &ops[1..] {
+        output = apply_op(&output, op)?;
+    }
+    Ok(output)
+}
+
 /// Runs the full `{"dataset": ..., "ops": [...]}` request and returns a JSON
 /// summary of the final dataset.
 ///
@@ -289,9 +348,7 @@ pub fn mesh_filters(request_json: &str) -> Result<String, String> {
     let request: Value = serde_json::from_str(request_json).map_err(|e| e.to_string())?;
     let mut dataset = dataset_from_spec(request.get("dataset").unwrap_or(&Value::Null))?;
     if let Some(ops) = request.get("ops").and_then(Value::as_array) {
-        for op in ops {
-            dataset = apply_op(&dataset, op)?;
-        }
+        dataset = apply_ops(dataset, ops)?;
     }
     Ok(serde_json::to_string(&summarize(&dataset)).unwrap_or_default())
 }
@@ -365,9 +422,7 @@ pub fn mesh_geometry(request_json: &str) -> Result<String, String> {
     let request: Value = serde_json::from_str(request_json).map_err(|e| e.to_string())?;
     let mut dataset = dataset_from_spec(request.get("dataset").unwrap_or(&Value::Null))?;
     if let Some(ops) = request.get("ops").and_then(Value::as_array) {
-        for op in ops {
-            dataset = apply_op(&dataset, op)?;
-        }
+        dataset = apply_ops(dataset, ops)?;
     }
     Ok(serde_json::to_string(&dataset_geometry(&dataset)).unwrap_or_default())
 }
@@ -815,10 +870,10 @@ mod tests {
         ]);
         let out = mesh_geometry(&request.to_string()).unwrap();
         let geometry: Value = serde_json::from_str(&out).unwrap();
-        // Each solid arrow contributes 24 triangles (72 indices).
+        // Closed solid arrows have 34 triangles (102 indices), including caps.
         let indices = geometry["triangles"].as_array().unwrap().len();
         assert!(
-            indices > 0 && indices.is_multiple_of(72),
+            indices > 0 && indices.is_multiple_of(102),
             "indices {indices}"
         );
         assert!(geometry["fields"]["magnitude"].is_object());
@@ -884,6 +939,120 @@ mod tests {
         let series: Value = serde_json::from_str(&series).unwrap();
         assert_eq!(series["times"], json!([2.5]));
         assert_eq!(series["steps"].as_array().unwrap().len(), 1);
+    }
+
+    fn sequential_ops(mut data: DataSet, ops: &[Value]) -> Result<DataSet, String> {
+        for op in ops {
+            data = apply_op(&data, op)?;
+        }
+        Ok(data)
+    }
+
+    fn unequal_lines() -> DataSet {
+        use gpui_mesh::{CellType, Cells};
+        let mut vector = Field::vector("v", vec![[3.0; 3], [9.0; 3]]).on_cells();
+        vector.valid = Some(vec![true, false].into());
+        DataSet::new(
+            "lines",
+            vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 2.0, 0.0]],
+            Cells::from_cells(&[(CellType::Line, &[0, 1]), (CellType::Line, &[0, 2])]),
+        )
+        .with_field(Field::scalar("s", vec![2.0, 8.0]).on_cells())
+        .with_field(vector)
+    }
+
+    #[test]
+    fn grouped_cell_conversions_match_aliases_defaults_masks_and_budget_fallback() {
+        let data = unequal_lines();
+        let ops = json!([
+            {"op": "cell_to_point", "field": "s", "output": "alias"},
+            {"op": "cell_to_point", "field": "v"},
+            {"op": "cell_to_point", "field": "s", "output": "point_value"},
+            {"op": "cell_to_point", "field": "v", "output": ""},
+        ]);
+        let ops = ops.as_array().unwrap();
+        let expected = sequential_ops(data.clone(), ops).unwrap();
+        let grouped = apply_ops(data.clone(), ops).unwrap();
+        assert_eq!(dataset_geometry(&grouped), dataset_geometry(&expected));
+        let limits = CellToPointLimits {
+            max_geometry_bytes: 0,
+            ..Default::default()
+        };
+        assert!(matches!(
+            CellToPointPlan::with_limits(data.validated().unwrap(), limits),
+            Err(TransformError::ResourceLimit { .. })
+        ));
+        let fallback = apply_cell_run(&data, ops, limits).unwrap();
+        assert_eq!(dataset_geometry(&fallback), dataset_geometry(&expected));
+    }
+
+    #[test]
+    fn grouped_conversions_rebuild_after_geometry_changes_and_keep_error_order() {
+        let data = unequal_lines();
+        let ops = json!([
+            {"op": "cell_to_point", "field": "s", "output": "before"},
+            {"op": "cell_to_point", "field": "v", "output": "vector"},
+            {"op": "transform", "matrix": [[4, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]]},
+            {"op": "cell_to_point", "field": "s", "output": "after"},
+            {"op": "cell_to_point", "field": "v", "output": "vector"},
+        ]);
+        let ops = ops.as_array().unwrap();
+        let output = apply_ops(data.clone(), ops).unwrap();
+        assert_eq!(
+            dataset_geometry(&output),
+            dataset_geometry(&sequential_ops(data.clone(), ops).unwrap())
+        );
+        assert_eq!(
+            output
+                .field(Association::Point, "before")
+                .unwrap()
+                .as_scalar()
+                .unwrap()[0],
+            6.0
+        );
+        assert_eq!(
+            output
+                .field(Association::Point, "after")
+                .unwrap()
+                .as_scalar()
+                .unwrap()[0],
+            4.0
+        );
+        for ops in [
+            json!([{"op":"cell_to_point", "field":"absent"}, {"op":"cell_to_point"}]),
+            json!([{"op":"cell_to_point", "field":"s"}, {"op":"cell_to_point", "field":123}]),
+            json!([{"op":"cell_to_point", "field":"s"}, {"op":"cell_to_point", "field":"absent"}]),
+            json!([{"op":"cell_to_point", "field":"s"}, {"op":"unknown"}, {"op":"cell_to_point"}]),
+        ] {
+            let ops = ops.as_array().unwrap();
+            assert_eq!(
+                apply_ops(data.clone(), ops).unwrap_err(),
+                sequential_ops(data.clone(), ops).unwrap_err()
+            );
+        }
+    }
+
+    #[test]
+    fn both_request_entry_points_use_grouped_pipeline() {
+        let mut request: Value = serde_json::from_str(&rotation_request()).unwrap();
+        request["ops"] = json!([
+            {"op":"point_to_cell", "field":"s", "output":"s"},
+            {"op":"point_to_cell", "field":"velocity", "output":"v"},
+            {"op":"cell_to_point", "field":"s", "output":"pressure"},
+            {"op":"cell_to_point", "field":"v", "output":"velocity"},
+            {"op":"cell_to_point", "field":"s", "output":"pressure"},
+        ]);
+        let data = dataset_from_spec(&request["dataset"]).unwrap();
+        let expected = sequential_ops(data, request["ops"].as_array().unwrap()).unwrap();
+        let wire = request.to_string();
+        assert_eq!(
+            serde_json::from_str::<Value>(&mesh_filters(&wire).unwrap()).unwrap(),
+            summarize(&expected)
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&mesh_geometry(&wire).unwrap()).unwrap(),
+            dataset_geometry(&expected)
+        );
     }
 
     #[test]

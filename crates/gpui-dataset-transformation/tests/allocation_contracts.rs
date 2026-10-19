@@ -5,10 +5,11 @@
 // Rust guideline compliant 2026-02-21
 
 use gpui_dataset_transformation::{
-    GlyphKind, ThresholdMode, append_datasets, calculator, cell_data_to_point_data, clip_sphere,
-    decimate, field_statistics, flow_diagnostics, glyphs, histogram, hyperstreamlines,
-    point_data_to_cell_data, point_data_to_cell_data_validated, probe as probe_points,
-    solid_arrows, streamlines, tensor_glyphs, threshold,
+    CellToPointLimits, CellToPointPlan, GlyphKind, ThresholdMode, TransformError, append_datasets,
+    calculator, cell_data_to_point_data, clip_sphere, decimate, field_statistics, flow_diagnostics,
+    glyphs, histogram, hyperstreamlines, point_data_to_cell_data,
+    point_data_to_cell_data_validated, probe as probe_points, solid_arrows, streamlines,
+    tensor_glyphs, threshold,
 };
 use gpui_mesh::{Association, CellType, Cells, DataSet, Field, FieldData};
 use gpui_profiler::{AllocProbe, AllocationBudget};
@@ -466,6 +467,67 @@ fn allocation_cost_is_bounded_by_outputs_and_points_without_per_cell_scratch() {
                     if wide { 1e-300 / 3.0 } else { 1.0 },
                 );
             }
+        }
+    }
+    for points in [64usize, 4096] {
+        let data = DataSet::new(
+            "prepared-vertex-cache",
+            vec![[0.0; 3]; points],
+            Cells::from_cells(&[(CellType::Vertex, &[0])]),
+        );
+        for shape in [1, 3, 6, 2] {
+            let data = data.clone().with_field(shaped_cell_field(shape, &[3.0]));
+            let source = data.validated().unwrap();
+            allocations.reset();
+            let mut plan = CellToPointPlan::with_limits(
+                source,
+                CellToPointLimits {
+                    max_geometry_bytes: 0,
+                    max_output_cache_bytes: usize::MAX,
+                },
+            )
+            .unwrap();
+            AllocationBudget::new("uniform-preparation", 0, 0)
+                .assert_contains(allocations.sample("uniform-preparation"));
+            let first = plan.convert_field("p", "first").unwrap();
+            assert_eq!(plan.geometry_payload_bytes(), 0);
+            assert_eq!(plan.output_cache_payload_bytes(), (shape * 8 + 1) * points);
+            allocations.reset();
+            let second = black_box(plan.convert_field("p", "second").unwrap());
+            AllocationBudget::new("prepared-cache-hit", 16, 8192)
+                .assert_contains(allocations.sample("prepared-cache-hit"));
+            assert_components(second.field(Association::Point, "second").unwrap(), 0, 3.0);
+            second.validate().unwrap();
+            drop(first);
+        }
+    }
+    let data = DataSet::new(
+        "preparation-peak",
+        vec![[0.0; 3], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+        Cells::from_cells(&[
+            (CellType::Line, &[0, 0]),
+            (CellType::Line, &[0, 1]),
+            (CellType::Line, &[0, 2]),
+        ]),
+    );
+    let source = data.validated().unwrap();
+    for (limit, bytes, calls) in [(0, 0, 0), (31, 8, 1), (32, 32, 2)] {
+        allocations.reset();
+        let plan = CellToPointPlan::with_limits(
+            source,
+            CellToPointLimits {
+                max_geometry_bytes: limit,
+                max_output_cache_bytes: 0,
+            },
+        );
+        AllocationBudget::new("preparation-promotion", calls, bytes)
+            .assert_contains(allocations.sample("preparation-promotion"));
+        match plan {
+            Ok(plan) => assert_eq!(plan.geometry_payload_bytes(), 24),
+            Err(TransformError::ResourceLimit { required, .. }) => {
+                assert_eq!(required, if limit == 0 { 8 } else { 32 });
+            }
+            Err(error) => panic!("unexpected preparation error: {error}"),
         }
     }
     for groups in [32usize, 256] {

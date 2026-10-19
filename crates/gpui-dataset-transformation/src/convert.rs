@@ -3,7 +3,7 @@
 // Rust guideline compliant 2026-02-21
 
 use crate::TransformError;
-use crate::cell_mean::cell_means;
+use crate::cell_mean::{CellWeights, ComputedRows, cell_means, cell_means_prepared};
 use gpui_mesh::{Association, CellType, DataSet, Field, FieldData, ValidatedDataSet};
 
 pub(crate) fn blend(a: f64, b: f64, fraction: f64) -> f64 {
@@ -247,22 +247,35 @@ fn append(
     association: Association,
     all_supported: bool,
 ) -> DataSet {
+    field = finish_conversion(field, source, association, all_supported);
+    let mut output = dataset.clone();
+    insert_converted_field(&mut output, field);
+    output
+}
+
+fn finish_conversion(
+    mut field: Field,
+    source: &Field,
+    association: Association,
+    all_supported: bool,
+) -> Field {
     field.association = association;
     field.label.clone_from(&source.label);
     field.unit.clone_from(&source.unit);
-    let field = if all_supported {
+    if all_supported {
         field
     } else {
         crate::validity::finish(field, |_| true)
-    };
-    let mut output = dataset.clone();
-    let fields = match association {
-        Association::Point => &mut output.point_data,
-        Association::Cell => &mut output.cell_data,
+    }
+}
+
+pub(crate) fn insert_converted_field(dataset: &mut DataSet, field: Field) {
+    let fields = match field.association {
+        Association::Point => &mut dataset.point_data,
+        Association::Cell => &mut dataset.cell_data,
     };
     fields.retain(|existing| existing.name != field.name);
     fields.push(field);
-    output
 }
 
 /// Averages valid point values into cells, component by component.
@@ -362,40 +375,64 @@ pub fn cell_data_to_point_data_validated(
     let field = dataset
         .field(Association::Cell, field_name)
         .ok_or_else(|| TransformError::FieldNotFound(field_name.to_string()))?;
+    let mut converted = converted_cell_field(dataset, field, uniform, None);
+    converted.name = out_name.into();
+    let mut output = dataset.clone();
+    insert_converted_field(&mut output, converted);
+    Ok(output)
+}
+
+fn cell_rows<const N: usize>(
+    dataset: &DataSet,
+    field: &Field,
+    values: &[[f64; N]],
+    uniform: bool,
+    geometry: Option<&CellWeights>,
+) -> ComputedRows<N> {
+    if let Some(weights) = geometry {
+        cell_means_prepared(dataset, field, values, uniform, weights)
+    } else {
+        cell_means(dataset, field, values, uniform)
+    }
+}
+
+pub(crate) fn converted_cell_field(
+    dataset: &DataSet,
+    field: &Field,
+    uniform: bool,
+    geometry: Option<&CellWeights>,
+) -> Field {
     let (converted, all_supported) = match &field.data {
         FieldData::Scalar(values) => {
-            let rows = cell_means(dataset, field, values.as_chunks::<1>().0, uniform);
+            let rows = cell_rows(dataset, field, values.as_chunks::<1>().0, uniform, geometry);
             (
-                Field::scalar(
-                    out_name,
-                    rows.values
-                        .into_iter()
-                        .map(|row| row[0])
-                        .collect::<Vec<_>>(),
-                ),
+                Field::scalar(field.name.clone(), rows.values.into_flattened()),
                 rows.all_supported,
             )
         }
         FieldData::Vector(values) => {
-            let rows = cell_means(dataset, field, values, uniform);
-            (Field::vector(out_name, rows.values), rows.all_supported)
+            let rows = cell_rows(dataset, field, values, uniform, geometry);
+            (
+                Field::vector(field.name.clone(), rows.values),
+                rows.all_supported,
+            )
         }
         FieldData::Tensor(values) => {
-            let rows = cell_means(dataset, field, values, uniform);
-            (Field::tensor(out_name, rows.values), rows.all_supported)
+            let rows = cell_rows(dataset, field, values, uniform, geometry);
+            (
+                Field::tensor(field.name.clone(), rows.values),
+                rows.all_supported,
+            )
         }
         FieldData::Complex(values) => {
-            let rows = cell_means(dataset, field, values, uniform);
-            (Field::complex(out_name, rows.values), rows.all_supported)
+            let rows = cell_rows(dataset, field, values, uniform, geometry);
+            (
+                Field::complex(field.name.clone(), rows.values),
+                rows.all_supported,
+            )
         }
     };
-    Ok(append(
-        dataset,
-        converted,
-        field,
-        Association::Point,
-        all_supported,
-    ))
+    finish_conversion(converted, field, Association::Point, all_supported)
 }
 
 fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
