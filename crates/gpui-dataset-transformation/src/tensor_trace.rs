@@ -9,15 +9,17 @@
 
 use crate::TransformError;
 use crate::eigen::symmetric_eigen;
-use crate::streamline::{barycentric, tetrahedralize};
-use gpui_mesh::{Association, CellType, Cells, DataSet};
+use crate::stencil::{StencilLocator, sample_values};
+use gpui_mesh::{Association, Cells, DataSet};
 
 /// Traces hyperstreamlines through a symmetric-tensor point field.
+/// All four stencil nodes must be valid. Missing or zero tensors stop paths;
+/// wholly missing input yields an empty dataset.
 ///
 /// # Errors
 ///
-/// Returns an error when the field is missing, not a tensor field, or
-/// the dataset holds no volume cells.
+/// Returns an error for invalid input/seeds, nonfinite/non-positive step,
+/// missing/non-tensor fields, no volume cells or excessive output point indices.
 pub fn hyperstreamlines(
     dataset: &DataSet,
     field_name: &str,
@@ -25,6 +27,12 @@ pub fn hyperstreamlines(
     step: f64,
     max_steps: usize,
 ) -> Result<DataSet, TransformError> {
+    if !step.is_finite() || step <= 0.0 {
+        return Err(TransformError::Degenerate(
+            "hyperstreamline step must be finite and positive".into(),
+        ));
+    }
+    crate::streamline::validate_seeds(seeds)?;
     dataset.validate()?;
     let field = dataset
         .field(Association::Point, field_name)
@@ -35,53 +43,38 @@ pub fn hyperstreamlines(
             field: field_name.to_string(),
             reason: "hyperstreamlines require a tensor field".into(),
         })?;
-    let mut tets: Vec<[u32; 4]> = Vec::new();
-    for cell in 0..dataset.cell_count() {
-        let kind = dataset.cells.types[cell];
-        if kind.is_volume() {
-            let nodes = dataset.cells.cell(cell).unwrap_or(&[]);
-            tets.extend(tetrahedralize(kind, nodes));
-        }
-    }
-    if tets.is_empty() {
+    let locator = StencilLocator::new(dataset, field.valid.as_deref());
+    if !locator.has_volume() {
         return Err(TransformError::Degenerate(
             "dataset holds no volume cells".into(),
         ));
     }
     let sample = |p: [f64; 3]| -> Option<[f64; 3]> {
-        for tet in &tets {
-            let corners = [
-                dataset.positions[tet[0] as usize],
-                dataset.positions[tet[1] as usize],
-                dataset.positions[tet[2] as usize],
-                dataset.positions[tet[3] as usize],
-            ];
-            if let Some(w) = barycentric(corners, p) {
-                let mut t = [0.0f64; 6];
-                for (i, weight) in w.iter().enumerate() {
-                    let value = tensors[tet[i] as usize];
-                    for (c, component) in t.iter_mut().enumerate() {
-                        *component += weight * value[c];
-                    }
-                }
-                // Field order xx, yy, zz, xy, yz, xz.
-                let matrix = [[t[0], t[3], t[5]], [t[3], t[1], t[4]], [t[5], t[4], t[2]]];
-                let (values, vectors) = symmetric_eigen(matrix);
-                let major = (0..3)
-                    .max_by(|&a, &b| {
-                        values[a]
-                            .abs()
-                            .partial_cmp(&values[b].abs())
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    })
-                    .unwrap_or(0);
-                return Some([vectors[0][major], vectors[1][major], vectors[2][major]]);
-            }
+        let (tet, weights) = locator.weights(p)?;
+        let t = sample_values(tensors, tet, weights)?;
+        // Field order xx, yy, zz, xy, yz, xz.
+        let matrix = [[t[0], t[3], t[5]], [t[3], t[1], t[4]], [t[5], t[4], t[2]]];
+        let (values, vectors) = symmetric_eigen(matrix);
+        if !values
+            .iter()
+            .chain(vectors.iter().flatten())
+            .all(|v| v.is_finite())
+            || values.iter().all(|v| *v == 0.0)
+        {
+            return None;
         }
-        None
+        let major = (0..3)
+            .max_by(|&a, &b| {
+                values[a]
+                    .abs()
+                    .partial_cmp(&values[b].abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap_or(0);
+        Some([vectors[0][major], vectors[1][major], vectors[2][major]])
     };
     let mut positions: Vec<[f64; 3]> = Vec::new();
-    let mut cells: Vec<(CellType, Vec<u32>)> = Vec::new();
+    let mut cells = Vec::new();
     for seed in seeds {
         for direction_sign in [1.0, -1.0] {
             let mut line: Vec<[f64; 3]> = vec![*seed];
@@ -110,7 +103,7 @@ pub fn hyperstreamlines(
                     p[1] + step * direction_sign * mid_dir[1],
                     p[2] + step * direction_sign * mid_dir[2],
                 ];
-                if sample(next).is_none() {
+                if next == p || sample(next).is_none() {
                     break;
                 }
                 previous = Some(mid_dir);
@@ -123,18 +116,17 @@ pub fn hyperstreamlines(
             if line.len() < 2 {
                 continue;
             }
-            let base = positions.len() as u32;
+            let base = crate::geometry::output_base(positions.len(), line.len())?;
             positions.extend(line.iter().copied());
             for i in 0..line.len() - 1 {
-                cells.push((CellType::Line, vec![base + i as u32, base + i as u32 + 1]));
+                cells.push([base + i as u32, base + i as u32 + 1]);
             }
         }
     }
-    let refs: Vec<(CellType, &[u32])> = cells.iter().map(|(t, n)| (*t, n.as_slice())).collect();
     Ok(DataSet::new(
         format!("{}-hyperstreamlines", dataset.id),
         positions,
-        Cells::from_cells(&refs),
+        Cells::lines(&cells),
     ))
 }
 

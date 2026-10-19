@@ -5,8 +5,8 @@
 // Rust guideline compliant 2026-02-21
 
 use gpui_dataset_transformation::{
-    GlyphKind, cell_data_to_point_data, flow_diagnostics, glyphs, point_data_to_cell_data,
-    solid_arrows, tensor_glyphs,
+    GlyphKind, cell_data_to_point_data, flow_diagnostics, glyphs, hyperstreamlines,
+    point_data_to_cell_data, solid_arrows, streamlines, tensor_glyphs,
 };
 use gpui_mesh::{Association, CellType, Cells, DataSet, Field};
 use gpui_profiler::{AllocProbe, AllocationBudget};
@@ -111,4 +111,44 @@ fn allocation_cost_is_bounded_by_outputs_and_points_without_per_cell_scratch() {
             .assert_contains(probe.sample("tensor-glyph-storage"));
         output.validate().unwrap();
     }
+    let paths = DataSet::structured_grid("trace-scratch", [2; 3], [0.0; 3], [10_000.0, 1.0, 1.0])
+        .unwrap()
+        .with_field(Field::vector("v", vec![[1.0, 0.0, 0.0]; 8]))
+        .with_field(Field::tensor("t", vec![[4.0, 1.0, 1.0, 0.0, 0.0, 0.0]; 8]));
+    for steps in [8, 256] {
+        let mut probe = AllocProbe::new();
+        probe.reset();
+        let output =
+            black_box(streamlines(&paths, "v", &[[5000.0, 0.5, 0.5]], 1.0, steps).unwrap());
+        AllocationBudget::new("vector-line-storage", 64, 256 * output.point_count() + 8192)
+            .assert_contains(probe.sample("vector-line-storage"));
+        output.validate().unwrap();
+        assert_eq!(output.point_count(), 2 * (steps + 1));
+        probe.reset();
+        let output =
+            black_box(hyperstreamlines(&paths, "t", &[[5000.0, 0.5, 0.5]], 1.0, steps).unwrap());
+        AllocationBudget::new("tensor-line-storage", 64, 256 * output.point_count() + 8192)
+            .assert_contains(probe.sample("tensor-line-storage"));
+        output.validate().unwrap();
+        assert_eq!(output.point_count(), 2 * (steps + 1));
+    }
+    let nodes = [0, 1, 2, 3];
+    let cells = vec![(CellType::Tetra, nodes.as_slice()); 4096];
+    let dataset = DataSet::new(
+        "compact-stencils",
+        vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        Cells::from_cells(&cells),
+    )
+    .with_field(Field::vector("v", vec![[1.0, 0.0, 0.0]; 4]));
+    let mut probe = AllocProbe::new();
+    probe.reset();
+    let output = black_box(streamlines(&dataset, "v", &[], 0.1, 8).unwrap());
+    AllocationBudget::new(
+        "compact-stencil-index",
+        32,
+        16 * dataset.cell_count() + 8192,
+    )
+    .assert_contains(probe.sample("compact-stencil-index"));
+    output.validate().unwrap();
+    assert_eq!(output.point_count(), 0);
 }

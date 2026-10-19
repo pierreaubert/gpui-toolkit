@@ -24,6 +24,34 @@ pub struct ParticleOptions {
     pub trail: usize,
 }
 
+struct ParticleCells {
+    types: Vec<CellType>,
+    offsets: Vec<u64>,
+    connectivity: Vec<u32>,
+}
+
+impl ParticleCells {
+    fn new() -> Self {
+        Self {
+            types: Vec::new(),
+            offsets: vec![0],
+            connectivity: Vec::new(),
+        }
+    }
+    fn push(&mut self, kind: CellType, nodes: &[u32]) {
+        self.types.push(kind);
+        self.connectivity.extend_from_slice(nodes);
+        self.offsets.push(self.connectivity.len() as u64);
+    }
+    fn finish(self) -> Cells {
+        Cells {
+            types: self.types.into(),
+            offsets: self.offsets.into(),
+            connectivity: self.connectivity.into(),
+        }
+    }
+}
+
 impl Default for ParticleOptions {
     fn default() -> Self {
         // 120 frames at 24 fps is the 5-second movie format used by the
@@ -47,6 +75,7 @@ pub(crate) struct TimeSampler<'a> {
 
 impl<'a> TimeSampler<'a> {
     pub(crate) fn new(series: &'a TimeSeries, field_name: &str) -> Result<Self, TransformError> {
+        series.validate()?;
         let mut tracers = Vec::with_capacity(series.len());
         for step in &series.steps {
             let field = step
@@ -58,8 +87,8 @@ impl<'a> TimeSampler<'a> {
                     field: field_name.to_string(),
                     reason: "time sampling requires a 3-vector field".into(),
                 })?;
-            let tracer = Tracer::new(step, vectors);
-            if tracer.tets.is_empty() {
+            let tracer = Tracer::new(step, vectors, field.valid.as_deref());
+            if !tracer.has_volume() {
                 return Err(TransformError::Degenerate(
                     "time step holds no volume cells".into(),
                 ));
@@ -70,29 +99,44 @@ impl<'a> TimeSampler<'a> {
     }
 
     pub(crate) fn velocity_at(&self, p: [f64; 3], time: f64) -> Option<[f64; 3]> {
+        if !time.is_finite() {
+            return None;
+        }
         let (lo, hi, frac) = self.series.locate(time);
+        if frac == 1.0 {
+            return self.tracers[hi].velocity(p);
+        }
         let v_lo = self.tracers[lo].velocity(p)?;
         if lo == hi || frac == 0.0 {
             return Some(v_lo);
         }
         let v_hi = self.tracers[hi].velocity(p)?;
         Some([
-            v_lo[0] + (v_hi[0] - v_lo[0]) * frac,
-            v_lo[1] + (v_hi[1] - v_lo[1]) * frac,
-            v_lo[2] + (v_hi[2] - v_lo[2]) * frac,
+            crate::convert::blend(v_lo[0], v_hi[0], frac),
+            crate::convert::blend(v_lo[1], v_hi[1], frac),
+            crate::convert::blend(v_lo[2], v_hi[2], frac),
         ])
     }
 
     /// Midpoint-RK2 step of physical size `dt` at `time`; `None` outside.
     pub(crate) fn rk2(&self, p: [f64; 3], time: f64, dt: f64) -> Option<[f64; 3]> {
+        if !dt.is_finite() {
+            return None;
+        }
         let v = self.velocity_at(p, time)?;
         let mid = [
-            p[0] + 0.5 * dt * v[0],
-            p[1] + 0.5 * dt * v[1],
-            p[2] + 0.5 * dt * v[2],
+            (0.5 * dt).mul_add(v[0], p[0]),
+            (0.5 * dt).mul_add(v[1], p[1]),
+            (0.5 * dt).mul_add(v[2], p[2]),
         ];
         let vm = self.velocity_at(mid, time + 0.5 * dt)?;
-        Some([p[0] + dt * vm[0], p[1] + dt * vm[1], p[2] + dt * vm[2]])
+        let next = [
+            dt.mul_add(vm[0], p[0]),
+            dt.mul_add(vm[1], p[1]),
+            dt.mul_add(vm[2], p[2]),
+        ];
+        self.velocity_at(next, time + dt)?;
+        Some(next)
     }
 }
 
@@ -102,59 +146,60 @@ impl<'a> TimeSampler<'a> {
 /// trail. Times beyond the series end sample the last step (the series
 /// clamps), so `frames * dt` may exceed the series span for hold-end
 /// playback.
+/// Missing spatial/temporal support freezes an existing trail. Seeds without
+/// initial support are omitted. New positions require supported RK2 endpoints.
 ///
 /// # Errors
 ///
 /// Returns an error when the field is missing or not a vector field in any
-/// step, when a step holds no volume cells, or when options are invalid.
+/// step, when a step holds no volume cells, input/seeds are invalid, options or
+/// frame times are nonfinite, or output point indices exceed the representation.
 pub fn particle_frames(
     series: &TimeSeries,
     field_name: &str,
     seeds: &[[f64; 3]],
     options: ParticleOptions,
 ) -> Result<Vec<DataSet>, TransformError> {
-    if options.dt <= 0.0 || options.frames == 0 || options.trail == 0 {
+    if !options.dt.is_finite() || options.dt <= 0.0 || options.frames == 0 || options.trail == 0 {
         return Err(TransformError::Degenerate(
             "particle options require dt > 0, frames > 0, trail > 0".into(),
         ));
     }
+    crate::streamline::validate_seeds(seeds)?;
     let sampler = TimeSampler::new(series, field_name)?;
-    let velocity_at = |p: [f64; 3], time: f64| sampler.velocity_at(p, time);
 
     let t0 = series.times[0];
-    let mut histories: Vec<Vec<[f64; 3]>> = seeds.iter().map(|s| vec![*s]).collect();
-    let mut alive: Vec<bool> = vec![true; seeds.len()];
+    if !options
+        .dt
+        .mul_add((options.frames - 1) as f64, t0)
+        .is_finite()
+    {
+        return Err(TransformError::Degenerate(
+            "particle frame time is not representable".into(),
+        ));
+    }
+    let mut alive: Vec<bool> = seeds
+        .iter()
+        .map(|&seed| sampler.velocity_at(seed, t0).is_some())
+        .collect();
+    let mut histories: Vec<Vec<[f64; 3]>> = seeds
+        .iter()
+        .zip(&alive)
+        .map(|(s, alive)| if *alive { vec![*s] } else { Vec::new() })
+        .collect();
     let mut frames = Vec::with_capacity(options.frames);
     for frame in 0..options.frames {
-        let time = t0 + frame as f64 * options.dt;
+        let start_time = options.dt.mul_add(frame.saturating_sub(1) as f64, t0);
         if frame > 0 {
             for (history, is_alive) in histories.iter_mut().zip(alive.iter_mut()) {
                 if !*is_alive {
                     continue;
                 }
                 let p = *history.last().unwrap_or(&[0.0; 3]);
-                let Some(v) = velocity_at(p, time) else {
+                let Some(next) = sampler.rk2(p, start_time, options.dt) else {
                     *is_alive = false;
                     continue;
                 };
-                let mid = [
-                    p[0] + 0.5 * options.dt * v[0],
-                    p[1] + 0.5 * options.dt * v[1],
-                    p[2] + 0.5 * options.dt * v[2],
-                ];
-                let Some(vm) = velocity_at(mid, time + 0.5 * options.dt) else {
-                    *is_alive = false;
-                    continue;
-                };
-                let next = [
-                    p[0] + options.dt * vm[0],
-                    p[1] + options.dt * vm[1],
-                    p[2] + options.dt * vm[2],
-                ];
-                if velocity_at(next, time + options.dt).is_none() {
-                    *is_alive = false;
-                    continue;
-                }
                 history.push(next);
                 if history.len() > options.trail {
                     let excess = history.len() - options.trail;
@@ -162,20 +207,24 @@ pub fn particle_frames(
                 }
             }
         }
-        frames.push(frame_dataset(series, frame, &histories));
+        frames.push(frame_dataset(series, frame, &histories)?);
     }
     Ok(frames)
 }
 
-fn frame_dataset(series: &TimeSeries, frame: usize, histories: &[Vec<[f64; 3]>]) -> DataSet {
+fn frame_dataset(
+    series: &TimeSeries,
+    frame: usize,
+    histories: &[Vec<[f64; 3]>],
+) -> Result<DataSet, TransformError> {
     let mut positions: Vec<[f64; 3]> = Vec::new();
     let mut ages: Vec<f64> = Vec::new();
-    let mut cells: Vec<(CellType, Vec<u32>)> = Vec::new();
+    let mut cells = ParticleCells::new();
     for history in histories {
         if history.is_empty() {
             continue;
         }
-        let base = positions.len() as u32;
+        let base = crate::geometry::output_base(positions.len(), history.len())?;
         let n = history.len();
         for (i, point) in history.iter().enumerate() {
             positions.push(*point);
@@ -187,17 +236,16 @@ fn frame_dataset(series: &TimeSeries, frame: usize, histories: &[Vec<[f64; 3]>])
             });
         }
         for i in 0..n - 1 {
-            cells.push((CellType::Line, vec![base + i as u32, base + i as u32 + 1]));
+            cells.push(CellType::Line, &[base + i as u32, base + i as u32 + 1]);
         }
-        cells.push((CellType::Vertex, vec![base + (n - 1) as u32]));
+        cells.push(CellType::Vertex, &[base + (n - 1) as u32]);
     }
-    let refs: Vec<(CellType, &[u32])> = cells.iter().map(|(t, n)| (*t, n.as_slice())).collect();
-    DataSet::new(
+    Ok(DataSet::new(
         format!("{}-particles-{frame}", series.steps[0].id),
         positions,
-        Cells::from_cells(&refs),
+        cells.finish(),
     )
-    .with_field(Field::scalar("age", ages))
+    .with_field(Field::scalar("age", ages)))
 }
 
 #[cfg(test)]
@@ -319,75 +367,96 @@ pub struct StreakOptions {
 /// At every frame, the particles released from one seed form a line
 /// ordered by release time — the dye line of the classic streakline
 /// visualisation. An `age` scalar (seconds since release) is attached.
+/// Newly released particles stay at their seed until the next frame. Missing
+/// space/time support removes a particle; unsupported releases are omitted.
 ///
 /// # Errors
 ///
 /// Returns an error when the field is missing, a step has no volume
-/// cells, or options are invalid.
+/// cells, input/seeds/options are invalid, frame times are nonfinite, or output
+/// point indices exceed the model representation.
 pub fn streak_frames(
     series: &TimeSeries,
     field_name: &str,
     seeds: &[[f64; 3]],
     options: StreakOptions,
 ) -> Result<Vec<DataSet>, TransformError> {
-    if options.dt <= 0.0 || options.frames == 0 || options.release_every == 0 {
+    if !options.dt.is_finite()
+        || options.dt <= 0.0
+        || options.frames == 0
+        || options.release_every == 0
+    {
         return Err(TransformError::Degenerate(
             "streak options require dt > 0, frames > 0, release_every > 0".into(),
         ));
     }
+    crate::streamline::validate_seeds(seeds)?;
     let sampler = TimeSampler::new(series, field_name)?;
     let t0 = series.times[0];
+    if !options
+        .dt
+        .mul_add((options.frames - 1) as f64, t0)
+        .is_finite()
+    {
+        return Err(TransformError::Degenerate(
+            "streak frame time is not representable".into(),
+        ));
+    }
     // (seed index, release frame, position, alive)
     let mut particles: Vec<(usize, usize, [f64; 3], bool)> = Vec::new();
     let mut frames = Vec::with_capacity(options.frames);
     for frame in 0..options.frames {
-        let time = t0 + frame as f64 * options.dt;
+        let time = options.dt.mul_add(frame as f64, t0);
+        let start_time = options.dt.mul_add(frame.saturating_sub(1) as f64, t0);
         if frame % options.release_every == 0 {
             for (seed, &position) in seeds.iter().enumerate() {
-                particles.push((seed, frame, position, true));
+                if sampler.velocity_at(position, time).is_some() {
+                    particles.push((seed, frame, position, true));
+                }
             }
         }
         if frame > 0 {
             for particle in &mut particles {
-                if !particle.3 {
+                if !particle.3 || particle.1 == frame {
                     continue;
                 }
-                match sampler.rk2(particle.2, time - options.dt, options.dt) {
-                    Some(next) if sampler.velocity_at(next, time).is_some() => {
+                match sampler.rk2(particle.2, start_time, options.dt) {
+                    Some(next) => {
                         particle.2 = next;
                     }
                     _ => particle.3 = false,
                 }
             }
         }
+        particles.retain(|particle| particle.3);
         // Build one polyline per seed, oldest release first.
         let mut positions: Vec<[f64; 3]> = Vec::new();
         let mut ages: Vec<f64> = Vec::new();
-        let mut cells: Vec<(CellType, Vec<u32>)> = Vec::new();
+        let mut cells = ParticleCells::new();
         for seed in 0..seeds.len() {
-            let mut line: Vec<(usize, [f64; 3])> = particles
+            let line = particles
                 .iter()
                 .filter(|p| p.0 == seed && p.3)
-                .map(|p| (p.1, p.2))
-                .collect();
-            line.sort_by_key(|(release, _)| *release);
-            let base = positions.len() as u32;
-            for (i, (release, position)) in line.iter().enumerate() {
-                positions.push(*position);
+                .map(|p| (p.1, p.2));
+            for (i, (release, position)) in line.enumerate() {
+                let id = crate::geometry::output_base(positions.len(), 1)?;
+                positions.push(position);
                 ages.push((frame - release) as f64 * options.dt);
                 if i > 0 {
-                    cells.push((CellType::Line, vec![base + i as u32 - 1, base + i as u32]));
+                    cells.push(CellType::Line, &[id - 1, id]);
                 }
             }
         }
-        let refs: Vec<(CellType, &[u32])> = cells.iter().map(|(t, n)| (*t, n.as_slice())).collect();
+        let mut age = Field::scalar("age", ages);
+        age.unit = Some("s".into());
+        let age = crate::validity::finish(age, |_| true);
         frames.push(
             DataSet::new(
                 format!("{}-streak-{frame}", series.steps[0].id),
                 positions,
-                Cells::from_cells(&refs),
+                cells.finish(),
             )
-            .with_field(Field::scalar("age", ages)),
+            .with_field(age),
         );
     }
     Ok(frames)

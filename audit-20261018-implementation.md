@@ -731,3 +731,71 @@ and pressure/large-dataset integrations pass with Metal required.
   full core wasm closure pass. C3/C4 remain unchecked: tracing, particles, LIC,
   FTLE, analysis/statistics, time and IO consumers, general interpolation and
   transparency semantics still require work. No whole-platform completion claim.
+
+## Tracing, temporal support and compact cell lookup checkpoint
+
+- Vector/adaptive/tensor traces, particles, streaks, LIC and FTLE now share
+  strict four-node stencil support. Missing finite placeholders and masked NaNs
+  cannot produce velocities/directions. Wholly missing fields yield empty paths
+  or missing diagnostics; zero velocity remains a valid stationary sample.
+  Unsupported initial particles/releases are omitted. Existing particle trails
+  freeze when support is lost; streak particles are removed. Computed nonfinite
+  FTLE/LIC/age values become masked NaNs rather than valid zero/infinity.
+- Pathline integration previously started at the destination frame time. With
+  `v(t)=t`, a half-second step from x=1 produced x=1.375 instead of x=1.125.
+  Streak releases also advanced immediately and placed a new release at x=1.125
+  instead of its seed x=1. Both bugs are reproduced in the baseline probe and
+  corrected by analytic integration/release tests. RK2 now checks midpoint and
+  endpoint support; frame timestamps and position updates use FMA where useful.
+  Streak age carries seconds; unrepresentable ages are missing independently of
+  otherwise valid particle geometry.
+- `TimeSeries::new` validates every dataset, timestamps, point counts and shared
+  topology. New `TimeSeries::validate` supports checking directly mutated public
+  state. Time samplers validate once before retaining immutable borrows. Extreme
+  finite time spans use a half-scaled blend fraction, and temporal velocities use
+  a bounded convex blend. Nonfinite options/seeds and unrepresentable frame times
+  error before dispatch. Direct `TimeSeries::sample`/`locate` APIs and field schema
+  interpolation still need separate work; this is not complete time-series QA.
+- Normalized tracing supports huge and subnormal finite vectors without overflow
+  or a unit-dependent `1e-300` speed cutoff. Stencil weights must be finite, are
+  clamped within the containment tolerance and normalized before interpolation.
+  Convex fallback preserves finite extreme averages and subnormal constants.
+  Stagnant representable positions stop normalized paths instead of emitting
+  repeated zero-length segments. Absolute determinant cutoffs and general extreme
+  coordinate precision remain C4 work.
+- A compact cell BVH replaces retained tetrahedron arrays in both vector and
+  tensor locators. It stores original cell indices plus tree nodes, enumerating
+  a cell's fixed tetrahedral decomposition only when queried. Counts are computed
+  before allocating index arrays; a fixed query stack needs no allocation. Masks
+  are borrowed and wholly missing input retains no index. A 4,096-tetrahedron
+  fixture proves the retained index is smaller than the old tetrahedron array;
+  a separate cold-construction allocation budget covers total allocated bytes.
+  Small models have fixed tree overhead; aggregate resource budgets remain C5.
+- Ordered linear-reference tests cover masked/unmasked regions and many boundary
+  queries. Overlapping cells preserve the original lowest-cell-index priority
+  after spatial partitioning. Bounds expand conservatively for simultaneous
+  negative barycentric tolerances; adversarial near-boundary weights are checked.
+  Highly overlapping cells can still require linear traversal. This index does
+  not yet replace the separate probe/volume acceleration implementations.
+- `Cells::lines` and packed particle-cell buffers eliminate per-segment vectors.
+  Shared checked point ranges protect trace/glyph output indices before append.
+  Streak assembly keeps chronological insertion order and removes dead particles,
+  avoiding a temporary per-seed list and redundant sorting. Output/frame retention
+  and large trail copying still require the P5/C5 streaming/budget work.
+- `qa/perf/20261019-tracing-paired.json` records fresh allocator-disabled release
+  ABBA runs twice versus `b3441be0`, with separate allocation builds, identical
+  probe source, raw records, source hashes and baseline/candidate timing-bug
+  observations. Cold validation and BVH construction are included. On the 8³
+  fixture, streamlines/particles/LIC/FTLE median wall times improve 67.2%/45.1%/
+  89.7%/86.7%; allocated bytes fall from 124.3/175.0/57.8/107.1 KB to
+  54.3/62.6/13.3/19.4 KB. The 4³ FTLE fixture is a measured 2.8% regression;
+  no universal speedup is claimed. Unsupported FTLE boundary values differ
+  intentionally: baseline zero/valid, candidate masked NaNs. These are bounded
+  host diagnostics, not peak RSS, energy or physical-device acceptance results.
+- Required-Metal full core verification passes: 72 transformation, 15 mesh and
+  91 scene library tests; 27 public validity/flow/geometry/tracing tests; allocation
+  and pressure/large-dataset integrations. Mesh/transform all-target Clippy and
+  the full core wasm closure pass. Two positive rustdoc examples and the borrow
+  compile-fail example pass. C3/C4/P5 stay unchecked: time-field sampling,
+  statistics/analysis, decimation/other geometry consumers, IO boundaries, general
+  interpolation, transparency, memory budgets and device qualification remain.

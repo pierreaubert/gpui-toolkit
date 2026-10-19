@@ -5,7 +5,7 @@
 use crate::TransformError;
 use gpui_mesh::{Association, CellType, DataSet, Field, FieldData, ValidatedDataSet};
 
-fn blend(a: f64, b: f64, fraction: f64) -> f64 {
+pub(crate) fn blend(a: f64, b: f64, fraction: f64) -> f64 {
     if fraction == 1.0 || a == b {
         return b;
     }
@@ -13,11 +13,11 @@ fn blend(a: f64, b: f64, fraction: f64) -> f64 {
         return a;
     }
     let result = a * (1.0 - fraction) + b * fraction;
-    if result.is_finite() {
+    if result.is_normal() {
         return result;
     }
-    // Finite convex inputs must remain bounded, even if rounded products
-    // overflow when added near f64::MAX.
+    // Finite convex inputs must remain bounded. Scaling also retains
+    // subnormal results when the individual weighted products underflow.
     let scale = a.abs().max(b.abs());
     ((a / scale) * (1.0 - fraction) + (b / scale) * fraction).clamp(-1.0, 1.0) * scale
 }

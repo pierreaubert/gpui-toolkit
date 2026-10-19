@@ -3,85 +3,54 @@
 // Rust guideline compliant 2026-02-21
 
 use crate::TransformError;
-use gpui_mesh::{Association, CellType, Cells, DataSet};
+use gpui_mesh::{Association, Cells, DataSet};
 
-pub(crate) use gpui_mesh::tetrahedra as tetrahedralize;
+pub(crate) fn validate_seeds(seeds: &[[f64; 3]]) -> Result<(), TransformError> {
+    if seeds.iter().flatten().all(|v| v.is_finite()) {
+        Ok(())
+    } else {
+        Err(TransformError::Degenerate(
+            "trace seeds must be finite".into(),
+        ))
+    }
+}
 
-/// Barycentric weights of `p` in a tetrahedron, when inside (within tolerance).
-pub(crate) fn barycentric(tet: [[f64; 3]; 4], p: [f64; 3]) -> Option<[f64; 4]> {
-    let (a, b, c, d) = (tet[0], tet[1], tet[2], tet[3]);
-    let m = [
-        [b[0] - a[0], c[0] - a[0], d[0] - a[0]],
-        [b[1] - a[1], c[1] - a[1], d[1] - a[1]],
-        [b[2] - a[2], c[2] - a[2], d[2] - a[2]],
-    ];
-    let rhs = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
-    let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
-        - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
-        + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
-    if det.abs() < 1e-300 {
+pub(crate) fn unit_direction(vector: [f64; 3]) -> Option<[f64; 3]> {
+    let norm = crate::calculator::magnitude(vector);
+    if norm.is_normal() {
+        return Some(vector.map(|v| v / norm));
+    }
+    let scale = vector.iter().map(|v| v.abs()).fold(0.0, f64::max);
+    if !scale.is_finite() || scale == 0.0 || vector.iter().any(|v| !v.is_finite()) {
         return None;
     }
-    // Cramer's rule for the 3x3 system.
-    let solve = |col: usize| -> f64 {
-        let mut mm = m;
-        for row in 0..3 {
-            mm[row][col] = rhs[row];
-        }
-        (mm[0][0] * (mm[1][1] * mm[2][2] - mm[1][2] * mm[2][1])
-            - mm[0][1] * (mm[1][0] * mm[2][2] - mm[1][2] * mm[2][0])
-            + mm[0][2] * (mm[1][0] * mm[2][1] - mm[1][1] * mm[2][0]))
-            / det
-    };
-    let w = [solve(0), solve(1), solve(2)];
-    let weights = [1.0 - w[0] - w[1] - w[2], w[0], w[1], w[2]];
-    weights.iter().all(|&x| x >= -1e-9).then_some(weights)
+    let scaled = vector.map(|v| v / scale);
+    let norm = crate::calculator::magnitude(scaled);
+    Some(scaled.map(|v| v / norm))
 }
 
 pub(crate) struct Tracer<'a> {
-    dataset: &'a DataSet,
+    locator: crate::stencil::StencilLocator<'a>,
     vectors: &'a [[f64; 3]],
-    pub(crate) tets: Vec<[u32; 4]>,
 }
 
 impl<'a> Tracer<'a> {
-    /// Builds a tracer over every volume cell of `dataset`.
-    pub(crate) fn new(dataset: &'a DataSet, vectors: &'a [[f64; 3]]) -> Self {
-        let mut tets = Vec::new();
-        for cell in 0..dataset.cell_count() {
-            let kind = dataset.cells.types[cell];
-            if kind.is_volume() {
-                let nodes = dataset.cells.cell(cell).unwrap_or(&[]);
-                tets.extend(tetrahedralize(kind, nodes));
-            }
-        }
+    pub(crate) fn new(
+        dataset: &'a DataSet,
+        vectors: &'a [[f64; 3]],
+        valid: Option<&'a [bool]>,
+    ) -> Self {
         Self {
-            dataset,
+            locator: crate::stencil::StencilLocator::new(dataset, valid),
             vectors,
-            tets,
         }
     }
-
+    pub(crate) fn has_volume(&self) -> bool {
+        self.locator.has_volume()
+    }
     pub(crate) fn velocity(&self, p: [f64; 3]) -> Option<[f64; 3]> {
-        for tet in &self.tets {
-            let corners = [
-                self.dataset.positions[tet[0] as usize],
-                self.dataset.positions[tet[1] as usize],
-                self.dataset.positions[tet[2] as usize],
-                self.dataset.positions[tet[3] as usize],
-            ];
-            if let Some(w) = barycentric(corners, p) {
-                let mut v = [0.0; 3];
-                for (i, weight) in w.iter().enumerate() {
-                    let vec = self.vectors[tet[i] as usize];
-                    v[0] += weight * vec[0];
-                    v[1] += weight * vec[1];
-                    v[2] += weight * vec[2];
-                }
-                return Some(v);
-            }
-        }
-        None
+        let (nodes, weights) = self.locator.weights(p)?;
+        crate::stencil::sample_values(self.vectors, nodes, weights)
     }
 }
 
@@ -90,11 +59,13 @@ impl<'a> Tracer<'a> {
 /// Integration is midpoint (RK2) with fixed arc-length-style steps of
 /// `step` in dataset units, at most `max_steps` per direction. Tracing
 /// stops when a point leaves the volume or the velocity vanishes.
+/// Every contributing tetrahedron requires four valid samples. Missing regions
+/// stop paths; wholly missing fields produce an empty dataset.
 ///
 /// # Errors
 ///
-/// Returns an error when the field is missing, not a vector field, or the
-/// dataset holds no volume cells.
+/// Returns an error for invalid input/seeds, a nonfinite/non-positive step,
+/// missing/non-vector fields, no volume cells or excessive output point indices.
 pub fn streamlines(
     dataset: &DataSet,
     field_name: &str,
@@ -102,6 +73,12 @@ pub fn streamlines(
     step: f64,
     max_steps: usize,
 ) -> Result<DataSet, TransformError> {
+    if !step.is_finite() || step <= 0.0 {
+        return Err(TransformError::Degenerate(
+            "streamline step must be finite and positive".into(),
+        ));
+    }
+    validate_seeds(seeds)?;
     dataset.validate()?;
     let field = dataset
         .field(Association::Point, field_name)
@@ -112,25 +89,23 @@ pub fn streamlines(
             field: field_name.to_string(),
             reason: "streamlines require a 3-vector field".into(),
         })?;
-    let tracer = Tracer::new(dataset, vectors);
-    if tracer.tets.is_empty() {
+    let tracer = Tracer::new(dataset, vectors, field.valid.as_deref());
+    if !tracer.has_volume() {
         return Err(TransformError::Degenerate(
             "dataset holds no volume cells".into(),
         ));
     }
     let mut positions: Vec<[f64; 3]> = Vec::new();
-    let mut cells: Vec<(CellType, Vec<u32>)> = Vec::new();
+    let mut cells = Vec::new();
     for seed in seeds {
         for direction in [1.0, -1.0] {
             let mut line: Vec<[f64; 3]> = vec![*seed];
             let mut p = *seed;
             for _ in 0..max_steps {
                 let Some(v) = tracer.velocity(p) else { break };
-                let speed = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-                if speed < 1e-300 {
+                let Some(dir) = unit_direction(v) else {
                     break;
-                }
-                let dir = [v[0] / speed, v[1] / speed, v[2] / speed];
+                };
                 let mid = [
                     p[0] + 0.5 * step * direction * dir[0],
                     p[1] + 0.5 * step * direction * dir[1],
@@ -139,17 +114,16 @@ pub fn streamlines(
                 let Some(vm) = tracer.velocity(mid) else {
                     break;
                 };
-                let sm = (vm[0] * vm[0] + vm[1] * vm[1] + vm[2] * vm[2]).sqrt();
-                if sm < 1e-300 {
+                let Some(dir) = unit_direction(vm) else {
                     break;
-                }
+                };
                 let next = [
-                    p[0] + step * direction * vm[0] / sm,
-                    p[1] + step * direction * vm[1] / sm,
-                    p[2] + step * direction * vm[2] / sm,
+                    p[0] + step * direction * dir[0],
+                    p[1] + step * direction * dir[1],
+                    p[2] + step * direction * dir[2],
                 ];
                 // Stop at the boundary instead of emitting an outside point.
-                if tracer.velocity(next).is_none() {
+                if next == p || tracer.velocity(next).is_none() {
                     break;
                 }
                 p = next;
@@ -161,18 +135,17 @@ pub fn streamlines(
             if line.len() < 2 {
                 continue;
             }
-            let base = positions.len() as u32;
+            let base = crate::geometry::output_base(positions.len(), line.len())?;
             positions.extend(line.iter().copied());
             for i in 0..line.len() - 1 {
-                cells.push((CellType::Line, vec![base + i as u32, base + i as u32 + 1]));
+                cells.push([base + i as u32, base + i as u32 + 1]);
             }
         }
     }
-    let refs: Vec<(CellType, &[u32])> = cells.iter().map(|(t, n)| (*t, n.as_slice())).collect();
     Ok(DataSet::new(
         format!("{}-streamlines", dataset.id),
         positions,
-        Cells::from_cells(&refs),
+        Cells::lines(&cells),
     ))
 }
 
@@ -184,11 +157,13 @@ pub fn streamlines(
 /// This is the tracer to use for fields with strong scale separation
 /// (fan tips vs. far field), where fixed steps either waste points or
 /// cut corners.
+/// Missing stencils stop paths, using the same validity rule as [`streamlines`].
 ///
 /// # Errors
 ///
 /// Returns an error when the field is missing, not a vector field, the
-/// dataset holds no volume cells, or the step bounds are invalid.
+/// dataset holds no volume cells, input/seeds are invalid, step bounds are
+/// nonfinite/invalid, or output point indices exceed the model representation.
 #[allow(clippy::too_many_arguments)]
 pub fn streamlines_adaptive(
     dataset: &DataSet,
@@ -200,11 +175,19 @@ pub fn streamlines_adaptive(
     tolerance: f64,
     max_steps: usize,
 ) -> Result<DataSet, TransformError> {
-    if min_step <= 0.0 || max_step < min_step || tolerance <= 0.0 {
+    if ![initial_step, min_step, max_step, tolerance]
+        .iter()
+        .all(|v| v.is_finite())
+        || initial_step <= 0.0
+        || min_step <= 0.0
+        || max_step < min_step
+        || tolerance <= 0.0
+    {
         return Err(TransformError::Degenerate(
             "adaptive tracing requires 0 < min_step <= max_step and tolerance > 0".into(),
         ));
     }
+    validate_seeds(seeds)?;
     dataset.validate()?;
     let field = dataset
         .field(Association::Point, field_name)
@@ -215,8 +198,8 @@ pub fn streamlines_adaptive(
             field: field_name.to_string(),
             reason: "streamlines require a 3-vector field".into(),
         })?;
-    let tracer = Tracer::new(dataset, vectors);
-    if tracer.tets.is_empty() {
+    let tracer = Tracer::new(dataset, vectors, field.valid.as_deref());
+    if !tracer.has_volume() {
         return Err(TransformError::Degenerate(
             "dataset holds no volume cells".into(),
         ));
@@ -224,28 +207,22 @@ pub fn streamlines_adaptive(
     // One normalised RK2 step of arc length h in `direction`.
     let step_once = |p: [f64; 3], direction: f64, h: f64| -> Option<[f64; 3]> {
         let v = tracer.velocity(p)?;
-        let speed = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-        if speed < 1e-300 {
-            return None;
-        }
+        let dir = unit_direction(v)?;
         let mid = [
-            p[0] + 0.5 * h * direction * v[0] / speed,
-            p[1] + 0.5 * h * direction * v[1] / speed,
-            p[2] + 0.5 * h * direction * v[2] / speed,
+            p[0] + 0.5 * h * direction * dir[0],
+            p[1] + 0.5 * h * direction * dir[1],
+            p[2] + 0.5 * h * direction * dir[2],
         ];
         let vm = tracer.velocity(mid)?;
-        let sm = (vm[0] * vm[0] + vm[1] * vm[1] + vm[2] * vm[2]).sqrt();
-        if sm < 1e-300 {
-            return None;
-        }
+        let dir = unit_direction(vm)?;
         Some([
-            p[0] + h * direction * vm[0] / sm,
-            p[1] + h * direction * vm[1] / sm,
-            p[2] + h * direction * vm[2] / sm,
+            p[0] + h * direction * dir[0],
+            p[1] + h * direction * dir[1],
+            p[2] + h * direction * dir[2],
         ])
     };
     let mut positions: Vec<[f64; 3]> = Vec::new();
-    let mut cells: Vec<(CellType, Vec<u32>)> = Vec::new();
+    let mut cells = Vec::new();
     for seed in seeds {
         for direction in [1.0, -1.0] {
             let mut line: Vec<[f64; 3]> = vec![*seed];
@@ -274,7 +251,7 @@ pub fn streamlines_adaptive(
                     h = (h * 0.5).max(min_step);
                 };
                 let Some(next) = half else { break };
-                if tracer.velocity(next).is_none() {
+                if next == p || tracer.velocity(next).is_none() {
                     break;
                 }
                 p = next;
@@ -288,18 +265,17 @@ pub fn streamlines_adaptive(
             if line.len() < 2 {
                 continue;
             }
-            let base = positions.len() as u32;
+            let base = crate::geometry::output_base(positions.len(), line.len())?;
             positions.extend(line.iter().copied());
             for i in 0..line.len() - 1 {
-                cells.push((CellType::Line, vec![base + i as u32, base + i as u32 + 1]));
+                cells.push([base + i as u32, base + i as u32 + 1]);
             }
         }
     }
-    let refs: Vec<(CellType, &[u32])> = cells.iter().map(|(t, n)| (*t, n.as_slice())).collect();
     Ok(DataSet::new(
         format!("{}-streamlines-adaptive", dataset.id),
         positions,
-        Cells::from_cells(&refs),
+        Cells::lines(&cells),
     ))
 }
 

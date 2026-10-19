@@ -3,6 +3,7 @@
 // Rust guideline compliant 2026-02-21
 
 use crate::TransformError;
+use crate::geometry::output_base as glyph_base;
 use gpui_mesh::{Association, CellType, Cells, DataSet, Field};
 
 /// Glyph shape emitted per point.
@@ -393,15 +394,6 @@ fn finite_scale(scale: f64) -> Result<(), TransformError> {
             "glyph scale/radius must be finite".into(),
         ))
     }
-}
-
-fn glyph_base(points: usize, count: usize) -> Result<u32, TransformError> {
-    let error = || TransformError::Degenerate("glyph output exceeds u32 point indices".into());
-    let end = points.checked_add(count).ok_or_else(error)?;
-    if end == 0 || u32::try_from(end - 1).is_err() {
-        return Err(error());
-    }
-    u32::try_from(points).map_err(|_| error())
 }
 
 fn perpendicular(dir: [f64; 3]) -> [f64; 3] {

@@ -8,6 +8,15 @@ use crate::threshold::{ThresholdMode, threshold};
 use gpui_mesh::{Association, CellType, Cells, DataSet, Field, FieldData};
 use std::collections::{BTreeSet, HashMap};
 
+pub(crate) fn output_base(points: usize, count: usize) -> Result<u32, TransformError> {
+    let error = || TransformError::Degenerate("output exceeds u32 point indices".into());
+    let end = points.checked_add(count).ok_or_else(error)?;
+    if end == 0 || u32::try_from(end - 1).is_err() {
+        return Err(error());
+    }
+    u32::try_from(points).map_err(|_| error())
+}
+
 /// Decimates by vertex clustering: points falling into the same
 /// `cell_size` grid cube merge into their centroid.
 ///

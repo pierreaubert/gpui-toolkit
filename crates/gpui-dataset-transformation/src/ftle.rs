@@ -11,12 +11,12 @@
 use crate::TransformError;
 use crate::eigen::symmetric_eigen;
 use crate::particles::TimeSampler;
-use gpui_mesh::{DataSet, Field, TimeSeries};
+use gpui_mesh::{Association, DataSet, Field, TimeSeries};
 
 /// Appends an `ftle` scalar field computed over `[t0, t0 + duration]`.
 ///
 /// Neighbour offset `epsilon` should be a fraction of the local cell
-/// size. Points whose neighbourhood leaves the domain get FTLE 0.
+/// size. Unsupported/missing neighborhoods receive masked NaNs.
 /// Sub-stepping uses `steps` RK2 steps over the duration.
 ///
 /// # Errors
@@ -31,7 +31,14 @@ pub fn ftle(
     epsilon: f64,
     steps: usize,
 ) -> Result<DataSet, TransformError> {
-    if duration == 0.0 || epsilon <= 0.0 || steps == 0 {
+    if ![t0, duration, epsilon, t0 + duration]
+        .iter()
+        .all(|v| v.is_finite())
+        || duration == 0.0
+        || epsilon <= 0.0
+        || steps == 0
+        || duration / steps as f64 == 0.0
+    {
         return Err(TransformError::Degenerate(
             "FTLE requires duration != 0, epsilon > 0, steps > 0".into(),
         ));
@@ -39,6 +46,9 @@ pub fn ftle(
     let sampler = TimeSampler::new(series, field_name)?;
     let (lo, _, _) = series.locate(t0);
     let base = &series.steps[lo];
+    let source = base
+        .field(Association::Point, field_name)
+        .ok_or_else(|| TransformError::FieldNotFound(field_name.into()))?;
     let dt = duration / steps as f64;
     let advect = |mut p: [f64; 3]| -> Option<[f64; 3]> {
         let mut time = t0;
@@ -49,7 +59,11 @@ pub fn ftle(
         Some(p)
     };
     let mut values = Vec::with_capacity(base.point_count());
-    for &point in base.positions.iter() {
+    for (index, &point) in base.positions.iter().enumerate() {
+        if !source.is_valid(index) || sampler.velocity_at(point, t0).is_none() {
+            values.push(f64::NAN);
+            continue;
+        }
         let mut gradient = [[0.0f64; 3]; 3];
         let mut valid = true;
         for axis in 0..3 {
@@ -66,8 +80,8 @@ pub fn ftle(
                 break;
             }
         }
-        if !valid {
-            values.push(0.0);
+        if !valid || !gradient.iter().flatten().all(|v| v.is_finite()) {
+            values.push(f64::NAN);
             continue;
         }
         // Cauchy-Green C = F^T F (symmetric).
@@ -78,15 +92,24 @@ pub fn ftle(
             }
         }
         let (eigenvalues, _) = symmetric_eigen(c);
+        if !eigenvalues.iter().all(|v| v.is_finite()) {
+            values.push(f64::NAN);
+            continue;
+        }
         let lambda_max = eigenvalues.iter().copied().fold(0.0, f64::max);
-        values.push(lambda_max.max(1e-300).sqrt().ln() / duration.abs());
+        values.push(if lambda_max > 0.0 {
+            0.5 * lambda_max.ln() / duration.abs()
+        } else {
+            f64::NAN
+        });
     }
     let mut out = base.clone();
     out.point_data.retain(|f| f.name.as_ref() != "ftle");
     let mut field = Field::scalar("ftle", values);
     field.label = "FTLE".into();
     field.unit = Some("1/s".into());
-    out.point_data.push(field);
+    out.point_data
+        .push(crate::validity::finish(field, |_| true));
     Ok(out)
 }
 
@@ -113,7 +136,16 @@ mod tests {
             .unwrap()
             .as_scalar()
             .unwrap();
-        assert!(values.iter().all(|v| v.abs() < 1e-9));
+        out.validate().unwrap();
+        let field = out.field(gpui_mesh::Association::Point, "ftle").unwrap();
+        assert!((0..values.len()).any(|index| field.is_valid(index)));
+        for (index, value) in values.iter().enumerate() {
+            if field.is_valid(index) {
+                assert!(value.abs() < 1e-9);
+            } else {
+                assert!(value.is_nan());
+            }
+        }
 
         // v = (x, 0, 0): flow map x -> x * e^t, FTLE = 1 along x.
         let stretch = series_with_velocity(|p| [p[0], 0.0, 0.0]);

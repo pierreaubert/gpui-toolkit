@@ -41,6 +41,7 @@ mod particles;
 mod plane;
 mod probe;
 mod pvd;
+mod stencil;
 mod streamline;
 mod surface;
 mod surface_io;

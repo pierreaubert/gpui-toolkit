@@ -110,6 +110,22 @@ impl Cells {
         }
     }
 
+    /// Convenience constructor for indexed line segments.
+    pub fn lines(lines: &[[u32; 2]]) -> Self {
+        let mut offsets = Vec::with_capacity(lines.len() + 1);
+        let mut connectivity = Vec::with_capacity(lines.len() * 2);
+        offsets.push(0);
+        for line in lines {
+            connectivity.extend_from_slice(line);
+            offsets.push(connectivity.len() as u64);
+        }
+        Self {
+            types: vec![CellType::Line; lines.len()].into(),
+            offsets: offsets.into(),
+            connectivity: connectivity.into(),
+        }
+    }
+
     /// Convenience constructor for an all-triangle surface.
     pub fn triangles(triangles: &[[u32; 3]]) -> Self {
         let mut offsets = Vec::with_capacity(triangles.len() + 1);
@@ -733,6 +749,35 @@ impl DataSet {
     }
 }
 
+/// Structured hexahedral connectivity for `dims` (x-fastest points).
+fn structured_cells(dims: [usize; 3]) -> Vec<(CellType, [u32; 8])> {
+    let [nx, ny, nz] = dims;
+    let idx = |i: usize, j: usize, k: usize| (k * ny * nx + j * nx + i) as u32;
+    let mut cells = Vec::new();
+    if nx > 1 && ny > 1 && nz > 1 {
+        for k in 0..nz - 1 {
+            for j in 0..ny - 1 {
+                for i in 0..nx - 1 {
+                    cells.push((
+                        CellType::Hexahedron,
+                        [
+                            idx(i, j, k),
+                            idx(i + 1, j, k),
+                            idx(i + 1, j + 1, k),
+                            idx(i, j + 1, k),
+                            idx(i, j, k + 1),
+                            idx(i + 1, j, k + 1),
+                            idx(i + 1, j + 1, k + 1),
+                            idx(i, j + 1, k + 1),
+                        ],
+                    ));
+                }
+            }
+        }
+    }
+    cells
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -788,33 +833,4 @@ mod tests {
             Err(MeshError::FieldLengthMismatch { .. })
         ));
     }
-}
-
-/// Structured hexahedral connectivity for `dims` (x-fastest points).
-fn structured_cells(dims: [usize; 3]) -> Vec<(CellType, [u32; 8])> {
-    let [nx, ny, nz] = dims;
-    let idx = |i: usize, j: usize, k: usize| (k * ny * nx + j * nx + i) as u32;
-    let mut cells = Vec::new();
-    if nx > 1 && ny > 1 && nz > 1 {
-        for k in 0..nz - 1 {
-            for j in 0..ny - 1 {
-                for i in 0..nx - 1 {
-                    cells.push((
-                        CellType::Hexahedron,
-                        [
-                            idx(i, j, k),
-                            idx(i + 1, j, k),
-                            idx(i + 1, j + 1, k),
-                            idx(i, j + 1, k),
-                            idx(i, j, k + 1),
-                            idx(i + 1, j, k + 1),
-                            idx(i + 1, j + 1, k + 1),
-                            idx(i, j + 1, k + 1),
-                        ],
-                    ));
-                }
-            }
-        }
-    }
-    cells
 }

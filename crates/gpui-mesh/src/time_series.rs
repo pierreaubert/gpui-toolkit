@@ -23,10 +23,24 @@ impl TimeSeries {
     ///
     /// # Errors
     ///
-    /// Returns [`MeshError::InvalidDims`]-style misuse as a plain message via
-    /// [`TimeSeriesError`] is avoided; structural problems are reported with
-    /// the closest [`MeshError`] variant or a dedicated description.
+    /// Returns an error for empty/inconsistent times, invalid datasets or
+    /// inconsistent point counts/topology. See [`Self::validate`].
     pub fn new(steps: Vec<DataSet>, times: Vec<f64>) -> Result<Self, MeshError> {
+        let series = Self { steps, times };
+        series.validate()?;
+        Ok(series)
+    }
+
+    /// Validates times, each dataset, point counts and shared topology.
+    ///
+    /// Call this again after directly mutating public steps or timestamps.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for empty/inconsistent times, malformed datasets or
+    /// inconsistent point counts/topology.
+    pub fn validate(&self) -> Result<(), MeshError> {
+        let Self { steps, times } = self;
         if steps.len() != times.len() || steps.is_empty() {
             return Err(MeshError::InvalidDims {
                 dims: [steps.len(), times.len(), 0],
@@ -38,7 +52,13 @@ impl TimeSeries {
             });
         }
         if let Some(first) = steps.first() {
-            for step in &steps[1..] {
+            for step in steps {
+                step.validate()?;
+                if step.point_count() != first.point_count() {
+                    return Err(MeshError::InvalidTimeSeries {
+                        reason: "time steps have different point counts".into(),
+                    });
+                }
                 if step.cells.types != first.cells.types
                     || step.cells.offsets != first.cells.offsets
                     || step.cells.connectivity != first.cells.connectivity
@@ -47,7 +67,7 @@ impl TimeSeries {
                 }
             }
         }
-        Ok(Self { steps, times })
+        Ok(())
     }
 
     /// Number of steps.
@@ -75,7 +95,12 @@ impl TimeSeries {
         let upper = self.times.partition_point(|t| *t <= time);
         let lo = upper - 1;
         let span = self.times[upper] - self.times[lo];
-        (lo, upper, (time - self.times[lo]) / span)
+        let fraction = if span.is_finite() {
+            (time - self.times[lo]) / span
+        } else {
+            (time * 0.5 - self.times[lo] * 0.5) / (self.times[upper] * 0.5 - self.times[lo] * 0.5)
+        };
+        (lo, upper, fraction)
     }
 }
 

@@ -1,0 +1,3658 @@
+{
+  "kind": "bounded tracing/time host diagnostic; corrected unsupported FTLE and particle timing semantics",
+  "captured_utc": "2026-10-19T00:19:31.832328+00:00",
+  "baseline_commit": "b3441be0",
+  "candidate": "mask-aware compact cell-BVH candidate identified by source_sha256",
+  "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "features": {
+    "baseline": [],
+    "candidate": [
+      "retained (probe expectation flag for corrected FTLE/timing)"
+    ],
+    "allocations": "separate feature enables global allocator instrumentation"
+  },
+  "methodology": "Identical release probe source at 4/6/8 cubed grids. Four allocator-disabled processes/version, ABBA twice with alternating case order, warmup/five samples per case; separate allocation runs. Streamlines use 16 seeds/12 steps, particles 16 seeds/eight frames/trail four, LIC two kernel steps, FTLE two RK2 steps. Input validation and compact cell-BVH construction added in candidate are included on every call. Outputs are checked outside timing; destruction excluded. Uniform flow analytic checks cover path positions and FTLE zero on supported interior points. Baseline FTLE falsely labels unsupported boundaries zero/valid; candidate masks them, so finite valid sample counts differ. Each run also reproduces the old linear-time pathline phase error and premature streak release advance, with explicit baseline/candidate expectations. All fixtures stay below parallel worker thresholds. No controlled affinity/thermal/energy, peak RSS, application frame or physical mobile acceptance claim. BVH footprint consists of original cell indices plus tree nodes, with leaf-local stencil enumeration and no retained tetrahedron array. Highly overlapping cells can still require linear traversal.",
+  "probe_source": "use gpui_dataset_transformation::{ftle,lic,particle_frames,streak_frames,streamlines,ParticleOptions,StreakOptions};\nuse gpui_mesh::{Association,DataSet,Field,TimeSeries};\nuse gpui_profiler::AllocProbe;\nuse std::{hint::black_box,time::Instant};\n\nenum Output { Single(DataSet), Frames(Vec<DataSet>) }\n\nfn check(output:&Output,n:usize,case:&str) {\n    match output {\n        Output::Single(output)=>{\n            output.validate().unwrap();\n            if case==\"streamlines\" { assert_eq!(output.point_count(),416); assert_eq!(output.cell_count(),384); assert!(output.positions.iter().all(|p|p[0]>0.1 && p[0]<0.9)); }\n            else {\n                let field=output.field(Association::Point,case).unwrap();\n                let values=field.as_scalar().unwrap();\n                if case==\"lic\" { assert!(values.iter().all(|v|(0.0..1.0).contains(v))); }\n                else {\n                    assert!(values.iter().all(|v|v.is_nan() || v.abs()<1e-8));\n                    let valid=(0..values.len()).filter(|&i|field.is_valid(i)).count();\n                    assert_eq!(valid,if cfg!(feature=\"retained\") {(n-2).pow(3)} else {n.pow(3)});\n                }\n            }\n        },\n        Output::Frames(frames)=>{\n            assert_eq!(frames.len(),8);\n            for (frame,output) in frames.iter().enumerate() {\n                output.validate().unwrap();\n                let trail=(frame+1).min(4);\n                assert_eq!(output.point_count(),16*trail);\n                for seed in 0..16 { assert!((output.positions[seed*trail+trail-1][0]-(0.5+0.001*frame as f64)).abs()<1e-12); }\n            }\n        },\n    }\n}\n\nfn main() {\n    let reverse=std::env::args().nth(1).as_deref()==Some(\"reverse\");\n    for n in [4usize,6,8] {\n        let dataset=DataSet::structured_grid(\"trace\",[n;3],[0.0;3],[0.5;3]).unwrap();\n        let count=dataset.point_count();\n        let dataset=dataset.with_field(Field::vector(\"v\",vec![[0.1,0.0,0.0];count]));\n        let series=TimeSeries::new(vec![dataset.clone(),dataset.clone()],vec![0.0,1.0]).unwrap();\n        let seeds=(0..16).map(|i|[0.5,0.5+(i%4) as f64*0.05,0.5+(i/4) as f64*0.05]).collect::<Vec<_>>();\n        let order=if reverse {[\"ftle\",\"lic\",\"particles\",\"streamlines\"]} else {[\"streamlines\",\"particles\",\"lic\",\"ftle\"]};\n        for case in order {\n            let operation=||match case {\n                \"streamlines\"=>Output::Single(streamlines(&dataset,\"v\",&seeds,0.025,12).unwrap()),\n                \"particles\"=>Output::Frames(particle_frames(&series,\"v\",&seeds,ParticleOptions{dt:0.01,frames:8,trail:4}).unwrap()),\n                \"lic\"=>Output::Single(lic(&dataset,\"v\",2,0.1,7).unwrap()),\n                _=>Output::Single(ftle(&series,\"v\",0.0,0.02,0.01,2).unwrap()),\n            };\n            let warm=black_box(operation());check(&warm,n,case);drop(warm);\n            let mut times=Vec::with_capacity(5);let mut calls=Vec::with_capacity(5);let mut bytes=Vec::with_capacity(5);\n            for _ in 0..5 {\n                let mut probe=AllocProbe::new();let start=Instant::now();let output=black_box(operation());let elapsed=start.elapsed().as_nanos();let sample=probe.sample(\"tracing\");\n                times.push(elapsed);calls.push(sample.count);bytes.push(sample.bytes);check(&output,n,case);drop(output);\n            }\n            println!(r#\"{{\"kind\":\"timing\",\"n\":{n},\"case\":\"{case}\",\"times_ns\":{times:?},\"allocation_calls\":{calls:?},\"allocated_bytes\":{bytes:?},\"allocator_instrumentation\":{}}}\"#,cfg!(feature=\"allocations\"));\n        }\n    }\n    let dataset=DataSet::structured_grid(\"time\",[2;3],[0.0;3],[10.0;3]).unwrap();\n    let series=TimeSeries::new(vec![dataset.clone().with_field(Field::vector(\"v\",vec![[0.0;3];8])),dataset.with_field(Field::vector(\"v\",vec![[1.0,0.0,0.0];8]))],vec![0.0,1.0]).unwrap();\n    let frames=particle_frames(&series,\"v\",&[[1.0;3]],ParticleOptions{dt:0.5,frames:2,trail:8}).unwrap();\n    let pathline_x=frames[1].positions.last().unwrap()[0];\n    let streaks=streak_frames(&series,\"v\",&[[1.0;3]],StreakOptions{dt:0.5,frames:2,release_every:1}).unwrap();\n    let newest_streak_x=streaks[1].positions.last().unwrap()[0];\n    assert!((pathline_x-if cfg!(feature=\"retained\") {1.125} else {1.375}).abs()<1e-12);\n    assert!((newest_streak_x-if cfg!(feature=\"retained\") {1.0} else {1.125}).abs()<1e-12);\n    println!(r#\"{{\"kind\":\"semantic_repro\",\"pathline_x\":{pathline_x},\"newest_streak_x\":{newest_streak_x}}}\"#);\n}\n",
+  "source_sha256": {
+    "baseline": {
+      "crates/gpui-dataset-transformation/src/streamline.rs": "5049b273a51fe93fd3ebf0cfd2a532b8c3e940165656114eafba9aa10233d53d",
+      "crates/gpui-dataset-transformation/src/stencil.rs": null,
+      "crates/gpui-dataset-transformation/src/particles.rs": "1f161fad4556f057e8d225eb0e034f476732f6df990572a42ae5105051b351d9",
+      "crates/gpui-dataset-transformation/src/ftle.rs": "17533bad755a0204f58a72a02454770de1e79625fa72819aa183cecff58eec23",
+      "crates/gpui-dataset-transformation/src/lic.rs": "18579549e4781618634704dc5a9ceef475656640115a381592a5248ffaf665b1",
+      "crates/gpui-dataset-transformation/src/convert.rs": "33f5d21309b76a05555c5581c80202128f0073c23729594552c5e2296e73466e",
+      "crates/gpui-dataset-transformation/src/tensor_trace.rs": "ecba78a13a588c5d88e858b93e0cae0095bd00ce82014762206f736ce165164a",
+      "crates/gpui-dataset-transformation/src/geometry.rs": "5bf603e29539d98717647b87502bbafc7b2d056dd36b0cf51d1e19b238522461",
+      "crates/gpui-mesh/src/dataset.rs": "9a8627bf7609b95dd181d97fd87e5e1d699faa1c5ec0d96b5201d0bbafb140dc",
+      "crates/gpui-mesh/src/time_series.rs": "35460bed54b7b76342a0a20a6bbbe4df17bbfb3d45e4e6ebbf5b8de50b28d2de",
+      "Cargo.lock": "381e80d27ce33e86079c74f9595dd7ebeaad86f5203538ec4338138785b4ac67"
+    },
+    "candidate": {
+      "crates/gpui-dataset-transformation/src/streamline.rs": "a0b0fb042666f3fcb2136113c7d44ffe6b7a5c94b89efdf9130430d21dc02eab",
+      "crates/gpui-dataset-transformation/src/stencil.rs": "6586ee37f09f55cf92ec02f756f236408c505bf1efc847abb38e4cc2fe9e52fc",
+      "crates/gpui-dataset-transformation/src/particles.rs": "429a6b72b743d891ecb468123b74d9504417126f74d6f5eebe5da706c524d1cf",
+      "crates/gpui-dataset-transformation/src/ftle.rs": "41510fcac85d1a43eb43340e16bc6369cfb1e18ae4f7ca9a1f6c533fc126936c",
+      "crates/gpui-dataset-transformation/src/lic.rs": "9f69c2c826a3e7471870c14ad20d0292dda0b37a304b8170b6fe8ebae1934969",
+      "crates/gpui-dataset-transformation/src/convert.rs": "3d7449bb20ec4933f664d35edafbae56a997f4382585da36b05b54b33bc2164a",
+      "crates/gpui-dataset-transformation/src/tensor_trace.rs": "839a3012fd9342242ae469a5ad9e2b7e8b8e676244870a785fa0f63a1fd14fad",
+      "crates/gpui-dataset-transformation/src/geometry.rs": "fcdaa7d15e3c52d1f12093c4eeb7d61b7b6b57afd10f293de9e42beee117a96e",
+      "crates/gpui-mesh/src/dataset.rs": "165eef343967572d16a0d0cb9d61b61baa5dff722ef28386d31507525ffb83b6",
+      "crates/gpui-mesh/src/time_series.rs": "d6b76a506f08faf85e596de251362a61bd683efa29ed03487c747ba9acbacc62",
+      "Cargo.lock": "381e80d27ce33e86079c74f9595dd7ebeaad86f5203538ec4338138785b4ac67"
+    }
+  },
+  "summary": [
+    {
+      "n": 4,
+      "case": "streamlines",
+      "median_ns": {
+        "baseline": 353291.5,
+        "candidate": 256729.5
+      },
+      "time_ratio": 0.7266789605750492,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 551,
+          "allocated_bytes": 78217
+        },
+        "candidate": {
+          "allocation_calls": 154,
+          "allocated_bytes": 49825
+        }
+      }
+    },
+    {
+      "n": 4,
+      "case": "particles",
+      "median_ns": {
+        "baseline": 232854.0,
+        "candidate": 165062.5
+      },
+      "time_ratio": 0.7088669294922999,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 747,
+          "allocated_bytes": 82800
+        },
+        "candidate": {
+          "allocation_calls": 343,
+          "allocated_bytes": 53728
+        }
+      }
+    },
+    {
+      "n": 4,
+      "case": "lic",
+      "median_ns": {
+        "baseline": 150958.5,
+        "candidate": 107479.0
+      },
+      "time_ratio": 0.7119771327881503,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 11,
+          "allocated_bytes": 4520
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 1728
+        }
+      }
+    },
+    {
+      "n": 4,
+      "case": "ftle",
+      "median_ns": {
+        "baseline": 425999.5,
+        "candidate": 437792.0
+      },
+      "time_ratio": 1.0276819573731895,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 7736
+        },
+        "candidate": {
+          "allocation_calls": 14,
+          "allocated_bytes": 2408
+        }
+      }
+    },
+    {
+      "n": 6,
+      "case": "streamlines",
+      "median_ns": {
+        "baseline": 763896.0,
+        "candidate": 372999.5
+      },
+      "time_ratio": 0.4882857090493994,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 553,
+          "allocated_bytes": 87433
+        },
+        "candidate": {
+          "allocation_calls": 154,
+          "allocated_bytes": 50993
+        }
+      }
+    },
+    {
+      "n": 6,
+      "case": "particles",
+      "median_ns": {
+        "baseline": 469041.5,
+        "candidate": 265833.5
+      },
+      "time_ratio": 0.5667590181252619,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 751,
+          "allocated_bytes": 101232
+        },
+        "candidate": {
+          "allocation_calls": 343,
+          "allocated_bytes": 56064
+        }
+      }
+    },
+    {
+      "n": 6,
+      "case": "lic",
+      "median_ns": {
+        "baseline": 2392437.0,
+        "candidate": 771666.5
+      },
+      "time_ratio": 0.3225441255088431,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 13,
+          "allocated_bytes": 16168
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 5328
+        }
+      }
+    },
+    {
+      "n": 6,
+      "case": "ftle",
+      "median_ns": {
+        "baseline": 8423646.0,
+        "candidate": 3789687.5
+      },
+      "time_ratio": 0.44988684234831333,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 24,
+          "allocated_bytes": 28600
+        },
+        "candidate": {
+          "allocation_calls": 14,
+          "allocated_bytes": 7480
+        }
+      }
+    },
+    {
+      "n": 8,
+      "case": "streamlines",
+      "median_ns": {
+        "baseline": 1361041.5,
+        "candidate": 446375.0
+      },
+      "time_ratio": 0.3279657526974747,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 555,
+          "allocated_bytes": 124297
+        },
+        "candidate": {
+          "allocation_calls": 154,
+          "allocated_bytes": 54273
+        }
+      }
+    },
+    {
+      "n": 8,
+      "case": "particles",
+      "median_ns": {
+        "baseline": 823708.0,
+        "candidate": 452500.0
+      },
+      "time_ratio": 0.5493451562932495,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 755,
+          "allocated_bytes": 174960
+        },
+        "candidate": {
+          "allocation_calls": 343,
+          "allocated_bytes": 62624
+        }
+      }
+    },
+    {
+      "n": 8,
+      "case": "lic",
+      "median_ns": {
+        "baseline": 16238625.0,
+        "candidate": 1676916.5
+      },
+      "time_ratio": 0.10326714854244125,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 15,
+          "allocated_bytes": 57768
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 13344
+        }
+      }
+    },
+    {
+      "n": 8,
+      "case": "ftle",
+      "median_ns": {
+        "baseline": 63673312.5,
+        "candidate": 8460624.5
+      },
+      "time_ratio": 0.13287551986556378,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 28,
+          "allocated_bytes": 107064
+        },
+        "candidate": {
+          "allocation_calls": 14,
+          "allocated_bytes": 19368
+        }
+      }
+    }
+  ],
+  "runs": [
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "order": "forward",
+      "records": [
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "streamlines",
+          "times_ns": [
+            363625,
+            350000,
+            358166,
+            352791,
+            350084
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "particles",
+          "times_ns": [
+            237416,
+            233417,
+            230625,
+            230333,
+            229875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "lic",
+          "times_ns": [
+            152292,
+            151125,
+            150917,
+            150833,
+            150750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "ftle",
+          "times_ns": [
+            421208,
+            425500,
+            424375,
+            417542,
+            419792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "streamlines",
+          "times_ns": [
+            761333,
+            760292,
+            756167,
+            763416,
+            762458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "particles",
+          "times_ns": [
+            468292,
+            469667,
+            472416,
+            463125,
+            461209
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "lic",
+          "times_ns": [
+            2387166,
+            2377500,
+            2386166,
+            2401166,
+            2380625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "ftle",
+          "times_ns": [
+            8488667,
+            8410041,
+            8480250,
+            8450666,
+            8445125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "streamlines",
+          "times_ns": [
+            1375667,
+            1357833,
+            1357084,
+            1356667,
+            1363458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "particles",
+          "times_ns": [
+            822958,
+            820917,
+            826542,
+            821792,
+            827583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "lic",
+          "times_ns": [
+            16161208,
+            16133209,
+            16112333,
+            16086542,
+            16077917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "ftle",
+          "times_ns": [
+            63357708,
+            64792125,
+            64331709,
+            63372750,
+            63414541
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ],
+      "semantic_repros": [
+        {
+          "kind": "semantic_repro",
+          "pathline_x": 1.375,
+          "newest_streak_x": 1.125
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "order": "reverse",
+      "records": [
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "ftle",
+          "times_ns": [
+            443667,
+            439500,
+            438417,
+            438042,
+            436583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "lic",
+          "times_ns": [
+            106792,
+            111500,
+            110084,
+            107375,
+            106000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "particles",
+          "times_ns": [
+            168750,
+            164333,
+            162084,
+            165042,
+            161667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "streamlines",
+          "times_ns": [
+            256042,
+            254083,
+            256875,
+            254459,
+            256875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "ftle",
+          "times_ns": [
+            3778209,
+            3765125,
+            3781958,
+            3777333,
+            3770125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "lic",
+          "times_ns": [
+            774209,
+            767833,
+            765750,
+            763208,
+            762333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "particles",
+          "times_ns": [
+            268500,
+            266459,
+            266542,
+            266042,
+            265375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "streamlines",
+          "times_ns": [
+            371417,
+            369833,
+            373041,
+            375958,
+            374416
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "ftle",
+          "times_ns": [
+            8509666,
+            8465750,
+            8440292,
+            8472666,
+            8505459
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "lic",
+          "times_ns": [
+            1717167,
+            1690041,
+            1682584,
+            1678459,
+            1685250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "particles",
+          "times_ns": [
+            465167,
+            478083,
+            462500,
+            462000,
+            468125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "streamlines",
+          "times_ns": [
+            450000,
+            452083,
+            449666,
+            450833,
+            448875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ],
+      "semantic_repros": [
+        {
+          "kind": "semantic_repro",
+          "pathline_x": 1.125,
+          "newest_streak_x": 1
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "order": "forward",
+      "records": [
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "streamlines",
+          "times_ns": [
+            264833,
+            257417,
+            259084,
+            253375,
+            254458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "particles",
+          "times_ns": [
+            171334,
+            167417,
+            166250,
+            169083,
+            162167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "lic",
+          "times_ns": [
+            110333,
+            109000,
+            107083,
+            104083,
+            106834
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "ftle",
+          "times_ns": [
+            434709,
+            432042,
+            428417,
+            431250,
+            430416
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "streamlines",
+          "times_ns": [
+            375750,
+            370916,
+            374042,
+            370500,
+            372958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "particles",
+          "times_ns": [
+            267542,
+            264375,
+            267667,
+            264166,
+            263917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "lic",
+          "times_ns": [
+            781291,
+            767292,
+            768500,
+            778792,
+            783416
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "ftle",
+          "times_ns": [
+            3807583,
+            3797000,
+            3788666,
+            3806750,
+            3768208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "streamlines",
+          "times_ns": [
+            449541,
+            447000,
+            445625,
+            453250,
+            447500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "particles",
+          "times_ns": [
+            457083,
+            454708,
+            456709,
+            455500,
+            454625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "lic",
+          "times_ns": [
+            1715250,
+            1692500,
+            1683916,
+            1667750,
+            1652250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "ftle",
+          "times_ns": [
+            8757333,
+            8741834,
+            8723834,
+            8597000,
+            8616917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ],
+      "semantic_repros": [
+        {
+          "kind": "semantic_repro",
+          "pathline_x": 1.125,
+          "newest_streak_x": 1
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "order": "reverse",
+      "records": [
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "ftle",
+          "times_ns": [
+            430959,
+            423833,
+            420667,
+            431334,
+            431125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "lic",
+          "times_ns": [
+            151333,
+            150458,
+            150042,
+            150959,
+            152000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "particles",
+          "times_ns": [
+            236959,
+            238000,
+            250000,
+            232625,
+            230250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "streamlines",
+          "times_ns": [
+            361833,
+            364625,
+            356709,
+            361167,
+            363250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "ftle",
+          "times_ns": [
+            8403791,
+            8399709,
+            8396791,
+            8404250,
+            8427166
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "lic",
+          "times_ns": [
+            2377792,
+            2372833,
+            2373416,
+            2381750,
+            2375041
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "particles",
+          "times_ns": [
+            468334,
+            473083,
+            470917,
+            468500,
+            467542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "streamlines",
+          "times_ns": [
+            761459,
+            765125,
+            762125,
+            764916,
+            760125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "ftle",
+          "times_ns": [
+            63693375,
+            64092708,
+            63766250,
+            63904666,
+            65438291
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "lic",
+          "times_ns": [
+            16539917,
+            16196625,
+            16251042,
+            16218417,
+            16645042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "particles",
+          "times_ns": [
+            836458,
+            849750,
+            868750,
+            831791,
+            852375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "streamlines",
+          "times_ns": [
+            1400333,
+            1394792,
+            1382333,
+            1375958,
+            1383417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ],
+      "semantic_repros": [
+        {
+          "kind": "semantic_repro",
+          "pathline_x": 1.375,
+          "newest_streak_x": 1.125
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "order": "forward",
+      "records": [
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "streamlines",
+          "times_ns": [
+            363625,
+            354167,
+            353250,
+            353792,
+            350791
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "particles",
+          "times_ns": [
+            234625,
+            233667,
+            228917,
+            228583,
+            229875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "lic",
+          "times_ns": [
+            152292,
+            170459,
+            160792,
+            159416,
+            151417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "ftle",
+          "times_ns": [
+            435375,
+            423625,
+            424541,
+            424208,
+            423834
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "streamlines",
+          "times_ns": [
+            772459,
+            779958,
+            775417,
+            771250,
+            772584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "particles",
+          "times_ns": [
+            487333,
+            475459,
+            473166,
+            483375,
+            469208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "lic",
+          "times_ns": [
+            2424708,
+            2415667,
+            2401750,
+            2376625,
+            2376542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "ftle",
+          "times_ns": [
+            8387625,
+            8415417,
+            8412250,
+            8434250,
+            8412834
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "streamlines",
+          "times_ns": [
+            1369292,
+            1377541,
+            1354167,
+            1354208,
+            1356958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "particles",
+          "times_ns": [
+            818583,
+            826417,
+            822375,
+            825959,
+            819167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "lic",
+          "times_ns": [
+            16159084,
+            16305666,
+            16837042,
+            16602833,
+            16444916
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "ftle",
+          "times_ns": [
+            63824417,
+            63827833,
+            63688708,
+            63806458,
+            63631334
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ],
+      "semantic_repros": [
+        {
+          "kind": "semantic_repro",
+          "pathline_x": 1.375,
+          "newest_streak_x": 1.125
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "order": "reverse",
+      "records": [
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "ftle",
+          "times_ns": [
+            444583,
+            446875,
+            437250,
+            437625,
+            444791
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "lic",
+          "times_ns": [
+            110583,
+            110875,
+            108083,
+            107625,
+            108541
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "particles",
+          "times_ns": [
+            168459,
+            163042,
+            166417,
+            162875,
+            162792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "streamlines",
+          "times_ns": [
+            261500,
+            252291,
+            258333,
+            260792,
+            255667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "ftle",
+          "times_ns": [
+            3838125,
+            3838041,
+            3841667,
+            3812750,
+            3837583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "lic",
+          "times_ns": [
+            778083,
+            775958,
+            771458,
+            776083,
+            772667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "particles",
+          "times_ns": [
+            268792,
+            282459,
+            267625,
+            266667,
+            266583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "streamlines",
+          "times_ns": [
+            375125,
+            372209,
+            375709,
+            376167,
+            375792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "ftle",
+          "times_ns": [
+            8486375,
+            8458416,
+            8405250,
+            8383666,
+            8425166
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "lic",
+          "times_ns": [
+            1702917,
+            1687709,
+            1664000,
+            1659625,
+            1650292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "particles",
+          "times_ns": [
+            456250,
+            535625,
+            448875,
+            446500,
+            443041
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "streamlines",
+          "times_ns": [
+            436209,
+            442125,
+            443917,
+            438791,
+            440000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ],
+      "semantic_repros": [
+        {
+          "kind": "semantic_repro",
+          "pathline_x": 1.125,
+          "newest_streak_x": 1
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "timing",
+      "order": "forward",
+      "records": [
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "streamlines",
+          "times_ns": [
+            261959,
+            254458,
+            255875,
+            256917,
+            254875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "particles",
+          "times_ns": [
+            177041,
+            166291,
+            164500,
+            165792,
+            163917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "lic",
+          "times_ns": [
+            110750,
+            106541,
+            108542,
+            107583,
+            104583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "ftle",
+          "times_ns": [
+            439416,
+            438792,
+            437167,
+            434334,
+            433750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "streamlines",
+          "times_ns": [
+            374500,
+            371083,
+            370334,
+            373958,
+            369292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "particles",
+          "times_ns": [
+            268042,
+            262500,
+            265375,
+            265208,
+            265000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "lic",
+          "times_ns": [
+            775792,
+            769292,
+            766292,
+            767375,
+            766250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "ftle",
+          "times_ns": [
+            3785792,
+            3780334,
+            3776542,
+            3782375,
+            3782625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "streamlines",
+          "times_ns": [
+            453250,
+            445250,
+            446834,
+            443875,
+            444083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "particles",
+          "times_ns": [
+            449500,
+            448625,
+            448250,
+            450833,
+            456042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "lic",
+          "times_ns": [
+            1713500,
+            1690000,
+            1669917,
+            1665250,
+            1651083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "ftle",
+          "times_ns": [
+            8552667,
+            8474458,
+            8448583,
+            8440583,
+            8437375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ],
+      "semantic_repros": [
+        {
+          "kind": "semantic_repro",
+          "pathline_x": 1.125,
+          "newest_streak_x": 1
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "timing",
+      "order": "reverse",
+      "records": [
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "ftle",
+          "times_ns": [
+            424959,
+            421167,
+            428000,
+            434583,
+            427791
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "lic",
+          "times_ns": [
+            153584,
+            150459,
+            150167,
+            150958,
+            151750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "particles",
+          "times_ns": [
+            235083,
+            236375,
+            240500,
+            232875,
+            227791
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "streamlines",
+          "times_ns": [
+            360208,
+            350083,
+            353084,
+            351583,
+            350333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "ftle",
+          "times_ns": [
+            8430417,
+            8428291,
+            8446000,
+            8505000,
+            8434458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "lic",
+          "times_ns": [
+            2396667,
+            2398708,
+            2396375,
+            2400875,
+            2399625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "particles",
+          "times_ns": [
+            469583,
+            470917,
+            474167,
+            468750,
+            468167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "streamlines",
+          "times_ns": [
+            764166,
+            766708,
+            765667,
+            767916,
+            763417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "ftle",
+          "times_ns": [
+            63705750,
+            63534042,
+            63458250,
+            63540167,
+            63789000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "lic",
+          "times_ns": [
+            16174917,
+            16226208,
+            16245500,
+            16248625,
+            16187375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "particles",
+          "times_ns": [
+            823167,
+            827292,
+            833375,
+            823833,
+            824458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "streamlines",
+          "times_ns": [
+            1403792,
+            1363917,
+            1363292,
+            1377416,
+            1364250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ],
+      "semantic_repros": [
+        {
+          "kind": "semantic_repro",
+          "pathline_x": 1.375,
+          "newest_streak_x": 1.125
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "allocations",
+      "order": "forward",
+      "records": [
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "streamlines",
+          "times_ns": [
+            364959,
+            351458,
+            358333,
+            357750,
+            349792
+          ],
+          "allocation_calls": [
+            551,
+            551,
+            551,
+            551,
+            551
+          ],
+          "allocated_bytes": [
+            78217,
+            78217,
+            78217,
+            78217,
+            78217
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "particles",
+          "times_ns": [
+            235500,
+            233916,
+            226333,
+            226416,
+            225417
+          ],
+          "allocation_calls": [
+            747,
+            747,
+            747,
+            747,
+            747
+          ],
+          "allocated_bytes": [
+            82800,
+            82800,
+            82800,
+            82800,
+            82800
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "lic",
+          "times_ns": [
+            152583,
+            153125,
+            149500,
+            151334,
+            150334
+          ],
+          "allocation_calls": [
+            11,
+            11,
+            11,
+            11,
+            11
+          ],
+          "allocated_bytes": [
+            4520,
+            4520,
+            4520,
+            4520,
+            4520
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "ftle",
+          "times_ns": [
+            423250,
+            420916,
+            420625,
+            417333,
+            417375
+          ],
+          "allocation_calls": [
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "allocated_bytes": [
+            7736,
+            7736,
+            7736,
+            7736,
+            7736
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "streamlines",
+          "times_ns": [
+            774042,
+            764917,
+            757458,
+            756708,
+            752666
+          ],
+          "allocation_calls": [
+            553,
+            553,
+            553,
+            553,
+            553
+          ],
+          "allocated_bytes": [
+            87433,
+            87433,
+            87433,
+            87433,
+            87433
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "particles",
+          "times_ns": [
+            469042,
+            467583,
+            473542,
+            471375,
+            466250
+          ],
+          "allocation_calls": [
+            751,
+            751,
+            751,
+            751,
+            751
+          ],
+          "allocated_bytes": [
+            101232,
+            101232,
+            101232,
+            101232,
+            101232
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "lic",
+          "times_ns": [
+            2449958,
+            2448167,
+            2453000,
+            2447625,
+            2446333
+          ],
+          "allocation_calls": [
+            13,
+            13,
+            13,
+            13,
+            13
+          ],
+          "allocated_bytes": [
+            16168,
+            16168,
+            16168,
+            16168,
+            16168
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "ftle",
+          "times_ns": [
+            8619416,
+            8639750,
+            8650292,
+            8650292,
+            8660625
+          ],
+          "allocation_calls": [
+            24,
+            24,
+            24,
+            24,
+            24
+          ],
+          "allocated_bytes": [
+            28600,
+            28600,
+            28600,
+            28600,
+            28600
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "streamlines",
+          "times_ns": [
+            1377833,
+            1371583,
+            1362042,
+            1363666,
+            1365584
+          ],
+          "allocation_calls": [
+            555,
+            555,
+            555,
+            555,
+            555
+          ],
+          "allocated_bytes": [
+            124297,
+            124297,
+            124297,
+            124297,
+            124297
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "particles",
+          "times_ns": [
+            825000,
+            824834,
+            829125,
+            819791,
+            821875
+          ],
+          "allocation_calls": [
+            755,
+            755,
+            755,
+            755,
+            755
+          ],
+          "allocated_bytes": [
+            174960,
+            174960,
+            174960,
+            174960,
+            174960
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "lic",
+          "times_ns": [
+            16162250,
+            16175458,
+            16169958,
+            16151875,
+            16202167
+          ],
+          "allocation_calls": [
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "allocated_bytes": [
+            57768,
+            57768,
+            57768,
+            57768,
+            57768
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "ftle",
+          "times_ns": [
+            63784042,
+            63821542,
+            64243459,
+            63909792,
+            63754792
+          ],
+          "allocation_calls": [
+            28,
+            28,
+            28,
+            28,
+            28
+          ],
+          "allocated_bytes": [
+            107064,
+            107064,
+            107064,
+            107064,
+            107064
+          ],
+          "allocator_instrumentation": true
+        }
+      ],
+      "semantic_repros": [
+        {
+          "kind": "semantic_repro",
+          "pathline_x": 1.375,
+          "newest_streak_x": 1.125
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "mode": "allocations",
+      "order": "reverse",
+      "records": [
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "ftle",
+          "times_ns": [
+            441750,
+            439167,
+            439375,
+            434833,
+            432500
+          ],
+          "allocation_calls": [
+            14,
+            14,
+            14,
+            14,
+            14
+          ],
+          "allocated_bytes": [
+            2408,
+            2408,
+            2408,
+            2408,
+            2408
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "lic",
+          "times_ns": [
+            112875,
+            108750,
+            106375,
+            109542,
+            108875
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            1728,
+            1728,
+            1728,
+            1728,
+            1728
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "particles",
+          "times_ns": [
+            176625,
+            168542,
+            168584,
+            169375,
+            166917
+          ],
+          "allocation_calls": [
+            343,
+            343,
+            343,
+            343,
+            343
+          ],
+          "allocated_bytes": [
+            53728,
+            53728,
+            53728,
+            53728,
+            53728
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 4,
+          "case": "streamlines",
+          "times_ns": [
+            266000,
+            258250,
+            257209,
+            254917,
+            255834
+          ],
+          "allocation_calls": [
+            154,
+            154,
+            154,
+            154,
+            154
+          ],
+          "allocated_bytes": [
+            49825,
+            49825,
+            49825,
+            49825,
+            49825
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "ftle",
+          "times_ns": [
+            3807791,
+            3783958,
+            3802792,
+            3776500,
+            3791458
+          ],
+          "allocation_calls": [
+            14,
+            14,
+            14,
+            14,
+            14
+          ],
+          "allocated_bytes": [
+            7480,
+            7480,
+            7480,
+            7480,
+            7480
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "lic",
+          "times_ns": [
+            777666,
+            773125,
+            770292,
+            769792,
+            767833
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            5328,
+            5328,
+            5328,
+            5328,
+            5328
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "particles",
+          "times_ns": [
+            270125,
+            266625,
+            266916,
+            264334,
+            267209
+          ],
+          "allocation_calls": [
+            343,
+            343,
+            343,
+            343,
+            343
+          ],
+          "allocated_bytes": [
+            56064,
+            56064,
+            56064,
+            56064,
+            56064
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 6,
+          "case": "streamlines",
+          "times_ns": [
+            376250,
+            378208,
+            370791,
+            374917,
+            370750
+          ],
+          "allocation_calls": [
+            154,
+            154,
+            154,
+            154,
+            154
+          ],
+          "allocated_bytes": [
+            50993,
+            50993,
+            50993,
+            50993,
+            50993
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "ftle",
+          "times_ns": [
+            8494792,
+            8470583,
+            8455291,
+            8426959,
+            8404709
+          ],
+          "allocation_calls": [
+            14,
+            14,
+            14,
+            14,
+            14
+          ],
+          "allocated_bytes": [
+            19368,
+            19368,
+            19368,
+            19368,
+            19368
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "lic",
+          "times_ns": [
+            1719250,
+            1693166,
+            1679084,
+            1690667,
+            1672916
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            13344,
+            13344,
+            13344,
+            13344,
+            13344
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "particles",
+          "times_ns": [
+            458375,
+            458208,
+            456083,
+            461750,
+            455958
+          ],
+          "allocation_calls": [
+            343,
+            343,
+            343,
+            343,
+            343
+          ],
+          "allocated_bytes": [
+            62624,
+            62624,
+            62624,
+            62624,
+            62624
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "kind": "timing",
+          "n": 8,
+          "case": "streamlines",
+          "times_ns": [
+            455458,
+            448333,
+            449375,
+            449958,
+            449458
+          ],
+          "allocation_calls": [
+            154,
+            154,
+            154,
+            154,
+            154
+          ],
+          "allocated_bytes": [
+            54273,
+            54273,
+            54273,
+            54273,
+            54273
+          ],
+          "allocator_instrumentation": true
+        }
+      ],
+      "semantic_repros": [
+        {
+          "kind": "semantic_repro",
+          "pathline_x": 1.125,
+          "newest_streak_x": 1
+        }
+      ]
+    }
+  ],
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)"
+}
