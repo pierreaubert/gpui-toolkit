@@ -8,7 +8,8 @@
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use super::{DEFAULT_FRAME_MIN_INTERVAL, DEFAULT_RESIZE_DEBOUNCE_INTERVAL};
 

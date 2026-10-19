@@ -1,0 +1,94 @@
+<!doctype html><meta charset="utf-8"><title>Foreign editor lifecycle checks</title>
+<style>canvas { width: 320px; height:200px; border:1px solid #999 } pre{white-space:pre-wrap}</style>
+<h1>Foreign editor lifecycle checks</h1><canvas id="foreign-canvas"></canvas>
+<button id="run">Run lifecycle checks</button><pre id="status">Loading wasm</pre>
+<script>
+const canvas=document.querySelector('canvas');
+window.lifecycleErrors=[];
+window.addEventListener('error',event=>lifecycleErrors.push(event.message));
+window.addEventListener('unhandledrejection',event=>lifecycleErrors.push(String(event.reason)));
+const listeners=[];
+const add=EventTarget.prototype.addEventListener, remove=EventTarget.prototype.removeEventListener;
+EventTarget.prototype.addEventListener=function(name,fn,...args){
+ if(this===canvas||this instanceof HTMLInputElement) listeners.push({target:this,name,fn,active:true});
+ return add.call(this,name,fn,...args);
+};
+EventTarget.prototype.removeEventListener=function(name,fn,...args){
+ for(const row of listeners) if(row.target===this&&row.name===name&&row.fn===fn) row.active=false;
+ return remove.call(this,name,fn,...args);
+};
+const observers=new Map(), NativeObserver=window.ResizeObserver;
+window.ResizeObserver=class extends NativeObserver {
+ constructor(callback){super(callback);observers.set(this,false);}
+ observe(...args){observers.set(this,true);return super.observe(...args);}
+ disconnect(){observers.set(this,false);return super.disconnect();}
+};
+const rafCallbacks=new Set();
+const frames=new Map(), request=window.requestAnimationFrame.bind(window), cancel=window.cancelAnimationFrame.bind(window);
+window.waitTwoFrames=()=>new Promise(resolve=>request(()=>request(resolve)));
+window.requestAnimationFrame=callback=>{
+ rafCallbacks.add(callback);
+ const id=request(time=>{frames.delete(id);callback(time)});frames.set(id,callback);return id;
+};
+window.cancelAnimationFrame=id=>{frames.delete(id);return cancel(id)};
+window.foreignState=()=>({inputs:document.querySelectorAll('input').length,listeners:listeners.filter(row=>row.active).length,observers:[...observers.values()].filter(Boolean).length,frames:frames.size});
+window.__foreignNestedComposition=()=>{
+ const input=document.querySelector('input');input.focus();input.blur();
+ input.dispatchEvent(new CompositionEvent('compositionupdate',{data:'é😀'}));
+ input.dispatchEvent(new CompositionEvent('compositionend',{data:'é😀'}));
+};
+window.__foreignNestedKey=type=>document.querySelector('input')?.dispatchEvent(new KeyboardEvent(type,{key:'x',bubbles:true,cancelable:true}));
+</script>
+<script type="module">
+import init,* as fixture from './pkg/browser_lifecycle.js';
+await init();window.fixture=fixture;
+const status=document.querySelector('#status');status.textContent='Ready';
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const waitFor=async predicate=>{const deadline=performance.now()+3000;while(!predicate()){if(performance.now()>deadline) throw Error('timed out waiting for lifecycle event');await sleep(10)}};
+const assert=(condition,message)=>{if(!condition) throw Error(message)};
+const clean=()=>{const state=foreignState();assert(Object.values(state).every(n=>n===0),'resources retained: '+JSON.stringify(state));return state;};
+window.runLifecycleSuite=async()=>{
+ const result={cases:[],errors:lifecycleErrors};
+ for(const [kind,label] of [[1,'close from frame'],[2,'close from input'],[3,'close from resize'],[4,'replace during input'],[5,'same-listener nested input'],[6,'bounded recursive input'],[7,'nested focus and composition']]){
+  const callbacksBefore=rafCallbacks.size;
+  const id=fixture.start_case(kind);
+  if([2,4,5,6,7].includes(kind)) __foreignNestedKey('keydown');
+  if([1,2,3,6].includes(kind)) await waitFor(()=>foreignState().inputs===0);
+  else await waitFor(()=>fixture.events().split('|').filter(event=>event.includes(':frame')).length>=4);
+  const events=fixture.events().split('|');
+  if([1,2,3].includes(kind)){
+   const close=events.indexOf('closed-in-callback');
+   const drop=events.indexOf('drop:1');
+   assert(close>=0&&drop>close&&events[drop-1].startsWith('exit:1:'),'drop ordering: '+events);
+  }
+  if(kind===4){
+   assert(events.includes('replacement-queued')&&events.includes('enter:2:up'),'replacement not delivered: '+events);
+   assert(events.indexOf('drop:1')>events.indexOf('exit:1:down'),'old provider dropped early');
+   assert(events.indexOf('enter:2:up')>events.indexOf('exit:1:down'),'new provider invoked recursively');
+  }
+  if(kind===7){
+   assert(events.includes('focus-composition-queued')&&events.includes('enter:1:active'),'focus transition lost');
+   assert(events.includes('marked:é😀')&&events.includes('commit:é😀'),'composition payload lost');
+   assert(events.indexOf('marked:é😀')>events.indexOf('exit:1:down'),'composition invoked recursively');
+   assert(events.indexOf('marked:é😀')<events.indexOf('commit:é😀'),'composition order changed');
+  }
+  if(kind===5) assert(events.filter(e=>e==='enter:1:down').length===2,'nested input lost: '+events);
+  if([4,5,7].includes(kind)) fixture.close_editor(id);
+  const state=clean();
+  assert(rafCallbacks.size-callbacksBefore===1,'rAF closure replaced during editor lifetime');
+  assert(fixture.headless_frames(id)===0,'stale token resolved');
+  result.cases.push({kind,label,id,events,state,rafCallbacks:rafCallbacks.size-callbacksBefore});
+ }
+ let previous=0;
+ for(let i=0;i<32;i++){
+  const id=fixture.start_case(0);assert(id>previous,'token reused');
+  if(previous){fixture.close_editor(previous);assert(foreignState().inputs===1,'stale close affected replacement');}
+  fixture.close_editor(id);clean();previous=id;
+ }
+ await waitTwoFrames();
+ result.cycles=32;result.final=clean();
+ assert(lifecycleErrors.length===0,'browser errors: '+lifecycleErrors.join(';'));
+ window.lifecycleResult=result;status.textContent='PASS: '+result.cases.length+' lifecycle cases and '+result.cycles+' attach/detach cycles';return result;
+};
+document.querySelector('#run').addEventListener('click',async()=>{try{await runLifecycleSuite()}catch(error){status.textContent='FAIL '+error.stack;window.lifecycleFailure=String(error.stack);}});
+</script>

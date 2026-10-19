@@ -2690,6 +2690,9 @@ dependencies = [
 [[package]]
 name = "gpui-foreign-parent"
 version = "0.10.44"
+dependencies = [
+ "web-time",
+]
 
 [[package]]
 name = "gpui-hello-web"

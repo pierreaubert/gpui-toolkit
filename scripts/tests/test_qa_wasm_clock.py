@@ -33,6 +33,13 @@ class WasmClockTests(unittest.TestCase):
             self.assertIn("crates/gpui-audio-kit/src/spectrum.rs:1", errors[0])
             self.assertIn("web_time::Instant", errors[0])
 
+    def test_foreign_parent_and_browser_clock_paths_are_checked(self) -> None:
+        for crate in ("gpui-foreign-parent", "gpui-web-foreign"):
+            with self.subTest(crate=crate), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                write(root, f"crates/{crate}/src/clock.rs", "use std::time::Instant;\n")
+                self.assertEqual(len(qa_wasm_clock.check(root)), 1)
+
     def test_rejects_grouped_and_inline_system_time(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)

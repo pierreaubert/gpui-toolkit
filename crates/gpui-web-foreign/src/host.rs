@@ -18,18 +18,23 @@
 //! The browser is the frame pump here rather than the page: this module
 //! registers `requestAnimationFrame` itself, like `gpui_web` does. The
 //! page only provides the canvas, sizes it with CSS, and calls the
-//! lifecycle exports. Never call [`destroy_editor`] re-entrantly from
-//! inside a renderer callback.
+//! lifecycle exports. Renderer callbacks may close their editor or replace the
+//! provider; active callbacks keep editor resources alive until they return.
+
+// Rust guideline compliant 2026-02-21
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
 
 use gpui::{
     Capslock, KeyDownEvent, KeyUpEvent, Keystroke, ModifiersChangedEvent, MouseButton,
     MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent, PlatformInput, ScrollWheelEvent,
     TouchPhase, point, px,
 };
-use gpui_foreign_parent::{FrameThrottle, ResizeDebounce, TransitionCell};
+use gpui_foreign_parent::{
+    EditorHandle, FrameThrottle, OwnedEditorRegistry, ResizeDebounce, TransitionCell,
+};
+
+use crate::dispatch::SerializedProvider;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::prelude::*;
@@ -42,11 +47,7 @@ use super::input::{
 };
 
 /// One installed DOM listener: its target, event name, and keepalive.
-type ListenerEntry = (
-    web_sys::EventTarget,
-    &'static str,
-    Closure<dyn FnMut(JsValue)>,
-);
+type ListenerEntry = (web_sys::EventTarget, &'static str, Closure<dyn Fn(JsValue)>);
 
 /// Renderer provider seam: whoever paints the canvas implements this.
 ///
@@ -68,9 +69,12 @@ pub trait ForeignRenderer {
     fn set_hovered(&mut self, hovered: bool);
 }
 
+type ResizeCallback = Closure<dyn Fn(js_sys::Array, web_sys::ResizeObserver)>;
+
 /// One live foreign editor: DOM handles plus shared policy state.
 struct WebForeignEditor {
     label: String,
+    editor_id: Cell<u32>,
     canvas: web_sys::HtmlCanvasElement,
     input_element: web_sys::HtmlInputElement,
     throttle: FrameThrottle,
@@ -81,44 +85,113 @@ struct WebForeignEditor {
     clicks: RefCell<ClickState>,
     pressed_button: Cell<Option<MouseButton>>,
     active_pointer: Cell<Option<i32>>,
-    renderer: RefCell<Option<Box<dyn ForeignRenderer>>>,
-    listeners: Vec<ListenerEntry>,
-    resize_observer: Option<web_sys::ResizeObserver>,
-    resize_closure: Option<Closure<dyn FnMut(js_sys::Array, web_sys::ResizeObserver)>>,
-    raf_closure: RefCell<Option<Closure<dyn FnMut()>>>,
+    renderer: SerializedProvider<Box<dyn ForeignRenderer>, RendererCall>,
+    listeners: RefCell<Vec<ListenerEntry>>,
+    resize_observer: RefCell<Option<web_sys::ResizeObserver>>,
+    resize_closure: RefCell<Option<ResizeCallback>>,
+    raf_closure: RefCell<Option<Closure<dyn Fn()>>>,
     raf_id: Cell<Option<i32>>,
 }
 
-impl WebForeignEditor {
-    /// Run a renderer call when a provider is attached.
-    fn with_renderer(&self, f: impl FnOnce(&mut dyn ForeignRenderer)) {
-        if let Some(renderer) = self.renderer.borrow_mut().as_mut() {
-            f(renderer.as_mut());
+enum RendererCall {
+    Frame,
+    Resize((u32, u32)),
+    Input(PlatformInput),
+    Composition(CompositionOp),
+    Active(bool),
+    Hovered(bool),
+}
+
+impl RendererCall {
+    fn dynamic_bytes(&self) -> usize {
+        match self {
+            Self::Composition(CompositionOp::SetMarked(text) | CompositionOp::Commit(text)) => {
+                text.capacity()
+            }
+            Self::Input(PlatformInput::KeyDown(event)) => {
+                event.keystroke.key.capacity().saturating_add(
+                    event
+                        .keystroke
+                        .key_char
+                        .as_ref()
+                        .map_or(0, String::capacity),
+                )
+            }
+            Self::Input(PlatformInput::KeyUp(event)) => {
+                event.keystroke.key.capacity().saturating_add(
+                    event
+                        .keystroke
+                        .key_char
+                        .as_ref()
+                        .map_or(0, String::capacity),
+                )
+            }
+            _ => 0,
         }
     }
+}
 
-    /// True when a renderer provider is attached.
-    fn has_renderer(&self) -> bool {
-        self.renderer.borrow().is_some()
+impl WebForeignEditor {
+    /// Serializes renderer work; bounded nested work drains after the current call.
+    fn with_renderer(&self, command: RendererCall) -> bool {
+        let bytes = command.dynamic_bytes();
+        match self
+            .renderer
+            .dispatch(command, bytes, |renderer, command| match command {
+                RendererCall::Frame => renderer.request_frame(),
+                RendererCall::Resize(size) => renderer.resize(size),
+                RendererCall::Input(input) => renderer.input(input),
+                RendererCall::Composition(op) => renderer.composition(op),
+                RendererCall::Active(active) => renderer.set_active(active),
+                RendererCall::Hovered(hovered) => renderer.set_hovered(hovered),
+            }) {
+            Ok(delivered) => delivered,
+            Err(error) => {
+                destroy_editor(self.editor_id.get());
+                console_error(&format!(
+                    "gpui-web-foreign: renderer dispatch limit ({error:?}); editor closed"
+                ));
+                false
+            }
+        }
+    }
+}
+
+impl Drop for WebForeignEditor {
+    fn drop(&mut self) {
+        self.renderer.close();
+        for (target, name, closure) in self.listeners.get_mut().iter() {
+            let _ =
+                target.remove_event_listener_with_callback(name, closure.as_ref().unchecked_ref());
+        }
+        if let Some(observer) = self.resize_observer.get_mut().as_ref() {
+            observer.disconnect();
+        }
+        if let Some(raf_id) = self.raf_id.take()
+            && let Some(window) = web_sys::window()
+        {
+            let _ = window.cancel_animation_frame(raf_id);
+        }
+        if let Some(pointer) = self.active_pointer.take() {
+            let _ = self.canvas.release_pointer_capture(pointer);
+        }
+        self.input_element.remove();
+        console::log_1(&JsValue::from_str(&format!(
+            "gpui-web-foreign: editor {} ('{}') destroyed",
+            self.editor_id.get(),
+            self.label
+        )));
     }
 }
 
 thread_local! {
-    // `HashMap::new` is not const, so this initializer cannot be const.
-    static EDITORS: RefCell<HashMap<u32, WebForeignEditor>> = RefCell::new(HashMap::new());
-    static NEXT_EDITOR_ID: Cell<u32> = const { Cell::new(1) };
+    static EDITORS: OwnedEditorRegistry<WebForeignEditor> = OwnedEditorRegistry::new();
 }
 
-/// Run a closure against one editor. Shared borrows nest, so transition
-/// callbacks may look editors up again; only destroy takes a mutable
-/// borrow, and it never runs re-entrantly.
+/// A lease keeps DOM resources alive through reentrant close.
 fn with_editor<R>(editor_id: u32, f: impl FnOnce(&WebForeignEditor) -> R) -> Option<R> {
-    EDITORS.with(|editors| editors.borrow().get(&editor_id).map(f))
-}
-
-/// True while the editor id is registered.
-fn editor_exists(editor_id: u32) -> bool {
-    EDITORS.with(|editors| editors.borrow().contains_key(&editor_id))
+    let handle = EditorHandle::from_usize(editor_id as usize)?;
+    EDITORS.with(|editors| editors.with(handle, f))
 }
 
 fn console_error(message: &str) {
@@ -151,7 +224,9 @@ pub fn create_editor_with_renderer(
 /// Attach (or replace) the renderer provider of a live editor.
 pub fn set_renderer(editor_id: u32, renderer: impl ForeignRenderer + 'static) {
     with_editor(editor_id, |editor| {
-        *editor.renderer.borrow_mut() = Some(Box::new(renderer) as Box<dyn ForeignRenderer>);
+        editor
+            .renderer
+            .replace(Box::new(renderer) as Box<dyn ForeignRenderer>);
     });
 }
 
@@ -225,46 +300,47 @@ fn create_editor_inner(
         return 0;
     }
 
-    let editor_id = NEXT_EDITOR_ID.with(|next| {
-        let id = next.get();
-        next.set(id + 1);
-        id
-    });
-    EDITORS.with(|editors| {
-        editors.borrow_mut().insert(
-            editor_id,
-            WebForeignEditor {
-                label: label.to_string(),
-                canvas: canvas.clone(),
-                input_element: input_element.clone(),
-                throttle: FrameThrottle::default(),
-                debounce: ResizeDebounce::default(),
-                active: TransitionCell::new(true),
-                hovered: TransitionCell::new(false),
-                dropped_frames: Cell::new(0),
-                clicks: RefCell::new(ClickState::default()),
-                pressed_button: Cell::new(None),
-                active_pointer: Cell::new(None),
-                renderer: RefCell::new(renderer),
-                listeners: Vec::new(),
-                resize_observer: None,
-                resize_closure: None,
-                raf_closure: RefCell::new(None),
-                raf_id: Cell::new(None),
-            },
-        );
-    });
+    let state = WebForeignEditor {
+        label: label.to_string(),
+        editor_id: Cell::new(0),
+        canvas: canvas.clone(),
+        input_element: input_element.clone(),
+        throttle: FrameThrottle::default(),
+        debounce: ResizeDebounce::default(),
+        active: TransitionCell::new(true),
+        hovered: TransitionCell::new(false),
+        dropped_frames: Cell::new(0),
+        clicks: RefCell::new(ClickState::default()),
+        pressed_button: Cell::new(None),
+        active_pointer: Cell::new(None),
+        renderer: SerializedProvider::new(renderer),
+        listeners: RefCell::new(Vec::new()),
+        resize_observer: RefCell::new(None),
+        resize_closure: RefCell::new(None),
+        raf_closure: RefCell::new(None),
+        raf_id: Cell::new(None),
+    };
+    let Ok(handle) = EDITORS.with(|editors| editors.insert(state)) else {
+        console_error("gpui-web-foreign: editor token space exhausted");
+        return 0;
+    };
+    let Ok(editor_id) = u32::try_from(handle.as_usize()) else {
+        EDITORS.with(|editors| editors.close(handle));
+        console_error("gpui-web-foreign: editor token exceeds browser ABI");
+        return 0;
+    };
+    with_editor(editor_id, |editor| editor.editor_id.set(editor_id));
 
     // Forward transition-only focus/hover to the renderer.
     with_editor(editor_id, |editor| {
         editor.active.on_change(move |active| {
             with_editor(editor_id, |editor| {
-                editor.with_renderer(|renderer| renderer.set_active(active));
+                editor.with_renderer(RendererCall::Active(active));
             });
         });
         editor.hovered.on_change(move |hovered| {
             with_editor(editor_id, |editor| {
-                editor.with_renderer(|renderer| renderer.set_hovered(hovered));
+                editor.with_renderer(RendererCall::Hovered(hovered));
             });
         });
     });
@@ -279,33 +355,27 @@ fn create_editor_inner(
     editor_id
 }
 
-/// Destroy an editor, removing every listener, observer, frame callback,
-/// and the hidden input. Unknown ids warn and no-op.
+/// Closes an editor immediately and defers DOM teardown through active callbacks.
+///
+/// Queued renderer work is canceled. Unknown or stale IDs warn and do nothing.
 #[wasm_bindgen]
 pub fn destroy_editor(editor_id: u32) {
-    let editor = EDITORS.with(|editors| editors.borrow_mut().remove(&editor_id));
-    let Some(editor) = editor else {
+    let closed = EditorHandle::from_usize(editor_id as usize).is_some_and(|handle| {
+        EDITORS.with(|editors| {
+            editors
+                .with(handle, |editor| {
+                    let closed = editors.close(handle);
+                    editor.renderer.close();
+                    closed
+                })
+                .unwrap_or(false)
+        })
+    });
+    if !closed {
         console::warn_1(&JsValue::from_str(&format!(
             "gpui-web-foreign: destroy of unknown editor {editor_id}"
         )));
-        return;
-    };
-    for (target, name, closure) in &editor.listeners {
-        let _ = target.remove_event_listener_with_callback(name, closure.as_ref().unchecked_ref());
     }
-    if let Some(observer) = editor.resize_observer.as_ref() {
-        observer.disconnect();
-    }
-    if let Some(raf_id) = editor.raf_id.get()
-        && let Some(window) = web_sys::window()
-    {
-        let _ = window.cancel_animation_frame(raf_id);
-    }
-    editor.input_element.remove();
-    console::log_1(&JsValue::from_str(&format!(
-        "gpui-web-foreign: editor {editor_id} ('{}') destroyed",
-        editor.label
-    )));
 }
 
 /// Frames dropped while headless (no renderer provider attached).
@@ -325,14 +395,15 @@ fn listen(
     editor_id: u32,
     target: &web_sys::EventTarget,
     name: &'static str,
-    handler: impl FnMut(JsValue) + 'static,
+    handler: impl Fn(JsValue) + 'static,
 ) {
-    let closure = Closure::<dyn FnMut(JsValue)>::new(handler);
+    let closure = Closure::<dyn Fn(JsValue)>::new(handler);
     let _ = target.add_event_listener_with_callback(name, closure.as_ref().unchecked_ref());
-    EDITORS.with(|editors| {
-        if let Some(editor) = editors.borrow_mut().get_mut(&editor_id) {
-            editor.listeners.push((target.clone(), name, closure));
-        }
+    with_editor(editor_id, |editor| {
+        editor
+            .listeners
+            .borrow_mut()
+            .push((target.clone(), name, closure));
     });
 }
 
@@ -342,9 +413,9 @@ fn listen_non_passive(
     editor_id: u32,
     canvas: &web_sys::HtmlCanvasElement,
     name: &'static str,
-    handler: impl FnMut(JsValue) + 'static,
+    handler: impl Fn(JsValue) + 'static,
 ) {
-    let closure = Closure::<dyn FnMut(JsValue)>::new(handler);
+    let closure = Closure::<dyn Fn(JsValue)>::new(handler);
     let canvas_js: &JsValue = canvas.as_ref();
     let callback_js: &JsValue = closure.as_ref();
     let options = js_sys::Object::new();
@@ -354,12 +425,11 @@ fn listen_non_passive(
     {
         let _ = add_fn.call3(canvas_js, &name.into(), callback_js, &options);
     }
-    EDITORS.with(|editors| {
-        if let Some(editor) = editors.borrow_mut().get_mut(&editor_id) {
-            editor
-                .listeners
-                .push((canvas.clone().into(), name, closure));
-        }
+    with_editor(editor_id, |editor| {
+        editor
+            .listeners
+            .borrow_mut()
+            .push((canvas.clone().into(), name, closure));
     });
 }
 
@@ -380,11 +450,7 @@ fn mouse_position(event: &web_sys::MouseEvent) -> gpui::Point<gpui::Pixels> {
 /// Forward a debounced physical size; false (no renderer) stashes it.
 fn forward_resize(editor_id: u32, size: (u32, u32)) -> bool {
     with_editor(editor_id, |editor| {
-        if !editor.has_renderer() {
-            return false;
-        }
-        editor.with_renderer(|renderer| renderer.resize(size));
-        true
+        editor.with_renderer(RendererCall::Resize(size))
     })
     .unwrap_or(false)
 }
@@ -421,15 +487,15 @@ fn install_canvas_listeners(editor_id: u32, canvas: &web_sys::HtmlCanvasElement)
             let time = js_sys::Date::now();
             editor.pressed_button.set(Some(button));
             let click_count = editor.clicks.borrow_mut().register_click(position, time);
-            editor.with_renderer(|renderer| {
-                renderer.input(PlatformInput::MouseDown(MouseDownEvent {
+            editor.with_renderer(RendererCall::Input(PlatformInput::MouseDown(
+                MouseDownEvent {
                     position,
                     button,
                     modifiers,
                     click_count,
                     first_mouse: false,
-                }));
-            });
+                },
+            )));
         });
     });
 
@@ -448,14 +514,12 @@ fn install_canvas_listeners(editor_id: u32, canvas: &web_sys::HtmlCanvasElement)
             let modifiers = pointer_modifiers(&event);
             let click_count = editor.clicks.borrow().current_count();
             editor.pressed_button.set(None);
-            editor.with_renderer(|renderer| {
-                renderer.input(PlatformInput::MouseUp(MouseUpEvent {
-                    position,
-                    button,
-                    modifiers,
-                    click_count,
-                }));
-            });
+            editor.with_renderer(RendererCall::Input(PlatformInput::MouseUp(MouseUpEvent {
+                position,
+                button,
+                modifiers,
+                click_count,
+            })));
         });
     });
 
@@ -477,13 +541,13 @@ fn install_canvas_listeners(editor_id: u32, canvas: &web_sys::HtmlCanvasElement)
             let mouse: &web_sys::MouseEvent = event.as_ref();
             let position = mouse_position(mouse);
             let modifiers = pointer_modifiers(&event);
-            editor.with_renderer(|renderer| {
-                renderer.input(PlatformInput::MouseMove(MouseMoveEvent {
+            editor.with_renderer(RendererCall::Input(PlatformInput::MouseMove(
+                MouseMoveEvent {
                     position,
                     pressed_button: editor.pressed_button.get(),
                     modifiers,
-                }));
-            });
+                },
+            )));
         });
     });
 
@@ -502,13 +566,13 @@ fn install_canvas_listeners(editor_id: u32, canvas: &web_sys::HtmlCanvasElement)
             let mouse: &web_sys::MouseEvent = event.as_ref();
             let position = mouse_position(mouse);
             let modifiers = pointer_modifiers(&event);
-            editor.with_renderer(|renderer| {
-                renderer.input(PlatformInput::MouseExited(MouseExitEvent {
+            editor.with_renderer(RendererCall::Input(PlatformInput::MouseExited(
+                MouseExitEvent {
                     position,
                     pressed_button: editor.pressed_button.get(),
                     modifiers,
-                }));
-            });
+                },
+            )));
         });
         push_hovered(editor_id, false);
     });
@@ -531,14 +595,14 @@ fn install_canvas_listeners(editor_id: u32, canvas: &web_sys::HtmlCanvasElement)
                 platform: mouse.meta_key(),
             });
             let delta = scroll_delta(event.delta_x(), event.delta_y(), event.delta_mode());
-            editor.with_renderer(|renderer| {
-                renderer.input(PlatformInput::ScrollWheel(ScrollWheelEvent {
+            editor.with_renderer(RendererCall::Input(PlatformInput::ScrollWheel(
+                ScrollWheelEvent {
                     position,
                     delta,
                     modifiers,
                     touch_phase: TouchPhase::Moved,
-                }));
-            });
+                },
+            )));
         });
     });
 }
@@ -559,12 +623,12 @@ fn install_input_listeners(editor_id: u32, input: &web_sys::HtmlInputElement) {
                 let capslock = Capslock {
                     on: event.get_modifier_state("CapsLock"),
                 };
-                editor.with_renderer(|renderer| {
-                    renderer.input(PlatformInput::ModifiersChanged(ModifiersChangedEvent {
+                editor.with_renderer(RendererCall::Input(PlatformInput::ModifiersChanged(
+                    ModifiersChangedEvent {
                         modifiers,
                         capslock,
-                    }));
-                });
+                    },
+                )));
                 let raw_key = event.key();
                 let key = dom_key_to_gpui_key(&raw_key);
                 if is_modifier_only_key(&key) {
@@ -581,17 +645,16 @@ fn install_input_listeners(editor_id: u32, input: &web_sys::HtmlInputElement) {
                     key: key.clone(),
                     key_char: compute_key_char(&raw_key, &key, &modifiers),
                 };
-                editor.with_renderer(|renderer| {
-                    if name == "keydown" {
-                        renderer.input(PlatformInput::KeyDown(KeyDownEvent {
-                            keystroke,
-                            is_held: event.repeat(),
-                            prefer_character_input: false,
-                        }));
-                    } else {
-                        renderer.input(PlatformInput::KeyUp(KeyUpEvent { keystroke }));
-                    }
-                });
+                let input = if name == "keydown" {
+                    PlatformInput::KeyDown(KeyDownEvent {
+                        keystroke,
+                        is_held: event.repeat(),
+                        prefer_character_input: false,
+                    })
+                } else {
+                    PlatformInput::KeyUp(KeyUpEvent { keystroke })
+                };
+                editor.with_renderer(RendererCall::Input(input));
             });
         });
     }
@@ -603,10 +666,9 @@ fn install_input_listeners(editor_id: u32, input: &web_sys::HtmlInputElement) {
         move |event: JsValue| {
             let event: web_sys::CompositionEvent = event.unchecked_into();
             with_editor(editor_id, |editor| {
-                editor.with_renderer(|renderer| {
-                    renderer
-                        .composition(CompositionOp::SetMarked(event.data().unwrap_or_default()));
-                });
+                editor.with_renderer(RendererCall::Composition(CompositionOp::SetMarked(
+                    event.data().unwrap_or_default(),
+                )));
             });
         },
     );
@@ -618,9 +680,9 @@ fn install_input_listeners(editor_id: u32, input: &web_sys::HtmlInputElement) {
         move |event: JsValue| {
             let event: web_sys::CompositionEvent = event.unchecked_into();
             with_editor(editor_id, |editor| {
-                editor.with_renderer(|renderer| {
-                    renderer.composition(CompositionOp::Commit(event.data().unwrap_or_default()));
-                });
+                editor.with_renderer(RendererCall::Composition(CompositionOp::Commit(
+                    event.data().unwrap_or_default(),
+                )));
             });
         },
     );
@@ -662,14 +724,14 @@ fn install_resize_observer(
     canvas: &web_sys::HtmlCanvasElement,
     window: &web_sys::Window,
 ) {
-    let device_pixel_ratio = window.device_pixel_ratio();
-    let closure = Closure::<dyn FnMut(js_sys::Array, web_sys::ResizeObserver)>::new(
+    let window = window.clone();
+    let closure = Closure::<dyn Fn(js_sys::Array, web_sys::ResizeObserver)>::new(
         move |entries: js_sys::Array, _observer: web_sys::ResizeObserver| {
             entries.for_each(&mut |entry, _, _| {
                 let Ok(entry) = entry.dyn_into::<web_sys::ResizeObserverEntry>() else {
                     return;
                 };
-                if let Some(size) = physical_size_from_entry(&entry, device_pixel_ratio) {
+                if let Some(size) = physical_size_from_entry(&entry, window.device_pixel_ratio()) {
                     with_editor(editor_id, |editor| {
                         editor
                             .debounce
@@ -684,43 +746,47 @@ fn install_resize_observer(
         return;
     };
     observer.observe(canvas);
-    EDITORS.with(|editors| {
-        if let Some(editor) = editors.borrow_mut().get_mut(&editor_id) {
-            editor.resize_closure = Some(closure);
-            editor.resize_observer = Some(observer);
-        }
+    with_editor(editor_id, |editor| {
+        editor.resize_closure.replace(Some(closure));
+        editor.resize_observer.replace(Some(observer));
     });
 }
 
 fn schedule_frame(editor_id: u32) {
     with_editor(editor_id, |editor| {
+        if editor.raf_id.get().is_some() {
+            return;
+        }
         let Some(window) = web_sys::window() else {
             return;
         };
-        let closure = Closure::<dyn FnMut()>::new(move || {
-            tick_frame(editor_id);
-            if editor_exists(editor_id) {
+        if editor.raf_closure.borrow().is_none() {
+            let closure = Closure::<dyn Fn()>::new(move || {
+                tick_frame(editor_id);
                 schedule_frame(editor_id);
-            }
-        });
+            });
+            editor.raf_closure.replace(Some(closure));
+        }
+        let callback = editor.raf_closure.borrow();
+        let Some(closure) = callback.as_ref() else {
+            return;
+        };
         let Ok(raf_id) = window.request_animation_frame(closure.as_ref().unchecked_ref()) else {
             console_error("gpui-web-foreign: requestAnimationFrame failed");
             return;
         };
         editor.raf_id.set(Some(raf_id));
-        *editor.raf_closure.borrow_mut() = Some(closure);
     });
 }
 
 fn tick_frame(editor_id: u32) {
     with_editor(editor_id, |editor| {
+        editor.raf_id.take();
         editor.debounce.poll(|size| forward_resize(editor_id, size));
         if !editor.throttle.should_forward() {
             return;
         }
-        if editor.has_renderer() {
-            editor.with_renderer(|renderer| renderer.request_frame());
-        } else {
+        if !editor.with_renderer(RendererCall::Frame) {
             editor.dropped_frames.set(editor.dropped_frames.get() + 1);
         }
     });

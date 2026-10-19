@@ -3129,3 +3129,103 @@ and pressure/large-dataset integrations pass with Metal required.
   whole-application or device-lifetime benefit is claimed. Other unchecked audit
   requirements, the 64-editor direct lookup regression, and full acceptance remain
   open. The full goal remains active.
+
+
+### C6 browser checkpoint: reentrant dispatch, real DOM cleanup and portable clocks
+
+- Replaced the browser's borrowed `RefCell<HashMap<u32, WebForeignEditor>>`
+  with `OwnedEditorRegistry<WebForeignEditor>`. Browser IDs are checked numeric
+  handles from the shared non-reusing counter; overflow/exhaustion closes the
+  new state and returns failure instead of recycling an old ID. Close removes
+  the token first, cancels pending provider work, and lets active leases retain
+  DOM/native closure resources through callback return. Editor drop disconnects
+  observers, removes listeners and the hidden input, releases pointer capture
+  and cancels its outstanding frame request. No untyped pointer map is involved.
+- Renderer dispatch takes the provider outside its `RefCell` borrow. Calls made
+  during a callback enter a FIFO; provider replacement takes effect after the
+  current call returns, and queued events reach the replacement. Old providers
+  and queued commands drop outside borrows, including reentrant destructors.
+  Input/focus/composition/resize commands are serialized rather than silently
+  skipped when a provider is busy. Closing cancels queued commands and rejects
+  further dispatch or replacement. Browser listeners use shared `Fn` closures:
+  their mutable state already lives in cells, and the old `FnMut` wasm wrapper
+  rejected same-listener recursion before Rust could queue the event.
+- Reentrant work is bounded by **256 queued commands**, **1 MiB of queued dynamic
+  payload capacities plus occupied inline tuples**, and **256 dispatch/replacement
+  work units** per synchronous drain. Limit exhaustion closes that editor and
+  reports an error while the module remains usable. These limits do not include
+  deque spare capacity/allocator overhead, the active command, incoming source
+  allocations or aggregate editors. Reserved inline capacity is separately
+  bounded by the command-count limit. Provider code/destructors themselves can
+  perform arbitrary work; the drain bound does not bound their execution time.
+- Found and fixed a frame-path browser correctness bug: shared throttle/debounce
+  policies used `std::time::Instant`, which traps on this wasm target. They now
+  use `web_time::Instant` (the native std clock alias on native targets). The
+  repository clock checker now covers both foreign-parent crates, with a test
+  that rejects a std clock in either crate. A separate old-source clock export
+  traps in `Instant::now` in Chrome; the candidate's real frame and resize paths
+  run successfully. The existing checker had passed while omitting these crates.
+- The browser now retains **one rAF closure per editor** and clears the request
+  ID before dispatching its tick. It creates no replacement closure on the next
+  tick and avoids the separate editor-existence lookup before rescheduling.
+  A real-browser old-host control creates **three distinct rAF callbacks across
+  two native frame boundaries**; candidate cases observe exactly one callback
+  identity per editor, including cases rendering several frames. This proves
+  callback reuse, not a whole-app allocation, CPU or energy reduction.
+- The retained example fixture and HTML exercise real DOM listeners,
+  `ResizeObserver` and rAF in desktop Chrome with fake renderer providers. Seven
+  passing cases cover close from frame/input/resize callbacks; replacement during
+  input with queued delivery to the new provider; same-listener nested keyboard
+  input; bounded recursive input; and nested focus plus marked/committed Unicode
+  composition in order. Provider drop is checked after the active callback exits.
+  Another **32 attach/detach cycles** check fresh IDs and stale closes that must
+  not affect replacements. After two native frame boundaries, all tracked hidden
+  inputs, listener registrations, observers and frame requests are zero, with no
+  uncaught page errors. The dispatch-limit diagnostic and stale-ID warnings are
+  expected; the fixture also generated an unrelated favicon 404.
+- Negative controls use byte-identical old host/input/lib sources at `48d1e2a8`
+  with the candidate shared clock fix to isolate lifetime failures. Ordinary
+  attach/detach passes; close from frame/input and replacement during input trap
+  on borrowed state, while nested keyboard dispatch is rejected by the old
+  `FnMut` wrapper. A separate package with byte-identical old shared-core sources
+  reproduces the clock trap. The metadata/source-ID changes for the standalone
+  fixture, source hashes, exact controls, browser results, console diagnostics,
+  manifests, compiler/binding versions and generated-output hashes are retained in
+  [`qa/perf/20261019-web-editor-lifecycle-qa.json`](qa/perf/20261019-web-editor-lifecycle-qa.json).
+  Product APIs contain no testing bypass; the Rust/HTML fixture lives under the
+  browser crate's `examples` directory. Browser/server processes were stopped;
+  generated binaries and CLI logs are preserved under `/Volumes/home_tmp/tmp`.
+- QA passes debug/release **41 core / 17 browser mapping-dispatch / 10 Windows
+  policy tests**, the non-`Send` doctest, strict host and wasm all-target Clippy,
+  the real wasm fixture build, and **seven clock-policy tests** plus the current
+  workspace clock scan. Shared-core iOS and Android compile checks and the
+  Windows GNU LLVM binding lint check also pass; these do not qualify native
+  runtime behavior. The first Python test invocation omitted `PYTHONPATH` and
+  failed to import the checker; the corrected invocation passes and both records
+  are preserved. The eight new dispatcher tests also pass Miri directly from the
+  production module, covering FIFO replacement, cancellation, count/byte limits,
+  the exact byte boundary, drain exhaustion, panic invalidation and reentrant
+  provider destructors. Shared-core Miri passes **40 tests plus the doctest** with
+  the existing intentional unknown-payload leak test explicitly ignored, as at
+  the previous checkpoint; that exceptional leak policy is unchanged.
+- The steady successful-dispatch model allocates **zero calls / zero bytes** in
+  both variants. It uses separate allocator-disabled CPU and counting binaries,
+  equal boxed scalar providers/checksums and four ABBA CPU rounds. The previous
+  mutable-borrow model costs **2.036 ns/command** (range 2.007–2.070); serialized
+  dispatch costs **3.330 ns** (range 2.836–3.526), an additional **1.294 ns / 63.5%**.
+  This is a visible correctness cost, not a dispatch speedup. It excludes the
+  registry, virtual provider calls, JS/Wasm boundaries, DOM, rendering, queued
+  work, construction/drop, native memory and energy. Callback reuse removes a
+  separate repeated allocation mechanism, but has not been measured as a net
+  application win. Raw samples, exact probe/runner sources and binary/build hashes
+  are in
+  [`qa/perf/20261019-web-editor-dispatch-cost.json`](qa/perf/20261019-web-editor-dispatch-cost.json).
+- **C6 and the full goal remain open.** Desktop Chrome and fake providers do not
+  qualify a real GPUI/WebGPU provider, Safari, mobile browsers, native Windows
+  callbacks or AU/iOS/Linux/Android ownership/thread confinement. Wasm panic-abort
+  traps cannot be repaired by Rust unwind guards; provider panics still require
+  host/module recovery. The browser still pumps continuously, including headless
+  editors: demand/visibility/thermal/pressure scheduling and physical memory/
+  energy qualification remain required. Aggregate budgets, the new dispatch cost,
+  the earlier 64-editor direct lookup regression and all other unchecked audit
+  items remain open. The frozen audit report is unchanged.

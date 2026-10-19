@@ -26,6 +26,8 @@ WASM_CRATES = (
     "crates/gpui-d3rs/",
     "crates/gpui-design/",
     "crates/gpui-hello-web/",
+    "crates/gpui-foreign-parent/",
+    "crates/gpui-web-foreign/",
     "crates/gpui-keybinding/",
     "crates/gpui-miniapp/",
     "crates/gpui-pretext/",

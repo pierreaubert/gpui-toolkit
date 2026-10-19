@@ -1,0 +1,419 @@
+{
+  "build_checks": [
+    {
+      "label": "cpu",
+      "command": [
+        "/Users/pierre/.cargo/bin/cargo",
+        "build",
+        "--offline",
+        "--release",
+        "--manifest-path",
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe/Cargo.toml",
+        "--target-dir",
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu"
+      ],
+      "status": 0,
+      "stdout": "",
+      "stderr": "     Locking 3 packages to highest Rust 1.99.0 compatible versions\n   Compiling libc v0.2.191\n   Compiling gpui-profiler v0.10.44 (/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-profiler)\n   Compiling gpui-web-dispatch-probe v0.0.0 (/Volumes/home_tmp/tmp/gpui-web-dispatch-probe)\n    Finished `release` profile [optimized] target(s) in 0.88s\n"
+    },
+    {
+      "label": "alloc",
+      "command": [
+        "/Users/pierre/.cargo/bin/cargo",
+        "build",
+        "--offline",
+        "--release",
+        "--manifest-path",
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe/Cargo.toml",
+        "--target-dir",
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-alloc",
+        "--features",
+        "count",
+        "--locked"
+      ],
+      "status": 0,
+      "stdout": "",
+      "stderr": "   Compiling libc v0.2.191\n   Compiling stats_alloc v0.1.10\n   Compiling gpui-profiler v0.10.44 (/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-profiler)\n   Compiling gpui-web-dispatch-probe v0.0.0 (/Volumes/home_tmp/tmp/gpui-web-dispatch-probe)\n    Finished `release` profile [optimized] target(s) in 0.76s\n"
+    }
+  ],
+  "binaries": {
+    "cpu": {
+      "path": "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+      "sha256": "cbd176f042b53987ddd0d3796b5074651e939051afe956bcc2db60e489f19c2b"
+    },
+    "alloc": {
+      "path": "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-alloc/release/gpui-web-dispatch-probe",
+      "sha256": "c8a8a36889ea9fd61e9887ceb8326596af18d31738f1f8579a5def25e1455626"
+    }
+  },
+  "probe_source": "//! Provider-dispatch-only CPU/allocation control, excluding browser work.\n// Rust guideline compliant 2026-02-21\n#[path = \"/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-web-foreign/src/dispatch.rs\"]\nmod dispatch;\nuse gpui_profiler::AllocSnapshot;\nuse std::{\n    cell::{Cell, RefCell},\n    hint::black_box,\n    time::Instant,\n};\nfn cpu_ns() -> u64 {\n    let mut time = libc::timespec {\n        tv_sec: 0,\n        tv_nsec: 0,\n    };\n    // SAFETY: valid process clock and aligned writable timespec storage.\n    assert_eq!(\n        unsafe { libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, &raw mut time) },\n        0\n    );\n    u64::try_from(time.tv_sec).unwrap() * 1_000_000_000 + u64::try_from(time.tv_nsec).unwrap()\n}\nfn measure(mut invoke: impl FnMut(u64), read: impl FnOnce() -> u64) {\n    const N: u64 = 4_194_304;\n    for _ in 0..4096 {\n        invoke(black_box(1));\n    }\n    let before = AllocSnapshot::now();\n    let wall = Instant::now();\n    let cpu = cpu_ns();\n    for _ in 0..N {\n        invoke(black_box(1));\n    }\n    let elapsed = cpu_ns() - cpu;\n    let wall_ns = wall.elapsed().as_nanos();\n    let alloc = AllocSnapshot::delta_since(before);\n    let checksum = read();\n    assert_eq!(checksum, N + 4096);\n    assert_eq!(alloc.count, 0);\n    assert_eq!(alloc.bytes, 0);\n    println!(\n        \"{{\\\"iterations\\\":{N},\\\"cpu_ns\\\":{elapsed},\\\"wall_ns\\\":{wall_ns},\\\"allocations\\\":{},\\\"bytes\\\":{},\\\"checksum\\\":{checksum}}}\",\n        alloc.count, alloc.bytes\n    );\n}\nfn main() {\n    let mode = std::env::args().nth(1).unwrap();\n    if mode == \"borrowed\" {\n        let slot = RefCell::new(Some(Box::new(0u64)));\n        measure(\n            |value| {\n                let mut slot = black_box(&slot).borrow_mut();\n                let provider = slot.as_mut().unwrap();\n                **provider = black_box(**provider).wrapping_add(value);\n            },\n            || **slot.borrow().as_ref().unwrap(),\n        );\n    } else {\n        let slot = dispatch::SerializedProvider::<Box<u64>, u64>::new(Some(Box::new(0)));\n        measure(\n            |value| {\n                black_box(&slot)\n                    .dispatch(value, 0, |provider, value| {\n                        **provider = black_box(**provider).wrapping_add(value);\n                    })\n                    .unwrap();\n            },\n            || {\n                let result = Cell::new(0);\n                slot.dispatch(0, 0, |provider, _| result.set(**provider))\n                    .unwrap();\n                result.get()\n            },\n        );\n        slot.replace(Box::new(0));\n        slot.close();\n    }\n}\n",
+  "probe_sha256": "1623f60b507633d53000562b2207ac93686f773cf069d4ba1e973a8a9d82da7f",
+  "dispatch_sha256": "c82fda5306c36860cb775a6df4583ee6fcb1cf80a9c713b30b2e4bc54786b5f1",
+  "manifest": "[package]\nname=\"gpui-web-dispatch-probe\"\nversion=\"0.0.0\"\nedition=\"2024\"\n[workspace]\n[features]\ncount=[\"gpui-profiler/global-allocator\"]\n[dependencies]\ngpui-profiler={path=\"/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-profiler\"}\nlibc=\"0.2\"\n",
+  "lock": "# This file is automatically @generated by Cargo.\n# It is not intended for manual editing.\nversion = 4\n\n[[package]]\nname = \"gpui-profiler\"\nversion = \"0.10.44\"\ndependencies = [\n \"stats_alloc\",\n]\n\n[[package]]\nname = \"gpui-web-dispatch-probe\"\nversion = \"0.0.0\"\ndependencies = [\n \"gpui-profiler\",\n \"libc\",\n]\n\n[[package]]\nname = \"libc\"\nversion = \"0.2.191\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a\"\n\n[[package]]\nname = \"stats_alloc\"\nversion = \"0.1.10\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"5c0e04424e733e69714ca1bbb9204c1a57f09f5493439520f9f68c132ad25eec\"\n",
+  "runner_source": "from pathlib import Path\nimport subprocess,json,statistics,hashlib\nroot=Path('/Volumes/home_tmp/tmp');build_records=json.loads((root/'gpui-web-dispatch-probe-builds.json').read_text())\nassert isinstance(build_records,list) and len(build_records)==2 and all(row['status']==0 for row in build_records)\nrecords=[];binaries={}\nfor instrumentation in ['cpu','alloc']:\n binary=root/('gpui-web-dispatch-probe-'+instrumentation)/'release/gpui-web-dispatch-probe'\n binaries[instrumentation]={'path':str(binary),'sha256':hashlib.sha256(binary.read_bytes()).hexdigest()}\n for variant in ['borrowed','serialized','serialized','borrowed']*(4 if instrumentation=='cpu' else 1):\n  command=[str(binary),variant];r=subprocess.run(command,text=True,capture_output=True);assert r.returncode==0,(command,r.stderr)\n  measurement=json.loads(r.stdout);assert measurement['allocations']==measurement['bytes']==0\n  records.append(dict(instrumentation=instrumentation,variant=variant,command=command,status=r.returncode,measurement=measurement))\nprobe=root/'gpui-web-dispatch-probe';source=probe/'src/main.rs';dispatch=Path('/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-web-foreign/src/dispatch.rs')\nd=dict(build_checks=build_records,binaries=binaries,probe_source=source.read_text(),probe_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),dispatch_sha256=hashlib.sha256(dispatch.read_bytes()).hexdigest(),manifest=(probe/'Cargo.toml').read_text(),lock=(probe/'Cargo.lock').read_text(),runner_source=Path(__file__).read_text(),samples=records,limitations=['Synthetic successful provider dispatch; no registry lookup, JS/Wasm boundary, virtual renderer, DOM, rendering or energy measured.','Baseline holds the previous RefCell mutable borrow; candidate serializes owned providers and bounds reentrant work.','CPU measured with allocator disabled; separate allocator-enabled runs verify zero warmed allocation traffic.','Four ABBA CPU rounds; no task-owned builds or browser tests during capture. Thermal state and scheduling uncontrolled.','Queue capacities, provider construction, attach/drop and exceptional reentrant allocations are outside measurement.'])\n(root/'gpui-web-dispatch-probe-results.json').write_text(json.dumps(d,indent=2)+'\\n')\nfor variant in ['borrowed','serialized']:\n values=[row['measurement']['cpu_ns']/row['measurement']['iterations'] for row in records if row['instrumentation']=='cpu' and row['variant']==variant]\n print(variant,'median_ns',statistics.median(values),'range_ns',[min(values),max(values)],flush=True)\n",
+  "samples": [
+    {
+      "instrumentation": "cpu",
+      "variant": "borrowed",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "borrowed"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 8416000,
+        "wall_ns": 8416500,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "serialized",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "serialized"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 11897000,
+        "wall_ns": 11899916,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "serialized",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "serialized"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 13881000,
+        "wall_ns": 13881833,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "borrowed",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "borrowed"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 8465000,
+        "wall_ns": 8464125,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "borrowed",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "borrowed"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 8489000,
+        "wall_ns": 8489500,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "serialized",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "serialized"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 13774000,
+        "wall_ns": 13774875,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "serialized",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "serialized"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 13858000,
+        "wall_ns": 13861000,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "borrowed",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "borrowed"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 8537000,
+        "wall_ns": 8537750,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "borrowed",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "borrowed"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 8614000,
+        "wall_ns": 8617083,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "serialized",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "serialized"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 14051000,
+        "wall_ns": 14052083,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "serialized",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "serialized"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 14067000,
+        "wall_ns": 14072584,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "borrowed",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "borrowed"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 8542000,
+        "wall_ns": 8543500,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "borrowed",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "borrowed"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 8604000,
+        "wall_ns": 8603792,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "serialized",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "serialized"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 14430000,
+        "wall_ns": 14438084,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "serialized",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "serialized"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 14788000,
+        "wall_ns": 14793750,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "variant": "borrowed",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-cpu/release/gpui-web-dispatch-probe",
+        "borrowed"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 8681000,
+        "wall_ns": 8684875,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "variant": "borrowed",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-alloc/release/gpui-web-dispatch-probe",
+        "borrowed"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 8672000,
+        "wall_ns": 8673584,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "variant": "serialized",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-alloc/release/gpui-web-dispatch-probe",
+        "serialized"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 14372000,
+        "wall_ns": 14372792,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "variant": "serialized",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-alloc/release/gpui-web-dispatch-probe",
+        "serialized"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 14391000,
+        "wall_ns": 14423666,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "variant": "borrowed",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-web-dispatch-probe-alloc/release/gpui-web-dispatch-probe",
+        "borrowed"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 4194304,
+        "cpu_ns": 8838000,
+        "wall_ns": 8839500,
+        "allocations": 0,
+        "bytes": 0,
+        "checksum": 4198400
+      }
+    }
+  ],
+  "limitations": [
+    "Synthetic successful provider dispatch; no registry lookup, JS/Wasm boundary, virtual renderer, DOM, rendering or energy measured.",
+    "Baseline holds the previous RefCell mutable borrow; candidate serializes owned providers and bounds reentrant work.",
+    "CPU measured with allocator disabled; separate allocator-enabled runs verify zero warmed allocation traffic.",
+    "Four ABBA CPU rounds; no task-owned builds or browser tests during capture. Thermal state and scheduling uncontrolled.",
+    "Queue capacities, provider construction, attach/drop and exceptional reentrant allocations are outside measurement."
+  ],
+  "production_source_sha256": {
+    "Cargo.lock": "5e149297f726892357ca53a91b354de050c76d1b64f752907bef6b07f41b1cde",
+    "crates/gpui-foreign-parent/Cargo.toml": "7a5af0b2571cb44e8f8044a3a6c0ace5522a616d1355b7e3d750d48732892c81",
+    "crates/gpui-foreign-parent/src/debounce.rs": "6a10fed1ecca6a708e2e49aabb7163cd263c6dcaaa435e66dfeac7c9702fa4c0",
+    "crates/gpui-foreign-parent/src/throttle.rs": "c144d04edcea326d1e909c8f22d41b13019377acddbee6fc9b42b9e82d0a4c75",
+    "crates/gpui-foreign-parent/src/sync.rs": "085b428c867b1b2cdb9ca38b4751a8439264c54df6821fbb6e2e8566a1408408",
+    "crates/gpui-web-foreign/Cargo.toml": "8c27393eb143bcda294e2ca072ab1c71dd52968bc724dba8eb2659688f2466fd",
+    "crates/gpui-web-foreign/src/dispatch.rs": "c82fda5306c36860cb775a6df4583ee6fcb1cf80a9c713b30b2e4bc54786b5f1",
+    "crates/gpui-web-foreign/src/host.rs": "f17498238b50de54649a96e5082317af14283e72d70474a30c461906ffe96885",
+    "crates/gpui-web-foreign/src/lib.rs": "f95e8be47214b69b20f59f7035b06a3340c1b3e21a61fc654243b20871bc4466",
+    "crates/gpui-web-foreign/examples/browser_lifecycle.rs": "7781b72da98d7fbf7b96bf38c61d150cd460de5d4ffc7e0ca3c147a76e8c65bd",
+    "crates/gpui-web-foreign/examples/browser_lifecycle.html": "31fc7501c4436fa8895f535adc08c91ce2da06d14b493c0586e12c137a811c7f",
+    "scripts/qa_wasm_clock.py": "c9a0993df5c3283912fe30c2c863c1f6d66e21974a05fef15405e15b3d2cbf6e",
+    "scripts/tests/test_qa_wasm_clock.py": "889fa66243d6a8f088740ebda027e43bc575bc9c4fdaaf961497c59bdb228fa1"
+  }
+}

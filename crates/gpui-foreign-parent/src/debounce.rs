@@ -7,7 +7,8 @@
 //! to the latest host size.
 
 use std::cell::Cell;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 /// Reference minimum interval between surface reconfigures.
 ///

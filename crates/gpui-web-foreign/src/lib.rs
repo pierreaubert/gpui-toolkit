@@ -19,5 +19,8 @@
 
 pub mod input;
 
+#[cfg(any(target_family = "wasm", test))]
+mod dispatch;
+
 #[cfg(target_family = "wasm")]
 pub mod host;
