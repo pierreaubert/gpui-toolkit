@@ -20,8 +20,9 @@ item requires implementation and verification evidence, not just a planned API.
 ## CPU, memory and power
 
 - [ ] P1: retained scene preparation, bounded topology extraction and DPI.
-  Scene-owned retention and DPI-aware presentation are implemented; bounded
-  topology extraction and aggregate preparation budgets remain open.
+  Scene-owned retention, DPI-aware presentation and verified canonical-grid
+  boundary traversal are implemented; general topology extraction and aggregate
+  preparation budgets remain open.
 - [ ] P2: shared GPU context, resident outputs, asynchronous staging and limits.
   Shared-device host encoding and resident GPUI presentation are implemented;
   staging/resource budgets, other renderers and device qualification remain.
@@ -1785,3 +1786,109 @@ and pressure/large-dataset integrations pass with Metal required.
   text/FFI, other platforms/devices, Taffy, CUDA/MLX and acceptance remain in
   scope. The original audit stays frozen; this is further implementation
   progress, not completion of the full goal.
+
+## Verified structured-grid boundary traversal checkpoint
+
+- Previous goal turn: progress (`6d90238a`). Canonical x-fastest hexahedral
+  connectivity now bypasses the dataset-wide face map. No grid dimensions or
+  trusted constructor metadata are stored by the model, so eligibility is
+  inferred from the first cell and point count, then **every cell type, offset
+  and node index is checked** against the complete grid. Products/counts are
+  checked, dimensions must be at least two, and point IDs must fit u32. Reordered
+  cells, a rotated last cell, edited connectivity, extra unused positions,
+  malformed offsets/types or inconsistent dimensions reject the fast path.
+  Rejected/mixed/unstructured topology retains the general face-map algorithm.
+- After that O(cell_count) proof, three stack cursors enumerate the XY, XZ and
+  YZ boundary planes in increasing minimum-node order. A three-way merge uses
+  XY/XZ/YZ tie order, equivalent to the existing sorted polygon-node keys.
+  Actual polygons are reconstructed from their original owner and face table;
+  source-cell IDs, face order, diagonal choice and winding remain exact.
+  Face emission is O(boundary_face_count) with constant auxiliary cursor storage;
+  it neither scans every grid point nor constructs/sorts a global face list.
+  Arbitrary rectilinear/curvilinear coordinates are supported because eligibility
+  depends entirely on connectivity. Positions, fields, source ownership and
+  public APIs/ABI remain unchanged.
+- This is a topology-specific bound, not full P1/C5 completion. Traditional
+  `boundary_triangles` still retains its output vector, point preparation still
+  uses surface/chunk arrays, cell-wire preparation keeps edge ownership state,
+  and general volume topology still uses the full face map. Aggregate source,
+  output, staging and GPU budgets remain open. The input grid constructors still
+  use unchecked dimension products/casts and duplicate temporary cell/reference
+  arrays; source inspection also confirms no cells are emitted when any grid
+  dimension is one. Constructor bounds and lower-dimensional behavior need
+  separate correction/qualification.
+- New tests compare exact ordered `(source cell, triangle)` sequences against
+  the general algorithm for all 125 dimension triples from 2 through 6, plus
+  long thin grids and negative spacing/large origins. They verify rectilinear
+  and warped-coordinate eligibility, edited/reordered fallback, invalid metadata,
+  and immediate callback cancellation. Cursor arithmetic reaches the last u32
+  point at conceptual 2^32-point shapes without large allocations. These are
+  arithmetic tests, not claims that such datasets fit device memory.
+- `tests/structured_boundary_memory.rs` adds an isolated native allocation guard:
+  a 48-cubed canonical grid, prevalidated outside the probe, 4,096-triangle
+  chunks, all callback geometry black-boxed, exact triangle count, and fewer
+  than four MiB cumulative Rust allocations during traversal. It does not bound
+  peak/live memory or include the source/validation. The identical release test
+  fails unchanged `6d90238a` with **44,285,984 allocated bytes** and passes the
+  candidate. The crate's existing profiler dev dependency supplies the allocator;
+  no production dependency was added. Criterion's three existing scene cases
+  now unwrap operation results, so returned errors fail the benchmark rather
+  than appearing as fast successful work. The bench target passes compilation.
+- `qa/perf/20261019-structured-boundary-paired.json` records the exact release
+  source/lock/runner, source/test/binary hashes, raw allocator-disabled ABBA-twice
+  timing/process-CPU samples and separate allocation builds. Baseline/candidate
+  targets are isolated. One warmup plus five samples/case, four fresh timing
+  processes/version, with no task-owned build/check/test work during timing.
+  Every cross-version image/ordered-output hash and retained payload length
+  matches exactly across **72 cases**: point/uniform/varying/missing fields at
+  8/24/48 cubed, a last-cell-edited fallback control, a 24-cubed wire case, and
+  boundary-vector/owned-chunk traversal at 8/24/48/96 cubed. The visitor hashes
+  source owners and ordered global node IDs, not just triangle counts.
+
+  | Operation | Baseline process CPU | Current process CPU | Baseline / current cumulative Rust allocated bytes |
+  |---|---:|---:|---:|
+  | Cold point-colored scene, 48 cubed | 26.388 ms | 1.694 ms | 45,092,721 / 1,445,765 |
+  | Cold uniform-cell scene, 48 cubed | 25.533 ms | 2.026 ms | 45,168,081 / 1,521,125 |
+  | Cold varying-cell scene, 48 cubed | 25.917 ms | 2.505 ms | 45,965,285 / 2,318,329 |
+  | Cold missing-cell scene, 48 cubed | 25.488 ms | 1.990 ms | 45,168,081 / 1,521,125 |
+  | Cold rejected-grid scene, 48 cubed | 26.389 ms | 26.442 ms | 45,092,721 / 45,092,721 |
+  | Ordered boundary vector, 96 cubed | 235.651 ms | 2.287 ms | 348,127,236 / 1,572,864 |
+  | Owned-chunk visit, 96 cubed | 236.990 ms | 7.117 ms | 348,827,704 / 2,273,332 |
+
+  Cold scene cases include validation and preparation; source construction is
+  excluded, cache state is fresh. The raw boundary-vector case includes its
+  connectivity proof and output allocation. Visitor validation occurs once
+  outside timing, while the connectivity proof, chunk remapping and callback
+  hash are timed; it retains only count/hash. Its chunk arrays are bounded by
+  the 4,096-triangle budget, not by the dataset's volume-cell count. The boundary
+  vector retains 1,299,600 payload bytes at 96 cubed in both versions; capacity
+  and allocator overhead are excluded from that length-based payload figure.
+- At 48 cubed, point-scene cold CPU falls about 94% and cumulative allocation
+  bytes about 97%; cell-scene cold CPU falls 90–92%. The prior small canonical
+  grid cold regression is superseded: at 8 cubed point preparation is 115.5 to
+  31.5 microseconds, with 230,025 to 41,693 allocated bytes. The edited-grid
+  controls remain within about 0.5% CPU across these sizes and keep the old
+  allocation costs. Warm software/draw allocations and GPU geometry payloads
+  remain equal; small observed warm timing differences are not an improvement
+  claim. There is no new per-frame work. The earlier software-line CPU regression
+  remains open because this optimization concerns volume boundary extraction.
+- GPU upload/submission timing retains the previous method: initialized device,
+  retained CPU geometry and GPU buffers, completion/readback/validation outside
+  submission timing. These numbers do not establish GPU execution throughput,
+  mobile peak memory, whole-application performance or measured power savings.
+  Allocation counters include positive realloc growth, exclude native/GPU
+  allocations, and are not live/RSS measurements. No physical-device energy
+  qualification is claimed.
+- Verification passes 25 mesh / 74 transformation / 106 required-GPU scene
+  library tests and public integrations, including all four rendering oracles;
+  software-only passes 78 scene library tests and all four rendering integrations.
+  Native 2x-DPI viewer, mesh doctests, strict mesh test Clippy, targeted scene
+  production/integration Clippy, changed-file formatting/diff checks and GPU/GPUI
+  wasm library closure pass. Scene bench compilation passes. A post-measurement
+  unit-only checked-conversion assertion was corrected for Clippy; its old source
+  and old/new hashes are archived, and the production prefix matches the measured
+  code exactly. No production timing was repeated for that test-only change.
+- P1/C5 remain unchecked for general topology, constructor/import and aggregate
+  budgets; C3/C4, scheduling/power, other renderers/caches, text/FFI, platform and
+  device matrices, Taffy, CUDA/MLX and final acceptance remain in scope. The
+  original audit is frozen and the full implementation goal remains active.

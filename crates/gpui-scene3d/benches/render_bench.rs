@@ -30,12 +30,12 @@ fn bench_render(c: &mut Criterion) {
     let actor =
         Actor::new(ds.clone()).coloured_by("pressure", TransferFunction::viridis([0.0, 1.0]));
     c.bench_function("prepare_chunks_32cubed", |b| {
-        b.iter(|| prepare_chunks(&actor, 100_000));
+        b.iter(|| prepare_chunks(&actor, 100_000).unwrap());
     });
     let scene = Scene::new().with_actor(actor);
     let camera = Camera::fitted(scene.bounds().unwrap());
     c.bench_function("render_surface_128", |b| {
-        b.iter(|| render(&scene, &camera, 128, 128));
+        b.iter(|| render(&scene, &camera, 128, 128).unwrap());
     });
     let transfer = TransferFunction::viridis([0.0, 1.0]);
     c.bench_function("raycast_volume_64", |b| {
@@ -49,6 +49,7 @@ fn bench_render(c: &mut Criterion) {
                 64,
                 &VolumeOptions::default(),
             )
+            .unwrap()
         });
     });
 }

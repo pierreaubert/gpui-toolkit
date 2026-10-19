@@ -120,6 +120,16 @@ fn visit_boundary<E>(
     dataset: &DataSet,
     mut visit: impl FnMut(usize, [u32; 3]) -> Result<(), E>,
 ) -> Result<(), E> {
+    if let Some(grid) = crate::structured_boundary::CanonicalHexGrid::detect(dataset) {
+        return grid.visit(|cell, face| visit_face(dataset, cell, usize::from(face), &mut visit));
+    }
+    visit_general_boundary(dataset, visit)
+}
+
+fn visit_general_boundary<E>(
+    dataset: &DataSet,
+    mut visit: impl FnMut(usize, [u32; 3]) -> Result<(), E>,
+) -> Result<(), E> {
     // Keep the source owner rather than copying its polygon. Reconstruct only
     // surviving boundary faces; the map entry is no larger than the old one.
     let mut faces: HashMap<[u32; 5], Option<FaceOwner>> = HashMap::new();
@@ -170,15 +180,29 @@ fn visit_boundary<E>(
         .collect();
     boundary.sort_unstable_by_key(|(key, _)| *key);
     for (_, owner) in boundary {
-        let cell = owner.cell.get() - 1;
-        let nodes = dataset.cells.cell(cell).expect("boundary owner cell");
-        let face = &volume_faces(dataset.cells.types[cell])[usize::from(owner.face)];
-        let polygon = Face::new(nodes, face).expect("surviving nondegenerate face");
-        let nodes = polygon.nodes;
-        visit(cell, [nodes[0], nodes[1], nodes[2]])?;
-        if polygon.len.get() == 4 {
-            visit(cell, [nodes[0], nodes[2], nodes[3]])?;
-        }
+        visit_face(
+            dataset,
+            owner.cell.get() - 1,
+            usize::from(owner.face),
+            &mut visit,
+        )?;
+    }
+    Ok(())
+}
+
+fn visit_face<E>(
+    dataset: &DataSet,
+    cell: usize,
+    face: usize,
+    visit: &mut impl FnMut(usize, [u32; 3]) -> Result<(), E>,
+) -> Result<(), E> {
+    let nodes = dataset.cells.cell(cell).expect("boundary owner cell");
+    let face = &volume_faces(dataset.cells.types[cell])[face];
+    let polygon = Face::new(nodes, face).expect("surviving nondegenerate face");
+    let nodes = polygon.nodes;
+    visit(cell, [nodes[0], nodes[1], nodes[2]])?;
+    if polygon.len.get() == 4 {
+        visit(cell, [nodes[0], nodes[2], nodes[3]])?;
     }
     Ok(())
 }
@@ -188,7 +212,8 @@ fn visit_boundary<E>(
 /// `cell_ids[i]` owns the triangle at `chunk.indices[i * 3..i * 3 + 3]`.
 /// The cell IDs are borrowed only during the callback. Surface ordering and
 /// volume-face culling match [`boundary_triangles`]. No full triangle array is
-/// constructed, but volume-face discovery still uses a dataset-wide map.
+/// constructed. Verified canonical hexahedral grids use constant-space face
+/// cursors; other volume topologies still use a dataset-wide face map.
 /// The triangle budget is capped to keep every chunk-local index representable.
 /// The validated view keeps source geometry immutable throughout traversal.
 ///
@@ -273,6 +298,131 @@ pub fn surface_chunks(dataset: &DataSet, max_triangles: usize) -> Vec<SurfaceChu
 mod tests {
     use super::*;
     use crate::dataset::Cells;
+
+    #[test]
+    fn canonical_grids_match_general_face_order_owners_and_winding() {
+        for nx in 2..=6 {
+            for ny in 2..=6 {
+                for nz in 2..=6 {
+                    let dims = [nx, ny, nz];
+                    let dataset = DataSet::structured_grid(
+                        "grid",
+                        dims,
+                        [1e12, -2.0, 0.25],
+                        [-0.5, 1.25, 0.75],
+                    )
+                    .unwrap();
+                    assert!(
+                        crate::structured_boundary::CanonicalHexGrid::detect(&dataset).is_some()
+                    );
+                    let mut expected = Vec::new();
+                    visit_general_boundary(&dataset, |cell, tri| {
+                        expected.push((cell, tri));
+                        Ok::<(), ()>(())
+                    })
+                    .unwrap();
+                    let mut actual = Vec::new();
+                    visit_boundary(&dataset, |cell, tri| {
+                        actual.push((cell, tri));
+                        Ok::<(), ()>(())
+                    })
+                    .unwrap();
+                    assert_eq!(
+                        actual.len(),
+                        4 * ((nx - 1) * (ny - 1) + (nx - 1) * (nz - 1) + (ny - 1) * (nz - 1))
+                    );
+                    assert_eq!(
+                        actual, expected,
+                        "owner, order or winding differs for {dims:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn edited_or_reordered_grids_use_the_general_boundary_contract() {
+        let original = DataSet::structured_grid("grid", [3, 4, 5], [0.0; 3], [1.0; 3]).unwrap();
+        for edit in 0..4 {
+            let mut dataset = original.clone();
+            let nodes = std::sync::Arc::make_mut(&mut dataset.cells.connectivity);
+            match edit {
+                0 => {
+                    let first: [u32; 8] = nodes[..8].try_into().unwrap();
+                    let last = nodes.len() - 8;
+                    nodes.copy_within(last..last + 8, 0);
+                    nodes[last..last + 8].copy_from_slice(&first);
+                }
+                1 => {
+                    let last = nodes.len() - 8;
+                    nodes[last..last + 4].rotate_left(1);
+                    nodes[last + 4..].rotate_left(1);
+                }
+                2 => {
+                    nodes[nodes.len() - 1] = nodes[nodes.len() - 2];
+                }
+                _ => {
+                    let mut positions = dataset.positions.to_vec();
+                    positions.push([100.0; 3]);
+                    dataset.positions = positions.into();
+                }
+            }
+            dataset.validate().unwrap();
+            assert!(crate::structured_boundary::CanonicalHexGrid::detect(&dataset).is_none());
+            let mut expected = Vec::new();
+            visit_general_boundary(&dataset, |cell, tri| {
+                expected.push((cell, tri));
+                Ok::<(), ()>(())
+            })
+            .unwrap();
+            let mut actual = Vec::new();
+            visit_boundary(&dataset, |cell, tri| {
+                actual.push((cell, tri));
+                Ok::<(), ()>(())
+            })
+            .unwrap();
+            assert_eq!(actual, expected, "fallback differs for edit {edit}");
+        }
+    }
+
+    #[test]
+    fn thin_grids_preserve_canonical_order_at_long_row_and_plane_boundaries() {
+        for dims in [
+            [2, 2, 257],
+            [2, 257, 2],
+            [257, 2, 2],
+            [2, 3, 257],
+            [31, 2, 7],
+            [2, 31, 7],
+        ] {
+            let dataset = DataSet::structured_grid("thin", dims, [0.0; 3], [1.0; 3]).unwrap();
+            let mut expected = Vec::new();
+            visit_general_boundary(&dataset, |cell, tri| {
+                expected.push((cell, tri));
+                Ok::<(), ()>(())
+            })
+            .unwrap();
+            let mut actual = Vec::new();
+            visit_boundary(&dataset, |cell, tri| {
+                actual.push((cell, tri));
+                Ok::<(), ()>(())
+            })
+            .unwrap();
+            assert_eq!(actual, expected, "thin grid differs for {dims:?}");
+        }
+    }
+
+    #[test]
+    fn structured_boundary_visit_stops_on_the_first_callback_error() {
+        let dataset = DataSet::structured_grid("grid", [4, 5, 6], [0.0; 3], [1.0; 3]).unwrap();
+        let mut visits = 0;
+        let result = visit_boundary(&dataset, |_, _| {
+            visits += 1;
+            Err("stop")
+        });
+        assert_eq!(result, Err("stop"));
+        assert_eq!(visits, 1);
+    }
 
     #[test]
     fn owned_chunks_keep_exact_surface_and_volume_cell_ids() {

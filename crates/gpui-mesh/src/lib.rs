@@ -15,6 +15,7 @@ mod composite;
 mod dataset;
 mod decomposition;
 mod field;
+mod structured_boundary;
 mod time_series;
 
 pub use chunk::{SurfaceChunk, boundary_triangles, surface_chunks, try_for_each_surface_chunk};
