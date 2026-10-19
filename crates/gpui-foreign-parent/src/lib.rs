@@ -22,6 +22,7 @@
 
 mod debounce;
 mod ffi;
+mod owned_registry;
 mod registry;
 mod slot;
 pub mod sync;
@@ -30,7 +31,9 @@ mod throttle;
 #[doc(inline)]
 pub use debounce::{DEFAULT_RESIZE_DEBOUNCE_INTERVAL, ResizeDebounce};
 #[doc(inline)]
-pub use ffi::{fill_out_buffer, optional_c_string};
+pub use ffi::{ffi_boundary, fill_out_buffer, optional_c_string};
+#[doc(inline)]
+pub use owned_registry::{EditorHandle, EditorHandleExhausted, OwnedEditorRegistry};
 #[doc(inline)]
 pub use registry::{EditorRegistry, no_thread_assertion};
 #[doc(inline)]

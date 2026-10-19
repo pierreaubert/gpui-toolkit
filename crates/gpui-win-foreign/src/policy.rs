@@ -5,7 +5,42 @@
 //! drawable-size math (contract §5), create/resize argument validation,
 //! and editor-id allocation. No `HWND`, no GPU, no GPUI dependency.
 
+// Rust guideline compliant 2026-02-21
+
 use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(any(target_os = "windows", test))]
+thread_local! {
+    static CREATING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Prevents nested use of the backend's single pending-window handoff.
+#[cfg(any(target_os = "windows", test))]
+pub(crate) struct CreationGuard(std::marker::PhantomData<std::rc::Rc<()>>);
+
+#[cfg(any(target_os = "windows", test))]
+impl CreationGuard {
+    pub(crate) fn enter() -> Option<Self> {
+        CREATING
+            .try_with(|flag| {
+                if flag.get() {
+                    None
+                } else {
+                    flag.set(true);
+                    Some(Self(std::marker::PhantomData))
+                }
+            })
+            .ok()
+            .flatten()
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+impl Drop for CreationGuard {
+    fn drop(&mut self) {
+        let _ = CREATING.try_with(|flag| flag.set(false));
+    }
+}
 
 /// Validated host geometry for an attach or resize: physical size plus
 /// the backing scale it was derived with.
@@ -75,6 +110,25 @@ pub fn allocate_editor_id() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nested_creation_rejection_does_not_unlock_outer_creation() {
+        let outer = CreationGuard::enter().unwrap();
+        assert!(CreationGuard::enter().is_none());
+        assert!(CreationGuard::enter().is_none());
+        drop(outer);
+        assert!(CreationGuard::enter().is_some());
+    }
+
+    #[test]
+    fn creation_guard_releases_after_panic() {
+        let result = std::panic::catch_unwind(|| {
+            let _guard = CreationGuard::enter().unwrap();
+            panic!("factory panic");
+        });
+        result.unwrap_err();
+        assert!(CreationGuard::enter().is_some());
+    }
 
     #[test]
     fn valid_geometry_rounds_to_physical() {

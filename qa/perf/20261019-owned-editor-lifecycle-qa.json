@@ -1,0 +1,334 @@
+{
+  "native": [
+    {
+      "name": "host-debug",
+      "command": [
+        "/Users/pierre/.cargo/bin/cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--target-dir",
+        "/Volumes/home_tmp/tmp/gpui-audit-20261018-target",
+        "-p",
+        "gpui-foreign-parent",
+        "-p",
+        "gpui-win-foreign",
+        "--quiet"
+      ],
+      "status": 0,
+      "stdout": "\nrunning 41 tests\n.........................................\ntest result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 10 tests\n..........\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 1 test\n.\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "stderr": ""
+    },
+    {
+      "name": "host-release",
+      "command": [
+        "/Users/pierre/.cargo/bin/cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--target-dir",
+        "/Volumes/home_tmp/tmp/gpui-audit-20261018-target",
+        "--release",
+        "-p",
+        "gpui-foreign-parent",
+        "-p",
+        "gpui-win-foreign",
+        "--quiet"
+      ],
+      "status": 0,
+      "stdout": "\nrunning 41 tests\n.........................................\ntest result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 10 tests\n..........\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 1 test\n.\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s\n\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "stderr": ""
+    },
+    {
+      "name": "host-clippy",
+      "command": [
+        "/Users/pierre/.cargo/bin/cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--target-dir",
+        "/Volumes/home_tmp/tmp/gpui-audit-20261018-target",
+        "-p",
+        "gpui-foreign-parent",
+        "-p",
+        "gpui-win-foreign",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "status": 0,
+      "stdout": "",
+      "stderr": "    Checking gpui-foreign-parent v0.10.44 (/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-foreign-parent)\n    Checking gpui-win-foreign v0.10.44 (/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-win-foreign)\n    Finished `dev` profile [optimized + debuginfo] target(s) in 0.42s\nwarning: the following packages contain code that will be rejected by a future version of Rust: block v0.1.6\nnote: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 2`\n"
+    }
+  ],
+  "miri": [
+    {
+      "name": "full",
+      "command": [
+        "/Users/pierre/.cargo/bin/cargo",
+        "+nightly",
+        "miri",
+        "test",
+        "--offline",
+        "--locked",
+        "--target-dir",
+        "/Volumes/home_tmp/tmp/gpui-audit-20261018-miri-target",
+        "-p",
+        "gpui-foreign-parent",
+        "--quiet"
+      ],
+      "environment": {},
+      "status": 0,
+      "stdout": "\nrunning 41 tests\n......i..................................\ntest result: ok. 40 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 30.45s\n\n\nrunning 1 test\n.\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s\n\n",
+      "stderr": "warning: Miri does not support optimizations: the opt-level is ignored. The only effect of selecting a Cargo profile that enables optimizations (such as --release) is to apply its remaining settings, such as whether debug assertions and overflow checks are enabled.\n\nwarning: 1 warning emitted\n\n"
+    },
+    {
+      "name": "quarantine",
+      "command": [
+        "/Users/pierre/.cargo/bin/cargo",
+        "+nightly",
+        "miri",
+        "test",
+        "--offline",
+        "--locked",
+        "--target-dir",
+        "/Volumes/home_tmp/tmp/gpui-audit-20261018-miri-target",
+        "-p",
+        "gpui-foreign-parent",
+        "--lib",
+        "boundary_never_runs_unknown_panic_payload_destructor",
+        "--quiet",
+        "--",
+        "--ignored"
+      ],
+      "environment": {
+        "MIRIFLAGS": "-Zmiri-ignore-leaks"
+      },
+      "status": 0,
+      "stdout": "\nrunning 1 test\n.\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 40 filtered out; finished in 0.19s\n\n",
+      "stderr": "warning: Miri does not support optimizations: the opt-level is ignored. The only effect of selecting a Cargo profile that enables optimizations (such as --release) is to apply its remaining settings, such as whether debug assertions and overflow checks are enabled.\n\nwarning: 1 warning emitted\n\n"
+    }
+  ],
+  "windows_check": {
+    "command": [
+      "/Users/pierre/.cargo/bin/cargo",
+      "check",
+      "--offline",
+      "--locked",
+      "--target",
+      "aarch64-pc-windows-gnullvm",
+      "--target-dir",
+      "/Volumes/home_tmp/tmp/gpui-audit-20261018-windows-gnu-target",
+      "-p",
+      "gpui-win-foreign",
+      "--quiet"
+    ],
+    "environment": {
+      "CC_aarch64_pc_windows_gnullvm": "/Volumes/home_tmp/tmp/llvm-mingw-20260908-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang",
+      "CXX_aarch64_pc_windows_gnullvm": "/Volumes/home_tmp/tmp/llvm-mingw-20260908-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang++",
+      "AR_aarch64_pc_windows_gnullvm": "/Volumes/home_tmp/tmp/llvm-mingw-20260908-ucrt-macos-universal/bin/llvm-ar",
+      "CARGO_TARGET_AARCH64_PC_WINDOWS_GNULLVM_LINKER": "/Volumes/home_tmp/tmp/llvm-mingw-20260908-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang"
+    },
+    "status": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "windows_clippy": {
+    "command": [
+      "/Users/pierre/.cargo/bin/cargo",
+      "clippy",
+      "--offline",
+      "--locked",
+      "--target",
+      "aarch64-pc-windows-gnullvm",
+      "--target-dir",
+      "/Volumes/home_tmp/tmp/gpui-audit-20261018-windows-gnu-target",
+      "-p",
+      "gpui-win-foreign",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "environment": {
+      "CC_aarch64_pc_windows_gnullvm": "/Volumes/home_tmp/tmp/llvm-mingw-20260908-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang",
+      "CXX_aarch64_pc_windows_gnullvm": "/Volumes/home_tmp/tmp/llvm-mingw-20260908-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang++",
+      "AR_aarch64_pc_windows_gnullvm": "/Volumes/home_tmp/tmp/llvm-mingw-20260908-ucrt-macos-universal/bin/llvm-ar",
+      "CARGO_TARGET_AARCH64_PC_WINDOWS_GNULLVM_LINKER": "/Volumes/home_tmp/tmp/llvm-mingw-20260908-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang"
+    },
+    "status": 0,
+    "stdout": "",
+    "stderr": "    Checking gpui-win-foreign v0.10.44 (/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-win-foreign)\n    Finished `dev` profile [optimized + debuginfo] target(s) in 0.37s\n"
+  },
+  "wasm_check": {
+    "command": [
+      "/Users/pierre/.cargo/bin/cargo",
+      "check",
+      "--offline",
+      "--locked",
+      "--target",
+      "wasm32-unknown-unknown",
+      "--target-dir",
+      "/Volumes/home_tmp/tmp/gpui-audit-20261018-wasm-target",
+      "-p",
+      "gpui-foreign-parent",
+      "--quiet"
+    ],
+    "status": 0,
+    "stdout": "",
+    "stderr": "warning: unstable feature specified for `-Ctarget-feature`: `atomics`\n  |\n  = note: this feature is not stably supported; its behavior can change in the future\n\n"
+  },
+  "baseline_lifetime_oracle": {
+    "command": [
+      "/Users/pierre/.cargo/bin/cargo",
+      "+nightly",
+      "miri",
+      "run",
+      "--offline",
+      "--locked",
+      "--manifest-path",
+      "/Volumes/home_tmp/tmp/gpui-editor-registry-miri-baseline/Cargo.toml",
+      "--target-dir",
+      "/Volumes/home_tmp/tmp/gpui-editor-registry-miri-baseline-target",
+      "--quiet"
+    ],
+    "status": 1,
+    "stdout": "",
+    "stderr": "error: Undefined Behavior: not granting access to tag <985> because that would remove [SharedReadOnly for <3031>] which is strongly protected\n   --> /Volumes/home_tmp/Binaries/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/mem/mod.rs:977:22\n    |\n977 |         let result = crate::intrinsics::read_via_copy(dest);\n    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ while retagging field .<enum-variant(Some)>.0\n    |\n    = help: this indicates a potential bug in the program: it performed an invalid operation, but the Stacked Borrows rules it violated are still experimental\n    = help: see https://github.com/rust-lang/unsafe-code-guidelines/blob/master/wip/stacked-borrows.md for further information\nhelp: <985> was created by a Unique retag at offsets [0x0..0x4]\n   --> src/main.rs:6:15\n    |\n  6 |     let owner=RefCell::new(Some(Box::new(Window { value:11 })));\n    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nhelp: <3031> is this argument\n   --> src/main.rs:10:23\n    |\n 10 |     registry.with(&1,|window: &Window| {\n    |                       ^^^^^^\n    = note: stack backtrace:\n            0: std::mem::replace::<std::option::Option<std::boxed::Box<Window>>>\n                at /Volumes/home_tmp/Binaries/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/mem/mod.rs:977:22: 977:60\n            1: std::option::Option::<std::boxed::Box<Window>>::take\n                at /Volumes/home_tmp/Binaries/.rustup/toolchains/nightly-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/option.rs:1904:9: 1904:33\n            2: main::{closure#0}\n                at src/main.rs:12:14: 12:39\n            3: gpui_foreign_parent::EditorRegistry::<u64>::with::<Window, {closure@src/main.rs:10:22: 10:39}, ()>\n                at gpui-foreign-parent/src/registry.rs:107:14: 107:25\n            4: main\n                at src/main.rs:10:5: 14:7\n\nnote: some details are omitted, run with `MIRIFLAGS=-Zmiri-backtrace=full` for a verbose backtrace\n\nerror: aborting due to 1 previous error\n\n",
+    "source": "use gpui_foreign_parent::{EditorRegistry,no_thread_assertion};\nuse std::cell::RefCell;\nstruct Window { value: u32 }\nfn main() {\n    let registry=EditorRegistry::new(no_thread_assertion);\n    let owner=RefCell::new(Some(Box::new(Window { value:11 })));\n    let pointer={ let owner=owner.borrow(); (&raw const **owner.as_ref().unwrap()).cast::<()>() };\n    // SAFETY: live Window of the correct type, retained until unregister below.\n    unsafe { registry.register(1u64,pointer) };\n    registry.with(&1,|window: &Window| {\n        registry.unregister(&1);\n        drop(owner.borrow_mut().take());\n        std::hint::black_box(window.value);\n    });\n}\n",
+    "manifest": "[package]\nname=\"gpui-registry-lifetime-control\"\nversion=\"0.0.0\"\nedition=\"2024\"\n[dependencies]\ngpui-foreign-parent={path=\"gpui-foreign-parent\"}\n[workspace]\n",
+    "dependency_manifest": "[package]\nname=\"gpui-foreign-parent\"\nversion=\"0.10.44\"\nedition=\"2024\"\nrust-version=\"1.89\"\n",
+    "lock": "# This file is automatically @generated by Cargo.\n# It is not intended for manual editing.\nversion = 4\n\n[[package]]\nname = \"gpui-foreign-parent\"\nversion = \"0.10.44\"\n\n[[package]]\nname = \"gpui-registry-lifetime-control\"\nversion = \"0.0.0\"\ndependencies = [\n \"gpui-foreign-parent\",\n]\n"
+  },
+  "baseline_lifetime_sources": {
+    "commit": "68599e9f6f004fe3d52924c6729fd48e93850a29",
+    "sha256": {
+      "slot.rs": "73b5fd04da62f0a5daf6ad0d68281bc13f87ba39856f406acb018bf99d310413",
+      "registry.rs": "1147adcd59fe0904bf3da4e77f809e0b7ef64f42344ae0820fef7e1e05a103f7",
+      "lib.rs": "431ebf6a38658d290f199dfc7c2b97cd891fe823fe385f0ef19c4847943e85d2",
+      "sync.rs": "10f86ef0243dd868d76f38d2dd55d96c42b0d8262d29af1e6e8eb5ae4508ee54",
+      "throttle.rs": "42dfc1e4f916eb64d5a7091bbaa00558093ad798729c21517e3d2e8480813636",
+      "ffi.rs": "0337e86a5df435c7e4a1a3960eaa74c069f0dfb443d8f45623ccf1709a101496",
+      "debounce.rs": "a73aed070247c94b062f4ed72fa4a3d3c9ebebf5b7bf68089907bcaddeefdf18"
+    },
+    "description": "Production sources are byte-identical to this commit; standalone Cargo metadata removes workspace inheritance. The invalid lifetime control ran only under Miri."
+  },
+  "initial_miri_clock_test_failure": {
+    "command": [
+      "/Users/pierre/.cargo/bin/cargo",
+      "+nightly",
+      "miri",
+      "test",
+      "--offline",
+      "--locked",
+      "--target-dir",
+      "/Volumes/home_tmp/tmp/gpui-audit-20261018-miri-target",
+      "-p",
+      "gpui-foreign-parent",
+      "--quiet"
+    ],
+    "status": 101,
+    "stdout": "\nrunning 41 tests\n......i............................ 35/41\nsync::tests::overdrive_is_coalesced_and_counted --- FAILED\n.....\nfailures:\n\n---- sync::tests::overdrive_is_coalesced_and_counted stdout ----\n\nthread 'sync::tests::overdrive_is_coalesced_and_counted' (1044) panicked at crates/gpui-foreign-parent/src/sync.rs:181:9:\nassertion `left == right` failed\n  left: 2\n right: 1\n\n\nfailures:\n    sync::tests::overdrive_is_coalesced_and_counted\n\ntest result: FAILED. 39 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 30.48s\n\n",
+    "stderr": "warning: Miri does not support optimizations: the opt-level is ignored. The only effect of selecting a Cargo profile that enables optimizations (such as --release) is to apply its remaining settings, such as whether debug assertions and overflow checks are enabled.\n\nerror: test failed, to rerun pass `-p gpui-foreign-parent --lib`\n"
+  },
+  "initial_host_clippy": {
+    "command": [
+      "/Users/pierre/.cargo/bin/cargo",
+      "clippy",
+      "--offline",
+      "--locked",
+      "--target-dir",
+      "/Volumes/home_tmp/tmp/gpui-audit-20261018-target",
+      "-p",
+      "gpui-foreign-parent",
+      "-p",
+      "gpui-win-foreign",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "status": 101,
+    "stdout": "",
+    "stderr": "    Blocking waiting for file lock on package cache\n    Checking utf8parse v0.2.2\n    Checking anstyle-query v1.1.5\n    Checking jiff-core v0.1.1\n    Checking is_terminal_polyfill v1.70.2\n    Checking colorchoice v1.0.5\n    Checking env_filter v2.0.0\n    Checking gpui-foreign-parent v0.10.44 (/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-foreign-parent)\n    Checking anstyle-parse v1.0.0\n    Checking anstream v1.0.0\nerror: this could be rewritten as `let...else`\n  --> crates/gpui-foreign-parent/src/ffi.rs:22:13\n   |\n22 | /             let payload = match payload.downcast::<&'static str>() {\n23 | |                 Ok(_) => return fallback,\n24 | |                 Err(payload) => payload,\n25 | |             };\n   | |______________^ help: consider writing: `let Err(payload) = payload.downcast::<&'static str>() else { return fallback };`\n   |\n   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#manual_let_else\n   = note: `-D clippy::manual-let-else` implied by `-D warnings`\n   = help: to override `-D warnings` add `#[allow(clippy::manual_let_else)]`\n\nerror: this could be rewritten as `let...else`\n  --> crates/gpui-foreign-parent/src/ffi.rs:26:13\n   |\n26 | /             let payload = match payload.downcast::<String>() {\n27 | |                 Ok(_) => return fallback,\n28 | |                 Err(payload) => payload,\n29 | |             };\n   | |______________^ help: consider writing: `let Err(payload) = payload.downcast::<String>() else { return fallback };`\n   |\n   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#manual_let_else\n\nerror: item in documentation is missing backticks\n   --> crates/gpui-foreign-parent/src/owned_registry.rs:111:17\n    |\n111 |     /// Returns EditorHandleExhausted instead of wrapping or reusing a token.\n    |                 ^^^^^^^^^^^^^^^^^^^^^\n    |\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#doc_markdown\n    = note: `-D clippy::doc-markdown` implied by `-D warnings`\n    = help: to override `-D warnings` add `#[allow(clippy::doc_markdown)]`\nhelp: try\n    |\n111 -     /// Returns EditorHandleExhausted instead of wrapping or reusing a token.\n111 +     /// Returns `EditorHandleExhausted` instead of wrapping or reusing a token.\n    |\n\nerror: could not compile `gpui-foreign-parent` (lib) due to 3 previous errors\nwarning: build failed, waiting for other jobs to finish...\nerror: could not compile `gpui-foreign-parent` (lib test) due to 3 previous errors\n"
+  },
+  "initial_windows_clippy": {
+    "command": [
+      "/Users/pierre/.cargo/bin/cargo",
+      "clippy",
+      "--offline",
+      "--locked",
+      "--target",
+      "aarch64-pc-windows-gnullvm",
+      "--target-dir",
+      "/Volumes/home_tmp/tmp/gpui-audit-20261018-windows-gnu-target",
+      "-p",
+      "gpui-win-foreign",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "environment": {
+      "CC_aarch64_pc_windows_gnullvm": "/Volumes/home_tmp/tmp/llvm-mingw-20260908-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang",
+      "CXX_aarch64_pc_windows_gnullvm": "/Volumes/home_tmp/tmp/llvm-mingw-20260908-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang++",
+      "AR_aarch64_pc_windows_gnullvm": "/Volumes/home_tmp/tmp/llvm-mingw-20260908-ucrt-macos-universal/bin/llvm-ar",
+      "CARGO_TARGET_AARCH64_PC_WINDOWS_GNULLVM_LINKER": "/Volumes/home_tmp/tmp/llvm-mingw-20260908-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang"
+    },
+    "status": 101,
+    "stdout": "",
+    "stderr": "    Checking gpui-foreign-parent v0.10.44 (/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-foreign-parent)\n    Checking gpui-win-foreign v0.10.44 (/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-win-foreign)\nerror: consider adding a `;` to the last statement for consistent formatting\n   --> crates/gpui-win-foreign/src/foreign_parent.rs:361:5\n    |\n361 | /     ffi_boundary((), || {\n362 | |         if !is_ui_thread() {\n363 | |             return;\n...   |\n383 | |         });\n384 | |     })\n    | |______^\n    |\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#semicolon_if_nothing_returned\n    = note: `-D clippy::semicolon-if-nothing-returned` implied by `-D warnings`\n    = help: to override `-D warnings` add `#[allow(clippy::semicolon_if_nothing_returned)]`\nhelp: add a `;` here\n    |\n361 |     ffi_boundary((), || {\n...\n383 |         });\n384 ~     });\n    |\n\nerror: consider adding a `;` to the last statement for consistent formatting\n   --> crates/gpui-win-foreign/src/foreign_parent.rs:394:5\n    |\n394 | /     ffi_boundary((), || {\n395 | |         if !is_ui_thread() {\n396 | |             return;\n...   |\n414 | |         });\n415 | |     })\n    | |______^\n    |\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#semicolon_if_nothing_returned\nhelp: add a `;` here\n    |\n394 |     ffi_boundary((), || {\n...\n414 |         });\n415 ~     });\n    |\n\nerror: consider adding a `;` to the last statement for consistent formatting\n   --> crates/gpui-win-foreign/src/foreign_parent.rs:422:5\n    |\n422 | /     ffi_boundary((), || {\n423 | |         if !is_ui_thread() {\n424 | |             return;\n...   |\n435 | |         });\n436 | |     })\n    | |______^\n    |\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#semicolon_if_nothing_returned\nhelp: add a `;` here\n    |\n422 |     ffi_boundary((), || {\n...\n435 |         });\n436 ~     });\n    |\n\nerror: consider adding a `;` to the last statement for consistent formatting\n   --> crates/gpui-win-foreign/src/foreign_parent.rs:443:5\n    |\n443 | /     ffi_boundary((), || {\n444 | |         if !is_ui_thread() {\n445 | |             return;\n...   |\n456 | |         });\n457 | |     })\n    | |______^\n    |\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#semicolon_if_nothing_returned\nhelp: add a `;` here\n    |\n443 |     ffi_boundary((), || {\n...\n456 |         });\n457 ~     });\n    |\n\nerror: consider adding a `;` to the last statement for consistent formatting\n   --> crates/gpui-win-foreign/src/foreign_parent.rs:474:5\n    |\n474 | /     ffi_boundary((), || {\n475 | |         if !is_ui_thread() {\n476 | |             return;\n...   |\n506 | |     })\n    | |______^\n    |\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#semicolon_if_nothing_returned\nhelp: add a `;` here\n    |\n474 |     ffi_boundary((), || {\n...\n505 |         }\n506 ~     });\n    |\n\nerror: could not compile `gpui-win-foreign` (lib) due to 5 previous errors\nwarning: build failed, waiting for other jobs to finish...\nerror: could not compile `gpui-win-foreign` (lib test) due to 5 previous errors\n"
+  },
+  "msvc_sdk_limit": {
+    "command": [
+      "/Users/pierre/.cargo/bin/cargo",
+      "check",
+      "--offline",
+      "--locked",
+      "--target",
+      "aarch64-pc-windows-msvc",
+      "--target-dir",
+      "/Volumes/home_tmp/tmp/gpui-audit-20261018-windows-target",
+      "-p",
+      "gpui-win-foreign",
+      "--quiet"
+    ],
+    "environment": {
+      "AR_aarch64_pc_windows_msvc": "/opt/homebrew/opt/llvm/bin/llvm-ar",
+      "CC_aarch64_pc_windows_msvc": "/opt/homebrew/opt/llvm/bin/clang"
+    },
+    "status": 101,
+    "stdout": "",
+    "stderr": "error: failed to run custom build command for `stacker v0.1.25`\n\nCaused by:\n  process didn't exit successfully: `/Volumes/home_tmp/tmp/gpui-audit-20261018-windows-target/debug/build/stacker-3e40be5a5fa9e3d8/build-script-build` (exit status: 1)\n  --- stdout\n  cargo:rerun-if-env-changed=CC_FORCE_DISABLE\n  CC_FORCE_DISABLE = None\n  cargo:rerun-if-env-changed=CC_PREFER_CLANG_CL_OVER_MSVC\n  CC_PREFER_CLANG_CL_OVER_MSVC = None\n  cargo:rerun-if-env-changed=VCINSTALLDIR\n  VCINSTALLDIR = None\n  cargo:rerun-if-env-changed=CC_aarch64-pc-windows-msvc\n  CC_aarch64-pc-windows-msvc = None\n  cargo:rerun-if-env-changed=CC_aarch64_pc_windows_msvc\n  CC_aarch64_pc_windows_msvc = Some(/opt/homebrew/opt/llvm/bin/clang)\n  cargo:rerun-if-env-changed=CC_ENABLE_DEBUG_OUTPUT\n  cargo:rerun-if-env-changed=CRATE_CC_NO_DEFAULTS\n  CRATE_CC_NO_DEFAULTS = None\n  cargo:rerun-if-env-changed=CRATE_CC_NO_DEFAULTS\n  CRATE_CC_NO_DEFAULTS = None\n  cargo:rerun-if-env-changed=CFLAGS\n  CFLAGS = None\n  cargo:rerun-if-env-changed=TARGET_CFLAGS\n  TARGET_CFLAGS = None\n  cargo:rerun-if-env-changed=CFLAGS_aarch64_pc_windows_msvc\n  CFLAGS_aarch64_pc_windows_msvc = None\n  cargo:rerun-if-env-changed=CFLAGS_aarch64-pc-windows-msvc\n  CFLAGS_aarch64-pc-windows-msvc = None\n  cargo:rerun-if-env-changed=CFLAGS\n  CFLAGS = None\n  cargo:rerun-if-env-changed=TARGET_CFLAGS\n  TARGET_CFLAGS = None\n  cargo:rerun-if-env-changed=CFLAGS_aarch64_pc_windows_msvc\n  CFLAGS_aarch64_pc_windows_msvc = None\n  cargo:rerun-if-env-changed=CFLAGS_aarch64-pc-windows-msvc\n  CFLAGS_aarch64-pc-windows-msvc = None\n  cargo:warning=src/arch/windows.c:1:10: fatal error: 'windows.h' file not found\n  cargo:warning=    1 | #include <windows.h>\n  cargo:warning=      |          ^~~~~~~~~~~\n  cargo:warning=1 error generated.\n\n  --- stderr\n\n\n  error occurred in cc-rs: command did not execute successfully (status code exit status: 1): \"/opt/homebrew/opt/llvm/bin/clang\" \"-O1\" \"-ffunction-sections\" \"-fdata-sections\" \"-g\" \"-fno-omit-frame-pointer\" \"-mno-omit-leaf-frame-pointer\" \"--target=aarch64-pc-windows-msvc\" \"-I\" \"src/arch\" \"-Wall\" \"-Wextra\" \"-DWINDOWS\" \"-o\" \"/Volumes/home_tmp/tmp/gpui-audit-20261018-windows-target/aarch64-pc-windows-msvc/debug/build/stacker-3707ce4e86ea9042/out/2d87c5a413c3c6c5-windows.o\" \"-c\" \"src/arch/windows.c\"\n\n\n"
+  },
+  "toolchain": {
+    "source": "https://github.com/mstorsjo/llvm-mingw/releases/tag/20260908",
+    "asset_url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20260908/llvm-mingw-20260908-ucrt-macos-universal.tar.xz",
+    "size": 124244100,
+    "sha256": "d1dc5d1ecf3a3ced5ed5544c72f1acd0c8e84eb3024d520ecc6b143eec62a149",
+    "directory": "/Volumes/home_tmp/tmp/llvm-mingw-20260908-ucrt-macos-universal"
+  },
+  "source_sha256": {
+    "crates/gpui-foreign-parent/src/owned_registry.rs": "6aaf16f2ea51ff8a6385fbc2d2ce079faab9cedf5409293a10db6984e0db9e85",
+    "crates/gpui-foreign-parent/src/ffi.rs": "d410508ac8e3d1a710d9ff8572cd875cfadf41aa4011e1da87790b18bb7917c9",
+    "crates/gpui-foreign-parent/src/lib.rs": "2d4e31d16a77ac517841ad457275c226d6a377d7370544f804d4bd1498a141ae",
+    "crates/gpui-foreign-parent/src/registry.rs": "1147adcd59fe0904bf3da4e77f809e0b7ef64f42344ae0820fef7e1e05a103f7",
+    "crates/gpui-foreign-parent/src/sync.rs": "7d0dcc75628a756e0f22951a9f4ba8068b20fd4335085f98a1bb4b73c3020c61",
+    "crates/gpui-foreign-parent/src/throttle.rs": "dfe7e3c21886d0cd34d0f50369d4f4f74af92a6b4a518914bbe983410223d48f",
+    "crates/gpui-win-foreign/src/foreign_parent.rs": "13edfa6ceac16d86da175f7d7f2dd4ef5220d36d13cfd6bd89a0663dd355d4da",
+    "crates/gpui-win-foreign/src/policy.rs": "de60d4e412149053d1876493e870eb8682c799e29f117af74f78c023d619e67d",
+    "Cargo.lock": "381e80d27ce33e86079c74f9595dd7ebeaad86f5203538ec4338138785b4ac67",
+    "audit-20261018.md": "ef3e12b410650383904cd277351fb6f8e6ad46550a7f40513950e69ff4aee702"
+  },
+  "compiler": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+  "miri_compiler": "rustc 1.101.0-nightly (7df81381d 2026-10-14)\nbinary: rustc\ncommit-hash: 7df81381d027710708209f36b98d11b1c88f8d2e\ncommit-date: 2026-10-14\nhost: aarch64-apple-darwin\nrelease: 1.101.0-nightly\nLLVM version: 23.1.3\n",
+  "host": "Darwin 7pi.local 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:05:48 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6041 arm64\n",
+  "limitations": [
+    "Windows GNU LLVM compilation/linting is not Windows runtime qualification; native callbacks, UI-thread rejection and parent-child teardown still need real host tests/sanitizers.",
+    "The old borrowed registry and its remaining bindings are unchanged and remain subject to C6.",
+    "Miri full suite retains leak checking with one explicitly ignored quarantine test. That test passes separately with intentional leaks allowed. Miri does not prove all native or Rust alias-model behavior.",
+    "Only unwinding Rust panics reaching ffi_boundary are contained. Abort-mode panic, faults, panic hooks or a second destructor panic during unwinding can abort. Unknown panic payloads are deliberately leaked.",
+    "The creation guard is covered by portable tests; real native attach/drop/pin sequencing remains unqualified."
+  ]
+}

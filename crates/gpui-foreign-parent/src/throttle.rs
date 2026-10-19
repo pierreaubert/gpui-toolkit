@@ -43,7 +43,10 @@ impl FrameThrottle {
     /// callback. A tick inside the minimum interval is counted as
     /// coalesced and reports false.
     pub fn should_forward(&self) -> bool {
-        let now = Instant::now();
+        self.should_forward_at(Instant::now())
+    }
+
+    fn should_forward_at(&self, now: Instant) -> bool {
         if self
             .last_forward
             .get()
@@ -76,13 +79,13 @@ mod tests {
     #[test]
     fn overdrive_is_coalesced_and_counted() {
         let throttle = FrameThrottle::default();
-        let mut forwarded = 0;
-        for _ in 0..3 {
-            if throttle.should_forward() {
-                forwarded += 1;
-            }
-        }
-        assert_eq!(forwarded, 1);
+        let start = Instant::now();
+        assert!(throttle.should_forward_at(start));
+        assert!(!throttle.should_forward_at(start));
+        assert!(!throttle.should_forward_at(start + DEFAULT_FRAME_MIN_INTERVAL / 2));
+        assert_eq!(throttle.coalesced(), 2);
+        // Rejected ticks do not postpone the exact next eligible boundary.
+        assert!(throttle.should_forward_at(start + DEFAULT_FRAME_MIN_INTERVAL));
         assert_eq!(throttle.coalesced(), 2);
     }
 

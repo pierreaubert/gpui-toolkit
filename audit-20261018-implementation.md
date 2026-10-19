@@ -3035,3 +3035,97 @@ and pressure/large-dataset integrations pass with Metal required.
   staging/in-flight budgets, platform/FFI/text, earlier performance regressions,
   demand/thermal/pressure scheduling, physical-device energy, Taffy/CUDA/MLX
   experiments and full acceptance remain open. The full goal remains active.
+
+
+### C6 checkpoint: owned editor leases and Windows token migration
+
+- Added `OwnedEditorRegistry<T>` alongside the existing borrowed registry. It
+  owns typed instances in UI-local `Rc`s and hands callbacks a temporary lease
+  after releasing the map borrow. Closing removes the token immediately; active
+  callbacks keep their instance alive until they return. Destructors run outside
+  map borrows, and an empty map releases retained capacity. Callback unwinding
+  invalidates the token before the lease drops. The registry is neither `Send`
+  nor `Sync`; only the non-owning numeric token can cross threads.
+- Tokens use a checked, non-wrapping native-width counter shared within the
+  originating library instance. Zero is invalid, exhausted allocation fails,
+  and old tokens are never recycled within that instance. A token from another
+  registry does not resolve. Hosts must return tokens to the originating library;
+  independent dynamic-library instances do not share counter or registry state.
+- Migrated the Windows binding from boxed, caller-dereferenced contexts and the
+  untyped global raw-pointer map to a thread-local owned registry. Context values
+  are opaque numeric pointer tokens and are never dereferenced or freed. Null,
+  unknown, stale and wrong-thread operations are rejected in release builds.
+  Close waits for active registry callbacks before destroying the child and
+  releasing its `AppCell` pin. The host parent must survive those callbacks.
+  A pending-attach guard retains the app while failed construction releases its
+  child; a separate creation guard rejects nested use of the backend's single
+  pending-window handoff. Raw C-string/output-buffer APIs now have explicit Rust
+  `unsafe` signatures and memory contracts; the C ABI signatures are unchanged.
+- Added `ffi_boundary` to contain unwinding panics reaching the exported Windows
+  entry points and return primitive fallback values. Static-string and `String`
+  panic payloads are dropped. Unknown payloads are intentionally retained because
+  their destructors could panic again; this is an explicit exceptional-path leak,
+  not a bounded-memory guarantee. Abort-mode panics, process faults, a panicking
+  hook, a second panic during unwinding, and panics already aborting at an inner
+  native ABI boundary cannot be recovered by this wrapper.
+- Ten new registry tests cover close during callbacks, repeated/stale tokens,
+  nested leases, replacement registration, reentrant destructors, implicit and
+  explicit close during unwinding, foreign registries, token-only cross-thread
+  transport, exhaustion and 1,000 create/close cycles with empty-map release.
+  Four FFI tests cover success, string panics, capture-destructor panic, token
+  invalidation and an unknown payload whose destructor must not run. Two portable
+  Windows tests verify nested creation rejection and guard release after panic.
+- A standalone lifetime control using byte-identical production Rust sources at
+  `68599e9f` reproduces an alias/lifetime violation under Miri when a callback
+  unregisters and releases its boxed owner while its borrowed window is live.
+  The diagnostic occurs at `Option::take` after unregistering, before the later
+  access through the borrowed window. This control ran only in the interpreter;
+  Miri's Stacked Borrows rules remain experimental. The candidate's owned-lease
+  regression tests pass under Miri. Source hashes and the complete diagnostic are
+  retained in
+  [`qa/perf/20261019-owned-editor-lifecycle-qa.json`](qa/perf/20261019-owned-editor-lifecycle-qa.json).
+- The initial full Miri run exposed an existing clock-sensitive throttle test.
+  Both local and synchronized throttle tests now drive private decision logic at
+  exact timestamps, including the next eligible boundary and rejected ticks that
+  must not postpone it. Synchronized production throttling samples time after
+  taking its lock so concurrent claims follow lock order. No public clock override
+  or test-only bypass was added.
+- QA passes debug and release **41 core / 10 portable Windows policy tests**,
+  the non-`Send` compile-fail doctest, strict host and Windows GNU LLVM all-target
+  Clippy, and the portable core's wasm compile check. Full Miri passes **40 tests
+  plus the doctest**, with the deliberate unknown-payload leak test explicitly
+  ignored; that test passes separately with `-Zmiri-ignore-leaks`. The first
+  failed Miri/lint captures remain available as diagnostics. The initial MSVC
+  check lacked SDK headers; a temporary, SHA-256-verified official LLVM-MinGW
+  toolchain enabled an actual `aarch64-pc-windows-gnullvm` check and strict lint
+  pass against the real Windows backend. This is compile qualification only.
+- The bounded synthetic lookup probe uses live owners for the old raw registry,
+  verifies equal output checksums, and measures setup/teardown outside the timing
+  interval. Both variants load keys from vectors in the corrected capture.
+  Allocator-disabled process CPU and separate allocation-counting binaries use
+  three ABBA rounds for CPU and one for allocations. Every measured lookup batch
+  allocates **zero calls / zero bytes**. Corrected single-editor direct-hit CPU
+  is **11.212 to 8.164 ns/lookup (-27.2%)**; with the panic boundary it is
+  **12.045 to 8.899 ns (-26.1%)**. Misses improve approximately **28–35%**.
+- Multi-editor timing remains unresolved: at 64 live editors, direct hits are
+  **11.714 to 15.360 ns (+31.1%)**, while panic-boundary hits are **12.340 to
+  10.167 ns (-17.6%)**, with candidate boundary samples ranging **9.868–13.237 ns**.
+  Independently seeded maps, code generation and machine state are uncontrolled;
+  these results do not justify a universal lookup speedup or dismissing the
+  direct-path regression. The initial probe used unequal key-selection work and
+  is preserved separately, rather than silently replaced. Exact samples, source,
+  build records, binary hashes and the corrected runner are in
+  [`qa/perf/20261019-owned-editor-lookup.json`](qa/perf/20261019-owned-editor-lookup.json)
+  and
+  [`qa/perf/20261019-owned-editor-lookup-initial.json`](qa/perf/20261019-owned-editor-lookup-initial.json).
+  These measurements exclude native thread gating, callback execution, rendering,
+  attach/drop cost, live/peak/native/GPU memory and physical energy.
+- **C6 remains open.** The old borrowed registry is unchanged and still used by
+  AU/iOS/Linux consumers; Web reentrant borrowing and Android non-`Send` callback
+  migration also remain. Native Windows close-from-callback, queued work,
+  wrong-thread rejection, repeated attach/drop, resize teardown, child destruction
+  and app-pin ordering still require a real host plus sanitizers. The portable
+  tests do not qualify those native sequences. No physical mobile memory, power,
+  whole-application or device-lifetime benefit is claimed. Other unchecked audit
+  requirements, the 64-editor direct lookup regression, and full acceptance remain
+  open. The full goal remains active.

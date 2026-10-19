@@ -1,0 +1,3020 @@
+{
+  "build_checks": [
+    {
+      "name": "cpu",
+      "command": [
+        "/Users/pierre/.cargo/bin/cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--release",
+        "--manifest-path",
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe/Cargo.toml",
+        "--target-dir",
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu"
+      ],
+      "status": 0,
+      "stdout": "",
+      "stderr": "   Compiling gpui-owned-editors-probe v0.0.0 (/Volumes/home_tmp/tmp/gpui-owned-editors-probe)\n    Finished `release` profile [optimized] target(s) in 0.21s\n"
+    },
+    {
+      "name": "alloc",
+      "command": [
+        "/Users/pierre/.cargo/bin/cargo",
+        "build",
+        "--offline",
+        "--locked",
+        "--release",
+        "--manifest-path",
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe/Cargo.toml",
+        "--target-dir",
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc",
+        "--features",
+        "count"
+      ],
+      "status": 0,
+      "stdout": "",
+      "stderr": "   Compiling gpui-owned-editors-probe v0.0.0 (/Volumes/home_tmp/tmp/gpui-owned-editors-probe)\n    Finished `release` profile [optimized] target(s) in 0.21s\n"
+    }
+  ],
+  "binaries": {
+    "cpu": {
+      "path": "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+      "sha256": "7d8f6d008d1d048531f256cf8a418a936bfe3b0dfb92dc457cae3332e8c04d46"
+    },
+    "alloc": {
+      "path": "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+      "sha256": "0830728d37c78cf58657b4b62eb3ae649ec24ae6a07276cef8d350471836cde7"
+    }
+  },
+  "probe_source": "//! Bounded live registry lookup control; teardown is outside measurement.\n// Rust guideline compliant 2026-02-21\nuse gpui_foreign_parent::{\n    EditorHandle, EditorRegistry, OwnedEditorRegistry, ffi_boundary, no_thread_assertion,\n};\nuse gpui_profiler::AllocSnapshot;\nuse std::{hint::black_box, rc::Rc, time::Instant};\n\nfn cpu_ns() -> u64 {\n    let mut time = libc::timespec {\n        tv_sec: 0,\n        tv_nsec: 0,\n    };\n    // SAFETY: time is aligned writable storage and the constant selects this process.\n    let status = unsafe { libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, &raw mut time) };\n    assert_eq!(status, 0);\n    u64::try_from(time.tv_sec).unwrap() * 1_000_000_000 + u64::try_from(time.tv_nsec).unwrap()\n}\nfn measure(mut lookup: impl FnMut(usize) -> u64, live: usize, miss: bool) {\n    const ITERATIONS: usize = 2_097_152; // Divisible by all tested registry sizes.\n    for i in 0..4096 {\n        black_box(lookup(black_box(i & (live - 1))));\n    }\n    let start_alloc = AllocSnapshot::now();\n    let wall = Instant::now();\n    let start_cpu = cpu_ns();\n    let mut checksum = 0u64;\n    for i in 0..ITERATIONS {\n        checksum = checksum.wrapping_add(black_box(lookup(black_box(i & (live - 1)))));\n    }\n    let elapsed_cpu = cpu_ns() - start_cpu;\n    let elapsed_wall = wall.elapsed().as_nanos();\n    let allocations = AllocSnapshot::delta_since(start_alloc);\n    let expected = if miss {\n        0\n    } else {\n        (ITERATIONS as u64) * (live as u64 + 1) / 2\n    };\n    assert_eq!(checksum, expected);\n    assert_eq!(allocations.count, 0);\n    assert_eq!(allocations.bytes, 0);\n    println!(\n        \"{{\\\"iterations\\\":{ITERATIONS},\\\"cpu_ns\\\":{elapsed_cpu},\\\"wall_ns\\\":{elapsed_wall},\\\"allocations\\\":{},\\\"allocated_bytes\\\":{},\\\"checksum\\\":{checksum}}}\",\n        allocations.count, allocations.bytes\n    );\n}\nfn main() {\n    let args: Vec<_> = std::env::args().collect();\n    let live: usize = args[2].parse().unwrap();\n    assert!(matches!(live, 1 | 64));\n    let boundary = args[3] == \"ffi\";\n    let miss = args[4] == \"miss\";\n    match args[1].as_str() {\n        \"raw\" => {\n            let registry = EditorRegistry::new(no_thread_assertion);\n            let keys: Vec<_> = (1..=live).collect();\n            let owners: Vec<_> = (1..=live).map(|v| Rc::new(v as u64)).collect();\n            for (key, owner) in owners.iter().enumerate() {\n                // SAFETY: Rc allocations remain alive, correctly typed and on this\n                // thread until all lookups finish and entries are unregistered.\n                unsafe {\n                    registry.register(keys[key], Rc::as_ptr(owner).cast());\n                }\n            }\n            let lookup = |index| {\n                registry\n                    .with(&(if miss { usize::MAX } else { keys[index] }), |v: &u64| {\n                        black_box(*v)\n                    })\n                    .unwrap_or(0)\n            };\n            if boundary {\n                measure(|i| ffi_boundary(0, || lookup(i)), live, miss);\n            } else {\n                measure(lookup, live, miss);\n            }\n            for key in keys {\n                registry.unregister(&key);\n            }\n            drop(owners);\n        }\n        \"owned\" => {\n            let registry = OwnedEditorRegistry::new();\n            let handles: Vec<_> = (1..=live)\n                .map(|v| registry.insert(v as u64).unwrap())\n                .collect();\n            let invalid = EditorHandle::from_usize(usize::MAX).unwrap();\n            let lookup = |index| {\n                registry\n                    .with(if miss { invalid } else { handles[index] }, |v| {\n                        black_box(*v)\n                    })\n                    .unwrap_or(0)\n            };\n            if boundary {\n                measure(|i| ffi_boundary(0, || lookup(i)), live, miss);\n            } else {\n                measure(lookup, live, miss);\n            }\n            registry.clear();\n        }\n        _ => panic!(\"invalid variant\"),\n    }\n}\n",
+  "probe_sha256": "6345712f2137e6dc2561c9f5de7357d0a4d11491eb00ece8db8de9294ad8c7d4",
+  "manifest": "[package]\nname = \"gpui-owned-editors-probe\"\nversion = \"0.0.0\"\nedition = \"2024\"\n[workspace]\n[features]\ncount = [\"gpui-profiler/global-allocator\"]\n[dependencies]\ngpui-foreign-parent = { path = \"/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-foreign-parent\" }\ngpui-profiler = { path = \"/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-profiler\" }\nlibc = \"0.2\"\n",
+  "lock": "# This file is automatically @generated by Cargo.\n# It is not intended for manual editing.\nversion = 4\n\n[[package]]\nname = \"gpui-foreign-parent\"\nversion = \"0.10.44\"\n\n[[package]]\nname = \"gpui-owned-editors-probe\"\nversion = \"0.0.0\"\ndependencies = [\n \"gpui-foreign-parent\",\n \"gpui-profiler\",\n \"libc\",\n]\n\n[[package]]\nname = \"gpui-profiler\"\nversion = \"0.10.44\"\ndependencies = [\n \"stats_alloc\",\n]\n\n[[package]]\nname = \"libc\"\nversion = \"0.2.191\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a\"\n\n[[package]]\nname = \"stats_alloc\"\nversion = \"0.1.10\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"5c0e04424e733e69714ca1bbb9204c1a57f09f5493439520f9f68c132ad25eec\"\n",
+  "runner_source": "from pathlib import Path\nimport subprocess,json,hashlib,statistics\nout=Path('/Volumes/home_tmp/tmp/gpui-owned-editors-lookup.json')\nbuild_records=json.loads(Path('/Volumes/home_tmp/tmp/gpui-owned-editors-probe-builds.json').read_text())\nassert isinstance(build_records,list) and len(build_records)==2 and all(r['status']==0 for r in build_records)\nrecords=[]; binaries={}\nfor instrumentation in ['cpu','alloc']:\n p=Path('/Volumes/home_tmp/tmp/gpui-owned-editors-probe-'+instrumentation+'/release/gpui-owned-editors-probe')\n binaries[instrumentation]={'path':str(p),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()}\n order=['raw','owned','owned','raw']*(3 if instrumentation=='cpu' else 1)\n for live in [1,64]:\n  for boundary in ['direct','ffi']:\n   for outcome in ['hit','miss']:\n    for variant in order:\n     c=[str(p),variant,str(live),boundary,outcome]\n     r=subprocess.run(c,text=True,capture_output=True)\n     assert r.returncode==0,(c,r.stderr)\n     v=json.loads(r.stdout)\n     assert v['allocations']==0 and v['allocated_bytes']==0\n     records.append(dict(instrumentation=instrumentation,live=live,boundary=boundary,outcome=outcome,variant=variant,command=c,status=r.returncode,measurement=v))\nsource=Path('/Volumes/home_tmp/tmp/gpui-owned-editors-probe/src/main.rs')\nmanifest=source.parent.parent/'Cargo.toml';lock=manifest.with_name('Cargo.lock')\nartifact=dict(build_checks=build_records,binaries=binaries,probe_source=source.read_text(),probe_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),manifest=manifest.read_text(),lock=lock.read_text(),runner_source=Path(__file__).read_text(),samples=records,limitations=['Synthetic single-thread lookup; no native window callbacks, thread gating, rendering or energy measured.','CPU uses allocator-disabled binary; allocation counts use separate instrumented binary.','No task-owned builds or other benchmarks run during capture; thermal state and machine scheduling uncontrolled.','Setup, teardown and result validation are outside the measured interval. Clock calls are inside allocation interval.','Both variants load their keys from equally sized vectors; separately seeded standard HashMaps across subprocesses remain a source of variation.'])\nassert isinstance(artifact['build_checks'],list) and all(r['status']==0 for r in artifact['build_checks'])\nout.write_text(json.dumps(artifact,indent=2)+'\\n')\nfor live in [1,64]:\n for boundary in ['direct','ffi']:\n  for outcome in ['hit','miss']:\n   med={v:statistics.median(r['measurement']['cpu_ns']/r['measurement']['iterations'] for r in records if r['instrumentation']=='cpu' and r['live']==live and r['boundary']==boundary and r['outcome']==outcome and r['variant']==v) for v in ['raw','owned']}\n   print(live,boundary,outcome,med,'change_percent',round((med['owned']/med['raw']-1)*100,1),flush=True)\n",
+  "samples": [
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 24317000,
+        "wall_ns": 24441458,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 17106000,
+        "wall_ns": 17107458,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 17113000,
+        "wall_ns": 17113125,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 23504000,
+        "wall_ns": 23503500,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 23414000,
+        "wall_ns": 23414375,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 17128000,
+        "wall_ns": 17130208,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 17141000,
+        "wall_ns": 17140875,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 23389000,
+        "wall_ns": 23388625,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 23524000,
+        "wall_ns": 23523042,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 17091000,
+        "wall_ns": 17092416,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 17141000,
+        "wall_ns": 17140792,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 23550000,
+        "wall_ns": 23550667,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 20184000,
+        "wall_ns": 20184792,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 13090000,
+        "wall_ns": 13091333,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 12942000,
+        "wall_ns": 12941666,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 19820000,
+        "wall_ns": 19819667,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 19721000,
+        "wall_ns": 19722375,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 12893000,
+        "wall_ns": 12894166,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 12940000,
+        "wall_ns": 12940625,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 20609000,
+        "wall_ns": 20609709,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 19737000,
+        "wall_ns": 19737333,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 12881000,
+        "wall_ns": 12881583,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 13014000,
+        "wall_ns": 13015083,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 20475000,
+        "wall_ns": 20502792,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25344000,
+        "wall_ns": 25349959,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 18877000,
+        "wall_ns": 18877208,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 18592000,
+        "wall_ns": 18593333,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25221000,
+        "wall_ns": 25222375,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25300000,
+        "wall_ns": 25299833,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 18621000,
+        "wall_ns": 18622125,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 18657000,
+        "wall_ns": 18656917,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25218000,
+        "wall_ns": 25218667,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25311000,
+        "wall_ns": 25311916,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 18670000,
+        "wall_ns": 18671000,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 18694000,
+        "wall_ns": 18694291,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25173000,
+        "wall_ns": 25173458,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21255000,
+        "wall_ns": 21255666,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 14846000,
+        "wall_ns": 14877208,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15127000,
+        "wall_ns": 15127833,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21488000,
+        "wall_ns": 21488417,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21477000,
+        "wall_ns": 21477167,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15260000,
+        "wall_ns": 15260667,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15490000,
+        "wall_ns": 15491625,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21290000,
+        "wall_ns": 21290750,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21756000,
+        "wall_ns": 21755917,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15389000,
+        "wall_ns": 15389792,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15022000,
+        "wall_ns": 15022458,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21376000,
+        "wall_ns": 21376458,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 24352000,
+        "wall_ns": 24351750,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 30781000,
+        "wall_ns": 30782209,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 31577000,
+        "wall_ns": 31578541,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25040000,
+        "wall_ns": 25040833,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 24334000,
+        "wall_ns": 24335083,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 32176000,
+        "wall_ns": 32176333,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 32822000,
+        "wall_ns": 32824625,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 24812000,
+        "wall_ns": 24812167,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 24778000,
+        "wall_ns": 24778333,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 32248000,
+        "wall_ns": 32248500,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 33253000,
+        "wall_ns": 33253584,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 24141000,
+        "wall_ns": 24142500,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 20137000,
+        "wall_ns": 20138042,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15976000,
+        "wall_ns": 15979333,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 13556000,
+        "wall_ns": 13557541,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 19806000,
+        "wall_ns": 19805792,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 19949000,
+        "wall_ns": 19950333,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 13263000,
+        "wall_ns": 13262792,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 13161000,
+        "wall_ns": 13161417,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 20041000,
+        "wall_ns": 20042000,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 20439000,
+        "wall_ns": 20439917,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 12968000,
+        "wall_ns": 12969125,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 13123000,
+        "wall_ns": 13123542,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 20396000,
+        "wall_ns": 20395375,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 26131000,
+        "wall_ns": 26132042,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 20847000,
+        "wall_ns": 20848125,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 27759000,
+        "wall_ns": 27758458,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 26172000,
+        "wall_ns": 26200583,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25458000,
+        "wall_ns": 25458583,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21129000,
+        "wall_ns": 21147042,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 26476000,
+        "wall_ns": 26476708,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25970000,
+        "wall_ns": 25971167,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25263000,
+        "wall_ns": 25263834,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 20694000,
+        "wall_ns": 20694083,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21513000,
+        "wall_ns": 21513667,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25789000,
+        "wall_ns": 25789958,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21719000,
+        "wall_ns": 21719209,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15364000,
+        "wall_ns": 15363833,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15541000,
+        "wall_ns": 15541834,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21631000,
+        "wall_ns": 21632208,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 22164000,
+        "wall_ns": 22164500,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15193000,
+        "wall_ns": 15192459,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15533000,
+        "wall_ns": 15533709,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21527000,
+        "wall_ns": 21527250,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21504000,
+        "wall_ns": 21503250,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15788000,
+        "wall_ns": 15788916,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15753000,
+        "wall_ns": 15753375,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "cpu",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-cpu/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21724000,
+        "wall_ns": 21724750,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 23476000,
+        "wall_ns": 23476875,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 17355000,
+        "wall_ns": 17356041,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 17379000,
+        "wall_ns": 17378834,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 23433000,
+        "wall_ns": 23432333,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 19912000,
+        "wall_ns": 19912792,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 13060000,
+        "wall_ns": 13060458,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 13426000,
+        "wall_ns": 13426167,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 20267000,
+        "wall_ns": 20267958,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25890000,
+        "wall_ns": 25890208,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 19075000,
+        "wall_ns": 19075250,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 19206000,
+        "wall_ns": 19206458,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25639000,
+        "wall_ns": 25639500,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 2097152
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21995000,
+        "wall_ns": 21994875,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15317000,
+        "wall_ns": 15317500,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15170000,
+        "wall_ns": 15169834,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 1,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "1",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21708000,
+        "wall_ns": 21708208,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 24312000,
+        "wall_ns": 24311917,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 34156000,
+        "wall_ns": 34155750,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 26859000,
+        "wall_ns": 26873000,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 23931000,
+        "wall_ns": 23931292,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 19904000,
+        "wall_ns": 19904584,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15100000,
+        "wall_ns": 15100708,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 13163000,
+        "wall_ns": 13163916,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "direct",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "direct",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 20022000,
+        "wall_ns": 20022167,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25512000,
+        "wall_ns": 25512917,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 20679000,
+        "wall_ns": 20679334,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 20798000,
+        "wall_ns": 20798875,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "hit",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "hit"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 25598000,
+        "wall_ns": 25598833,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 68157440
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21397000,
+        "wall_ns": 21397750,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15319000,
+        "wall_ns": 15319916,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "owned",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "owned",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 15594000,
+        "wall_ns": 15593709,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    },
+    {
+      "instrumentation": "alloc",
+      "live": 64,
+      "boundary": "ffi",
+      "outcome": "miss",
+      "variant": "raw",
+      "command": [
+        "/Volumes/home_tmp/tmp/gpui-owned-editors-probe-alloc/release/gpui-owned-editors-probe",
+        "raw",
+        "64",
+        "ffi",
+        "miss"
+      ],
+      "status": 0,
+      "measurement": {
+        "iterations": 2097152,
+        "cpu_ns": 21599000,
+        "wall_ns": 21599000,
+        "allocations": 0,
+        "allocated_bytes": 0,
+        "checksum": 0
+      }
+    }
+  ],
+  "limitations": [
+    "Synthetic single-thread lookup; no native window callbacks, thread gating, rendering or energy measured.",
+    "CPU uses allocator-disabled binary; allocation counts use separate instrumented binary.",
+    "No task-owned builds or other benchmarks run during capture; thermal state and machine scheduling uncontrolled.",
+    "Setup, teardown and result validation are outside the measured interval. Clock calls are inside allocation interval.",
+    "Both variants load their keys from equally sized vectors; separately seeded standard HashMaps across subprocesses remain a source of variation."
+  ],
+  "production_source_sha256": {
+    "crates/gpui-foreign-parent/src/owned_registry.rs": "6aaf16f2ea51ff8a6385fbc2d2ce079faab9cedf5409293a10db6984e0db9e85",
+    "crates/gpui-foreign-parent/src/ffi.rs": "d410508ac8e3d1a710d9ff8572cd875cfadf41aa4011e1da87790b18bb7917c9",
+    "crates/gpui-foreign-parent/src/lib.rs": "2d4e31d16a77ac517841ad457275c226d6a377d7370544f804d4bd1498a141ae",
+    "crates/gpui-foreign-parent/src/registry.rs": "1147adcd59fe0904bf3da4e77f809e0b7ef64f42344ae0820fef7e1e05a103f7",
+    "crates/gpui-foreign-parent/src/sync.rs": "7d0dcc75628a756e0f22951a9f4ba8068b20fd4335085f98a1bb4b73c3020c61",
+    "crates/gpui-foreign-parent/src/throttle.rs": "dfe7e3c21886d0cd34d0f50369d4f4f74af92a6b4a518914bbe983410223d48f",
+    "crates/gpui-win-foreign/src/foreign_parent.rs": "13edfa6ceac16d86da175f7d7f2dd4ef5220d36d13cfd6bd89a0663dd355d4da",
+    "crates/gpui-win-foreign/src/policy.rs": "de60d4e412149053d1876493e870eb8682c799e29f117af74f78c023d619e67d",
+    "Cargo.lock": "381e80d27ce33e86079c74f9595dd7ebeaad86f5203538ec4338138785b4ac67",
+    "audit-20261018.md": "ef3e12b410650383904cd277351fb6f8e6ad46550a7f40513950e69ff4aee702"
+  }
+}

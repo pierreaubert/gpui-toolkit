@@ -4,7 +4,32 @@
 //! rejected or treated as queries, strings are validated, and state
 //! transfer is two-phase (query size with a null buffer, then fill).
 
+// Rust guideline compliant 2026-02-21
+
 use std::ffi::{CStr, c_char};
+
+/// Contains unwinding panics and returns a primitive ABI fallback.
+///
+/// Bindings must also validate raw memory contracts and poison affected editor
+/// state. Abort-mode panics and process faults cannot be recovered. Standard
+/// string payloads are dropped; unknown payloads are deliberately leaked because
+/// their destructors could panic again across the ABI. No panic hook is changed.
+/// Copy results cannot run a user destructor when choosing the fallback.
+pub fn ffi_boundary<R: Copy>(fallback: R, callback: impl FnOnce() -> R) -> R {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback)) {
+        Ok(value) => value,
+        Err(payload) => {
+            let Err(payload) = payload.downcast::<&'static str>() else {
+                return fallback;
+            };
+            let Err(payload) = payload.downcast::<String>() else {
+                return fallback;
+            };
+            std::mem::forget(payload);
+            fallback
+        }
+    }
+}
 
 /// Copy a NUL-terminated C string; `None` for null or invalid UTF-8.
 ///
@@ -67,6 +92,71 @@ pub unsafe fn fill_out_buffer(
 mod tests {
     use super::*;
     use std::ffi::CString;
+
+    #[test]
+    fn boundary_preserves_success_and_contains_string_panics() {
+        assert_eq!(ffi_boundary(0, || 42), 42);
+        assert_eq!(ffi_boundary(0, || panic!("callback panic")), 0);
+        assert_eq!(
+            ffi_boundary(0, || std::panic::panic_any(String::from("owned panic"))),
+            0
+        );
+    }
+
+    #[test]
+    fn boundary_contains_capture_destructor_panics() {
+        struct Capture;
+        impl Drop for Capture {
+            fn drop(&mut self) {
+                panic!("capture destructor");
+            }
+        }
+        let capture = Capture;
+        assert_eq!(
+            ffi_boundary(0, move || {
+                drop(capture);
+                42
+            }),
+            0
+        );
+    }
+
+    #[test]
+    fn boundary_and_registry_poison_failed_callbacks() {
+        let registry = crate::OwnedEditorRegistry::new();
+        let handle = registry.insert(7).unwrap();
+        ffi_boundary((), || {
+            registry.with::<()>(handle, |_| panic!("editor callback"));
+        });
+        assert!(registry.is_empty());
+        assert!(registry.with(handle, |v| *v).is_none());
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "intentional unknown-payload quarantine; run separately with -Zmiri-ignore-leaks"
+    )]
+    fn boundary_never_runs_unknown_panic_payload_destructor() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        struct Payload(Arc<AtomicBool>);
+        impl Drop for Payload {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Relaxed);
+                panic!("payload destructor");
+            }
+        }
+        let dropped = Arc::new(AtomicBool::new(false));
+        let copy = dropped.clone();
+        assert_eq!(
+            ffi_boundary(0, move || std::panic::panic_any(Payload(copy))),
+            0
+        );
+        assert!(!dropped.load(Ordering::Relaxed));
+    }
 
     #[test]
     fn null_c_string_is_none() {
