@@ -203,7 +203,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     let times: Vec<f64> = (0..12).map(|i| 5.0 * f64::from(i) / 11.0).collect();
     let series = TimeSeries::new(steps, times)?;
-    let player = Player::new(series);
+    let player = Player::new(series)?;
     let frames = player.movie_frames(
         |ds| {
             Scene::new().with_actor(

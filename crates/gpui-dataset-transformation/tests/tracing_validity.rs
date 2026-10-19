@@ -226,7 +226,7 @@ fn normalized_paths_and_temporal_blends_survive_extreme_units() {
     series.times = vec![-f64::MAX, f64::MAX];
     series.steps[1].point_data[0].data =
         gpui_mesh::FieldData::Vector(vec![[2.0 / f64::MAX, 0.0, 0.0]; 8].into());
-    assert_eq!(series.locate(0.0), (0, 1, 0.5));
+    assert_eq!(series.locate(0.0).unwrap(), (0, 1, 0.5));
     let frames = particle_frames(
         &series,
         "v",
@@ -323,4 +323,33 @@ fn trace_entry_points_reject_nonfinite_options_seeds_and_mutated_series() {
     ftle(&malformed, "v", 0.0, 0.1, 0.01, 2).unwrap_err();
     malformed.validate().unwrap_err();
     TimeSeries::new(malformed.steps, malformed.times).unwrap_err();
+}
+
+#[test]
+fn temporal_velocity_sampling_rejects_inconsistent_units() {
+    let mut series = changing_series();
+    series.steps[0].point_data[0].unit = Some("m/s".into());
+    series.steps[1].point_data[0].unit = Some("cm/s".into());
+    particle_frames(
+        &series,
+        "v",
+        &[[1.0; 3]],
+        ParticleOptions {
+            frames: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    streak_frames(
+        &series,
+        "v",
+        &[[1.0; 3]],
+        StreakOptions {
+            dt: 0.1,
+            frames: 1,
+            release_every: 1,
+        },
+    )
+    .unwrap_err();
+    ftle(&series, "v", 0.0, 0.1, 0.01, 2).unwrap_err();
 }

@@ -1,0 +1,8037 @@
+{
+  "kind": "bounded time sampling and playback host diagnostic; no mobile/energy acceptance claim",
+  "captured_utc": "2026-10-19T01:02:51.216429+00:00",
+  "baseline_commit": "08e8dd02",
+  "candidate": "immutable time-sampling plans identified by source_sha256",
+  "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "features": {
+    "baseline": [],
+    "candidate": [
+      "retained (enables prepared API paths)"
+    ],
+    "allocations": "separate feature enables global allocator instrumentation"
+  },
+  "methodology": "Identical release probe source at 16/32/48 cubed grids, two time states, midpoint sampling. Four allocator-disabled processes/version, ABBA twice; one warmup/five samples per case and separate allocation builds. Numeric outputs, schema validity and geometry are checked outside timing; output destruction excluded. Mesh cold/retained cases use all four field shapes in both point and cell data. Fixed case changes only point pressure; deformed also changes positions; dense changes every field. Player cases use a separate two-point-field scalar/vector fixture with no cell fields so both versions perform the same semantic work (baseline player cannot interpolate tensor/complex/cell fields). Candidate cold sample validates selected datasets and constructs a pair plan on every call; baseline skips that validation. Candidate retained sampling prepares outside timing and compares to the only prior public mesh sampling API. Both player constructors are outside timing. Immutable prepared plans add setup/metadata storage; this fixture is not a total aggregate-memory budget gate. Shared host without controlled affinity/thermal/energy, no peak RSS/full-frame/device claim. Separate candidate preparation rows time validation, schema/mask matching, equality checks and ordinary-range interpolation certification. Input metadata is cloned before timing (numeric arrays remain shared), correctness checks and destruction occur after timing. The ordinary-range kernel anchors to the nearer endpoint; extreme/subnormal inputs use a scaled convex fallback.",
+  "probe_source": "use gpui_mesh::{Association,DataSet,Field,FieldData,TimeSeries};\nuse gpui_profiler::AllocProbe;\nuse gpui_scene3d::Player;\nuse std::{hint::black_box,time::Instant};\n\nfn fixture(n:usize,mode:&str,simple:bool)->TimeSeries {\n    let dataset=DataSet::structured_grid(\"time\",[n;3],[0.0;3],[0.5;3]).unwrap();\n    let points=dataset.point_count();let cells=dataset.cell_count();\n    let mut a=dataset.with_field(Field::scalar(\"p\",vec![1.25;points])).with_field(Field::vector(\"v\",vec![[1.25;3];points]));\n    if !simple {\n        a=a.with_field(Field::tensor(\"t\",vec![[1.25;6];points])).with_field(Field::complex(\"c\",vec![[1.25;2];points]));\n        for shape in [1,3,6,2] {\n            a=a.with_field(match shape {1=>Field::scalar(\"s\",vec![1.25;cells]).on_cells(),3=>Field::vector(\"v\",vec![[1.25;3];cells]).on_cells(),6=>Field::tensor(\"t\",vec![[1.25;6];cells]).on_cells(),_=>Field::complex(\"c\",vec![[1.25;2];cells]).on_cells()});\n        }\n    }\n    let mut b=a.clone();\n    b.point_data[0].data=FieldData::Scalar(vec![1.75;points].into());\n    if mode!=\"fixed\" {b.positions=a.positions.iter().map(|p|[p[0],p[1],p[2]+0.25]).collect::<Vec<_>>().into();}\n    if mode==\"dense\" {\n        for field in &mut b.point_data[1..] {\n            field.data=match field.data {FieldData::Vector(_)=>FieldData::Vector(vec![[1.75;3];points].into()),FieldData::Tensor(_)=>FieldData::Tensor(vec![[1.75;6];points].into()),FieldData::Complex(_)=>FieldData::Complex(vec![[1.75;2];points].into()),_=>unreachable!()};\n        }\n        for field in &mut b.cell_data {\n            field.data=match field.data {FieldData::Scalar(_)=>FieldData::Scalar(vec![1.75;cells].into()),FieldData::Vector(_)=>FieldData::Vector(vec![[1.75;3];cells].into()),FieldData::Tensor(_)=>FieldData::Tensor(vec![[1.75;6];cells].into()),FieldData::Complex(_)=>FieldData::Complex(vec![[1.75;2];cells].into())};\n        }\n    }\n    TimeSeries::new(vec![a,b],vec![0.0,1.0]).unwrap()\n}\n\nfn check(output:&DataSet,mode:&str) {\n    output.validate().unwrap();\n    assert_eq!(output.positions[0],[0.0,0.0,if mode==\"fixed\" {0.0} else {0.125}]);\n    for field in &output.point_data {\n        let expected=if field.name.as_ref()==\"p\" || mode==\"dense\" {1.5} else {1.25};\n        match &field.data {\n            FieldData::Scalar(v)=>assert!(v.iter().all(|x|*x==expected)),\n            FieldData::Vector(v)=>assert!(v.iter().flatten().all(|x|*x==expected)),\n            FieldData::Tensor(v)=>assert!(v.iter().flatten().all(|x|*x==expected)),\n            FieldData::Complex(v)=>assert!(v.iter().flatten().all(|x|*x==expected)),\n        }\n    }\n    for field in &output.cell_data {\n        let expected=if mode==\"dense\" {1.5} else {1.25};\n        match &field.data {FieldData::Scalar(v)=>assert!(v.iter().all(|x|*x==expected)),FieldData::Vector(v)=>assert!(v.iter().flatten().all(|x|*x==expected)),FieldData::Tensor(v)=>assert!(v.iter().flatten().all(|x|*x==expected)),FieldData::Complex(v)=>assert!(v.iter().flatten().all(|x|*x==expected))}\n    }\n    assert!(output.field(Association::Point,\"p\").is_some());\n}\n\nfn measure(n:usize,mode:&str,case:&str,operation:impl Fn()->DataSet) {\n    let warm=black_box(operation());check(&warm,mode);drop(warm);\n    let mut times=Vec::with_capacity(5);let mut calls=Vec::with_capacity(5);let mut bytes=Vec::with_capacity(5);\n    for _ in 0..5 {\n        let mut probe=AllocProbe::new();let start=Instant::now();let output=black_box(operation());let elapsed=start.elapsed().as_nanos();let sample=probe.sample(\"time\");\n        times.push(elapsed);calls.push(sample.count);bytes.push(sample.bytes);check(&output,mode);drop(output);\n    }\n    println!(r#\"{{\"n\":{n},\"mode\":\"{mode}\",\"case\":\"{case}\",\"times_ns\":{times:?},\"allocation_calls\":{calls:?},\"allocated_bytes\":{bytes:?},\"allocator_instrumentation\":{}}}\"#,cfg!(feature=\"allocations\"));\n}\n\n#[cfg(feature=\"retained\")]\nfn measure_prepare(n:usize,mode:&str,series:&TimeSeries) {\n    let warm=black_box(series.clone().prepare().unwrap());check(&warm.sample(0.5).unwrap(),mode);drop(warm);\n    let mut times=Vec::with_capacity(5);let mut calls=Vec::with_capacity(5);let mut bytes=Vec::with_capacity(5);\n    for _ in 0..5 {\n        let input=series.clone(); // ownership input assembled outside the measurement\n        let mut probe=AllocProbe::new();let start=Instant::now();let prepared=black_box(input.prepare().unwrap());let elapsed=start.elapsed().as_nanos();let sample=probe.sample(\"prepare-time\");\n        times.push(elapsed);calls.push(sample.count);bytes.push(sample.bytes);check(&prepared.sample(0.5).unwrap(),mode);drop(prepared);\n    }\n    println!(r#\"{{\"n\":{n},\"mode\":\"{mode}\",\"case\":\"prepare\",\"times_ns\":{times:?},\"allocation_calls\":{calls:?},\"allocated_bytes\":{bytes:?},\"allocator_instrumentation\":{}}}\"#,cfg!(feature=\"allocations\"));\n}\n\nfn main() {\n    for n in [16usize,32,48] {for mode in [\"fixed\",\"deformed\",\"dense\"] {\n        let series=fixture(n,mode,false);\n        measure(n,mode,\"cold_sample\",||series.sample(0.5).unwrap());\n        #[cfg(feature=\"retained\")]\n        {measure_prepare(n,mode,&series);let prepared=series.clone().prepare().unwrap();measure(n,mode,\"retained_sample\",||prepared.sample(0.5).unwrap());}\n        let simple=fixture(n,mode,true);\n        #[cfg(feature=\"retained\")]\n        let mut player=Player::new(simple).unwrap();\n        #[cfg(not(feature=\"retained\"))]\n        let mut player=Player::new(simple);\n        #[cfg(feature=\"retained\")]\n        player.seek(0.5).unwrap();\n        #[cfg(not(feature=\"retained\"))]\n        player.seek(0.5);\n        #[cfg(feature=\"retained\")]\n        measure(n,mode,\"player_current\",||player.current().unwrap());\n        #[cfg(not(feature=\"retained\"))]\n        measure(n,mode,\"player_current\",||player.current());\n    }}\n}\n",
+  "source_sha256": {
+    "baseline": {
+      "crates/gpui-mesh/src/time_series.rs": "d6b76a506f08faf85e596de251362a61bd683efa29ed03487c747ba9acbacc62",
+      "crates/gpui-mesh/src/dataset.rs": "165eef343967572d16a0d0cb9d61b61baa5dff722ef28386d31507525ffb83b6",
+      "crates/gpui-mesh/src/field.rs": "14dea11a921445b33fd34284d3cb739be930c67123e7d7622d706b6dd6009a48",
+      "crates/gpui-scene3d/src/animate.rs": "ca6d448f13e2047982dc5419a196789be4ebaec68428f62fc1788d4b85feca36",
+      "Cargo.lock": "381e80d27ce33e86079c74f9595dd7ebeaad86f5203538ec4338138785b4ac67"
+    },
+    "candidate": {
+      "crates/gpui-mesh/src/time_series.rs": "23edbcb72bb78aeb6c768b121c3d36682e6db8ab5dd8bf81ce73d5621f1d537f",
+      "crates/gpui-mesh/src/dataset.rs": "165eef343967572d16a0d0cb9d61b61baa5dff722ef28386d31507525ffb83b6",
+      "crates/gpui-mesh/src/field.rs": "14dea11a921445b33fd34284d3cb739be930c67123e7d7622d706b6dd6009a48",
+      "crates/gpui-scene3d/src/animate.rs": "f5721d150e2c264007087d62823b18980523d7a3afb473eee54450ed32407f04",
+      "Cargo.lock": "381e80d27ce33e86079c74f9595dd7ebeaad86f5203538ec4338138785b4ac67"
+    }
+  },
+  "summary": [
+    {
+      "n": 16,
+      "mode": "fixed",
+      "baseline_case": "cold_sample",
+      "candidate_case": "cold_sample",
+      "median_ns": {
+        "baseline": 32812.5,
+        "candidate": 62500.0
+      },
+      "time_ratio": 1.9047619047619047,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 1631952
+        },
+        "candidate": {
+          "allocation_calls": 8,
+          "allocated_bytes": 66576
+        }
+      }
+    },
+    {
+      "n": 16,
+      "mode": "fixed",
+      "baseline_case": "cold_sample",
+      "candidate_case": "retained_sample",
+      "median_ns": {
+        "baseline": 32812.5,
+        "candidate": 1729.0
+      },
+      "time_ratio": 0.052693333333333335,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 1631952
+        },
+        "candidate": {
+          "allocation_calls": 4,
+          "allocated_bytes": 66320
+        }
+      }
+    },
+    {
+      "n": 16,
+      "mode": "fixed",
+      "baseline_case": "player_current",
+      "candidate_case": "player_current",
+      "median_ns": {
+        "baseline": 9979.5,
+        "candidate": 1646.0
+      },
+      "time_ratio": 0.16493812315246253,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 458992
+        },
+        "candidate": {
+          "allocation_calls": 3,
+          "allocated_bytes": 65936
+        }
+      }
+    },
+    {
+      "n": 16,
+      "mode": "deformed",
+      "baseline_case": "cold_sample",
+      "candidate_case": "cold_sample",
+      "median_ns": {
+        "baseline": 32500.0,
+        "candidate": 75354.0
+      },
+      "time_ratio": 2.3185846153846152,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 1631952
+        },
+        "candidate": {
+          "allocation_calls": 10,
+          "allocated_bytes": 263200
+        }
+      }
+    },
+    {
+      "n": 16,
+      "mode": "deformed",
+      "baseline_case": "cold_sample",
+      "candidate_case": "retained_sample",
+      "median_ns": {
+        "baseline": 32500.0,
+        "candidate": 6291.5
+      },
+      "time_ratio": 0.19358461538461538,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 1631952
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 262944
+        }
+      }
+    },
+    {
+      "n": 16,
+      "mode": "deformed",
+      "baseline_case": "player_current",
+      "candidate_case": "player_current",
+      "median_ns": {
+        "baseline": 10333.5,
+        "candidate": 6062.5
+      },
+      "time_ratio": 0.5866840857405525,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 458992
+        },
+        "candidate": {
+          "allocation_calls": 5,
+          "allocated_bytes": 262560
+        }
+      }
+    },
+    {
+      "n": 16,
+      "mode": "dense",
+      "baseline_case": "cold_sample",
+      "candidate_case": "cold_sample",
+      "median_ns": {
+        "baseline": 37083.5,
+        "candidate": 172208.0
+      },
+      "time_ratio": 4.643790364987123,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 1631952
+        },
+        "candidate": {
+          "allocation_calls": 24,
+          "allocated_bytes": 1632208
+        }
+      }
+    },
+    {
+      "n": 16,
+      "mode": "dense",
+      "baseline_case": "cold_sample",
+      "candidate_case": "retained_sample",
+      "median_ns": {
+        "baseline": 37083.5,
+        "candidate": 37125.0
+      },
+      "time_ratio": 1.0011190960939502,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 1631952
+        },
+        "candidate": {
+          "allocation_calls": 20,
+          "allocated_bytes": 1631952
+        }
+      }
+    },
+    {
+      "n": 16,
+      "mode": "dense",
+      "baseline_case": "player_current",
+      "candidate_case": "player_current",
+      "median_ns": {
+        "baseline": 10125.0,
+        "candidate": 10562.5
+      },
+      "time_ratio": 1.0432098765432098,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 458992
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 459184
+        }
+      }
+    },
+    {
+      "n": 32,
+      "mode": "fixed",
+      "baseline_case": "cold_sample",
+      "candidate_case": "cold_sample",
+      "median_ns": {
+        "baseline": 244375.5,
+        "candidate": 499395.5
+      },
+      "time_ratio": 2.043557967144824,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 13585104
+        },
+        "candidate": {
+          "allocation_calls": 8,
+          "allocated_bytes": 525328
+        }
+      }
+    },
+    {
+      "n": 32,
+      "mode": "fixed",
+      "baseline_case": "cold_sample",
+      "candidate_case": "retained_sample",
+      "median_ns": {
+        "baseline": 244375.5,
+        "candidate": 11520.5
+      },
+      "time_ratio": 0.04714261454196513,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 13585104
+        },
+        "candidate": {
+          "allocation_calls": 4,
+          "allocated_bytes": 525072
+        }
+      }
+    },
+    {
+      "n": 32,
+      "mode": "fixed",
+      "baseline_case": "player_current",
+      "candidate_case": "player_current",
+      "median_ns": {
+        "baseline": 75167.0,
+        "candidate": 11375.0
+      },
+      "time_ratio": 0.15132970585496294,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 3670256
+        },
+        "candidate": {
+          "allocation_calls": 3,
+          "allocated_bytes": 524688
+        }
+      }
+    },
+    {
+      "n": 32,
+      "mode": "deformed",
+      "baseline_case": "cold_sample",
+      "candidate_case": "cold_sample",
+      "median_ns": {
+        "baseline": 244625.0,
+        "candidate": 602541.0
+      },
+      "time_ratio": 2.463121103730199,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 13585104
+        },
+        "candidate": {
+          "allocation_calls": 10,
+          "allocated_bytes": 2098208
+        }
+      }
+    },
+    {
+      "n": 32,
+      "mode": "deformed",
+      "baseline_case": "cold_sample",
+      "candidate_case": "retained_sample",
+      "median_ns": {
+        "baseline": 244625.0,
+        "candidate": 44583.5
+      },
+      "time_ratio": 0.18225242718446602,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 13585104
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 2097952
+        }
+      }
+    },
+    {
+      "n": 32,
+      "mode": "deformed",
+      "baseline_case": "player_current",
+      "candidate_case": "player_current",
+      "median_ns": {
+        "baseline": 76604.0,
+        "candidate": 44437.5
+      },
+      "time_ratio": 0.5800937287870085,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 3670256
+        },
+        "candidate": {
+          "allocation_calls": 5,
+          "allocated_bytes": 2097568
+        }
+      }
+    },
+    {
+      "n": 32,
+      "mode": "dense",
+      "baseline_case": "cold_sample",
+      "candidate_case": "cold_sample",
+      "median_ns": {
+        "baseline": 289833.0,
+        "candidate": 1437354.5
+      },
+      "time_ratio": 4.959250671938668,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 13585104
+        },
+        "candidate": {
+          "allocation_calls": 24,
+          "allocated_bytes": 13585360
+        }
+      }
+    },
+    {
+      "n": 32,
+      "mode": "dense",
+      "baseline_case": "cold_sample",
+      "candidate_case": "retained_sample",
+      "median_ns": {
+        "baseline": 289833.0,
+        "candidate": 291437.5
+      },
+      "time_ratio": 1.0055359465623308,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 13585104
+        },
+        "candidate": {
+          "allocation_calls": 20,
+          "allocated_bytes": 13585104
+        }
+      }
+    },
+    {
+      "n": 32,
+      "mode": "dense",
+      "baseline_case": "player_current",
+      "candidate_case": "player_current",
+      "median_ns": {
+        "baseline": 75937.0,
+        "candidate": 78375.5
+      },
+      "time_ratio": 1.0321121455943743,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 3670256
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 3670448
+        }
+      }
+    },
+    {
+      "n": 48,
+      "mode": "fixed",
+      "baseline_case": "cold_sample",
+      "candidate_case": "cold_sample",
+      "median_ns": {
+        "baseline": 813646.0,
+        "candidate": 1711416.5
+      },
+      "time_ratio": 2.1033920156923283,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 46477008
+        },
+        "candidate": {
+          "allocation_calls": 8,
+          "allocated_bytes": 1770512
+        }
+      }
+    },
+    {
+      "n": 48,
+      "mode": "fixed",
+      "baseline_case": "cold_sample",
+      "candidate_case": "retained_sample",
+      "median_ns": {
+        "baseline": 813646.0,
+        "candidate": 39854.5
+      },
+      "time_ratio": 0.0489826042283745,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 46477008
+        },
+        "candidate": {
+          "allocation_calls": 4,
+          "allocated_bytes": 1770256
+        }
+      }
+    },
+    {
+      "n": 48,
+      "mode": "fixed",
+      "baseline_case": "player_current",
+      "candidate_case": "player_current",
+      "median_ns": {
+        "baseline": 239229.0,
+        "candidate": 38125.5
+      },
+      "time_ratio": 0.1593682204080609,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 12386544
+        },
+        "candidate": {
+          "allocation_calls": 3,
+          "allocated_bytes": 1769872
+        }
+      }
+    },
+    {
+      "n": 48,
+      "mode": "deformed",
+      "baseline_case": "cold_sample",
+      "candidate_case": "cold_sample",
+      "median_ns": {
+        "baseline": 825145.5,
+        "candidate": 2102250.0
+      },
+      "time_ratio": 2.5477324908152563,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 46477008
+        },
+        "candidate": {
+          "allocation_calls": 10,
+          "allocated_bytes": 7078944
+        }
+      }
+    },
+    {
+      "n": 48,
+      "mode": "deformed",
+      "baseline_case": "cold_sample",
+      "candidate_case": "retained_sample",
+      "median_ns": {
+        "baseline": 825145.5,
+        "candidate": 172812.5
+      },
+      "time_ratio": 0.2094327606464557,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 46477008
+        },
+        "candidate": {
+          "allocation_calls": 6,
+          "allocated_bytes": 7078688
+        }
+      }
+    },
+    {
+      "n": 48,
+      "mode": "deformed",
+      "baseline_case": "player_current",
+      "candidate_case": "player_current",
+      "median_ns": {
+        "baseline": 243063.0,
+        "candidate": 150999.5
+      },
+      "time_ratio": 0.6212360581413049,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 12386544
+        },
+        "candidate": {
+          "allocation_calls": 5,
+          "allocated_bytes": 7078304
+        }
+      }
+    },
+    {
+      "n": 48,
+      "mode": "dense",
+      "baseline_case": "cold_sample",
+      "candidate_case": "cold_sample",
+      "median_ns": {
+        "baseline": 992333.0,
+        "candidate": 4852645.5
+      },
+      "time_ratio": 4.890138189498888,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 46477008
+        },
+        "candidate": {
+          "allocation_calls": 24,
+          "allocated_bytes": 46477264
+        }
+      }
+    },
+    {
+      "n": 48,
+      "mode": "dense",
+      "baseline_case": "cold_sample",
+      "candidate_case": "retained_sample",
+      "median_ns": {
+        "baseline": 992333.0,
+        "candidate": 990396.0
+      },
+      "time_ratio": 0.9980480342788157,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 20,
+          "allocated_bytes": 46477008
+        },
+        "candidate": {
+          "allocation_calls": 20,
+          "allocated_bytes": 46477008
+        }
+      }
+    },
+    {
+      "n": 48,
+      "mode": "dense",
+      "baseline_case": "player_current",
+      "candidate_case": "player_current",
+      "median_ns": {
+        "baseline": 259271.0,
+        "candidate": 265333.0
+      },
+      "time_ratio": 1.0233809411773782,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 12386544
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 12386736
+        }
+      }
+    }
+  ],
+  "runs": [
+    {
+      "variant": "baseline",
+      "build": "timing",
+      "records": [
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            87709,
+            92542,
+            87667,
+            91625,
+            87542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            23667,
+            24167,
+            23625,
+            23500,
+            23084
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            87000,
+            87250,
+            86250,
+            86666,
+            86500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            25542,
+            25208,
+            28583,
+            24250,
+            24500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            96708,
+            96334,
+            95875,
+            96166,
+            96875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            25291,
+            25334,
+            25208,
+            25333,
+            25584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            900334,
+            675875,
+            355167,
+            243750,
+            243875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            72209,
+            69375,
+            71542,
+            71042,
+            68500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            297667,
+            247584,
+            241833,
+            244750,
+            244458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            72792,
+            74250,
+            75792,
+            72417,
+            75458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            354458,
+            286666,
+            286375,
+            294584,
+            293666
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            76625,
+            76459,
+            76250,
+            76291,
+            76084
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            851625,
+            829375,
+            811000,
+            815792,
+            793541
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            231417,
+            244584,
+            240458,
+            238917,
+            233666
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            828375,
+            843458,
+            804834,
+            826083,
+            808500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            238500,
+            235541,
+            235292,
+            241125,
+            235625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            1111208,
+            1031500,
+            1021458,
+            1061833,
+            1017791
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            279792,
+            256125,
+            259667,
+            259250,
+            268792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "timing",
+      "records": [
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            59208,
+            58875,
+            58917,
+            61750,
+            58875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            57791,
+            57709,
+            57708,
+            57542,
+            57500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            1833,
+            1750,
+            1750,
+            1792,
+            1708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            1667,
+            1666,
+            1667,
+            1708,
+            2292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            74583,
+            74750,
+            73458,
+            73084,
+            79125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            67875,
+            66958,
+            67291,
+            67250,
+            66958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            6333,
+            6459,
+            6333,
+            6417,
+            6458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            6333,
+            6125,
+            6041,
+            6125,
+            6041
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            173333,
+            172333,
+            182042,
+            172292,
+            172333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            135167,
+            134166,
+            134125,
+            138708,
+            134084
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            38292,
+            38083,
+            38000,
+            38042,
+            37958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            10791,
+            10750,
+            13334,
+            10834,
+            10792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            485917,
+            490583,
+            487750,
+            503417,
+            508750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            506167,
+            487833,
+            496166,
+            492083,
+            494208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            11833,
+            11708,
+            11792,
+            11750,
+            11875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            11667,
+            11667,
+            11667,
+            11709,
+            11667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            614083,
+            606791,
+            606916,
+            611875,
+            606166
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            556000,
+            548250,
+            549166,
+            546583,
+            547750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            44917,
+            44667,
+            44917,
+            44541,
+            47500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            43459,
+            46791,
+            44000,
+            52375,
+            45292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            1503334,
+            1434792,
+            1493083,
+            1452709,
+            1420250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            1123334,
+            1158333,
+            1128834,
+            1126084,
+            1126875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            306125,
+            291375,
+            298333,
+            295917,
+            292041
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            79042,
+            79292,
+            84250,
+            78875,
+            80917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            1719500,
+            1714334,
+            1719750,
+            1718959,
+            1720792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            1723125,
+            1680833,
+            1678000,
+            1692500,
+            1709458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            39917,
+            39583,
+            39167,
+            38792,
+            38792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            38625,
+            38000,
+            38042,
+            38666,
+            37958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            2088167,
+            2059583,
+            2042875,
+            2057333,
+            2056334
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            1933875,
+            1873958,
+            1889708,
+            1886792,
+            1964583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            166542,
+            166834,
+            168458,
+            168417,
+            168292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            154958,
+            147459,
+            147250,
+            148292,
+            147833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            4787958,
+            4844458,
+            4844375,
+            4866959,
+            4792417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            3771375,
+            3765250,
+            3833917,
+            3839458,
+            3782792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            971166,
+            946292,
+            960500,
+            968583,
+            949917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            261417,
+            258209,
+            260750,
+            260833,
+            263500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "timing",
+      "records": [
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            60500,
+            60208,
+            61291,
+            60375,
+            60250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            59500,
+            59042,
+            58458,
+            57375,
+            59125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            1708,
+            1625,
+            1750,
+            1584,
+            1625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            1625,
+            1583,
+            1583,
+            2000,
+            1625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            74417,
+            71084,
+            71167,
+            74000,
+            75416
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            65708,
+            66166,
+            67958,
+            64666,
+            65000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            6083,
+            6166,
+            6167,
+            6041,
+            7667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            6000,
+            5958,
+            5917,
+            6209,
+            6917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            174166,
+            168333,
+            168167,
+            170125,
+            168125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            129208,
+            132000,
+            132125,
+            131833,
+            133167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            35875,
+            38875,
+            36208,
+            38917,
+            35833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            12333,
+            10459,
+            10458,
+            10291,
+            10458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            494458,
+            491625,
+            493334,
+            491042,
+            492625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            479792,
+            478875,
+            476875,
+            476334,
+            476542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            11167,
+            12167,
+            11292,
+            11458,
+            11416
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            11917,
+            11416,
+            11125,
+            11042,
+            11125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            597917,
+            597334,
+            601375,
+            598250,
+            598166
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            551125,
+            564542,
+            566833,
+            567667,
+            567125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            45125,
+            45083,
+            43250,
+            44250,
+            43333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            43125,
+            47250,
+            43166,
+            42792,
+            43958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            1444917,
+            1383708,
+            1387208,
+            1386583,
+            1388083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            1099958,
+            1100292,
+            1100250,
+            1101708,
+            1101542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            295875,
+            290792,
+            290583,
+            296583,
+            290625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            75875,
+            80250,
+            76334,
+            78875,
+            76667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            1676042,
+            1674917,
+            1703333,
+            1707333,
+            1720375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            1671875,
+            1694959,
+            1797875,
+            1816000,
+            1791375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            42750,
+            42041,
+            44125,
+            42583,
+            43291
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            38209,
+            37917,
+            37917,
+            40500,
+            38250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            2210625,
+            2149792,
+            2143208,
+            2150709,
+            2144958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            2023417,
+            2003292,
+            1997958,
+            1964292,
+            2010750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            173416,
+            164625,
+            171417,
+            184458,
+            175625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            152208,
+            151916,
+            153041,
+            153500,
+            156250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            4986584,
+            4839375,
+            4751291,
+            4848083,
+            4826750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            3984167,
+            4107041,
+            3913750,
+            3826791,
+            3868459
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            995958,
+            988375,
+            984333,
+            999958,
+            1058042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            267166,
+            272625,
+            267833,
+            268250,
+            267708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "build": "timing",
+      "records": [
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            33083,
+            32666,
+            32625,
+            33959,
+            32584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            10167,
+            10125,
+            10209,
+            12834,
+            10125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            32875,
+            33083,
+            32875,
+            32667,
+            32791
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            10250,
+            10916,
+            10167,
+            10333,
+            10292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            37916,
+            37916,
+            37833,
+            37791,
+            37708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            10375,
+            10250,
+            10541,
+            10208,
+            10167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            288459,
+            245125,
+            246084,
+            256250,
+            246083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            82875,
+            89125,
+            74458,
+            74583,
+            78083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            250042,
+            249000,
+            249958,
+            249208,
+            256125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            75500,
+            78291,
+            78167,
+            75208,
+            78375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            375375,
+            294958,
+            294083,
+            292208,
+            293708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            84583,
+            76250,
+            81291,
+            75916,
+            76333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            837542,
+            832500,
+            822625,
+            841917,
+            825916
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            239833,
+            238833,
+            255917,
+            242708,
+            245292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            850125,
+            852500,
+            831250,
+            840625,
+            832083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            239583,
+            255834,
+            256541,
+            262958,
+            257709
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            981792,
+            964750,
+            976500,
+            976459,
+            962833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            259292,
+            271375,
+            252167,
+            259833,
+            253250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "build": "timing",
+      "records": [
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            31583,
+            33459,
+            32167,
+            32792,
+            31000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            9792,
+            9708,
+            11417,
+            10000,
+            9542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            31708,
+            31375,
+            31083,
+            31250,
+            31250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            10583,
+            9625,
+            10625,
+            10125,
+            10375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            36334,
+            36708,
+            36250,
+            35875,
+            36375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            9875,
+            10167,
+            9833,
+            11250,
+            10000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            286958,
+            242917,
+            238625,
+            240750,
+            241292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            72292,
+            74209,
+            79583,
+            70709,
+            77667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            242375,
+            240750,
+            245125,
+            241459,
+            242334
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            75750,
+            72833,
+            76792,
+            75041,
+            72375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            356666,
+            282333,
+            283334,
+            287125,
+            286000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            75583,
+            75875,
+            75416,
+            72666,
+            76291
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            811500,
+            819417,
+            809917,
+            826250,
+            799042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            240292,
+            236250,
+            241917,
+            238125,
+            238125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            806834,
+            824208,
+            839166,
+            835958,
+            817375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            249500,
+            241584,
+            247500,
+            240000,
+            243292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            968209,
+            1062666,
+            999500,
+            1036791,
+            951250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            250792,
+            252166,
+            261792,
+            243250,
+            244083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "timing",
+      "records": [
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            61667,
+            62375,
+            67792,
+            65500,
+            64625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            60959,
+            58458,
+            61625,
+            64292,
+            58459
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            1958,
+            1750,
+            1625,
+            1667,
+            2166
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            1708,
+            1625,
+            1667,
+            1625,
+            2250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            80625,
+            78958,
+            78125,
+            74167,
+            74166
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            68708,
+            67750,
+            71417,
+            67792,
+            67584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            5917,
+            6125,
+            6084,
+            6125,
+            6083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            5959,
+            6042,
+            5917,
+            5958,
+            5958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            170417,
+            168583,
+            172083,
+            178125,
+            172209
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            135000,
+            134833,
+            140542,
+            134792,
+            134333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            36042,
+            39125,
+            35958,
+            38875,
+            35916
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            12209,
+            10500,
+            10542,
+            10375,
+            10291
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            489916,
+            506166,
+            512625,
+            503500,
+            509084
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            502334,
+            477292,
+            481208,
+            479250,
+            478625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            11250,
+            11209,
+            11167,
+            13041,
+            11292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            12041,
+            11250,
+            11125,
+            11000,
+            11125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            595000,
+            593458,
+            599917,
+            596125,
+            595375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            551292,
+            552000,
+            551417,
+            551458,
+            554375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            46208,
+            44791,
+            44042,
+            44125,
+            43166
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            44375,
+            43000,
+            45750,
+            44083,
+            42875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            1557875,
+            1470250,
+            1477708,
+            1386125,
+            1388833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            1099125,
+            1106958,
+            1104042,
+            1102917,
+            1102458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            285959,
+            289250,
+            291541,
+            286291,
+            287292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            80916,
+            77459,
+            76625,
+            78334,
+            76459
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            1719917,
+            1685750,
+            1670584,
+            1676666,
+            1751833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            1622292,
+            1620958,
+            1634084,
+            1627791,
+            1673417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            47583,
+            37792,
+            37000,
+            38917,
+            41000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            39000,
+            35916,
+            37125,
+            39333,
+            36167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            2041792,
+            2040708,
+            2059625,
+            2182291,
+            2127375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            1932792,
+            1924750,
+            1927917,
+            1927875,
+            2004458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            171541,
+            172625,
+            177750,
+            173125,
+            171416
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            158416,
+            157833,
+            157875,
+            159334,
+            149041
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            5038666,
+            5029291,
+            4880959,
+            4937584,
+            5036000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            4116125,
+            4035417,
+            4097667,
+            3895500,
+            4188500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            1031792,
+            1010709,
+            1019250,
+            1012750,
+            992125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            285333,
+            274333,
+            284708,
+            278500,
+            262375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "timing",
+      "records": [
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            64625,
+            64458,
+            65542,
+            64500,
+            71292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            60208,
+            60208,
+            60375,
+            60250,
+            60125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            1708,
+            1792,
+            1708,
+            1709,
+            1708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            1625,
+            1583,
+            1584,
+            1667,
+            1666
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            77042,
+            76125,
+            77250,
+            75916,
+            75875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            70750,
+            69750,
+            69708,
+            69584,
+            69458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            6458,
+            7167,
+            6416,
+            6500,
+            6334
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            6375,
+            6333,
+            6292,
+            6250,
+            6250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            175166,
+            174000,
+            174042,
+            174000,
+            173958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            136583,
+            136625,
+            136625,
+            141708,
+            131458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            39042,
+            35708,
+            38875,
+            36709,
+            38917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            10625,
+            10583,
+            12167,
+            10708,
+            10375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            510084,
+            507084,
+            512750,
+            512333,
+            507250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            498583,
+            525417,
+            521875,
+            506000,
+            510500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            11625,
+            11084,
+            11292,
+            11750,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            11750,
+            11625,
+            11666,
+            11584,
+            11625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            630959,
+            625667,
+            629250,
+            631875,
+            621834
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            574500,
+            579834,
+            583375,
+            617500,
+            591042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            46416,
+            43959,
+            45875,
+            47625,
+            43958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            48333,
+            44667,
+            45042,
+            44625,
+            44792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            1489833,
+            1443125,
+            1422000,
+            1409708,
+            1409208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            1132833,
+            1133042,
+            1133541,
+            1134583,
+            1153958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            290792,
+            292083,
+            296000,
+            291875,
+            295750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            80708,
+            92334,
+            79125,
+            79083,
+            79791
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            1738875,
+            1759583,
+            1768666,
+            1741167,
+            1745125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            1717375,
+            1708500,
+            1702042,
+            1703458,
+            1704584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            42750,
+            40542,
+            39750,
+            40417,
+            40916
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            43125,
+            42250,
+            41709,
+            37916,
+            37541
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            2082917,
+            2162875,
+            2172750,
+            2144875,
+            2139083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            1946250,
+            1946042,
+            1958667,
+            1949000,
+            1977417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            173750,
+            166875,
+            167959,
+            173000,
+            176542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            157542,
+            149459,
+            148791,
+            148292,
+            148958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            4800083,
+            4927542,
+            4948333,
+            4824625,
+            4860916
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            3834875,
+            3947917,
+            3895792,
+            3875375,
+            3867458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            968625,
+            953042,
+            985041,
+            1021500,
+            984834
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            262458,
+            262833,
+            262209,
+            263459,
+            265166
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "build": "timing",
+      "records": [
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            32959,
+            34250,
+            30667,
+            35083,
+            31334
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            9792,
+            9583,
+            11209,
+            9709,
+            10083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            32125,
+            32375,
+            31125,
+            32583,
+            31167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            9833,
+            12291,
+            10000,
+            9833,
+            10000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            35958,
+            39042,
+            35792,
+            38875,
+            35833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            9792,
+            9708,
+            12084,
+            10250,
+            9875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            290708,
+            242208,
+            246833,
+            238708,
+            242667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            76416,
+            78459,
+            73667,
+            76125,
+            74708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            244000,
+            246500,
+            244500,
+            242167,
+            266958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            81417,
+            78666,
+            81250,
+            78333,
+            81333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            372000,
+            285750,
+            284750,
+            285208,
+            285167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            72834,
+            76250,
+            73875,
+            79125,
+            75500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            805292,
+            821708,
+            810250,
+            830375,
+            794875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            235792,
+            239834,
+            239541,
+            249833,
+            235292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            831416,
+            816084,
+            813917,
+            812875,
+            803042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            235583,
+            242834,
+            237792,
+            244833,
+            243250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            1003709,
+            985166,
+            954416,
+            994916,
+            969959
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            260959,
+            259250,
+            260833,
+            245333,
+            251958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "build": "allocations",
+      "records": [
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            32209,
+            32375,
+            32292,
+            34083,
+            34000
+          ],
+          "allocation_calls": [
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "allocated_bytes": [
+            1631952,
+            1631952,
+            1631952,
+            1631952,
+            1631952
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            9834,
+            9916,
+            9708,
+            9667,
+            9833
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            458992,
+            458992,
+            458992,
+            458992,
+            458992
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            32166,
+            31792,
+            32250,
+            31959,
+            32833
+          ],
+          "allocation_calls": [
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "allocated_bytes": [
+            1631952,
+            1631952,
+            1631952,
+            1631952,
+            1631952
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            9750,
+            9666,
+            9666,
+            10958,
+            11208
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            458992,
+            458992,
+            458992,
+            458992,
+            458992
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            39375,
+            36166,
+            39084,
+            36542,
+            37250
+          ],
+          "allocation_calls": [
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "allocated_bytes": [
+            1631952,
+            1631952,
+            1631952,
+            1631952,
+            1631952
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            11625,
+            10042,
+            10000,
+            9792,
+            9791
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            458992,
+            458992,
+            458992,
+            458992,
+            458992
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            285333,
+            244750,
+            242292,
+            240417,
+            241667
+          ],
+          "allocation_calls": [
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "allocated_bytes": [
+            13585104,
+            13585104,
+            13585104,
+            13585104,
+            13585104
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            74459,
+            71542,
+            76958,
+            72125,
+            73416
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            3670256,
+            3670256,
+            3670256,
+            3670256,
+            3670256
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            242792,
+            246250,
+            244625,
+            242291,
+            245292
+          ],
+          "allocation_calls": [
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "allocated_bytes": [
+            13585104,
+            13585104,
+            13585104,
+            13585104,
+            13585104
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            75250,
+            72416,
+            77000,
+            77958,
+            72042
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            3670256,
+            3670256,
+            3670256,
+            3670256,
+            3670256
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            349958,
+            291166,
+            281958,
+            287041,
+            286000
+          ],
+          "allocation_calls": [
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "allocated_bytes": [
+            13585104,
+            13585104,
+            13585104,
+            13585104,
+            13585104
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            77666,
+            74750,
+            74958,
+            76667,
+            76417
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            3670256,
+            3670256,
+            3670256,
+            3670256,
+            3670256
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            801833,
+            816459,
+            803833,
+            834375,
+            818375
+          ],
+          "allocation_calls": [
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "allocated_bytes": [
+            46477008,
+            46477008,
+            46477008,
+            46477008,
+            46477008
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            236667,
+            232834,
+            237333,
+            236459,
+            236125
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            12386544,
+            12386544,
+            12386544,
+            12386544,
+            12386544
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            810042,
+            822625,
+            831625,
+            831417,
+            825875
+          ],
+          "allocation_calls": [
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "allocated_bytes": [
+            46477008,
+            46477008,
+            46477008,
+            46477008,
+            46477008
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            240583,
+            234791,
+            237791,
+            237750,
+            237375
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            12386544,
+            12386544,
+            12386544,
+            12386544,
+            12386544
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            1072292,
+            1121291,
+            1036292,
+            988375,
+            958292
+          ],
+          "allocation_calls": [
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "allocated_bytes": [
+            46477008,
+            46477008,
+            46477008,
+            46477008,
+            46477008
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            242000,
+            241792,
+            240750,
+            246584,
+            240500
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            12386544,
+            12386544,
+            12386544,
+            12386544,
+            12386544
+          ],
+          "allocator_instrumentation": true
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "allocations",
+      "records": [
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            56958,
+            59875,
+            56625,
+            57833,
+            61333
+          ],
+          "allocation_calls": [
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "allocated_bytes": [
+            66576,
+            66576,
+            66576,
+            66576,
+            66576
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            55583,
+            55583,
+            58250,
+            55000,
+            55625
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            760,
+            760,
+            760,
+            760,
+            760
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            1666,
+            1667,
+            1625,
+            1666,
+            1708
+          ],
+          "allocation_calls": [
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "allocated_bytes": [
+            66320,
+            66320,
+            66320,
+            66320,
+            66320
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            1625,
+            1667,
+            1959,
+            1666,
+            1583
+          ],
+          "allocation_calls": [
+            3,
+            3,
+            3,
+            3,
+            3
+          ],
+          "allocated_bytes": [
+            65936,
+            65936,
+            65936,
+            65936,
+            65936
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            73750,
+            73625,
+            70333,
+            70458,
+            73667
+          ],
+          "allocation_calls": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "allocated_bytes": [
+            263200,
+            263200,
+            263200,
+            263200,
+            263200
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            65417,
+            64416,
+            67375,
+            66875,
+            64000
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            760,
+            760,
+            760,
+            760,
+            760
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            6084,
+            6333,
+            6125,
+            7667,
+            6459
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            262944,
+            262944,
+            262944,
+            262944,
+            262944
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            6000,
+            6125,
+            6042,
+            5917,
+            6292
+          ],
+          "allocation_calls": [
+            5,
+            5,
+            5,
+            5,
+            5
+          ],
+          "allocated_bytes": [
+            262560,
+            262560,
+            262560,
+            262560,
+            262560
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            168958,
+            167542,
+            167166,
+            171750,
+            167958
+          ],
+          "allocation_calls": [
+            24,
+            24,
+            24,
+            24,
+            24
+          ],
+          "allocated_bytes": [
+            1632208,
+            1632208,
+            1632208,
+            1632208,
+            1632208
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            131417,
+            130959,
+            131083,
+            130542,
+            131875
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            760,
+            760,
+            760,
+            760,
+            760
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            36833,
+            35916,
+            36375,
+            35959,
+            36416
+          ],
+          "allocation_calls": [
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "allocated_bytes": [
+            1631952,
+            1631952,
+            1631952,
+            1631952,
+            1631952
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            10459,
+            10750,
+            10583,
+            10542,
+            10417
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            459184,
+            459184,
+            459184,
+            459184,
+            459184
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            490250,
+            476792,
+            475625,
+            474125,
+            484916
+          ],
+          "allocation_calls": [
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "allocated_bytes": [
+            525328,
+            525328,
+            525328,
+            525328,
+            525328
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            469709,
+            462791,
+            461416,
+            465500,
+            464791
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            760,
+            760,
+            760,
+            760,
+            760
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            11292,
+            11125,
+            11208,
+            11625,
+            12083
+          ],
+          "allocation_calls": [
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "allocated_bytes": [
+            525072,
+            525072,
+            525072,
+            525072,
+            525072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            13250,
+            11167,
+            11167,
+            11166,
+            11084
+          ],
+          "allocation_calls": [
+            3,
+            3,
+            3,
+            3,
+            3
+          ],
+          "allocated_bytes": [
+            524688,
+            524688,
+            524688,
+            524688,
+            524688
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            617042,
+            611583,
+            608583,
+            624583,
+            613292
+          ],
+          "allocation_calls": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "allocated_bytes": [
+            2098208,
+            2098208,
+            2098208,
+            2098208,
+            2098208
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            539208,
+            538000,
+            538375,
+            538250,
+            535333
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            760,
+            760,
+            760,
+            760,
+            760
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            44041,
+            43167,
+            45708,
+            43959,
+            43167
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            2097952,
+            2097952,
+            2097952,
+            2097952,
+            2097952
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            43334,
+            43084,
+            44959,
+            42667,
+            42583
+          ],
+          "allocation_calls": [
+            5,
+            5,
+            5,
+            5,
+            5
+          ],
+          "allocated_bytes": [
+            2097568,
+            2097568,
+            2097568,
+            2097568,
+            2097568
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            1459791,
+            1398750,
+            1398375,
+            1402584,
+            1402292
+          ],
+          "allocation_calls": [
+            24,
+            24,
+            24,
+            24,
+            24
+          ],
+          "allocated_bytes": [
+            13585360,
+            13585360,
+            13585360,
+            13585360,
+            13585360
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            1116958,
+            1113709,
+            1115333,
+            1159084,
+            1112708
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            760,
+            760,
+            760,
+            760,
+            760
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            284583,
+            281791,
+            284209,
+            288500,
+            281583
+          ],
+          "allocation_calls": [
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "allocated_bytes": [
+            13585104,
+            13585104,
+            13585104,
+            13585104,
+            13585104
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 32,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            75958,
+            78667,
+            75542,
+            78709,
+            75542
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            3670448,
+            3670448,
+            3670448,
+            3670448,
+            3670448
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "cold_sample",
+          "times_ns": [
+            1780291,
+            1696250,
+            1718208,
+            1690958,
+            1689084
+          ],
+          "allocation_calls": [
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "allocated_bytes": [
+            1770512,
+            1770512,
+            1770512,
+            1770512,
+            1770512
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "prepare",
+          "times_ns": [
+            1672209,
+            1681375,
+            1662875,
+            1650500,
+            1649958
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            760,
+            760,
+            760,
+            760,
+            760
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "retained_sample",
+          "times_ns": [
+            34125,
+            31583,
+            31458,
+            31833,
+            32667
+          ],
+          "allocation_calls": [
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "allocated_bytes": [
+            1770256,
+            1770256,
+            1770256,
+            1770256,
+            1770256
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "fixed",
+          "case": "player_current",
+          "times_ns": [
+            37000,
+            36000,
+            36916,
+            36584,
+            36584
+          ],
+          "allocation_calls": [
+            3,
+            3,
+            3,
+            3,
+            3
+          ],
+          "allocated_bytes": [
+            1769872,
+            1769872,
+            1769872,
+            1769872,
+            1769872
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "cold_sample",
+          "times_ns": [
+            1999417,
+            2001542,
+            1989291,
+            1995000,
+            1989917
+          ],
+          "allocation_calls": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "allocated_bytes": [
+            7078944,
+            7078944,
+            7078944,
+            7078944,
+            7078944
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "prepare",
+          "times_ns": [
+            1838125,
+            1834083,
+            1826541,
+            1830917,
+            1835125
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            760,
+            760,
+            760,
+            760,
+            760
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "retained_sample",
+          "times_ns": [
+            163542,
+            164125,
+            170916,
+            163417,
+            166458
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            7078688,
+            7078688,
+            7078688,
+            7078688,
+            7078688
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "deformed",
+          "case": "player_current",
+          "times_ns": [
+            147917,
+            150792,
+            150834,
+            151458,
+            148708
+          ],
+          "allocation_calls": [
+            5,
+            5,
+            5,
+            5,
+            5
+          ],
+          "allocated_bytes": [
+            7078304,
+            7078304,
+            7078304,
+            7078304,
+            7078304
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "cold_sample",
+          "times_ns": [
+            4705667,
+            4734833,
+            4720000,
+            4747958,
+            4732459
+          ],
+          "allocation_calls": [
+            24,
+            24,
+            24,
+            24,
+            24
+          ],
+          "allocated_bytes": [
+            46477264,
+            46477264,
+            46477264,
+            46477264,
+            46477264
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "prepare",
+          "times_ns": [
+            3760875,
+            3737875,
+            3755833,
+            3755333,
+            3755916
+          ],
+          "allocation_calls": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "allocated_bytes": [
+            760,
+            760,
+            760,
+            760,
+            760
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "retained_sample",
+          "times_ns": [
+            960291,
+            963334,
+            982542,
+            959958,
+            972209
+          ],
+          "allocation_calls": [
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "allocated_bytes": [
+            46477008,
+            46477008,
+            46477008,
+            46477008,
+            46477008
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "mode": "dense",
+          "case": "player_current",
+          "times_ns": [
+            268125,
+            267000,
+            261625,
+            261334,
+            261708
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            12386736,
+            12386736,
+            12386736,
+            12386736,
+            12386736
+          ],
+          "allocator_instrumentation": true
+        }
+      ]
+    }
+  ],
+  "preparation": [
+    {
+      "n": 16,
+      "mode": "fixed",
+      "median_ns": 59625.0,
+      "allocations": {
+        "allocation_calls": 6,
+        "allocated_bytes": 760
+      }
+    },
+    {
+      "n": 16,
+      "mode": "deformed",
+      "median_ns": 67521.0,
+      "allocations": {
+        "allocation_calls": 6,
+        "allocated_bytes": 760
+      }
+    },
+    {
+      "n": 16,
+      "mode": "dense",
+      "median_ns": 134499.5,
+      "allocations": {
+        "allocation_calls": 6,
+        "allocated_bytes": 760
+      }
+    },
+    {
+      "n": 32,
+      "mode": "fixed",
+      "median_ns": 486729.0,
+      "allocations": {
+        "allocation_calls": 6,
+        "allocated_bytes": 760
+      }
+    },
+    {
+      "n": 32,
+      "mode": "deformed",
+      "median_ns": 559145.5,
+      "allocations": {
+        "allocation_calls": 6,
+        "allocated_bytes": 760
+      }
+    },
+    {
+      "n": 32,
+      "mode": "dense",
+      "median_ns": 1114896.0,
+      "allocations": {
+        "allocation_calls": 6,
+        "allocated_bytes": 760
+      }
+    },
+    {
+      "n": 48,
+      "mode": "fixed",
+      "median_ns": 1698542.0,
+      "allocations": {
+        "allocation_calls": 6,
+        "allocated_bytes": 760
+      }
+    },
+    {
+      "n": 48,
+      "mode": "deformed",
+      "median_ns": 1938458.5,
+      "allocations": {
+        "allocation_calls": 6,
+        "allocated_bytes": 760
+      }
+    },
+    {
+      "n": 48,
+      "mode": "dense",
+      "median_ns": 3894562.5,
+      "allocations": {
+        "allocation_calls": 6,
+        "allocated_bytes": 760
+      }
+    }
+  ]
+}

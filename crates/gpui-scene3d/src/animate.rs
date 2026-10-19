@@ -1,38 +1,43 @@
-//! Time playback over a `TimeSeries`, driven by host-supplied times.
+//! Time playback over immutable prepared sampling state.
 
 // Rust guideline compliant 2026-02-21
 
-use gpui_mesh::{Association, DataSet, Field, FieldData, TimeSeries};
+use crate::SceneError;
+use gpui_mesh::{DataSet, PreparedTimeSeries, TimeSeries};
 
-/// Playback state for a time series.
+/// Playback driven by host-supplied elapsed time.
 ///
-/// The host owns the clock: it calls [`Player::advance`] with elapsed
-/// seconds (from GPUI, `requestAnimationFrame`, or a test), which keeps
-/// this crate free of wall-clock and platform timer dependencies.
+/// The host owns the clock. Prepared source state and interpolation plans are
+/// shared by clones; advancing does not rebuild them.
 #[derive(Debug, Clone)]
 pub struct Player {
-    series: TimeSeries,
-    /// Current physical time.
+    series: PreparedTimeSeries,
+    /// Current finite physical time; sampling clamps it to the series range.
     pub time: f64,
-    /// Whether playback advances on `advance`.
+    /// Whether elapsed time advances playback.
     pub playing: bool,
-    /// Playback speed multiplier.
+    /// Finite speed multiplier; negative values play backward.
     pub speed: f64,
-    /// Whether playback wraps at the end.
+    /// Whether playback wraps at either endpoint.
     pub looping: bool,
 }
 
 impl Player {
-    /// Creates a paused player at the first step.
-    pub fn new(series: TimeSeries) -> Self {
-        let time = series.times.first().copied().unwrap_or(0.0);
-        Self {
+    /// Validates a series and creates paused playback at its first step.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid input or incompatible field shapes/units.
+    pub fn new(series: TimeSeries) -> Result<Self, SceneError> {
+        let series = series.prepare()?;
+        let time = series.time_axis().range()[0];
+        Ok(Self {
             series,
             time,
             playing: false,
             speed: 1.0,
             looping: true,
-        }
+        })
     }
 
     /// Starts or resumes playback.
@@ -45,80 +50,87 @@ impl Player {
         self.playing = false;
     }
 
-    /// Seeks to a physical time, clamped to the series range.
-    pub fn seek(&mut self, time: f64) {
-        let first = self.series.times.first().copied().unwrap_or(0.0);
-        let last = self.series.times.last().copied().unwrap_or(first);
-        self.time = time.clamp(first, last);
-    }
-
-    /// Advances by elapsed seconds when playing; wraps or stops at the end.
-    pub fn advance(&mut self, elapsed_seconds: f64) {
-        if !self.playing {
-            return;
-        }
-        let first = self.series.times.first().copied().unwrap_or(0.0);
-        let last = self.series.times.last().copied().unwrap_or(first);
-        let mut time = self.time + elapsed_seconds * self.speed;
-        if time > last {
-            if self.looping && last > first {
-                time = first + (time - first) % (last - first);
-            } else {
-                time = last;
-                self.playing = false;
-            }
-        }
-        self.time = time;
-    }
-
-    /// The interpolated dataset at the current time.
-    ///
-    /// Positions and scalar/vector fields are linearly interpolated
-    /// between the bracketing steps; topology and cell fields come from
-    /// the earlier step. This is the per-frame state a movie or a live
-    /// flow view renders.
-    #[must_use]
-    pub fn current(&self) -> DataSet {
-        let (lo, hi, t) = self.series.locate(self.time);
-        if lo == hi || t == 0.0 {
-            return self.series.steps[lo].clone();
-        }
-        let a = &self.series.steps[lo];
-        let b = &self.series.steps[hi];
-        let positions: Vec<[f64; 3]> = a
-            .positions
-            .iter()
-            .zip(b.positions.iter())
-            .map(|(pa, pb)| {
-                [
-                    pa[0] + (pb[0] - pa[0]) * t,
-                    pa[1] + (pb[1] - pa[1]) * t,
-                    pa[2] + (pb[2] - pa[2]) * t,
-                ]
-            })
-            .collect();
-        let mut result = a.clone();
-        result.positions = positions.into();
-        for (index, field) in a.point_data.iter().enumerate() {
-            let Some(other) = b.point_data.get(index) else {
-                continue;
-            };
-            if other.name != field.name {
-                continue;
-            }
-            result.point_data[index] = interpolate(field, other, t);
-        }
-        result
-    }
-
-    /// Renders `frames` evenly spaced frames over the whole series.
-    ///
-    /// Each frame pairs its physical time with a rendered image; hosts
-    /// encode them (PNG sequence, then an external muxer for MP4/WebM).
+    /// Seeks finite physical time and reports whether the time changed.
     ///
     /// # Errors
     ///
-    /// Propagates render errors from [`crate::render`].
+    /// Returns an error for a nonfinite query without changing state.
+    pub fn seek(&mut self, time: f64) -> Result<bool, SceneError> {
+        if !time.is_finite() {
+            return Err(SceneError::InvalidPlayback("seek time must be finite"));
+        }
+        let [first, last] = self.series.time_axis().range();
+        let next = time.clamp(first, last);
+        let changed = next != self.time;
+        self.time = next;
+        Ok(changed)
+    }
+
+    /// Advances playback and reports whether time or playing state changed.
+    ///
+    /// Negative elapsed time or speed reverses direction. Non-looping playback
+    /// stops at either endpoint. A false result allows hosts to skip redraw.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for nonfinite controls or an unrepresentable looping
+    /// increment. Errors preserve state.
+    pub fn advance(&mut self, elapsed_seconds: f64) -> Result<bool, SceneError> {
+        if !elapsed_seconds.is_finite() || !self.speed.is_finite() || !self.time.is_finite() {
+            return Err(SceneError::InvalidPlayback(
+                "time, elapsed seconds and speed must be finite",
+            ));
+        }
+        if !self.playing {
+            return Ok(false);
+        }
+        let [first, last] = self.series.time_axis().range();
+        let previous = self.time;
+        let was_playing = self.playing;
+        let base = self.time.clamp(first, last);
+        if first == last {
+            self.time = first;
+            self.playing = false;
+            return Ok(previous != first || was_playing);
+        }
+        if elapsed_seconds == 0.0 || self.speed == 0.0 {
+            self.time = base;
+            return Ok(previous != base);
+        }
+        let mut next = elapsed_seconds.mul_add(self.speed, base);
+        let forward = elapsed_seconds.is_sign_positive() == self.speed.is_sign_positive();
+        if next < first || next > last {
+            if self.looping {
+                next = wrap_increment(base, elapsed_seconds, self.speed, [first, last])?;
+            } else {
+                next = next.clamp(first, last);
+                self.playing = false;
+            }
+        } else if !self.looping && ((forward && next >= last) || (!forward && next <= first)) {
+            self.playing = false;
+        }
+        self.time = next;
+        Ok(previous != next || was_playing != self.playing)
+    }
+
+    /// Samples all point/cell field shapes at the current physical time.
+    ///
+    /// Uses the same named-field, nearest-step and validity semantics as
+    /// [`TimeSeries::sample`], without revalidating source datasets per frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a nonfinite public `time` value.
+    pub fn current(&self) -> Result<DataSet, SceneError> {
+        self.series.sample(self.time).map_err(Into::into)
+    }
+
+    /// Renders evenly spaced frames over the complete time range.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for zero frame count or failed sampling/rendering.
+    /// This method collects frames in memory.
     pub fn movie_frames(
         &self,
         scene_for: impl Fn(DataSet) -> crate::Scene,
@@ -126,71 +138,68 @@ impl Player {
         width: u32,
         height: u32,
         frames: usize,
-    ) -> Result<Vec<(f64, crate::Frame)>, crate::SceneError> {
-        let first = self.series.times.first().copied().unwrap_or(0.0);
-        let last = self.series.times.last().copied().unwrap_or(first);
-        let mut player = self.clone();
+    ) -> Result<Vec<(f64, crate::Frame)>, SceneError> {
+        if frames == 0 {
+            return Err(SceneError::InvalidPlayback(
+                "movie frame count must be positive",
+            ));
+        }
         let mut out = Vec::with_capacity(frames);
-        for i in 0..frames.max(1) {
-            let time = if frames <= 1 {
-                first
+        for index in 0..frames {
+            let fraction = if frames == 1 {
+                0.0
             } else {
-                first + (last - first) * (i as f64 / (frames - 1) as f64)
+                index as f64 / (frames - 1) as f64
             };
-            player.seek(time);
-            let scene = scene_for(player.current());
+            let time = self.series.time_axis().at_fraction(fraction)?;
+            let scene = scene_for(self.series.sample(time)?);
             out.push((time, crate::render(&scene, camera, width, height)?));
         }
         Ok(out)
     }
 }
 
-fn interpolate(a: &Field, b: &Field, t: f64) -> Field {
-    let data = match (&a.data, &b.data) {
-        (FieldData::Scalar(x), FieldData::Scalar(y)) => {
-            FieldData::Scalar(lerp_slice(x, y, t).into())
-        }
-        (FieldData::Vector(x), FieldData::Vector(y)) => {
-            let values: Vec<[f64; 3]> = x
-                .iter()
-                .zip(y.iter())
-                .map(|(pa, pb)| {
-                    [
-                        pa[0] + (pb[0] - pa[0]) * t,
-                        pa[1] + (pb[1] - pa[1]) * t,
-                        pa[2] + (pb[2] - pa[2]) * t,
-                    ]
-                })
-                .collect();
-            FieldData::Vector(values.into())
-        }
-        _ => a.data.clone(),
-    };
-    Field {
-        name: a.name.clone(),
-        label: a.label.clone(),
-        unit: a.unit.clone(),
-        association: match a.association {
-            Association::Point => Association::Point,
-            Association::Cell => Association::Cell,
-        },
-        data,
-        valid: a.valid.clone(),
+fn wrap_increment(
+    base: f64,
+    elapsed: f64,
+    speed: f64,
+    [first, last]: [f64; 2],
+) -> Result<f64, SceneError> {
+    // Scaling an overflowing finite endpoint span retains its interval. Ordinary
+    // playback stays in native units, preserving small representable increments.
+    let scale = if (last - first).is_finite() { 1.0 } else { 0.5 };
+    let start = first * scale;
+    let width = last * scale - start;
+    let offset = (base * scale - start).clamp(0.0, width);
+    let delta = (elapsed * scale) * speed;
+    if !delta.is_finite() {
+        return Err(SceneError::InvalidPlayback(
+            "looping increment is not representable",
+        ));
     }
-}
-
-fn lerp_slice(a: &[f64], b: &[f64], t: f64) -> Vec<f64> {
-    a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| x + (y - x) * t)
-        .collect()
+    let remainder = delta % width;
+    let wrapped = if remainder >= 0.0 {
+        let gap = width - offset;
+        if remainder >= gap {
+            remainder - gap
+        } else {
+            offset + remainder
+        }
+    } else {
+        let magnitude = -remainder;
+        if magnitude > offset {
+            width - (magnitude - offset)
+        } else {
+            offset - magnitude
+        }
+    };
+    Ok(((start + wrapped) / scale).clamp(first, last))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui_mesh::CellType;
-    use gpui_mesh::Cells;
+    use gpui_mesh::{Association, CellType, Cells, Field};
 
     fn step(z: f64, p: f64) -> DataSet {
         DataSet::new(
@@ -205,9 +214,9 @@ mod tests {
     fn interpolates_positions_and_fields() {
         let series =
             TimeSeries::new(vec![step(0.0, 0.0), step(2.0, 10.0)], vec![0.0, 2.0]).unwrap();
-        let mut player = Player::new(series);
-        player.seek(1.0);
-        let current = player.current();
+        let mut player = Player::new(series).unwrap();
+        player.seek(1.0).unwrap();
+        let current = player.current().unwrap();
         assert_eq!(current.positions[0], [0.0, 0.0, 1.0]);
         assert_eq!(
             current
@@ -223,9 +232,9 @@ mod tests {
     fn advance_wraps_when_looping() {
         let series =
             TimeSeries::new(vec![step(0.0, 0.0), step(2.0, 10.0)], vec![0.0, 2.0]).unwrap();
-        let mut player = Player::new(series);
+        let mut player = Player::new(series).unwrap();
         player.play();
-        player.advance(3.0);
+        player.advance(3.0).unwrap();
         assert_eq!(player.time, 1.0);
         assert!(player.playing);
     }
@@ -234,7 +243,7 @@ mod tests {
     fn movie_frames_cover_the_series() {
         let series =
             TimeSeries::new(vec![step(0.0, 0.0), step(2.0, 10.0)], vec![0.0, 2.0]).unwrap();
-        let player = Player::new(series);
+        let player = Player::new(series).unwrap();
         let camera = crate::Camera::default();
         let frames = player
             .movie_frames(

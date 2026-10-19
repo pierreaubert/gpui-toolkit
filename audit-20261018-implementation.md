@@ -799,3 +799,75 @@ and pressure/large-dataset integrations pass with Metal required.
   compile-fail example pass. C3/C4/P5 stay unchecked: time-field sampling,
   statistics/analysis, decimation/other geometry consumers, IO boundaries, general
   interpolation, transparency, memory budgets and device qualification remain.
+
+## Immutable time sampling and playback checkpoint
+
+- `TimeSeries::sample` now matches point/cell fields by name for scalar, vector,
+  tensor and complex data. Shared fields require compatible shapes/units and
+  intersect validity masks. Missing computed entries are masked NaNs; unchanged
+  arrays may share storage with unspecified raw values at masked entries.
+  One-sided fields, labels, order and dataset ID follow the nearest step (ties
+  choose the later step). Endpoints/clamped queries share the selected source.
+  Same-name incompatible fields error instead of silently selecting a shape.
+- `TimeAxis` validates timestamp state once and supports allocation-free O(log S)
+  lookups. `TimeSeriesSampler` borrows immutable state; `PreparedTimeSeries` owns
+  it through an Arc, with compact per-adjacent-step field plans. Dataset checks,
+  name matching, payload equality, mask-subset checks and ordinary-range numeric
+  certification run during preparation. Equal independent arrays share the
+  earlier payload throughout an interval. Subset masks share the stricter Arc;
+  incomparable masks are intersected per output, avoiding retained N-entry masks
+  for every interval. Prepared clones allocate nothing and release payloads when
+  the last owner/sample drops. Three compile-fail rustdoc cases protect immutable
+  validated state; three positive examples also pass.
+- Ordinary interpolation anchors to the nearer endpoint and branches once per
+  field, permitting vectorization. An independent endpoint regression failed on
+  the first fast kernel: interpolation from `1e150` to zero at `1-EPSILON/2`
+  produced `1.8170968e134` instead of `1.1102230e134`. Endpoint anchoring fixes
+  that error. Extreme/subnormal inputs use bounded scaled convex interpolation;
+  tests cover overflowing finite time spans and exact subnormal values. The first
+  fully defensive per-component kernel also caused about a 2x dense retained
+  sampling regression; preparation-time certification removes that hot-path cost.
+- `Player` uses prepared state and the same complete sampling semantics. Finite
+  controls, signed elapsed time/speed, reverse/multiple wraps, non-looping stops,
+  single-step playback, huge finite ranges and error-state atomicity have public
+  regressions. `seek`/`advance` report changes so hosts can suppress redundant
+  redraws. Particle/FTLE sampling retains a validated axis and rejects changing
+  velocity units. Host scheduling adoption and actual power measurement remain
+  open. Movie generation still collects all frames; streaming/budgets remain P5/C5.
+- Intentional API changes: `TimeSeries::locate`, `Player::new`, `Player::current`,
+  `Player::seek` and `Player::advance` are fallible; seek/advance return a change
+  flag. All repository callers/examples are updated and compiled. A raw series'
+  one-off sample validates the axis and selected datasets; prepared sampling
+  validates all input states/adjacent schemas once. Keep the prepared sampler for
+  repeated work; public mutable raw state cannot safely skip validation scans.
+- `qa/perf/20261019-time-sampling-paired.json` contains identical release probe
+  source, source hashes, raw allocator-disabled ABBA runs twice, separate allocator
+  builds, and explicit preparation measurements versus `08e8dd02`. At 48³:
+
+  | Case | Previous API median | Retained median | Previous allocated bytes | Retained allocated bytes |
+  |---|---:|---:|---:|---:|
+  | Fixed geometry, one changing field | 813.6 µs | 39.9 µs | 46,477,008 | 1,770,256 |
+  | Deforming geometry, one changing field | 825.1 µs | 172.8 µs | 46,477,008 | 7,078,688 |
+  | Every field changes | 992.3 µs | 990.4 µs | 46,477,008 | 46,477,008 |
+
+  Fixed/deforming player medians improve 84.1%/37.9% on a separate equivalent
+  scalar/vector fixture; dense player time regresses 2.3%. Preparation takes
+  1.70/1.94/3.89 ms respectively and allocates 760 bytes beyond the moved input
+  metadata for this two-step fixture. The one-off validated sampling API regresses
+  2.10x/2.55x/4.89x: correctness and preparation scans are included there, while the
+  baseline omitted validation. This is an explicit cold-cost tradeoff, not a
+  universal speedup. Repeated callers use retained state. Measurements are bounded
+  host wall time and cumulative allocations; no CPU-time, peak RSS, energy, mobile
+  or whole-frame acceptance claim follows from them.
+- Required-Metal native checks pass: 72 transformation, 15 mesh and 91 scene
+  library tests, 40 public validity/flow/geometry/tracing/time tests, allocation
+  contracts and large-dataset/pressure integrations. Allocation contracts cover
+  10,000 axis lookups and constant-size shared results, plus bounds for one
+  changing field and intersected masks at 64/4,096 points. Core wasm checking,
+  strict core library Clippy, mesh/transform all-target Clippy, playback-test
+  Clippy with `--no-deps`, and all scene examples with `gpui-gpu,png,mp4` pass.
+  Broader playback-test Clippy without `--no-deps` hits existing UI-kit lints in
+  input/radio/Markdown code; those unrelated files are unchanged. C3/C4/P5 remain
+  unchecked: statistics/analysis, decimation/other geometry consumers, IO,
+  general transparency/interpolation, aggregate budgets and device qualification
+  still require implementation and verification.

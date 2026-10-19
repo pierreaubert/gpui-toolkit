@@ -76,6 +76,9 @@ pub enum SceneError {
     /// Material settings cannot define finite normalized colors or opacity.
     #[error("invalid scene material: {0}")]
     InvalidMaterial(&'static str),
+    /// Playback controls cannot define a supported finite time update.
+    #[error("invalid playback: {0}")]
+    InvalidPlayback(&'static str),
     /// A requested resource exceeds the host's working-set allowance.
     #[error("{resource} requires {requested}, limit is {limit}")]
     ResourceLimit {

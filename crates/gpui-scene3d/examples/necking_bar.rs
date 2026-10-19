@@ -176,7 +176,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let frame = render(&scene_for(cut), &camera, 800, 300)?;
     std::fs::write(format!("{out_dir}/bar_neck_slice.png"), frame.to_png()?)?;
 
-    let player = Player::new(series);
+    let player = Player::new(series)?;
     let frames = player.movie_frames(scene_for, &camera, 1920, 1080, 120)?;
     for (name, bytes) in png_sequence(&frames)? {
         std::fs::write(format!("{out_dir}/{name}"), bytes)?;

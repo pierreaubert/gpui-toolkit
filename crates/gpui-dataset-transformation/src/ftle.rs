@@ -44,7 +44,7 @@ pub fn ftle(
         ));
     }
     let sampler = TimeSampler::new(series, field_name)?;
-    let (lo, _, _) = series.locate(t0);
+    let (lo, _, _) = series.locate(t0)?;
     let base = &series.steps[lo];
     let source = base
         .field(Association::Point, field_name)

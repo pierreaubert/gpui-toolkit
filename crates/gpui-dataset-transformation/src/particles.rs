@@ -11,7 +11,7 @@
 
 use crate::TransformError;
 use crate::streamline::Tracer;
-use gpui_mesh::{Association, CellType, Cells, DataSet, Field, TimeSeries};
+use gpui_mesh::{Association, CellType, Cells, DataSet, Field, TimeAxis, TimeSeries};
 
 /// Options for [`particle_frames`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -69,7 +69,7 @@ impl Default for ParticleOptions {
 /// Spatial sampling is barycentric inside each step's tetrahedralisation;
 /// temporal sampling blends the two bracketing steps.
 pub(crate) struct TimeSampler<'a> {
-    series: &'a TimeSeries,
+    axis: TimeAxis<'a>,
     tracers: Vec<Tracer<'a>>,
 }
 
@@ -77,6 +77,7 @@ impl<'a> TimeSampler<'a> {
     pub(crate) fn new(series: &'a TimeSeries, field_name: &str) -> Result<Self, TransformError> {
         series.validate()?;
         let mut tracers = Vec::with_capacity(series.len());
+        let mut units = None::<&Option<std::sync::Arc<str>>>;
         for step in &series.steps {
             let field = step
                 .field(Association::Point, field_name)
@@ -87,6 +88,13 @@ impl<'a> TimeSampler<'a> {
                     field: field_name.to_string(),
                     reason: "time sampling requires a 3-vector field".into(),
                 })?;
+            if units.is_some_and(|expected| expected != &field.unit) {
+                return Err(TransformError::WrongFieldShape {
+                    field: field_name.into(),
+                    reason: "time sampling requires consistent velocity units".into(),
+                });
+            }
+            units = Some(&field.unit);
             let tracer = Tracer::new(step, vectors, field.valid.as_deref());
             if !tracer.has_volume() {
                 return Err(TransformError::Degenerate(
@@ -95,14 +103,17 @@ impl<'a> TimeSampler<'a> {
             }
             tracers.push(tracer);
         }
-        Ok(Self { series, tracers })
+        Ok(Self {
+            axis: series.time_axis()?,
+            tracers,
+        })
     }
 
     pub(crate) fn velocity_at(&self, p: [f64; 3], time: f64) -> Option<[f64; 3]> {
         if !time.is_finite() {
             return None;
         }
-        let (lo, hi, frac) = self.series.locate(time);
+        let (lo, hi, frac) = self.axis.locate(time).ok()?;
         if frac == 1.0 {
             return self.tracers[hi].velocity(p);
         }

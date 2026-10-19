@@ -80,7 +80,7 @@ fn pressure_slice_isosurface_and_movie() {
 
     // A two-step time series produces distinct movie frames.
     let series = TimeSeries::new(vec![room(0.2), room(1.0)], vec![0.0, 1.0]).unwrap();
-    let player = Player::new(series);
+    let player = Player::new(series).unwrap();
     let frames = player.movie_frames(scene_for, &camera, 64, 64, 3).unwrap();
     assert_eq!(frames.len(), 3);
     assert_ne!(frames[0].1.rgba, frames[2].1.rgba);

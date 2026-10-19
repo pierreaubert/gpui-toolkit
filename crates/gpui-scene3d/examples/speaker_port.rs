@@ -193,7 +193,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let times: Vec<f64> = (0..8).map(|i| 5.0 * f64::from(i) / 7.0).collect();
         let series = TimeSeries::new(steps, times)?;
-        let player = Player::new(series);
+        let player = Player::new(series)?;
         let port_camera = Camera::fitted(
             Scene::new()
                 .with_actor(Actor::new(straight.clone()))
