@@ -29,6 +29,7 @@ mod presentation;
 mod primitives;
 pub mod raster;
 pub mod retained;
+mod scalar;
 pub mod scene;
 pub mod shaders;
 pub mod transfer;

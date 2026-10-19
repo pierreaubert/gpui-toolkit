@@ -13,6 +13,7 @@ use wgpu::util::DeviceExt;
 
 fn supports_topology(scene: &Scene) -> Result<bool, SceneError> {
     for actor in scene.actors.iter().filter(|actor| actor.visible) {
+        actor.dataset.validate()?;
         if !crate::primitives::gpu_supported(actor)? {
             return Ok(false);
         }
@@ -85,32 +86,31 @@ impl RegisteredSceneDraw {
                     .actors
                     .iter()
                     .zip(&scene.actors)
-                    .all(|(old, actor)| {
-                        !actor.visible
-                            || (old.clip_planes == actor.clip_planes
-                                && old.active_transfer().map(|tf| tf.range)
-                                    == actor.active_transfer().map(|tf| tf.range))
-                    })
+                    .all(|(old, actor)| !actor.visible || (old.clip_planes == actor.clip_planes))
             });
         let clip_limit = scene
             .actors
             .iter()
             .filter(|actor| actor.visible)
             .all(|actor| actor.clip_planes.len() <= crate::shaders::MAX_CLIP_PLANES);
-        let mut ranges_supported = if same_precision {
+        let mut ranges_supported = if same_geometry {
             state
                 .input
                 .as_ref()
                 .expect("existing input")
-                .scene_precision_supported
+                .scalar_precision_supported
         } else {
             true
         };
-        if !same_precision {
+        if !same_geometry {
             for actor in scene.actors.iter().filter(|actor| actor.visible) {
-                if let Some(transfer) = actor.active_transfer() {
-                    match transfer.gpu_range() {
-                        Ok(_) => {}
+                if actor.active_transfer().is_some() {
+                    match crate::scalar::gpu_supported(actor) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            ranges_supported = false;
+                            break;
+                        }
                         Err(SceneError::UnsupportedPrecision(_)) => {
                             ranges_supported = false;
                             break;
@@ -221,6 +221,7 @@ impl RegisteredSceneDraw {
             revision,
             origins,
             topology_supported,
+            scalar_precision_supported: ranges_supported,
             scene_precision_supported,
             gpu_supported,
         });
@@ -246,6 +247,7 @@ struct Input {
     revision: u64,
     origins: Option<Arc<[[f64; 3]]>>,
     topology_supported: bool,
+    scalar_precision_supported: bool,
     scene_precision_supported: bool,
     gpu_supported: bool,
 }
@@ -665,6 +667,24 @@ fn composite_quad(
 mod tests {
     use super::*;
     use gpui::{point, px, size};
+
+    #[test]
+    fn surface_scalar_compatibility_rejects_malformed_source_storage() {
+        let data = gpui_mesh::DataSet::surface(
+            "short field",
+            vec![[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2]],
+        )
+        .with_field(gpui_mesh::Field::scalar("p", vec![0.5]));
+        let scene = Scene::new().with_actor(
+            crate::Actor::new(data).coloured_by("p", crate::TransferFunction::viridis([0.0, 1.0])),
+        );
+        let draw = RegisteredSceneDraw::new();
+        assert!(matches!(
+            draw.update(&scene, Camera::default(), [32, 32]),
+            Err(SceneError::Mesh(_))
+        ));
+    }
 
     #[test]
     fn source_position_identity_retains_origins_through_field_updates() {

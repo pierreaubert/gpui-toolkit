@@ -16,6 +16,7 @@ struct GeometryIdentity {
     connectivity: usize,
     scalar: Option<(Association, usize, Option<usize>)>,
     wireframe: bool,
+    scalar_transport: crate::scalar::ScalarIdentity,
 }
 
 fn arc_id<T>(values: &Arc<[T]>) -> usize {
@@ -56,6 +57,7 @@ impl GeometryIdentity {
             connectivity: arc_id(&actor.dataset.cells.connectivity),
             scalar,
             wireframe: actor.wireframe,
+            scalar_transport: crate::scalar::ScalarTransport::of(actor)?.identity(),
         })
     }
 }
@@ -131,8 +133,10 @@ pub(crate) struct PreparedGeometry {
 
 /// Immutable prepared geometry for one scene revision.
 ///
-/// Materials, clipping planes, background and cameras remain live scene state.
-/// This object retains only topology, positions, the selected scalar/mask and
+/// Palette, opacity, clipping, background and cameras remain live scene state.
+/// A transfer domain outside the raw f32 profile also determines the prepared
+/// scalar coordinates; changing that domain invalidates this preparation.
+/// This object retains topology, positions, the selected scalar/mask and
 /// their derived buffers. Unrelated fields are not pinned by the cache.
 pub struct PreparedScene {
     pub(crate) actors: Vec<Option<Arc<PreparedGeometry>>>,
@@ -159,7 +163,7 @@ impl PreparedScene {
     ///
     /// # Errors
     ///
-    /// Returns an error for a missing or non-scalar selected field.
+    /// Returns an error for a missing/non-scalar field or invalid transfer settings.
     pub fn matches(&self, scene: &Scene) -> Result<bool, SceneError> {
         if self.actors.len() != scene.actors.len() {
             return Ok(false);
@@ -276,6 +280,27 @@ mod tests {
             .with_field(Field::scalar("p", vec![0.5; 64]));
         Scene::new()
             .with_actor(Actor::new(dataset).coloured_by("p", TransferFunction::viridis([0.0, 1.0])))
+    }
+
+    #[test]
+    fn scalar_domains_invalidate_only_encoded_preparation() {
+        let data = gpui_mesh::DataSet::structured_grid("domain", [2; 3], [0.0; 3], [1.0; 3])
+            .unwrap()
+            .with_field(Field::scalar("p", vec![0.5; 8]));
+        let mut scene = Scene::new().with_actor(
+            Actor::new(data).coloured_by("p", crate::TransferFunction::viridis([0.0, 1.0])),
+        );
+        let first = scene.prepare().unwrap();
+        scene.actors[0].transfer.as_mut().unwrap().range = [0.0, 2.0];
+        assert!(Arc::ptr_eq(&first, &scene.prepare().unwrap()));
+        scene.actors[0].transfer.as_mut().unwrap().range = [1e100, 2e100];
+        let encoded = scene.prepare().unwrap();
+        assert!(!Arc::ptr_eq(&first, &encoded));
+        scene.actors[0].transfer = Some(crate::TransferFunction::coolwarm([1e100, 2e100]));
+        assert!(Arc::ptr_eq(&encoded, &scene.prepare().unwrap()));
+        scene.actors[0].transfer.as_mut().unwrap().range = [1e100, 3e100];
+        assert!(!Arc::ptr_eq(&encoded, &scene.prepare().unwrap()));
+        assert_eq!(scene.preparation_stats().geometry_builds, 3);
     }
 
     #[test]

@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "gpui-gpu")]
-    fn unrepresentable_transfer_domain_retains_software_then_returns_to_gpu() {
+    fn wide_transfer_domain_uses_gpu_and_can_return_to_raw_transport() {
         let dataset = DataSet::structured_grid("wide", [2; 3], [-0.5; 3], [1.0; 3])
             .unwrap()
             .with_field(gpui_mesh::Field::scalar("p", vec![0.0; 8]));
@@ -394,31 +394,24 @@ mod tests {
         );
         let camera = Camera::fitted(scene.bounds().unwrap());
         let mut state = ElementState::default();
-        let PaintSource::Image(first) = state.prepare(&scene, camera, [24, 24], true).unwrap()
-        else {
-            panic!("unrepresentable transfer domain must select software");
-        };
+        for _ in 0..3 {
+            assert!(matches!(
+                state.prepare(&scene, camera, [24, 24], true).unwrap(),
+                PaintSource::Custom(_)
+            ));
+        }
         let mut moved = camera;
         moved.orbit(0.1, 0.0);
         assert!(matches!(
             state.prepare(&scene, moved, [24, 24], true).unwrap(),
-            PaintSource::Image(_)
+            PaintSource::Custom(_)
         ));
-        let PaintSource::Image(cached) = state.prepare(&scene, moved, [24, 24], true).unwrap()
-        else {
-            panic!("unchanged software frame must remain an image");
-        };
-        assert!(!Arc::ptr_eq(&first, &cached));
-        let PaintSource::Image(reused) = state.prepare(&scene, moved, [24, 24], true).unwrap()
-        else {
-            panic!("cached software frame must remain an image");
-        };
-        assert!(Arc::ptr_eq(&cached, &reused));
         scene.actors[0].transfer.as_mut().unwrap().range = [-1.0, 1.0];
         assert!(matches!(
             state.prepare(&scene, moved, [24, 24], true).unwrap(),
             PaintSource::Custom(_)
         ));
         assert!(state.image.is_none());
+        assert_eq!(scene.preparation_stats().geometry_builds, 0);
     }
 }

@@ -23,8 +23,13 @@ pub struct GpuChunk {
     pub positions: Vec<f32>,
     /// Smooth vertex normals, three per vertex.
     pub normals: Vec<f32>,
-    /// Scalar per vertex, aligned with `positions` (zeros when uncoloured).
+    /// Scalar coordinate per vertex, aligned with `positions` (zeros when uncolored).
+    /// Raw values unless [`Self::scalar_domain`] is set; NaN marks missing data.
     pub scalars: Vec<f32>,
+    /// Original linear domain when scalars encode unclamped domain coordinates.
+    /// `None` denotes raw values, or zeros for a flat material.
+    /// Use `[0, 1]` for the shader scalar range when this domain is present.
+    pub scalar_domain: Option<[f64; 2]>,
     /// Chunk-local triangle indices.
     pub indices: Vec<u32>,
     /// Canonical unique wireframe edge pairs derived from `indices`, when requested.
@@ -62,6 +67,9 @@ impl GpuChunk {
 /// Normal accumulation retries from source f64 edges when f32 arithmetic loses
 /// range; this temporary workspace adds eight bytes per position component.
 /// Positions and scalars still use f32 buffers; conversion is not lossless.
+/// Domains outside the raw f32 profile use unclamped linear scalar coordinates;
+/// map them with [`crate::PreparedTransfer::map_linear_position`]. The chunk
+/// records that source domain in [`GpuChunk::scalar_domain`].
 ///
 /// # Errors
 ///
@@ -70,6 +78,8 @@ impl GpuChunk {
 /// [`SceneError::FieldNotFound`] for a missing or nonscalar coloring field.
 /// Returns allocation errors for reference-normal storage or unsupported precision
 /// when positions used by the reference calculation exceed the f32 buffer range.
+/// Invalid transfer settings and unrepresentable finite scalar coordinates return
+/// explicit errors; they are not converted to missing samples.
 pub fn prepare_chunks(actor: &Actor, max_triangles: usize) -> Result<Vec<GpuChunk>, SceneError> {
     prepare_chunks_with_bounds(actor, max_triangles).map(|(_, chunks)| chunks)
 }
@@ -128,6 +138,7 @@ pub(crate) fn prepare_chunks_with_bounds_and_limits(
     if dataset.cells.types.iter().all(|kind| kind.dimension() < 2) {
         return Ok((bounds, Vec::new()));
     }
+    let transport = crate::scalar::ScalarTransport::of(actor)?;
     let valid = actor
         .field
         .as_ref()
@@ -143,9 +154,18 @@ pub(crate) fn prepare_chunks_with_bounds_and_limits(
             max_triangles.clamp(1, DEFAULT_MAX_TRIANGLES),
             limits,
             |chunk, owners| {
-                if let Some(chunk) =
-                    cell_chunk(dataset, origin, chunk, owners, values, valid, seen.as_mut())?
-                {
+                if let Some(chunk) = cell_chunk(
+                    dataset,
+                    origin,
+                    chunk,
+                    owners,
+                    CellScalars {
+                        values,
+                        valid,
+                        transport,
+                    },
+                    seen.as_mut(),
+                )? {
                     out.push(chunk);
                 }
                 Ok::<(), SceneError>(())
@@ -170,11 +190,11 @@ pub(crate) fn prepare_chunks_with_bounds_and_limits(
             if let Some(values) = &point_scalars {
                 let invalid = matches!(scalar_lookup, Some((Association::Point, _)))
                     && valid.is_some_and(|mask| !mask[point as usize]);
-                let scalar = values[point as usize] as f32;
-                scalars[local] = if invalid || !scalar.is_finite() {
+                let value = values[point as usize];
+                scalars[local] = if invalid || !value.is_finite() {
                     f32::NAN
                 } else {
-                    scalar
+                    transport.pack(value)?
                 };
             }
         }
@@ -205,6 +225,7 @@ pub(crate) fn prepare_chunks_with_bounds_and_limits(
             positions,
             normals,
             scalars,
+            scalar_domain: transport.domain(),
             indices,
             edges,
         });
@@ -212,27 +233,37 @@ pub(crate) fn prepare_chunks_with_bounds_and_limits(
     Ok((bounds, out))
 }
 
+struct CellScalars<'a> {
+    values: &'a [f64],
+    valid: Option<&'a [bool]>,
+    transport: crate::scalar::ScalarTransport,
+}
+
 fn cell_chunk(
     dataset: &gpui_mesh::DataSet,
     origin: [f64; 3],
     mut chunk: gpui_mesh::SurfaceChunk,
     owners: &[usize],
-    values: &[f64],
-    valid: Option<&[bool]>,
+    scalar_input: CellScalars<'_>,
     seen_edges: Option<&mut std::collections::HashSet<u64>>,
 ) -> Result<Option<GpuChunk>, SceneError> {
-    let valid_cell =
-        |cell: usize| valid.is_none_or(|mask| mask[cell]) && (values[cell] as f32).is_finite();
+    let CellScalars {
+        values,
+        valid,
+        transport,
+    } = scalar_input;
+    let valid_cell = |cell: usize| valid.is_none_or(|mask| mask[cell]) && values[cell].is_finite();
     if !owners.iter().any(|&cell| valid_cell(cell)) {
         return Ok(None);
     }
     let mut scalars = vec![f32::NAN; chunk.point_ids.len()];
     for (tri, &cell) in chunk.indices.as_chunks::<3>().0.iter().zip(owners) {
         if valid_cell(cell) {
+            let packed = transport.pack(values[cell])?;
             for &point in tri {
                 let scalar = &mut scalars[point as usize];
                 if scalar.is_nan() {
-                    *scalar = values[cell] as f32;
+                    *scalar = packed;
                 }
             }
         }
@@ -264,7 +295,7 @@ fn cell_chunk(
         if !valid_cell(cell) {
             continue;
         }
-        let scalar = values[cell] as f32;
+        let scalar = transport.pack(values[cell])?;
         let tri = [
             chunk.indices[read * 3],
             chunk.indices[read * 3 + 1],
@@ -305,6 +336,7 @@ fn cell_chunk(
         positions,
         normals,
         scalars,
+        scalar_domain: transport.domain(),
         indices: chunk.indices,
         edges,
     }))

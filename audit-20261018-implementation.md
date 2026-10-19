@@ -2486,3 +2486,172 @@ and pressure/large-dataset integrations pass with Metal required.
   field retention so field changes avoid repeating normal work. C3/C5 and all
   earlier platform, FFI/text, aggregate memory, scheduling/power, Taffy, CUDA/MLX
   and full acceptance requirements remain in scope. The full goal remains active.
+
+
+## Unclamped scalar-domain transport checkpoint
+
+- Previous goal turn: progress (`6a5e6a9d`). Surface preparation cast finite f64
+  scalars directly to f32 and treated overflow as missing data, removing valid
+  triangles. Identical public `tests/scalar_transport.rs` source reproduces seven
+  failures on that unchanged baseline; an independent software-primitive control
+  already passes there. All eight tests pass on the candidate. This distinguishes
+  existing f64 primitive behavior from the surface/GPU defects being corrected.
+- Supported point/cell surfaces and GPU line/point buffers retain raw coordinates
+  for ordinary domains. Transfer domains that overflow, collapse, become subnormal
+  or lose too much domain-relative f32 resolution instead use unclamped linear
+  coordinates computed from the original f64 values. Halving differences before
+  subtraction handles opposite f64 extrema without an overflowing span. A
+  constant encoded domain maps to zero. Values outside a display domain remain
+  outside its coordinate interval until clipping/interpolation finishes; vertex
+  clamping would change the interior gradient.
+- Raw selection uses a conservative ULP estimate (`magnitude * f32::EPSILON`)
+  and requires about **12 bits of domain-relative resolution**, providing margin
+  above RGBA8 without forcing routine offset ranges through repacking. This is
+  an explicit coordinate selection rule, not a universal palette or rounding
+  error bound. Capacity checks alone were insufficient: an intermediate candidate
+  still changed a software pixel from `[92,93,93]` to `[109,105,101]` for a partly
+  quantized offset range, and Metal lost its gradient as well. That failing source
+  and output are archived in the final artifact's intermediate precision oracle.
+  Final tests cover `[1e12,1e12+1e5]` and `[1e6,1e6+1]` in addition to fully
+  collapsed, tiny, large and opposite-extreme domains.
+- CPU color lookup applies linear-domain mapping, log mapping and bands after
+  interpolation through the new public
+  `PreparedTransfer::map_linear_position`. Raw `map(value)` retains its original
+  behavior. GPU lookup uses the original transfer LUT with scalar range `[0,1]`
+  for encoded data; shader code and the 192-byte uniform ABI do not change.
+  `GpuChunk` gains **`scalar_domain: Option<[f64;2]>`**: external chunk consumers
+  must use `[0,1]` shader range when it is present. This is an additive Rust field
+  that requires updates to external struct literals and changes scalar-buffer
+  interpretation for encoded domains. Original canonical field values remain f64
+  and are not overwritten. No full f64 attribute array is added.
+- A final exact LUT regression failed the intermediate candidate too: table
+  generation reconstructed physical scalar values before mapping colors, changing
+  byte index 261 from **90 to 89** for `[1e12,1e12+1e5]`. Linear LUT generation now
+  samples normalized positions directly. Exact tables with alpha ramps from 0.2
+  to 0.8 and optional 255 color bands are invariant across all six test domains.
+  The failing source/results remain in the final artifact's intermediate LUT
+  oracle, and the complete earlier capture remains in
+  `20261019-scalar-transport-pre-lut.json`. Logarithmic LUT sampling is unchanged;
+  this does not qualify general nonlinear or band-edge CPU/GPU parity.
+- Scalar conversion failures are explicit `UnsupportedPrecision` errors rather
+  than missing samples. Original masks/nonfinite missing values are filtered
+  separately before packing; invalid huge finite placeholders remain missing
+  without failing conversion. Uncolored selected fields store zero coordinates
+  while retaining their validity behavior. GPU compatibility scans and actual
+  upload share the packing contract. Surface storage is validated before metadata
+  scans, with a malformed-source regression. The initial GPUI scan is retained
+  by source/encoding identity independently of clip/camera verdicts.
+- Preparation identities include flat/raw/encoded mode and encoded domain bits.
+  Ordinary raw-range changes and palette-only changes retain geometry. Changing
+  an encoded domain invalidates its scalar coordinates. GPU synchronization
+  preserves the previous uploaded scene on a rejected update. A required-GPU unit
+  test also encodes an old pass, replaces the encoded domain, encodes a new pass
+  and submits both together; exact old/new frames remain intact despite old Rust
+  resource handles being dropped. Aggregate in-flight memory is still separate
+  C5 work; this proves two-revision lifetime correctness, not a total byte bound.
+- Public fixtures compare point/cell coverage and colors across large, tiny,
+  narrow-offset, partly quantized, opposite-extreme and constant domains. They
+  cover masked huge placeholders, line/point colors, near/world clipping with
+  out-of-range vertex scalars, encoded-domain revision changes and failed-update
+  rollback. Unit-scale images provide the material/coverage controls, with a
+  two-byte color allowance for LUT quantization. They are not a general numerical
+  qualification of arbitrary transfer functions or geometry.
+- Evidence is in
+  [`qa/perf/20261019-scalar-transport-paired.json`](qa/perf/20261019-scalar-transport-paired.json).
+  It archives exact production/probe/runner/lock/test sources and hashes, raw
+  samples, oracle output and final QA commands/results. Allocator-disabled release
+  ABBA twice gives four fresh processes/version, one warmup plus five samples
+  for **56 matched raw-domain cases**. Separate processes measure allocations.
+  Constant and spatial-gradient point fields, discontinuous cell fields and
+  general-topology controls use 16/48 cubed grids; colored lines/points use
+  256/65,536 cells. Gradient inputs are asserted nonconstant. All 56 cross-version
+  output hashes and buffer payload lengths match exactly.
+- Another **30 candidate-only encoded-domain cases** use four fresh timing
+  processes plus a separate allocation process. Their prepared buffers, CPU images
+  and payload lengths match candidate raw controls exactly. Baseline rejects those
+  GPU domains, so there is no claimed cross-version GPU speedup for this newly
+  supported path. All 46 raw/20 encoded shared candidate controls also match the
+  retained initial diagnostic exactly. The new gradient controls extend that
+  earlier workload; they do not replace a failing comparison.
+- Timing excludes construction, bounds/camera setup, source-validation warmup and
+  GPU initialization. Standalone preparation creates fresh output; software frames
+  reuse prepared geometry. GPU uploads borrow prepared surface arrays and pack
+  primitive vertices. Submission clocks CPU validation/encoding/queue-submit,
+  with completion/readback checked outside. Range updates time synchronization
+  while later render/readback checks exact output. No checks/builds run during
+  measurement. The standalone harness does not time GPUI's first metadata/source
+  validation or its selected-field scan.
+
+  | Matched raw case/operation | Baseline CPU | Candidate CPU | Change |
+  |---|---:|---:|---:|
+  | Constant-point 48³ preparation | 1.7320 ms | 1.7005 ms | -1.8% |
+  | Constant-point 48³ GPU upload | 124.5 µs | 129.5 µs | +4.0% |
+  | Gradient-point 48³ preparation | 1.702 ms | 1.729 ms | +1.6% |
+  | Gradient-point 48³ software frame | 1.745 ms | 1.707 ms | -2.2% |
+  | Discontinuous-cell 48³ preparation | 2.7575 ms | 2.6175 ms | -5.1% |
+  | Discontinuous-cell 48³ GPU upload | 171.5 µs | 155.0 µs | -9.6% |
+  | General 48³ preparation | 20.034 ms | 20.326 ms | +1.5% |
+  | General 48³ CPU submission | 33 µs | 35 µs | +6.1% |
+  | 65,536 colored lines, software frame | 41.7275 ms | 41.8700 ms | +0.3% |
+  | 65,536 colored lines, GPU upload | 662.5 µs | 608.5 µs | -8.2% |
+  | 65,536 colored lines, CPU submission | 34 µs | 36 µs | +5.9% |
+  | 65,536 colored points, GPU upload | 372.0 µs | 998.5 µs | +168.4% |
+  | Constant-point 16³ CPU submission | 35.5 µs | 35.5 µs | 0.0% |
+
+- The first run (`20261019-scalar-transport-initial.json`) exposed a 37.3% large
+  point-upload regression. Hot packing/coordinate functions and primitive vertex
+  construction are now inline. The pre-LUT capture had a smaller point-upload
+  median, but the final capture above again has a large regression. It is retained
+  as a failed performance qualification, not discarded as noise. An independent
+  repeat with byte-identical existing binaries is archived in
+  [`qa/perf/20261019-scalar-transport-confirmation.json`](qa/perf/20261019-scalar-transport-confirmation.json):
+  ABBA twice, four fresh processes/version, all 56 output hashes and payloads exact.
+  Point upload there is **387 to 353 µs (-8.8%)**, while point CPU submission is
+  **107.5 to 282.5 µs (+162.8%)** and range synchronization is **77.5 to 163 µs
+  (+110.3%)**. The original upload samples are bimodal, including candidate samples
+  around 0.33 ms and 1 ms. No source or binary change separates these two runs.
+  Driver activity, process-wide CPU attribution and uncontrolled thermal/affinity
+  can affect these measurements; the cause is not established. Point preparation/
+  upload/submission needs isolated profiling before accepting a performance claim.
+  No causal speedup is inferred by selecting a favorable capture. General
+  preparation/submission, constant-point upload and colored software-line costs
+  also remain visible follow-ups. Small CPU clocks have coarse granularity.
+  No whole-app, GPU-throughput or measured-energy result is inferred.
+- Encoded **range updates currently rebuild complete prepared/uploaded geometry**.
+  Candidate 48³ constant/gradient point updates cost **1.8935/1.8725 ms**, versus
+  **23.5/23.5 µs** for candidate raw ranges. Cell updates cost **2.8320 ms**, versus
+  **23 µs** raw. Allocation growth is **1,269,017 bytes / 131 calls** for encoded
+  point updates and **2,328,677 bytes / 164 calls** for encoded cell updates,
+  compared with **4,766 bytes / 37 calls** for raw material updates. This is
+  unresolved P1 work, not an acceptable claim that all field/material changes
+  avoid geometry work. Finer scalar/topology retention remains necessary.
+- All measured raw software-frame, CPU-submission and raw-range-update allocation
+  results match baseline. GPU buffer payloads and uniform ABI remain unchanged.
+  `GpuChunk` itself measures **144 to 168 bytes** on this host: 24 bytes of domain
+  metadata per element. Observed preparation allocations grow 24 bytes for the
+  one-chunk point/general path and 96 bytes for the cell output Vec capacity;
+  upload-side metadata grows 96 bytes in these one-actor cases. Retention identity
+  also stores encoding information. Buffer `byte_len` excludes these metadata
+  costs, native/driver storage and shared canonical data.
+- Allocator-disabled `time -l` processes prepare raw point/cell 48³ inputs (ABBA
+  twice/kind) and encoded candidate inputs (four fresh processes/kind), returning
+  before GPU renderer initialization. Maximum process RSS medians are raw point
+  **22,421,504 to 22,429,696 bytes**, raw cell **23,937,024 to 23,986,176 bytes**;
+  encoded candidate point/cell are **22,413,312 / 23,994,368 bytes**. These include
+  linked-binary loading, source creation and output hashing. They are neither GPU
+  residency nor physical mobile memory, and establish no memory-saving claim.
+- Verification passes 27 mesh / 74 transformation / **121 required-GPU scene**
+  library tests and public integrations, **85 software-only scene** library tests
+  and integrations, **223 Python-runtime Rust** library tests, targeted strict
+  scene production/new public integration Clippy, doctests, native viewer
+  compilation and the wasm GPU/GPUI library closure. The existing broad all-target
+  lint failures remain open. Final source/test/lock/runner hashes match the retained
+  measured files; the original audit and previous committed evidence are unchanged.
+- C4 remains open for the full f64 surface/camera/normal contract, cancellation
+  and values outside this scalar-coordinate profile, highly nonlinear/banded
+  GPU transfer parity, arbitrary transparency and GPUI error reporting. This is
+  not an exact f64 display guarantee. P1 needs scalar-only updates and finer
+  source/topology/validity retention; C3/C5, all aggregate CPU/GPU/cache/in-flight
+  budgets, earlier regressions, FFI/text/platform work, physical-device power,
+  demand/thermal/pressure scheduling, Taffy and CUDA/MLX experiments and full
+  acceptance remain in scope. The full implementation goal remains active.

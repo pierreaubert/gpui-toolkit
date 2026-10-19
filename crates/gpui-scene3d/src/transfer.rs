@@ -133,10 +133,48 @@ impl PreparedTransfer<'_> {
     /// Color for a scalar, with missing samples mapped to transparent.
     #[must_use]
     pub fn map(&self, value: f64) -> [f32; 4] {
+        self.color_at(self.normalize(value))
+    }
+
+    /// Maps an unclamped linear-domain coordinate to color.
+    ///
+    /// Zero and one denote the original domain endpoints. Clamping, logarithmic
+    /// mapping and color bands apply after scalar interpolation, not per vertex.
+    /// Nonfinite input maps to transparent color.
+    #[must_use]
+    pub fn map_linear_position(&self, position: f64) -> [f32; 4] {
+        if !position.is_finite() {
+            return [0.0; 4];
+        }
+        let position = position.clamp(0.0, 1.0);
+        let t = match self.domain {
+            Domain::Constant => 0.0,
+            Domain::Linear { .. } => {
+                if self.bands == 0 {
+                    position
+                } else {
+                    let count = self.bands as f64;
+                    ((position * count).floor().min(count - 1.0) + 0.5) / count
+                }
+            }
+            Domain::Log { lo, hi, .. } => {
+                let value = if position == 0.0 {
+                    lo
+                } else if position == 1.0 {
+                    hi
+                } else {
+                    lo * (1.0 - position) + hi * position
+                };
+                self.normalize(value)
+            }
+        };
+        self.color_at(t)
+    }
+
+    fn color_at(&self, t: f64) -> [f32; 4] {
         if self.stops.is_empty() {
             return [0.0; 4];
         }
-        let t = self.normalize(value);
         if !t.is_finite() {
             return [0.0; 4];
         }
@@ -271,15 +309,24 @@ impl TransferFunction {
         self.metadata_valid() && self.stops_opaque
     }
 
-    #[cfg(feature = "gpu")]
-    pub(crate) fn gpu_range(&self) -> Result<[f32; 2], crate::SceneError> {
+    pub(crate) fn raw_f32_range(&self) -> Result<[f32; 2], crate::SceneError> {
         self.validate()?;
         let range = self.range.map(|v| v as f32);
         let span = range[1] - range[0];
+        // Keep about 12 bits of domain-relative resolution before interpolation.
+        // Magnitude * EPSILON conservatively estimates an f32 ULP. Rebasing
+        // prevents a large offset from consuming most scalar mantissa bits.
+        // This is a coordinate profile, not a universal palette error bound.
+        const MAX_RELATIVE_ULP: f64 = 1.0 / 4_096.0;
+        let magnitude = self.range[0].abs().max(self.range[1].abs());
+        let coarse = self.range[0] != self.range[1]
+            && magnitude * f64::from(f32::EPSILON)
+                > (self.range[1] - self.range[0]) * MAX_RELATIVE_ULP;
         if range.iter().any(|v| !v.is_finite() || v.is_subnormal())
             || !span.is_finite()
             || span.is_subnormal()
             || (self.range[0] != self.range[1] && span == 0.0)
+            || coarse
         {
             return Err(crate::SceneError::UnsupportedPrecision(
                 "transfer domain cannot be retained by the raw f32 scalar backend",
@@ -373,6 +420,8 @@ impl TransferFunction {
     }
 
     /// 256-entry RGBA lookup table; invalid settings produce transparent entries.
+    ///
+    /// Linear-domain sampling avoids reconstructing large-offset scalar values.
     #[must_use]
     pub fn lut_bytes(&self) -> Vec<u8> {
         let Ok(prepared) = self.prepare() else {
@@ -381,13 +430,20 @@ impl TransferFunction {
         let mut bytes = Vec::with_capacity(256 * 4);
         for i in 0..256 {
             let t = f64::from(i) / 255.0;
-            let [lo, hi] = self.range;
-            let value = if lo.is_sign_negative() == hi.is_sign_negative() {
-                lo + (hi - lo) * t
+            let color = if self.log_scale {
+                let [lo, hi] = self.range;
+                let value = if lo.is_sign_negative() == hi.is_sign_negative() {
+                    lo + (hi - lo) * t
+                } else {
+                    lo * (1.0 - t) + hi * t
+                };
+                prepared.map(value)
             } else {
-                lo * (1.0 - t) + hi * t
+                // Reconstructing a physical value first quantizes narrow
+                // offset domains before their palette or alpha is sampled.
+                prepared.map_linear_position(t)
             };
-            for c in prepared.map(value) {
+            for c in color {
                 bytes.push((c.clamp(0.0, 1.0) * 255.0) as u8);
             }
         }
@@ -398,6 +454,42 @@ impl TransferFunction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn linear_position_sampling_maps_after_interpolation() {
+        for range in [
+            [0.0, 1.0],
+            [1e100, 2e100],
+            [1e12, 1e12 + 1.0],
+            [0.0, 1e-100],
+            [-f64::MAX, f64::MAX],
+        ] {
+            let tf = TransferFunction::viridis(range);
+            let prepared = tf.prepare().unwrap();
+            for p in [0.0, 0.2, 0.4, 0.6, 0.8, 1.0] {
+                let value = range[0] * (1.0 - p) + range[1] * p;
+                let expected = tf.map(value);
+                let actual = prepared.map_linear_position(p);
+                // Narrow-offset raw values have only 1/8192 domain resolution.
+                for axis in 0..4 {
+                    assert!((actual[axis] - expected[axis]).abs() < 0.001);
+                }
+            }
+            assert_eq!(prepared.map_linear_position(-2.0), tf.map(range[0]));
+            assert_eq!(prepared.map_linear_position(2.0), tf.map(range[1]));
+            assert_eq!(prepared.map_linear_position(f64::NAN), [0.0; 4]);
+        }
+        for tf in [
+            TransferFunction::viridis([1e100, 2e100]).log(),
+            TransferFunction::viridis([1e100, 2e100]).banded(4),
+        ] {
+            let p = tf.prepare().unwrap();
+            for t in [0.1, 0.35, 0.6, 0.9] {
+                let value = tf.range[0] * (1.0 - t) + tf.range[1] * t;
+                assert_eq!(p.map_linear_position(t), p.map(value));
+            }
+        }
+    }
 
     #[test]
     fn endpoints_and_midpoint() {
@@ -482,14 +574,22 @@ mod tests {
     #[test]
     #[cfg(feature = "gpu")]
     fn raw_gpu_domains_report_collapse_overflow_and_subnormal_precision() {
-        for range in [[-f64::MAX, f64::MAX], [1e12, 1e12 + 0.125], [0.0, 1e-40]] {
+        for range in [
+            [-f64::MAX, f64::MAX],
+            [1e12, 1e12 + 0.125],
+            [0.0, 1e-40],
+            [1e12, 1e12 + 1e5],
+            [1e6, 1e6 + 1.0],
+        ] {
             assert!(matches!(
-                TransferFunction::viridis(range).gpu_range(),
+                TransferFunction::viridis(range).raw_f32_range(),
                 Err(crate::SceneError::UnsupportedPrecision(_))
             ));
         }
         assert_eq!(
-            TransferFunction::viridis([0.0, 1.0]).gpu_range().unwrap(),
+            TransferFunction::viridis([0.0, 1.0])
+                .raw_f32_range()
+                .unwrap(),
             [0.0, 1.0]
         );
     }

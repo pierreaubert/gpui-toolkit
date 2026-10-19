@@ -550,8 +550,8 @@ impl GpuRenderer {
         )?;
         scene.validate_render_state()?;
         for actor in scene.actors.iter().filter(|actor| actor.visible) {
-            if let Some(transfer) = actor.active_transfer() {
-                transfer.gpu_range()?;
+            if actor.active_transfer().is_some() {
+                crate::scalar::ScalarTransport::of(actor)?;
             }
             if actor.clip_planes.len() > crate::shaders::MAX_CLIP_PLANES {
                 return Err(GpuRenderError::UnsupportedFeature(
@@ -760,6 +760,7 @@ impl GpuRenderer {
         limits: crate::GpuUploadLimits,
     ) -> Result<Vec<GpuPrimitiveBuffer>, SceneError> {
         let field = crate::retained::selected_field(actor)?.map(|(_, field)| field);
+        let transport = crate::scalar::ScalarTransport::of(actor)?;
         let mut buffers = Vec::new();
         for (kind, ids, arity) in [
             (PrimitiveKind::Line, &cells.lines, 2usize),
@@ -799,6 +800,7 @@ impl GpuRenderer {
                             cell,
                             node,
                             origin,
+                            transport,
                         )?);
                     }
                 }
@@ -841,8 +843,8 @@ impl GpuRenderer {
         )?;
         scene.validate_render_state()?;
         for actor in scene.actors.iter().filter(|actor| actor.visible) {
-            if let Some(transfer) = actor.active_transfer() {
-                transfer.gpu_range()?;
+            if actor.active_transfer().is_some() {
+                crate::scalar::ScalarTransport::of(actor)?;
             }
         }
         if !uploaded.prepared.matches(scene)? {
@@ -1369,7 +1371,15 @@ fn readback_layout(
 
 fn material_lut(actor: &crate::Actor) -> Result<(Vec<u8>, [f32; 2]), SceneError> {
     if let (Some(transfer), Some(_)) = (&actor.transfer, actor.scalars()) {
-        Ok((transfer.lut_bytes(), transfer.gpu_range()?))
+        let range = if crate::scalar::ScalarTransport::of(actor)?
+            .domain()
+            .is_some()
+        {
+            [0.0, 1.0]
+        } else {
+            transfer.raw_f32_range()?
+        };
+        Ok((transfer.lut_bytes(), range))
     } else {
         let color = actor.color.map(|value| (value * 255.0) as u8);
         Ok((color.repeat(256), [0.0, 1.0]))
@@ -1401,6 +1411,44 @@ mod tests {
             }
             Err(error) => panic!("scene3d GPU initialization failed: {error}"),
         }
+    }
+
+    #[test]
+    fn encoded_scalar_domain_replacement_preserves_previously_encoded_passes() {
+        let Some(renderer) = renderer() else {
+            return;
+        };
+        let data = DataSet::surface(
+            "pending domain",
+            vec![[-0.8, -0.8, 0.0], [0.8, -0.8, 0.0], [0.0, 0.8, 0.0]],
+            &[[0, 1, 2]],
+        )
+        .with_field(Field::scalar("p", vec![1e100, 2e100, 1.5e100]));
+        let mut scene = Scene::new().with_actor(
+            Actor::new(data).coloured_by("p", TransferFunction::viridis([1e100, 2e100])),
+        );
+        let camera = Camera::fitted(scene.bounds().unwrap());
+        let mut uploaded = renderer.upload(&scene).unwrap();
+        let reference = renderer.create_target(32, 32).unwrap();
+        renderer.render(&mut uploaded, &camera, &reference).unwrap();
+        let before = renderer.read_rgba(&reference).unwrap();
+        let old_target = renderer.create_target(32, 32).unwrap();
+        let new_target = renderer.create_target(32, 32).unwrap();
+        let mut encoder = renderer.device.create_command_encoder(&Default::default());
+        renderer
+            .encode(&mut encoder, &mut uploaded, &camera, &old_target)
+            .unwrap();
+        scene.actors[0].transfer.as_mut().unwrap().range = [1e100, 3e100];
+        assert!(renderer.sync(&mut uploaded, &scene).unwrap());
+        renderer
+            .encode(&mut encoder, &mut uploaded, &camera, &new_target)
+            .unwrap();
+        renderer.queue.submit([encoder.finish()]);
+        assert_eq!(renderer.read_rgba(&old_target).unwrap(), before);
+        let after = renderer.read_rgba(&new_target).unwrap();
+        renderer.render(&mut uploaded, &camera, &reference).unwrap();
+        assert_eq!(renderer.read_rgba(&reference).unwrap(), after);
+        assert_ne!(before.rgba, after.rgba);
     }
 
     #[test]
@@ -1626,6 +1674,7 @@ mod tests {
             positions: vec![0.0; 9],
             normals: vec![0.0; 9],
             scalars: vec![0.0; 3],
+            scalar_domain: None,
             indices: vec![0, 1, 2],
             edges: vec![0, 1, 1, 2, 0, 2],
         };
@@ -2122,7 +2171,7 @@ mod tests {
         let mut uploaded = renderer.upload(&base).unwrap();
         renderer.render(&mut uploaded, &camera, &target).unwrap();
         let reference = renderer.read_rgba(&target).unwrap();
-        for range in [[f64::NAN, 1.0], [-f64::MAX, f64::MAX], [1e12, 1e12 + 0.125]] {
+        for range in [[f64::NAN, 1.0], [2.0, 1.0], [0.0, f64::INFINITY]] {
             let mut changed = base.clone();
             changed.background = [1.0; 4];
             changed.actors[0].color = [0.0, 0.0, 1.0, 1.0];

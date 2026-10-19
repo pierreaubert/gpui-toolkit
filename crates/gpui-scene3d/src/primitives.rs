@@ -83,12 +83,14 @@ pub(crate) fn scalar(field: Option<&Field>, cell: usize, node: u32) -> f64 {
 }
 
 #[cfg(feature = "gpu")]
+#[inline]
 pub(crate) fn gpu_vertex(
     dataset: &DataSet,
     field: Option<&Field>,
     cell: usize,
     node: u32,
     origin: [f64; 3],
+    transport: crate::scalar::ScalarTransport,
 ) -> Result<[f32; 4], SceneError> {
     let position = dataset.positions[node as usize];
     let mut vertex = [0.0; 4];
@@ -98,10 +100,7 @@ pub(crate) fn gpu_vertex(
             "primitive position cannot be represented by f32",
         )?;
     }
-    vertex[3] = gpu_value(
-        scalar(field, cell, node),
-        "primitive scalar cannot be represented by f32",
-    )?;
+    vertex[3] = transport.pack(scalar(field, cell, node))?;
     Ok(vertex)
 }
 
@@ -127,6 +126,7 @@ pub(crate) fn gpu_supported(actor: &crate::Actor) -> Result<bool, SceneError> {
     }
     actor.dataset.validate()?;
     let field = crate::retained::selected_field(actor)?.map(|(_, field)| field);
+    let transport = crate::scalar::ScalarTransport::of(actor)?;
     let origin = actor.dataset.bounds().map_or([0.0; 3], |b| b.center());
     for (cell, &kind) in actor.dataset.cells.types.iter().enumerate() {
         if !matches!(kind, CellType::Line | CellType::Vertex) {
@@ -141,7 +141,7 @@ pub(crate) fn gpu_supported(actor: &crate::Actor) -> Result<bool, SceneError> {
             continue;
         }
         for &node in nodes {
-            match gpu_vertex(&actor.dataset, field, cell, node, origin) {
+            match gpu_vertex(&actor.dataset, field, cell, node, origin, transport) {
                 Ok(_) => {}
                 Err(SceneError::UnsupportedPrecision(_)) => return Ok(false),
                 Err(error) => return Err(error),

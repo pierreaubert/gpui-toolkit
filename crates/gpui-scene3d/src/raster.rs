@@ -217,9 +217,22 @@ struct ScreenTriangle {
 
 struct RasterMaterial<'a> {
     transfer: Option<crate::PreparedTransfer<'a>>,
+    transport: crate::scalar::ScalarTransport,
     color: [f32; 4],
     opacity: f32,
     light: [f32; 3],
+}
+
+impl RasterMaterial<'_> {
+    fn scalar_color(&self, scalar: f64) -> [f32; 4] {
+        self.transfer.as_ref().map_or(self.color, |tf| {
+            if self.transport.domain().is_some() {
+                tf.map_linear_position(scalar)
+            } else {
+                tf.map(scalar)
+            }
+        })
+    }
 }
 
 fn retain_triangle(
@@ -282,6 +295,7 @@ fn draw_actor(
         .map(crate::TransferFunction::prepare)
         .transpose()?;
     let material = RasterMaterial {
+        transport: crate::scalar::ScalarTransport::of(actor)?,
         transfer,
         color: actor.color,
         opacity: actor.opacity,
@@ -605,13 +619,7 @@ fn draw_wireframe(
                         let scalar = (weights[0] * f64::from(vertices[0].scalar)
                             + weights[1] * f64::from(vertices[1].scalar))
                             / (weights[0] + weights[1]);
-                        black(
-                            material
-                                .transfer
-                                .as_ref()
-                                .expect("variable alpha uses transfer")
-                                .map(scalar)[3],
-                        )
+                        black(material.scalar_color(scalar)[3])
                     },
                 );
             }
@@ -680,10 +688,7 @@ fn primitive_project(vertex: PrimitiveSample, size: [u32; 2]) -> (f32, f32, f32)
 }
 
 fn unlit_color(material: &RasterMaterial<'_>, scalar: f64) -> [u8; 4] {
-    let mut color = material
-        .transfer
-        .as_ref()
-        .map_or(material.color, |tf| tf.map(scalar));
+    let mut color = material.scalar_color(scalar);
     color[3] *= material.opacity;
     shaded_color(color, 1.0)
 }
@@ -703,9 +708,9 @@ fn draw_primitives(
     let matrix = camera
         .software_primitive_matrix(camera.target, target.size[0] as f32 / target.size[1] as f32)?;
     let planes = crate::scene::local_planes(&actor.clip_planes, camera.target)?;
-    let sample = |cell, node| {
+    let sample = |cell, node| -> Result<PrimitiveSample, SceneError> {
         let p = actor.dataset.positions[node as usize];
-        PrimitiveSample {
+        Ok(PrimitiveSample {
             position: [
                 p[0] - camera.target[0],
                 p[1] - camera.target[1],
@@ -715,14 +720,16 @@ fn draw_primitives(
             scalar: if flat_color.is_some() {
                 0.0
             } else {
-                crate::primitives::scalar(field, cell, node)
+                material
+                    .transport
+                    .coordinate(crate::primitives::scalar(field, cell, node))?
             },
-        }
+        })
     };
     let write_depth = !actor.is_transparent();
     for cell in geometry.primitives.lines.iter() {
         let nodes = actor.dataset.cells.cell(cell).expect("validated line");
-        let vertices = [sample(cell, nodes[0]), sample(cell, nodes[1])];
+        let vertices = [sample(cell, nodes[0])?, sample(cell, nodes[1])?];
         let points = vertices.map(|v| [v.position[0], v.position[1], v.position[2]]);
         let Some(interval) =
             crate::clipping::segment_interval(points, planes.len(), |p, i| planes[i].distance(p))
@@ -784,7 +791,7 @@ fn draw_primitives(
     }
     for cell in geometry.primitives.points.iter() {
         let node = actor.dataset.cells.cell(cell).expect("validated point")[0];
-        let vertex = sample(cell, node);
+        let vertex = sample(cell, node)?;
         if planes.iter().any(|plane| {
             plane.distance([vertex.position[0], vertex.position[1], vertex.position[2]]) < 0.0
         }) {
@@ -905,10 +912,7 @@ fn rasterize(
     let constant_scalar =
         material.transfer.is_none() || vertices.iter().all(|v| v.scalar == vertices[0].scalar);
     if constant_normal && constant_scalar {
-        let mut color = material
-            .transfer
-            .as_ref()
-            .map_or(material.color, |tf| tf.map(f64::from(vertices[0].scalar)));
+        let mut color = material.scalar_color(f64::from(vertices[0].scalar));
         color[3] *= material.opacity;
         let colour = shaded_color(color, light_intensity(vertices[0].normal, material.light));
         if colour[3] != 0 {
@@ -947,12 +951,7 @@ impl<'a, 'b> FragmentShader<'a, 'b> {
                 Some(vertices.map(|v| 1.0 / f64::from(v.clip_w)))
             },
             intensity: constant_normal.then(|| light_intensity(vertices[0].normal, material.light)),
-            color: constant_scalar.then(|| {
-                material
-                    .transfer
-                    .as_ref()
-                    .map_or(material.color, |tf| tf.map(f64::from(vertices[0].scalar)))
-            }),
+            color: constant_scalar.then(|| material.scalar_color(f64::from(vertices[0].scalar))),
             vertices,
         }
     }
@@ -979,11 +978,7 @@ impl<'a, 'b> FragmentShader<'a, 'b> {
             let scalar = (0..3)
                 .map(|i| weights[i] * f64::from(self.vertices[i].scalar))
                 .sum();
-            self.material
-                .transfer
-                .as_ref()
-                .expect("variable scalar has transfer")
-                .map(scalar)
+            self.material.scalar_color(scalar)
         });
         color[3] *= self.material.opacity;
         shaded_color(color, intensity)
@@ -1096,6 +1091,7 @@ mod tests {
             &[(0.0, [0.0, 0.0, 0.0, 1.0]), (1.0, [1.0; 4])],
         );
         let material = RasterMaterial {
+            transport: crate::scalar::ScalarTransport::Raw,
             transfer: Some(transfer.prepare().unwrap()),
             color: [1.0; 4],
             opacity: 1.0,
@@ -1135,6 +1131,7 @@ mod tests {
             &[(0.0, [0.0, 0.0, 0.0, 1.0]), (1.0, [1.0; 4])],
         );
         let material = RasterMaterial {
+            transport: crate::scalar::ScalarTransport::Raw,
             transfer: Some(transfer.prepare().unwrap()),
             ..material
         };
