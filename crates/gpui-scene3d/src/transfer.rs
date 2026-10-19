@@ -311,28 +311,7 @@ impl TransferFunction {
 
     pub(crate) fn raw_f32_range(&self) -> Result<[f32; 2], crate::SceneError> {
         self.validate()?;
-        let range = self.range.map(|v| v as f32);
-        let span = range[1] - range[0];
-        // Keep about 12 bits of domain-relative resolution before interpolation.
-        // Magnitude * EPSILON conservatively estimates an f32 ULP. Rebasing
-        // prevents a large offset from consuming most scalar mantissa bits.
-        // This is a coordinate profile, not a universal palette error bound.
-        const MAX_RELATIVE_ULP: f64 = 1.0 / 4_096.0;
-        let magnitude = self.range[0].abs().max(self.range[1].abs());
-        let coarse = self.range[0] != self.range[1]
-            && magnitude * f64::from(f32::EPSILON)
-                > (self.range[1] - self.range[0]) * MAX_RELATIVE_ULP;
-        if range.iter().any(|v| !v.is_finite() || v.is_subnormal())
-            || !span.is_finite()
-            || span.is_subnormal()
-            || (self.range[0] != self.range[1] && span == 0.0)
-            || coarse
-        {
-            return Err(crate::SceneError::UnsupportedPrecision(
-                "transfer domain cannot be retained by the raw f32 scalar backend",
-            ));
-        }
-        Ok(range)
+        crate::scalar::raw_range(self.range)
     }
 
     /// Viridis-like perceptually uniform ramp over `range`.

@@ -221,6 +221,7 @@ struct GpuActor {
     uniform: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     scalar_range: [f32; 2],
+    scalar_transport: crate::scalar::ScalarTransport,
     opacity: f32,
     clip_planes: Vec<crate::scene::ClipPlane>,
     clip_coefficients: PackedClipPlanes,
@@ -626,11 +627,13 @@ impl GpuRenderer {
             let primitives = self.upload_primitives(
                 actor,
                 &geometry.primitives,
+                geometry.scalar_transport(),
                 origin,
                 scene.gpu_upload_limits,
             )?;
             // Colour LUT: the actor's transfer function, or a flat ramp.
-            let (lut_bytes, scalar_range) = material_lut(actor)?;
+            let scalar_transport = geometry.scalar_transport();
+            let (lut_bytes, scalar_range) = material_lut(actor, scalar_transport)?;
             let lut = self.device.create_texture_with_data(
                 &self.queue,
                 &wgpu::TextureDescriptor {
@@ -663,6 +666,7 @@ impl GpuRenderer {
                 uniform,
                 bind_group,
                 scalar_range,
+                scalar_transport,
                 opacity: actor.opacity,
                 clip_planes: actor.clip_planes.clone(),
                 clip_coefficients,
@@ -681,7 +685,7 @@ impl GpuRenderer {
             background: scene.background,
             geometry_bytes: plan.geometry_bytes,
             resource_bytes: plan.resource_bytes,
-            prepared: SceneRevision::new(scene)?,
+            prepared: SceneRevision::from_prepared(&prepared),
         })
     }
 
@@ -756,11 +760,11 @@ impl GpuRenderer {
         &self,
         actor: &crate::Actor,
         cells: &crate::primitives::PrimitiveCells,
+        transport: crate::scalar::ScalarTransport,
         origin: [f64; 3],
         limits: crate::GpuUploadLimits,
     ) -> Result<Vec<GpuPrimitiveBuffer>, SceneError> {
         let field = crate::retained::selected_field(actor)?.map(|(_, field)| field);
-        let transport = crate::scalar::ScalarTransport::of(actor)?;
         let mut buffers = Vec::new();
         for (kind, ids, arity) in [
             (PrimitiveKind::Line, &cells.lines, 2usize),
@@ -847,7 +851,7 @@ impl GpuRenderer {
                 crate::scalar::ScalarTransport::of(actor)?;
             }
         }
-        if !uploaded.prepared.matches(scene)? {
+        if !uploaded.prepared.matches_buffers(scene)? {
             *uploaded = self.upload_replacement(scene, uploaded.resource_bytes)?;
             return Ok(true);
         }
@@ -884,7 +888,7 @@ impl GpuRenderer {
             if gpu.transfer.as_ref() != actor.active_transfer()
                 || gpu.color != actor.effective_color()
             {
-                let (bytes, range) = material_lut(actor)?;
+                let (bytes, range) = material_lut(actor, gpu.scalar_transport)?;
                 // New material resources keep already-encoded passes immutable.
                 // A queue write into the old LUT would affect earlier passes
                 // when the host batches both revisions in one submission.
@@ -1369,20 +1373,16 @@ fn readback_layout(
     })
 }
 
-fn material_lut(actor: &crate::Actor) -> Result<(Vec<u8>, [f32; 2]), SceneError> {
-    if let (Some(transfer), Some(_)) = (&actor.transfer, actor.scalars()) {
-        let range = if crate::scalar::ScalarTransport::of(actor)?
-            .domain()
-            .is_some()
-        {
-            [0.0, 1.0]
-        } else {
-            transfer.raw_f32_range()?
-        };
+fn material_lut(
+    actor: &crate::Actor,
+    transport: crate::scalar::ScalarTransport,
+) -> Result<(Vec<u8>, [f32; 2]), SceneError> {
+    let range = transport.display_range(actor)?.map(|v| v as f32);
+    if let Some(transfer) = actor.active_transfer() {
         Ok((transfer.lut_bytes(), range))
     } else {
         let color = actor.color.map(|value| (value * 255.0) as u8);
-        Ok((color.repeat(256), [0.0, 1.0]))
+        Ok((color.repeat(256), range))
     }
 }
 
@@ -1414,41 +1414,46 @@ mod tests {
     }
 
     #[test]
-    fn encoded_scalar_domain_replacement_preserves_previously_encoded_passes() {
+    fn encoded_scalar_domain_updates_preserve_previously_encoded_passes() {
         let Some(renderer) = renderer() else {
             return;
         };
-        let data = DataSet::surface(
-            "pending domain",
-            vec![[-0.8, -0.8, 0.0], [0.8, -0.8, 0.0], [0.0, 0.8, 0.0]],
-            &[[0, 1, 2]],
-        )
-        .with_field(Field::scalar("p", vec![1e100, 2e100, 1.5e100]));
-        let mut scene = Scene::new().with_actor(
-            Actor::new(data).coloured_by("p", TransferFunction::viridis([1e100, 2e100])),
-        );
-        let camera = Camera::fitted(scene.bounds().unwrap());
-        let mut uploaded = renderer.upload(&scene).unwrap();
-        let reference = renderer.create_target(32, 32).unwrap();
-        renderer.render(&mut uploaded, &camera, &reference).unwrap();
-        let before = renderer.read_rgba(&reference).unwrap();
-        let old_target = renderer.create_target(32, 32).unwrap();
-        let new_target = renderer.create_target(32, 32).unwrap();
-        let mut encoder = renderer.device.create_command_encoder(&Default::default());
-        renderer
-            .encode(&mut encoder, &mut uploaded, &camera, &old_target)
-            .unwrap();
-        scene.actors[0].transfer.as_mut().unwrap().range = [1e100, 3e100];
-        assert!(renderer.sync(&mut uploaded, &scene).unwrap());
-        renderer
-            .encode(&mut encoder, &mut uploaded, &camera, &new_target)
-            .unwrap();
-        renderer.queue.submit([encoder.finish()]);
-        assert_eq!(renderer.read_rgba(&old_target).unwrap(), before);
-        let after = renderer.read_rgba(&new_target).unwrap();
-        renderer.render(&mut uploaded, &camera, &reference).unwrap();
-        assert_eq!(renderer.read_rgba(&reference).unwrap(), after);
-        assert_ne!(before.rgba, after.rgba);
+        for (range, rebuilt) in [
+            ([1e100, 3e100], false),
+            ([1.49999999e100, 1.50000001e100], true),
+        ] {
+            let data = DataSet::surface(
+                "pending domain",
+                vec![[-0.8, -0.8, 0.0], [0.8, -0.8, 0.0], [0.0, 0.8, 0.0]],
+                &[[0, 1, 2]],
+            )
+            .with_field(Field::scalar("p", vec![1e100, 2e100, 1.5e100]));
+            let mut scene = Scene::new().with_actor(
+                Actor::new(data).coloured_by("p", TransferFunction::viridis([1e100, 2e100])),
+            );
+            let camera = Camera::fitted(scene.bounds().unwrap());
+            let mut uploaded = renderer.upload(&scene).unwrap();
+            let reference = renderer.create_target(32, 32).unwrap();
+            renderer.render(&mut uploaded, &camera, &reference).unwrap();
+            let before = renderer.read_rgba(&reference).unwrap();
+            let old_target = renderer.create_target(32, 32).unwrap();
+            let new_target = renderer.create_target(32, 32).unwrap();
+            let mut encoder = renderer.device.create_command_encoder(&Default::default());
+            renderer
+                .encode(&mut encoder, &mut uploaded, &camera, &old_target)
+                .unwrap();
+            scene.actors[0].transfer.as_mut().unwrap().range = range;
+            assert_eq!(renderer.sync(&mut uploaded, &scene).unwrap(), rebuilt);
+            renderer
+                .encode(&mut encoder, &mut uploaded, &camera, &new_target)
+                .unwrap();
+            renderer.queue.submit([encoder.finish()]);
+            assert_eq!(renderer.read_rgba(&old_target).unwrap(), before);
+            let after = renderer.read_rgba(&new_target).unwrap();
+            renderer.render(&mut uploaded, &camera, &reference).unwrap();
+            assert_eq!(renderer.read_rgba(&reference).unwrap(), after);
+            assert_ne!(before.rgba, after.rgba);
+        }
     }
 
     #[test]

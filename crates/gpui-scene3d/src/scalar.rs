@@ -18,6 +18,40 @@ pub(crate) enum ScalarIdentity {
     Linear([u64; 2]),
 }
 
+pub(crate) fn raw_range(source: [f64; 2]) -> Result<[f32; 2], SceneError> {
+    let range = source.map(|v| v as f32);
+    let span = range[1] - range[0];
+    // Keep about 12 bits of domain-relative resolution before interpolation.
+    // Magnitude * EPSILON conservatively estimates an f32 ULP. Rebasing
+    // prevents a large offset from consuming most scalar mantissa bits.
+    // This is a coordinate profile, not a universal palette error bound.
+    const MAX_RELATIVE_ULP: f64 = 1.0 / 4_096.0;
+    let magnitude = source[0].abs().max(source[1].abs());
+    let coarse = source[0] != source[1]
+        && magnitude * f64::from(f32::EPSILON) > (source[1] - source[0]) * MAX_RELATIVE_ULP;
+    if range.iter().any(|v| !v.is_finite() || v.is_subnormal())
+        || !span.is_finite()
+        || span.is_subnormal()
+        || (source[0] != source[1] && span == 0.0)
+        || coarse
+    {
+        return Err(crate::SceneError::UnsupportedPrecision(
+            "transfer domain cannot be retained by the raw f32 scalar backend",
+        ));
+    }
+    Ok(range)
+}
+
+impl ScalarIdentity {
+    pub(crate) fn transport(self) -> ScalarTransport {
+        match self {
+            Self::Flat => ScalarTransport::Flat,
+            Self::Raw => ScalarTransport::Raw,
+            Self::Linear(bits) => ScalarTransport::Linear(bits.map(f64::from_bits)),
+        }
+    }
+}
+
 impl ScalarTransport {
     pub(crate) fn of(actor: &Actor) -> Result<Self, SceneError> {
         let Some(transfer) = actor.active_transfer() else {
@@ -34,6 +68,44 @@ impl ScalarTransport {
             Self::Flat => ScalarIdentity::Flat,
             Self::Raw => ScalarIdentity::Raw,
             Self::Linear(range) => ScalarIdentity::Linear(range.map(f64::to_bits)),
+        }
+    }
+    /// Maps the current display range into this buffer's fixed coordinates.
+    pub(crate) fn display_range(self, actor: &Actor) -> Result<[f64; 2], SceneError> {
+        let unsupported = || SceneError::UnsupportedPrecision("scalar encoding needs replacement");
+        match (self, actor.active_transfer()) {
+            (Self::Flat, None) => Ok([0.0, 1.0]),
+            (Self::Raw, Some(tf)) => {
+                tf.raw_f32_range()?;
+                Ok(tf.range)
+            }
+            (Self::Linear(domain), Some(tf)) => {
+                tf.validate()?;
+                if domain == tf.range {
+                    return Ok([0.0, 1.0]);
+                }
+                // Constant encoding has discarded all source differences.
+                if domain[0] == domain[1] {
+                    return Err(unsupported());
+                }
+                let range = [self.coordinate(tf.range[0])?, self.coordinate(tf.range[1])?];
+                if tf.range[0] != tf.range[1] && range[0] == range[1] {
+                    return Err(unsupported());
+                }
+                // A zoom with insufficient relative resolution must reencode
+                // original f64 samples, rather than magnifying rounded buffers.
+                raw_range(range)?;
+                Ok(range)
+            }
+            _ => Err(unsupported()),
+        }
+    }
+
+    pub(crate) fn supports_display(self, actor: &Actor) -> Result<bool, SceneError> {
+        match self.display_range(actor) {
+            Ok(_) => Ok(true),
+            Err(SceneError::UnsupportedPrecision(_)) => Ok(false),
+            Err(e) => Err(e),
         }
     }
     #[inline]

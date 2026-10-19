@@ -238,7 +238,7 @@ fn software_linear_coordinates_remain_unclamped_through_clipping() {
 
 #[test]
 #[cfg(all(feature = "gpu", not(target_family = "wasm")))]
-fn gpu_domain_updates_rebuild_coordinates_and_fail_transactionally() {
+fn gpu_domain_updates_remap_coordinates_and_fail_transactionally() {
     use gpui_scene3d::{GpuRenderError, GpuRenderer, SceneError};
     let renderer = match GpuRenderer::new(wgpu::TextureFormat::Rgba8Unorm) {
         Ok(r) => r,
@@ -258,8 +258,8 @@ fn gpu_domain_updates_rebuild_coordinates_and_fail_transactionally() {
     let mut uploaded = renderer.upload(&wide).unwrap();
     wide.actors[0].transfer = Some(transfer([1e100, 3e100]));
     assert!(
-        renderer.sync(&mut uploaded, &wide).unwrap(),
-        "coordinate domain changes must invalidate the encoded scalar buffer"
+        !renderer.sync(&mut uploaded, &wide).unwrap(),
+        "compatible display ranges retain encoded scalar coordinates"
     );
     renderer.render(&mut uploaded, &camera(), &target).unwrap();
     let actual = renderer.read_rgba(&target).unwrap();

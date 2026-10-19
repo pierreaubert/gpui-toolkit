@@ -39,6 +39,20 @@ pub(crate) fn selected_field(actor: &Actor) -> Result<Option<(Association, &Fiel
 }
 
 impl GeometryIdentity {
+    fn source_identity(mut self) -> Self {
+        self.scalar_transport = crate::scalar::ScalarIdentity::Flat;
+        self
+    }
+
+    fn matches_buffers(self, actor: &Actor) -> Result<bool, SceneError> {
+        let next = Self::of(actor)?;
+        if self == next {
+            return Ok(true);
+        }
+        Ok(self.source_identity() == next.source_identity()
+            && self.scalar_transport.transport().supports_display(actor)?)
+    }
+
     fn of(actor: &Actor) -> Result<Self, SceneError> {
         let scalar = selected_field(actor)?.map(|(association, field)| {
             let FieldData::Scalar(values) = &field.data else {
@@ -89,6 +103,7 @@ pub(crate) struct SceneRevision {
 
 #[cfg(any(feature = "gpu", feature = "gpui", test))]
 impl SceneRevision {
+    #[cfg(any(feature = "gpui", test))]
     pub(crate) fn new(scene: &Scene) -> Result<Self, SceneError> {
         let actors = scene
             .actors
@@ -107,6 +122,33 @@ impl SceneRevision {
         Ok(Self { actors })
     }
 
+    #[cfg(feature = "gpu")]
+    pub(crate) fn from_prepared(prepared: &PreparedScene) -> Self {
+        Self {
+            actors: prepared
+                .actors
+                .iter()
+                .map(|geometry| geometry.as_ref().map(|g| (g.identity, g.source.clone())))
+                .collect(),
+        }
+    }
+
+    #[cfg(feature = "gpu")]
+    pub(crate) fn matches_buffers(&self, scene: &Scene) -> Result<bool, SceneError> {
+        if self.actors.len() != scene.actors.len() {
+            return Ok(false);
+        }
+        for (prepared, actor) in self.actors.iter().zip(&scene.actors) {
+            match (prepared, actor.visible) {
+                (None, false) => {}
+                (Some((identity, _)), true) if identity.matches_buffers(actor)? => {}
+                _ => return Ok(false),
+            }
+        }
+        Ok(true)
+    }
+
+    #[cfg(any(feature = "gpui", test))]
     pub(crate) fn matches(&self, scene: &Scene) -> Result<bool, SceneError> {
         if self.actors.len() != scene.actors.len() {
             return Ok(false);
@@ -124,18 +166,29 @@ impl SceneRevision {
 
 pub(crate) struct PreparedGeometry {
     identity: GeometryIdentity,
-    _source: GeometrySource,
+    #[cfg_attr(
+        not(feature = "gpu"),
+        expect(dead_code, reason = "pins allocations used by cache identities")
+    )]
+    source: GeometrySource,
     pub(crate) chunks: Vec<GpuChunk>,
     pub(crate) primitives: crate::primitives::PrimitiveCells,
     pub(crate) bounds: Option<Bounds>,
     bytes: u64,
 }
 
+impl PreparedGeometry {
+    pub(crate) fn scalar_transport(&self) -> crate::scalar::ScalarTransport {
+        self.identity.scalar_transport.transport()
+    }
+}
+
 /// Immutable prepared geometry for one scene revision.
 ///
 /// Palette, opacity, clipping, background and cameras remain live scene state.
 /// A transfer domain outside the raw f32 profile also determines the prepared
-/// scalar coordinates; changing that domain invalidates this preparation.
+/// scalar coordinates. Compatible display-range changes reuse these coordinates;
+/// zooms needing more precision rebuild from the original f64 source.
 /// This object retains topology, positions, the selected scalar/mask and
 /// their derived buffers. Unrelated fields are not pinned by the cache.
 pub struct PreparedScene {
@@ -171,7 +224,7 @@ impl PreparedScene {
         for (prepared, actor) in self.actors.iter().zip(&scene.actors) {
             match (prepared, actor.visible) {
                 (None, false) => {}
-                (Some(prepared), true) if prepared.identity == GeometryIdentity::of(actor)? => {}
+                (Some(prepared), true) if prepared.identity.matches_buffers(actor)? => {}
                 _ => return Ok(false),
             }
         }
@@ -204,13 +257,23 @@ impl PreparationCache {
             self.stats.cache_hits += 1;
             return Ok(current.clone());
         }
-        let mut reusable: HashMap<GeometryIdentity, Arc<PreparedGeometry>> = self
+        let mut reusable: HashMap<
+            GeometryIdentity,
+            smallvec::SmallVec<[Arc<PreparedGeometry>; 1]>,
+        > = HashMap::new();
+        for geometry in self
             .current
             .as_ref()
             .into_iter()
-            .flat_map(|scene| scene.actors.iter().flatten())
-            .map(|geometry| (geometry.identity, geometry.clone()))
-            .collect();
+            .flat_map(|s| s.actors.iter().flatten())
+        {
+            let entries = reusable
+                .entry(geometry.identity.source_identity())
+                .or_default();
+            if !entries.iter().any(|g| Arc::ptr_eq(g, geometry)) {
+                entries.push(geometry.clone());
+            }
+        }
         let mut actors = Vec::with_capacity(scene.actors.len());
         let mut used = std::collections::HashSet::new();
         let mut bytes = 0u64;
@@ -220,8 +283,16 @@ impl PreparationCache {
                 continue;
             }
             let identity = GeometryIdentity::of(actor)?;
-            let geometry = if let Some(geometry) = reusable.get(&identity) {
-                geometry.clone()
+            let entries = reusable.entry(identity.source_identity()).or_default();
+            let mut compatible = None;
+            for geometry in entries.iter() {
+                if geometry.identity.matches_buffers(actor)? {
+                    compatible = Some(geometry.clone());
+                    break;
+                }
+            }
+            let geometry = if let Some(geometry) = compatible {
+                geometry
             } else {
                 // Preparation validates once per geometry revision before indexing.
                 let (bounds, chunks) = prepare_chunks_with_bounds_and_limits(
@@ -237,17 +308,17 @@ impl PreparationCache {
                     chunks.iter().map(GpuChunk::byte_len).sum::<u64>() + primitives.byte_len();
                 let geometry = Arc::new(PreparedGeometry {
                     identity,
-                    _source: GeometrySource::of(actor)?,
+                    source: GeometrySource::of(actor)?,
                     chunks,
                     primitives,
                     bounds,
                     bytes,
                 });
-                reusable.insert(identity, geometry.clone());
+                entries.push(geometry.clone());
                 self.stats.geometry_builds += 1;
                 geometry
             };
-            if used.insert(identity) {
+            if used.insert(geometry.identity) {
                 bytes += geometry.bytes;
             }
             actors.push(Some(geometry));
@@ -283,7 +354,7 @@ mod tests {
     }
 
     #[test]
-    fn scalar_domains_invalidate_only_encoded_preparation() {
+    fn scalar_domains_reuse_compatible_encoded_preparation() {
         let data = gpui_mesh::DataSet::structured_grid("domain", [2; 3], [0.0; 3], [1.0; 3])
             .unwrap()
             .with_field(Field::scalar("p", vec![0.5; 8]));
@@ -299,8 +370,8 @@ mod tests {
         scene.actors[0].transfer = Some(crate::TransferFunction::coolwarm([1e100, 2e100]));
         assert!(Arc::ptr_eq(&encoded, &scene.prepare().unwrap()));
         scene.actors[0].transfer.as_mut().unwrap().range = [1e100, 3e100];
-        assert!(!Arc::ptr_eq(&encoded, &scene.prepare().unwrap()));
-        assert_eq!(scene.preparation_stats().geometry_builds, 3);
+        assert!(Arc::ptr_eq(&encoded, &scene.prepare().unwrap()));
+        assert_eq!(scene.preparation_stats().geometry_builds, 2);
     }
 
     #[test]

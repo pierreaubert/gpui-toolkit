@@ -218,6 +218,8 @@ struct ScreenTriangle {
 struct RasterMaterial<'a> {
     transfer: Option<crate::PreparedTransfer<'a>>,
     transport: crate::scalar::ScalarTransport,
+    scalar_offset: f64,
+    scalar_scale: f64,
     color: [f32; 4],
     opacity: f32,
     light: [f32; 3],
@@ -227,7 +229,7 @@ impl RasterMaterial<'_> {
     fn scalar_color(&self, scalar: f64) -> [f32; 4] {
         self.transfer.as_ref().map_or(self.color, |tf| {
             if self.transport.domain().is_some() {
-                tf.map_linear_position(scalar)
+                tf.map_linear_position((scalar - self.scalar_offset) * self.scalar_scale)
             } else {
                 tf.map(scalar)
             }
@@ -294,8 +296,12 @@ fn draw_actor(
         .active_transfer()
         .map(crate::TransferFunction::prepare)
         .transpose()?;
+    let transport = geometry.scalar_transport();
+    let [lo, hi] = transport.display_range(actor)?;
     let material = RasterMaterial {
-        transport: crate::scalar::ScalarTransport::of(actor)?,
+        transport,
+        scalar_offset: lo,
+        scalar_scale: if hi == lo { 0.0 } else { 1.0 / (hi - lo) },
         transfer,
         color: actor.color,
         opacity: actor.opacity,
@@ -1092,6 +1098,8 @@ mod tests {
         );
         let material = RasterMaterial {
             transport: crate::scalar::ScalarTransport::Raw,
+            scalar_offset: 0.0,
+            scalar_scale: 1.0,
             transfer: Some(transfer.prepare().unwrap()),
             color: [1.0; 4],
             opacity: 1.0,
@@ -1132,6 +1140,8 @@ mod tests {
         );
         let material = RasterMaterial {
             transport: crate::scalar::ScalarTransport::Raw,
+            scalar_offset: 0.0,
+            scalar_scale: 1.0,
             transfer: Some(transfer.prepare().unwrap()),
             ..material
         };

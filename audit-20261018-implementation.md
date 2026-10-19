@@ -2655,3 +2655,149 @@ and pressure/large-dataset integrations pass with Metal required.
   budgets, earlier regressions, FFI/text/platform work, physical-device power,
   demand/thermal/pressure scheduling, Taffy and CUDA/MLX experiments and full
   acceptance remain in scope. The full implementation goal remains active.
+
+
+## Encoded scalar display-range retention checkpoint
+
+- Previous goal turn: progress (`4115ae31`). That checkpoint correctly encoded
+  large/tiny/offset scalar domains but rebuilt complete CPU/GPU geometry whenever
+  their display range changed. This checkpoint separates fixed buffer coordinates
+  from live material ranges. Compatible display changes reuse existing point/cell
+  surfaces and line/point buffers, mapping the new endpoints into the retained
+  domain. Software applies that affine mapping before transfer lookup; GPU
+  materials use those endpoints in the existing shader uniform. No shader,
+  uniform/vertex ABI or public `GpuChunk` field changes are needed.
+- Reuse requires identical source positions/topology, selected field/mask and
+  wireframe options, plus the same raw-coordinate precision policy for the
+  transformed display range. A precision zoom rebuilds from original f64 values,
+  rather than magnifying rounded coordinates. Constant encoding cannot expand
+  without re-encoding because it discarded source differences. Collapsed mapped
+  endpoints for a nonconstant display range are rejected as incompatible. Flat/
+  colored mode changes and incompatible ranges also rebuild. The 12-bit coordinate
+  selection rule remains a profile, not a universal palette error bound or exact
+  f64 display guarantee.
+- Preparation compatibility buckets are keyed by source allocations and retain
+  distinct necessary encodings. Mixed-actor updates/reordering reuse compatible
+  actors while rebuilding changed sources. Byte accounting counts actual retained
+  geometry identities, rather than current display-range identities. Source Arc
+  ownership still pins allocations used as cache identities. GPU revision
+  snapshots now record the encoding actually prepared/uploaded; recording only
+  the latest requested transfer domain would misidentify reused buffers. Primitive
+  upload also uses that actual encoding when a scene preparation was retained
+  across earlier material changes.
+- Identical public `tests/scalar_range_retention.rs` passes one precision/source
+  control and fails three retention regressions on baseline `4115ae31`; candidate
+  passes all four. Tests cover point/cell surfaces and mixed line/point primitives,
+  expanding/shifting/narrowing/constant display domains, cold-render parity with
+  two-byte color tolerance, mixed-actor/reorder reuse, precision zoom re-encoding,
+  source invalidation and typed rejected-update rollback. Prior scalar-domain
+  tests retain their image/mask/clipping/rollback checks while requiring compatible
+  range reuse. Required-GPU queued-pass testing now covers both a compatible
+  material-only update and a precision-driven replacement; each old encoded pass
+  keeps its exact image after submitting both revisions together.
+- First paired evidence is preserved in
+  [`qa/perf/20261019-scalar-range-retention-paired.json`](qa/perf/20261019-scalar-range-retention-paired.json).
+  It contains 56 raw and 30 encoded matched cases. A second capture adds 18 cold
+  scene-cache cases in
+  [`qa/perf/20261019-scalar-range-retention-extended.json`](qa/perf/20261019-scalar-range-retention-extended.json).
+  Both archive exact sources, probes, manifests/locks, binary/source/test/runner
+  hashes, raw samples, QA commands/output and reference hashes. Production code is
+  identical between captures; earlier measured binaries are separately preserved.
+  All **104** extended cross-version image/buffer hashes and payload lengths match
+  exactly. All 86 shared controls match the first range capture for both versions
+  and match the previous scalar-transport checkpoint for the candidate.
+- Allocator-disabled release ABBA twice gives four fresh processes/version/mode,
+  one warmup and five samples/case, with separate allocation processes. Cases use
+  constant/gradient point fields, discontinuous cells and general topology on
+  16/48 cubed grids, plus colored lines/points at 256/65,536 cells. Clocks include
+  process CPU threads. Source construction, bounds/camera setup, validation warmup,
+  GPU initialization and checks/hash/drop are excluded. Standalone preparation
+  creates fresh chunks. Cold `Scene::prepare` includes validation, bounds,
+  extraction and cache bookkeeping; clearing/dropping the old cache and verifying
+  rendered output happen outside its clock. Software frames use retained geometry;
+  GPU upload borrows surface arrays and packs primitives. Submission clocks CPU
+  encoding/queue-submit, with completion/readback outside. Range synchronization
+  alternates base/double display span and verifies exact rendered output afterward.
+  Baseline's encoded updates must rebuild; candidate's must retain. That expected
+  assertion flag is read outside timing. No task-owned checks/builds run during
+  measurement; thermal/affinity are uncontrolled.
+
+  | Extended capture, 48³ encoded range update | Baseline CPU | Candidate CPU | Change |
+  |---|---:|---:|---:|
+  | Constant-point field | 1.8740 ms | 23.5 µs | -98.7% |
+  | Gradient-point field | 1.8775 ms | 22.0 µs | -98.8% |
+  | Discontinuous-cell field | 2.8370 ms | 22.0 µs | -99.2% |
+
+- The first capture independently measures point/gradient updates at
+  **1.8940/1.8575 ms to 23.5/23.5 µs**, and cell updates at **2.823 ms to 24 µs**.
+  Encoded point/gradient update allocations fall from **131 calls / 1,269,017
+  bytes** to **37 calls / 4,766 bytes**; cell updates fall from **164 calls /
+  2,328,677 bytes** to the same 37 calls / 4,766 bytes. Those remaining allocations
+  include fresh material resources needed to preserve queued-pass immutability.
+  No geometry buffer is repacked/reuploaded for these compatible ranges. Precision
+  zooms, changed scalar fields and masks still need finer retention work.
+- All measured standalone-preparation, software-frame and CPU-submission allocation
+  results remain exact; raw-range-update allocations are unchanged. Cold scene
+  cache construction adds **64 allocated bytes** in each measured one-actor case,
+  with no extra allocation calls. Compatibility buckets can spill when distinct
+  encodings for the same source are simultaneously needed. GPU upload allocation
+  bytes fall by **672 bytes** in these cases, despite a private encoding field on
+  `GpuActor`, because revision/actor metadata construction also changes. This is
+  host metadata accounting, not a GPU-buffer saving. `GpuChunk` remains 168 bytes;
+  no full f64 attributes or new per-vertex retained map is introduced.
+
+  | Extended raw control | Baseline CPU | Candidate CPU | Change |
+  |---|---:|---:|---:|
+  | Constant-point 48³ cold scene cache | 1.7375 ms | 1.7615 ms | +1.4% |
+  | Gradient-point 48³ cold scene cache | 1.7285 ms | 1.7790 ms | +2.9% |
+  | Discontinuous-cell 48³ cold scene cache | 2.6625 ms | 2.6285 ms | -1.3% |
+  | General 48³ standalone preparation | 19.9010 ms | 20.2705 ms | +1.9% |
+  | 65,536 colored lines, upload | 595.0 µs | 633.5 µs | +6.5% |
+  | 65,536 colored lines, CPU submission | 36.5 µs | 42.0 µs | +15.1% |
+
+- Broader performance remains **unqualified**. The first capture has line
+  submission **37 to 46.5 µs (+25.7%)**, small encoded-point upload **51.5 to
+  60 µs (+16.5%)**, and large raw-point range synchronization **144 to 166 µs
+  (+15.3%)**. The extended capture has encoded-cell standalone preparation
+  **229.5 to 359.5 µs (+56.6%)** at 16³ and **2.653 to 3.9555 ms (+49.1%)** at
+  48³, while its encoded-cell cold cache using the same preparation code is
+  **2.660 to 2.6685 ms (+0.3%)**. These are retained costs, not erased by favorable
+  results. Large point upload/submission remains highly variable across captures;
+  its apparent speedups are not accepted as causal improvements.
+- A focused follow-up in
+  [`qa/perf/20261019-scalar-range-retention-isolated.json`](qa/perf/20261019-scalar-range-retention-isolated.json)
+  returns before GPU renderer initialization. It measures 16 point/cell,
+  raw/encoded, 16/48³ standalone/cold-cache cases with ABBA twice and separate
+  allocations; all geometry/image/payload controls match the extended capture.
+  Encoded-cell standalone CPU is **234 to 230.5 µs** at 16³ and **2.6325 to
+  2.6415 ms (+0.3%)** at 48³. However, baseline encoded-cell cold-cache CPU there
+  is **497.5 to 232 µs** and **5.2605 to 2.672 ms**, another large stage-specific
+  anomaly despite no initialized GPU. GPU activity alone therefore does not
+  explain the measurements. Main-thread/process profiling, scheduling and code
+  generation need investigation; this follow-up neither identifies the cause nor
+  converts mixed-context regressions into a clean qualification. Isolated raw
+  point/cell 48³ cold-cache changes are **+2.2%/+1.3%**. The consistent encoded
+  range-update result is separately supported by avoided geometry work and exact
+  allocation reductions.
+- Extended preparation-only `time -l` RSS processes run ABBA twice per kind/mode,
+  exit before GPU initialization, and include binary loading, source creation and
+  output hashing. Median raw point RSS is **22,421,504 to 22,437,888 bytes**;
+  encoded point is **22,364,160 to 22,446,080**. Raw cell is **23,986,176 to
+  24,010,752**; encoded cell is **23,986,176 to 23,994,368**. These do not measure
+  update working sets, GPU residency or physical mobile memory. No RSS saving,
+  measured energy, GPU throughput, first-use or whole-app speedup is claimed.
+- QA passes 27 mesh / 74 transformation / 121 required-GPU scene library tests
+  and integrations, 85 software-only scene library tests and integrations,
+  223 Python-runtime Rust tests, targeted strict GPUI/new-fixture Clippy plus
+  strict standalone GPU/software library Clippy, doctests, native viewer and
+  wasm GPU/GPUI compilation. Source/test/lock/reference hashes are verified;
+  the frozen audit and all previous committed artifacts remain unchanged.
+- This advances P1 compatible encoded display-range retention only. GPUI's metadata
+  path still scans selected fields for a changed encoding, and is not timed by
+  the standalone synchronization probe. Its verdict must track the actual valid
+  encoding before that scan can safely be cached across range chains. Scalar-only
+  source updates, topology/validity separation and per-attribute GPU replacement
+  remain open. C3/C4/C5, numeric/transfer/transparency/error-feedback qualification,
+  aggregate CPU/GPU/cache/in-flight budgets, FFI/text/platform behavior, earlier
+  regressions, power scheduling/physical devices, Taffy/CUDA/MLX experiments and
+  full acceptance all remain in scope. The full implementation goal remains active.
