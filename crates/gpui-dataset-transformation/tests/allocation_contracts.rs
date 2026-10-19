@@ -10,9 +10,29 @@ use gpui_dataset_transformation::{
     point_data_to_cell_data, point_data_to_cell_data_validated, probe as probe_points,
     solid_arrows, streamlines, tensor_glyphs, threshold,
 };
-use gpui_mesh::{Association, CellType, Cells, DataSet, Field};
+use gpui_mesh::{Association, CellType, Cells, DataSet, Field, FieldData};
 use gpui_profiler::{AllocProbe, AllocationBudget};
 use std::hint::black_box;
+
+fn assert_components(field: &Field, index: usize, expected: f64) {
+    let equal = |v: &f64| v.to_bits() == expected.to_bits();
+    match &field.data {
+        FieldData::Scalar(v) => assert!(equal(&v[index])),
+        FieldData::Vector(v) => assert!(v[index].iter().all(equal)),
+        FieldData::Tensor(v) => assert!(v[index].iter().all(equal)),
+        FieldData::Complex(v) => assert!(v[index].iter().all(equal)),
+    }
+}
+
+fn shaped_cell_field(shape: usize, values: &[f64]) -> Field {
+    match shape {
+        1 => Field::scalar("p", values.to_vec()),
+        3 => Field::vector("p", values.iter().map(|&v| [v; 3]).collect::<Vec<_>>()),
+        6 => Field::tensor("p", values.iter().map(|&v| [v; 6]).collect::<Vec<_>>()),
+        _ => Field::complex("p", values.iter().map(|&v| [v; 2]).collect::<Vec<_>>()),
+    }
+    .on_cells()
+}
 
 #[test]
 fn allocation_cost_is_bounded_by_outputs_and_points_without_per_cell_scratch() {
@@ -416,4 +436,74 @@ fn allocation_cost_is_bounded_by_outputs_and_points_without_per_cell_scratch() {
             .iter()
             .all(|v| v.to_bits() == (1e-300_f64 / 5.0).to_bits())
     );
+    for cells in [63usize, 6000] {
+        let node = [0];
+        let data = DataSet::new(
+            "many-incident",
+            vec![[0.0; 3]],
+            Cells::from_cells(&vec![(CellType::Vertex, node.as_slice()); cells]),
+        );
+        for wide in [false, true] {
+            let values = (0..cells)
+                .map(|i| {
+                    if wide {
+                        [f64::MAX, -f64::MAX, 1e-300][i % 3]
+                    } else {
+                        [1e16, 3.0, -1e16][i % 3]
+                    }
+                })
+                .collect::<Vec<_>>();
+            for shape in [1, 3, 6, 2] {
+                let data = data.clone().with_field(shaped_cell_field(shape, &values));
+                allocations.reset();
+                let output = black_box(cell_data_to_point_data(&data, "p", "mean").unwrap());
+                AllocationBudget::new("one-point-exact-weights", 16, 8192)
+                    .assert_contains(allocations.sample("one-point-exact-weights"));
+                output.validate().unwrap();
+                assert_components(
+                    output.field(Association::Point, "mean").unwrap(),
+                    0,
+                    if wide { 1e-300 / 3.0 } else { 1.0 },
+                );
+            }
+        }
+    }
+    for groups in [32usize, 256] {
+        let mut positions = Vec::with_capacity(groups * 4);
+        let mut lines = Vec::with_capacity(groups * 3);
+        for group in 0..groups {
+            let first = positions.len() as u32;
+            let y = group as f64 * 10.0;
+            positions.extend([[0.0, y, 0.0], [1.0, y, 0.0], [2.0, y, 0.0], [1.0, y, 0.0]]);
+            lines.extend([[first, first + 1], [first, first + 2], [first, first + 3]]);
+        }
+        let cells = lines
+            .iter()
+            .map(|line| (CellType::Line, line.as_slice()))
+            .collect::<Vec<_>>();
+        let data = DataSet::new(
+            "wide-weighted-components",
+            positions,
+            Cells::from_cells(&cells),
+        );
+        let values = (0..groups * 3)
+            .map(|i| [f64::MAX, 1e-300, -f64::MAX][i % 3])
+            .collect::<Vec<_>>();
+        for shape in [1, 3, 6, 2] {
+            let data = data.clone().with_field(shaped_cell_field(shape, &values));
+            allocations.reset();
+            let output = black_box(cell_data_to_point_data(&data, "p", "mean").unwrap());
+            AllocationBudget::new(
+                "compact-wide-weighted-incidence",
+                32,
+                (16 * shape + 24) * data.point_count() + 65536,
+            )
+            .assert_contains(allocations.sample("compact-wide-weighted-incidence"));
+            output.validate().unwrap();
+            let field = output.field(Association::Point, "mean").unwrap();
+            for group in 0..groups {
+                assert_components(field, group * 4, 1e-300 / 2.0);
+            }
+        }
+    }
 }

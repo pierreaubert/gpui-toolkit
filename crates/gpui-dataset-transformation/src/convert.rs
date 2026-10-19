@@ -1,8 +1,9 @@
-//! Validity-aware point/cell conversion with bounded per-point scratch.
+//! Validity-aware point/cell conversion with adaptive exact averaging.
 
 // Rust guideline compliant 2026-02-21
 
 use crate::TransformError;
+use crate::cell_mean::cell_means;
 use gpui_mesh::{Association, CellType, DataSet, Field, FieldData, ValidatedDataSet};
 
 pub(crate) fn blend(a: f64, b: f64, fraction: f64) -> f64 {
@@ -239,240 +240,6 @@ fn sum_nodes<const N: usize, const TRACK_SIGNS: bool>(
     (sum, count, signs)
 }
 
-#[derive(Clone, Copy, Default)]
-struct WeightSum {
-    scale: f64,
-    sum: f64,
-    dimension: u8,
-}
-
-impl WeightSum {
-    fn fraction(&mut self, weight: f64, dimension: u8) -> Option<f64> {
-        if self.sum > 0.0 && dimension < self.dimension {
-            return None;
-        }
-        if self.sum == 0.0 || dimension > self.dimension {
-            *self = Self {
-                scale: weight,
-                sum: 1.0,
-                dimension,
-            };
-            return Some(1.0);
-        }
-        if weight > self.scale {
-            self.sum = self.sum * (self.scale / weight) + 1.0;
-            self.scale = weight;
-            Some(1.0 / self.sum)
-        } else {
-            let scaled = weight / self.scale;
-            self.sum += scaled;
-            Some(scaled / self.sum)
-        }
-    }
-}
-
-#[derive(Clone, Copy, Default)]
-struct AccumulatedWeight {
-    sum: f64,
-    dimension: u8,
-}
-
-enum WeightUpdate {
-    Add,
-    Replace,
-    Skip,
-}
-
-trait WeightAccumulator: Copy + Default {
-    fn include(&mut self, weight: f64, dimension: u8) -> WeightUpdate;
-    fn sum(self) -> f64;
-}
-
-impl WeightAccumulator for f64 {
-    fn include(&mut self, weight: f64, _: u8) -> WeightUpdate {
-        *self += weight;
-        WeightUpdate::Add
-    }
-    fn sum(self) -> f64 {
-        self
-    }
-}
-
-impl WeightAccumulator for AccumulatedWeight {
-    fn include(&mut self, weight: f64, dimension: u8) -> WeightUpdate {
-        if self.sum > 0.0 && dimension < self.dimension {
-            WeightUpdate::Skip
-        } else if self.sum == 0.0 || dimension > self.dimension {
-            *self = Self {
-                sum: weight,
-                dimension,
-            };
-            WeightUpdate::Replace
-        } else {
-            self.sum += weight;
-            WeightUpdate::Add
-        }
-    }
-    fn sum(self) -> f64 {
-        self.sum
-    }
-}
-
-struct ComputedRows<const N: usize> {
-    values: Vec<[f64; N]>,
-    all_supported: bool,
-}
-
-fn cell_means<const N: usize>(
-    dataset: &DataSet,
-    field: &Field,
-    values: &[[f64; N]],
-    uniform: bool,
-) -> ComputedRows<N> {
-    if uniform {
-        cell_means_fast::<N, f64>(dataset, field, values)
-    } else {
-        cell_means_fast::<N, AccumulatedWeight>(dataset, field, values)
-    }
-}
-
-fn cell_means_fast<const N: usize, W: WeightAccumulator>(
-    dataset: &DataSet,
-    field: &Field,
-    values: &[[f64; N]],
-) -> ComputedRows<N> {
-    if values.is_empty()
-        || field
-            .valid
-            .as_ref()
-            .is_some_and(|mask| mask.iter().all(|&valid| !valid))
-    {
-        return ComputedRows {
-            values: vec![[f64::NAN; N]; dataset.point_count()],
-            all_supported: dataset.point_count() == 0,
-        };
-    }
-    let mut sums = vec![[0.0; N]; dataset.point_count()];
-    let mut weights = vec![W::default(); dataset.point_count()];
-    for (cell, value) in values.iter().enumerate() {
-        if field.valid.as_ref().is_some_and(|mask| !mask[cell]) {
-            continue;
-        }
-        let weight = cell_measure(dataset, cell);
-        if !weight.is_finite() || weight <= 0.0 {
-            continue;
-        }
-        let weighted = value.map(|component| component * weight);
-        if value
-            .iter()
-            .zip(&weighted)
-            .any(|(&value, product)| value != 0.0 && !product.is_normal())
-        {
-            drop(sums);
-            drop(weights);
-            return cell_means_robust(dataset, field, values);
-        }
-        let dimension = dataset.cells.types[cell].dimension();
-        for &node in dataset.cells.cell(cell).unwrap_or(&[]) {
-            let state = &mut weights[node as usize];
-            match state.include(weight, dimension) {
-                WeightUpdate::Skip => {}
-                WeightUpdate::Replace => sums[node as usize] = weighted,
-                WeightUpdate::Add => {
-                    for (sum, value) in sums[node as usize].iter_mut().zip(weighted) {
-                        *sum += value;
-                    }
-                }
-            }
-        }
-    }
-    let mut needs_fallback = false;
-    let mut all_supported = true;
-    for (sum, weight) in sums.iter_mut().zip(&weights) {
-        let weight = weight.sum();
-        if weight == 0.0 {
-            all_supported = false;
-            *sum = [f64::NAN; N];
-            continue;
-        }
-        if !weight.is_normal() || sum.iter().any(|v| !v.is_finite() || v.is_subnormal()) {
-            needs_fallback = true;
-            break;
-        }
-        let inverse = 1.0 / weight;
-        for value in sum.iter_mut() {
-            *value = if N > 1 && inverse.is_normal() {
-                *value * inverse
-            } else {
-                *value / weight
-            };
-        }
-        if sum.iter().any(|v| !v.is_finite()) {
-            needs_fallback = true;
-            break;
-        }
-    }
-    if needs_fallback {
-        drop(sums);
-        drop(weights);
-        cell_means_robust(dataset, field, values)
-    } else {
-        ComputedRows {
-            values: sums,
-            all_supported,
-        }
-    }
-}
-
-fn cell_means_robust<const N: usize>(
-    dataset: &DataSet,
-    field: &Field,
-    values: &[[f64; N]],
-) -> ComputedRows<N> {
-    if values.is_empty()
-        || field
-            .valid
-            .as_ref()
-            .is_some_and(|mask| mask.iter().all(|&valid| !valid))
-    {
-        return ComputedRows {
-            values: vec![[f64::NAN; N]; dataset.point_count()],
-            all_supported: dataset.point_count() == 0,
-        };
-    }
-    let mut mean = vec![[0.0; N]; dataset.point_count()];
-    let mut weights = vec![WeightSum::default(); dataset.point_count()];
-    for (cell, value) in values.iter().enumerate() {
-        if field.valid.as_ref().is_some_and(|mask| !mask[cell]) {
-            continue;
-        }
-        let weight = cell_measure(dataset, cell);
-        if !weight.is_finite() || weight <= 0.0 {
-            continue;
-        }
-        let dimension = dataset.cells.types[cell].dimension();
-        for &node in dataset.cells.cell(cell).unwrap_or(&[]) {
-            let Some(fraction) = weights[node as usize].fraction(weight, dimension) else {
-                continue;
-            };
-            for (mean, &value) in mean[node as usize].iter_mut().zip(value) {
-                *mean = blend(*mean, value, fraction);
-            }
-        }
-    }
-    let mut all_supported = true;
-    for (mean, weight) in mean.iter_mut().zip(&weights) {
-        if weight.sum == 0.0 {
-            all_supported = false;
-            *mean = [f64::NAN; N];
-        }
-    }
-    ComputedRows {
-        values: mean,
-        all_supported,
-    }
-}
-
 fn append(
     dataset: &DataSet,
     mut field: Field,
@@ -559,6 +326,12 @@ pub fn point_data_to_cell_data_validated(
 /// and masked cells do not contribute. No supported contribution means a masked
 /// NaN. All field shapes average componentwise; labels/units survive and an
 /// existing output name in point data is replaced.
+/// Means are correctly rounded with respect to the computed finite binary
+/// measures, even when individual products or sums cannot be represented in f64.
+/// Certified fields use scatter reductions; general cases use compact
+/// point/cell incidence and bounded stack accumulation. Common weights stay
+/// inline with an optional excluded-cell bitmap. General reductions can add
+/// dense weights and incidence storage proportional to cells and connectivity.
 ///
 /// # Errors
 ///
@@ -709,7 +482,7 @@ fn tet_volume(a: [f64; 3], b: [f64; 3], c: [f64; 3], d: [f64; 3]) -> f64 {
     ((det.abs() * scale / 6.0) * scale) * scale
 }
 
-fn cell_measure(dataset: &DataSet, cell: usize) -> f64 {
+pub(crate) fn cell_measure(dataset: &DataSet, cell: usize) -> f64 {
     let nodes = dataset.cells.cell(cell).unwrap_or(&[]);
     let p = |index: usize| dataset.positions[nodes[index] as usize];
     match dataset.cells.types[cell] {

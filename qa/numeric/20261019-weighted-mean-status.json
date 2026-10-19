@@ -1,0 +1,30 @@
+{
+  "kind": "representable binary-weight conversion checkpoint; all three former public reduction diagnostics now resolved",
+  "candidate_parent": "19d2c942",
+  "source_sha256": {
+    "crates/gpui-dataset-transformation/src/lib.rs": "1b5ffaed9ead7af8652eb30a056303ca23ff5c1bea4a93f263b02002d8e71b39",
+    "crates/gpui-dataset-transformation/src/analysis.rs": "8d633a02e64f40763d75191404555364d2c8c10f4b0cde691baa774ff4c8af12",
+    "crates/gpui-dataset-transformation/src/convert.rs": "17bb9c88e80b8518831a141939c47d59dab7796f14bc3ac2642aa36ef22f0828",
+    "crates/gpui-dataset-transformation/src/mean.rs": "a275ac0bddd39d14aed8bd1548191fb70f96fc9112faf27cf719aabc1fd881a3",
+    "crates/gpui-dataset-transformation/src/cell_mean.rs": "738aae836f9acd8379666bc37257b232b3485f845da63c8d6fc203b7526f1427",
+    "crates/gpui-dataset-transformation/src/weighted_mean.rs": "0de0f5b89b4a236a2026ba502ee08ac552e42fabc880253e721b97e9d4b442bc"
+  },
+  "probe_source": "use gpui_dataset_transformation::{cell_data_to_point_data,field_statistics,point_data_to_cell_data};\nuse gpui_mesh::{Association,CellType,Cells,DataSet,Field};\nfn main() {\n    let triangle=DataSet::surface(\"reduce\",vec![[0.0;3],[1.0,0.0,0.0],[0.0,1.0,0.0]],&[[0,1,2]]);\n    let data=triangle.clone().with_field(Field::scalar(\"p\",vec![f64::MAX,-f64::MAX,1e-300]));\n    let stats=field_statistics(&data,\"p\",Association::Point).unwrap();\n    println!(r#\"{{\"case\":\"statistics_extreme_residual\",\"actual\":{:.17e},\"expected\":{:.17e}}}\"#,stats.mean,1e-300/3.0);\n    let data=triangle.with_field(Field::scalar(\"p\",vec![1e16,3.0,-1e16]));\n    let out=point_data_to_cell_data(&data,\"p\",\"mean\").unwrap();\n    let mean=out.field(Association::Cell,\"mean\").unwrap().as_scalar().unwrap()[0];\n    println!(r#\"{{\"case\":\"point_to_cell_cancellation\",\"actual\":{mean:.17e},\"expected\":1.0}}\"#);\n    let data=DataSet::new(\"weighted\",vec![[0.0;3]],Cells::from_cells(&[(CellType::Vertex,&[0]),(CellType::Vertex,&[0]),(CellType::Vertex,&[0])]))\n        .with_field(Field::scalar(\"p\",vec![1e16,3.0,-1e16]).on_cells());\n    let out=cell_data_to_point_data(&data,\"p\",\"mean\").unwrap();\n    let mean=out.field(Association::Point,\"mean\").unwrap().as_scalar().unwrap()[0];\n    println!(r#\"{{\"case\":\"weighted_cell_to_point_cancellation\",\"actual\":{mean:.17e},\"expected\":1.0}}\"#);\n}\n",
+  "records": [
+    {
+      "case": "statistics_extreme_residual",
+      "actual": 3.3333333333333334e-301,
+      "expected": 3.3333333333333334e-301
+    },
+    {
+      "case": "point_to_cell_cancellation",
+      "actual": 1.0,
+      "expected": 1.0
+    },
+    {
+      "case": "weighted_cell_to_point_cancellation",
+      "actual": 1.0,
+      "expected": 1.0
+    }
+  ]
+}

@@ -1174,3 +1174,96 @@ and pressure/large-dataset integrations pass with Metal required.
   weighted cell-to-point still returns 4/3 instead of 1. C3/C4/C5 and every
   previously open platform, rendering, memory-budget, streaming, scheduling,
   Taffy, CUDA/MLX and physical-device requirement remain open.
+
+## Exact representable cell-weight reduction checkpoint
+
+- Cell-to-point conversion no longer loses the residual of `[1e16,3,-1e16]`
+  in three equal-weight cells: it returns 1 instead of 4/3. Unequal-weight
+  cancellation also retains residuals, including `[MAX,1e-300,-MAX]` with
+  weights `[1,2,1]`, whose mean is `1e-300/2`. Means are correctly rounded with
+  respect to the computed positive finite f64 geometric measures. The geometric
+  measure formulas are unchanged: degenerate/nonrepresentable measures still
+  do not contribute. Improving those formulas and their representable range is
+  separate C4 work; this checkpoint does not qualify exact physical geometry.
+- `cell_mean.rs` owns selection and accumulation. Common geometric weights stay
+  inline; excluded cells need only a lazily allocated bitset. Unequal weights
+  are retained once in a dense array. A global certificate permits floating
+  products/sums only when every product, numerator prefix and denominator prefix
+  is exact and representable. Complete power-of-two divisors use an exact inverse;
+  other vector divisors use direct division, preserving cases such as 5/3.
+- If floating accumulation cannot be certified, common weights cancel before
+  multiplication. Signed 64/128-bit field certificates bound every prefix.
+  Unequal weights can instead use certified signed 64/128-bit products and
+  unsigned weight sums, encoding each source cell once before scattering.
+  Native integer division handles suitable ratios without a u128 divide. The
+  numerator/denominator are rounded only after exact accumulation; no relaxed
+  precision mode or unsafe production code was added.
+- Wider ranges use compact point/cell incidence, with u32 cell IDs where they
+  fit and usize otherwise. Count storage becomes offsets in place; no per-point
+  vectors or per-point heap accumulators are created. The adaptive weighted mean
+  starts with u128 magnitudes and promotes only on failed checked accumulation.
+  Its 67-limb positive/negative/denominator storage covers finite f64 products
+  in units of `2^-2148` plus a 64-bit contributor count. Remainder division handles
+  ties, subnormals and saturated integer denominators without overflowing shifts.
+  Accumulators are used sequentially on the stack. A single point with common
+  weights needs no incident-cell index.
+- Highest supported cell dimension is selected independently at each point;
+  lower dimensions are excluded before exact scatter/indexed accumulation.
+  Scalar/vector/tensor/complex masks and metadata survive. Unsupported points
+  retain masked NaNs. Repeated polygon node incidences retain their multiplicity;
+  field association and output-name replacement semantics are unchanged.
+- `qa/numeric/generate_weighted_mean_fixture.py` regenerates all 590 independent
+  Python Fraction expectations byte-for-byte. Private checks cover both input
+  orders, forced wide accumulation and every eligible floating/64/128-bit
+  certificate. Public star meshes use analytic one-axis line lengths and compare
+  every central mean bit-for-bit with that oracle. Fixed fixture counts and pair
+  shape checks prevent empty/truncated fixtures from silently passing. Additional
+  public tests cover all four shapes, masks/units, dimension priority in both
+  orders and vector rounding with repeated polygon incidences. Three of the four
+  public test functions fail on unchanged `19d2c942` production; the existing
+  dimension-priority behavior already passes there.
+- Native allocation contracts execute with the coverage skip guard absent.
+  With 63 and 6,000 incident vertex cells, all four shapes retain the exact mean
+  within 16 calls / 8,192 cumulative bytes, including a range needing wide
+  accumulation. With 32/256 separate three-line groups, wide unequal-weight
+  residuals remain correct under output/incidence-proportional budgets; a heap
+  accumulator per point would exceed those budgets. Ordinary equal-weight grid
+  conversion retains its existing allocation budget.
+- `qa/perf/20261019-weighted-conversion-paired.json` preserves identical release
+  source/locks, source/test/binary hashes, 78 cases, allocator-disabled ABBA twice
+  and separate allocation builds. Cold geometric measures, certificates and all
+  scratch are timed; input construction, output checks and destruction are not.
+  Validated views exclude source validation only. Baseline `19d2c942` is inexact;
+  conditioned timing checks use tolerance 1e-12, while the independent oracle
+  supplies precision acceptance. At 24³ points:
+
+  | Validated case | Inexact baseline CPU | Current CPU | Baseline allocated bytes | Current allocated bytes |
+  |---|---:|---:|---:|---:|
+  | Uniform positive vector | 444 µs | 442 µs | 774,760 | 774,760 |
+  | Uniform mixed quantized vector | 443.5 µs | 448.5 µs | 774,760 | 774,760 |
+  | Uniform full-precision vector | 437.5 µs | 480.5 µs | 774,760 | 774,768 |
+  | Stretched mixed quantized vector | 442.5 µs | 469 µs | 774,760 | 872,096 |
+  | Stretched full-precision vector | 449.5 µs | 673.5 µs | 774,760 | 982,696 |
+
+  These correctness costs remain performance work. Unequal full-precision
+  vector conversion uses about 50% more CPU and 27% more cumulative allocation.
+  A 4,096-cell / one-point full-precision vector fan uses 50 versus 18.5 µs CPU
+  and 800 versus 672 bytes. Common quantized grids remain close to the former
+  CPU cost; a certified floating path removed the first prototype's roughly 75%
+  unequal-weight quantized-vector regression. Full-precision weights still add
+  certificates/count preparation, and arbitrary source geometries/wide fallback
+  CPU are not qualified by these timings. Next CPU work should retain immutable
+  geometric weights and certificates across field conversions/revisions rather
+  than rebuilding them per call. This requires explicit ownership/invalidation
+  evidence. Shared-host CPU time is not energy; cumulative allocation is not
+  peak/live/RSS, and these measurements do not qualify mobile/thermal behavior.
+- Required-Metal full core verification passes: 76 transformation, 15 mesh and
+  91 scene library tests, 72 public regressions, allocation contracts and
+  large-dataset/pressure integrations. Strict mesh/transformation all-target
+  Clippy, changed-file formatting and the core wasm closure pass.
+  `qa/numeric/20261019-weighted-mean-status.json` re-executes the three earlier
+  public diagnostics: statistics, point-to-cell and weighted cell-to-point now
+  all match their expected values. Historical open-diagnostic artifacts remain
+  unchanged. C3/C4/C5 and all previously open platform, rendering, budget,
+  streaming, scheduling, Taffy, CUDA/MLX and physical-device requirements remain
+  open; this checkpoint is not full performance or audit acceptance.

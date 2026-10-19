@@ -360,6 +360,52 @@ impl SmallFieldSum {
     }
 }
 
+/// Shared binary units for certified signed 128-bit field sums.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FieldSum128 {
+    shift: usize,
+}
+
+impl FieldSum128 {
+    pub(crate) fn certify<'a, const N: usize>(
+        rows: impl Iterator<Item = &'a [f64; N]>,
+        max_terms: usize,
+    ) -> Option<Self> {
+        if max_terms == 0 {
+            return None;
+        }
+        let growth = (max_terms - 1).bit_width() as usize;
+        let mut shift = usize::MAX;
+        let mut high = 0;
+        for row in rows {
+            for &value in row {
+                if value == 0.0 {
+                    continue;
+                }
+                let (significand, unit, _) = parts(value);
+                shift = shift.min(unit);
+                high = high.max(unit + 63 - significand.leading_zeros() as usize);
+                // Reserve the sign bit and bound every possible prefix.
+                if high + growth - shift >= 127 {
+                    return None;
+                }
+            }
+        }
+        (shift != usize::MAX).then_some(Self { shift })
+    }
+
+    pub(crate) fn integer(self, value: f64) -> i128 {
+        let (significand, unit, negative) = parts(value);
+        let magnitude =
+            u128::from(significand).wrapping_shl(unit.wrapping_sub(self.shift) as u32) as i128;
+        if negative { -magnitude } else { magnitude }
+    }
+
+    pub(crate) fn averages<const N: usize>(self, sums: [i128; N], count: usize) -> [f64; N] {
+        sums.map(|sum| rounded_small(sum.unsigned_abs(), count, self.shift as i32 - 1074, sum < 0))
+    }
+}
+
 /// Whether a component contains both positive and negative supported values.
 pub(crate) fn has_mixed_rows<'a, const N: usize>(rows: impl Iterator<Item = &'a [f64; N]>) -> bool {
     let mut positive = [false; N];
@@ -643,6 +689,14 @@ mod tests {
                     plan.averages([sum], rows.len())[0].to_bits(),
                     expected,
                     "shared integer oracle row {index}"
+                );
+            }
+            if let Some(plan) = FieldSum128::certify(rows.iter(), rows.len()) {
+                let sum = values.clone().map(|value| plan.integer(value)).sum();
+                assert_eq!(
+                    plan.averages([sum], rows.len())[0].to_bits(),
+                    expected,
+                    "128-bit field oracle row {index}"
                 );
             }
             assert_eq!(

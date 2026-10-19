@@ -23,6 +23,7 @@ mod base64;
 
 pub use base64::{decode as decode_base64, encode as encode_base64};
 mod calculator;
+mod cell_mean;
 mod clip;
 mod contours;
 mod convert;
@@ -56,6 +57,7 @@ mod validity;
 mod vtk_io;
 mod vtu;
 mod warp;
+mod weighted_mean;
 mod xdmf;
 
 pub use analysis::{FieldStats, calculator, field_statistics, histogram, resample_to_grid};
