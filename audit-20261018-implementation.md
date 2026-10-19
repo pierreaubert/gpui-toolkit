@@ -2801,3 +2801,92 @@ and pressure/large-dataset integrations pass with Metal required.
   aggregate CPU/GPU/cache/in-flight budgets, FFI/text/platform behavior, earlier
   regressions, power scheduling/physical devices, Taffy/CUDA/MLX experiments and
   full acceptance all remain in scope. The full implementation goal remains active.
+
+
+## Preparation CPU attribution checkpoint
+
+- Previous goal turn: progress (`a435c4c2`). Its large stage-specific preparation
+  anomalies remained unexplained. This checkpoint collects new attribution
+  evidence with unchanged production code; it does not label those regressions
+  fixed or infer an optimization by choosing a favorable timing protocol.
+- [`qa/perf/20261019-scalar-preparation-thread-clocks.json`](qa/perf/20261019-scalar-preparation-thread-clocks.json)
+  compares baseline `4115ae31` and candidate `a435c4c2` with identical offline
+  release probes/locks. It archives source/binary/runner hashes, source, build
+  commands, all raw per-iteration process/main-thread/wall clocks and prior output
+  reference hashes. No GPU renderer is initialized. Eight point/cell 48³,
+  raw/encoded, standalone/cold-cache cases each run ABBA twice: four fresh
+  processes/version, four warmups and 64 measured operations. Source construction,
+  camera/bounds/image warmup, cache clear/drop and payload checks are outside the
+  clock. Final geometry hashes or cache-rendered images match all eight prior
+  controls exactly. Main-thread `CLOCK_THREAD_CPUTIME_ID` uses checked native clock
+  calls alongside the existing checked process clock; no allocator instrumentation,
+  checks/builds or stack sampling runs during these timing processes.
+- This sustained loop avoids the previous harness's full hashing/rendering between
+  every measured operation. Its absolute times cannot be treated as a causal
+  improvement over that different short-loop protocol. Thermal/affinity remain
+  uncontrolled and no E/P-core residency, frequency or hardware-counter trace was
+  captured. The reason for the earlier stage-specific anomalies remains open.
+
+  | 48³ case | Baseline process CPU | Candidate process CPU | Change |
+  |---|---:|---:|---:|
+  | Raw point standalone | 1.7150 ms | 1.7110 ms | -0.2% |
+  | Raw point cold cache | 1.7780 ms | 1.7970 ms | +1.1% |
+  | Encoded point standalone | 1.7255 ms | 1.7570 ms | +1.8% |
+  | Encoded point cold cache | 1.7660 ms | 1.7485 ms | -1.0% |
+  | Raw cell standalone | 2.6380 ms | 2.6315 ms | -0.2% |
+  | Raw cell cold cache | 2.7080 ms | 2.7600 ms | +1.9% |
+  | Encoded cell standalone | 2.6270 ms | 2.6200 ms | -0.3% |
+  | Encoded cell cold cache | 2.6530 ms | 2.6550 ms | +0.1% |
+
+- Main-thread medians closely track process medians in all eight cases. For
+  example, encoded-cell cold cache is **2.6522505 to 2.6547085 ms** on the main
+  thread, versus 2.653/2.655 ms process CPU. This weakens a hidden background-thread
+  explanation for those particular sustained CPU-only operations. It does not
+  identify scheduling, code generation, thermal behavior or a cause for the
+  previous short-loop/initialized-renderer results. No energy, mobile, GPU,
+  whole-app, first-interactive-frame or universal no-regression claim follows.
+- [`qa/perf/20261019-scalar-preparation-samples.json`](qa/perf/20261019-scalar-preparation-samples.json)
+  contains eight native `/usr/bin/sample` reports, attached only to these probe
+  processes after four warmups and a flushed READY/PID handshake. Each trace samples
+  one second at a requested 1 ms interval during a bounded 1,000-iteration loop.
+  Cases cover both versions of encoded-cell standalone/cache, raw-cell cache and
+  encoded-point cache. Binary hashes match the unsampled clock run; final output
+  hashes/payloads remain exact. Full native reports and profiled raw clocks are
+  archived, but profiled clocks are not used for comparative timing claims.
+  Sampling also observes cache clear/drop and small post-clock checks, and release
+  symbolication does not expose every inlined source frame.
+- Candidate encoded-point cold cache has **768 main-thread samples**: **308**
+  exclusive top-of-stack samples are in the `ChunkBuilder` point-ID remapping
+  hash-map entry path, **107** in dataset validation and **88** in complete
+  canonical-grid detection. Baseline has 765 samples with **306/110/79** in those
+  categories. Candidate encoded-cell cold cache has **764** main-thread samples:
+  **165** in `cell_chunk`, **74** in validation, **58** in canonical detection,
+  and **196** across the reported exclusive `DefaultHasher::write` and two
+  `BuildHasher::hash_one` categories. Those cell hash samples include remapping
+  and scalar-split maps; they must not all be attributed to point remapping.
+  Exclusive leaf counts avoid summing overlapping inclusive stacks. One-second
+  profiles are hotspot evidence, not exact CPU-cost fractions or a speedup bound.
+- The next implementation target is the per-chunk global-to-local point map in
+  `gpui-mesh::chunk::ChunkBuilder`, shared by point and cell preparation. A verified
+  canonical hexahedral boundary can use a compact boundary-point ordinal table
+  when the entire boundary fits the requested chunk. Only boundary slots would be
+  retained, rather than a volume-sized array; the prospective slot payload is four
+  bytes per boundary point. For smaller chunks and general topology, preserve the
+  existing bounded hash-map path so a tiny chunk does not allocate a whole-grid
+  table. Detect/prove topology once and carry that proof into traversal and mapping;
+  do not weaken the complete connectivity checks or scan the grid twice.
+- Before adoption, require fallible checked allocation and byte measurements,
+  exact first-encounter point-ID/local-index order, source-cell ownership, face
+  winding/culling and callback-stop behavior against the independent hash/general
+  reference paths. Include thin/rectangular/curvilinear grids, small chunk limits,
+  malformed/noncanonical fallbacks, arithmetic endpoints and wasm. Measure CPU,
+  allocation traffic and RSS across point/cell/general controls. A speculative
+  faster noncryptographic hasher is not adopted in this checkpoint; caller data
+  and resource limits still need their existing guarantees.
+- No production Rust changes or new dependencies are introduced here. The probe
+  builds and all prior output/binary/source/lock controls are verified; earlier
+  `a435c4c2` QA remains the evidence for that unchanged production. The original
+  audit and prior committed artifacts remain unchanged. All open correctness,
+  retention/attribute updates, aggregate memory, platform/FFI/text, scheduling/
+  physical-power, Taffy/CUDA/MLX and full acceptance requirements remain in scope.
+  The full implementation goal remains active.
