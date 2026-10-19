@@ -124,8 +124,9 @@ item requires implementation and verification evidence, not just a planned API.
 - `axis::clear_tick_label_cache` invalidates formatter state and handles pressure.
 - `CellToPointPlan` and `CellToPointLimits` expose bounded snapshot preparation;
   `TransformError::ResourceLimit` adds a preparation-budget rejection variant.
-- Surface uniform ABI **3** keeps the 192-byte block; the fourth scalar-range
-  float now carries wireframe depth ULPs. Stock builders fill four steps.
+- Surface uniform ABI **4** keeps the 192-byte block and wireframe ULP slot.
+  Physical viewport dimensions occupy bytes 184/188; point-cell hosts use
+  `scene_uniform_block_for_target`. Older builders leave that viewport zero.
 
 ## Retained scene and host GPU checkpoint
 
@@ -1551,3 +1552,127 @@ and pressure/large-dataset integrations pass with Metal required.
   transfer parity and remaining f64-to-f32 limits. All other open platform,
   aggregate-memory, scheduling, text/FFI, Taffy, CUDA/MLX, physical-device and
   completion requirements remain in scope. The original audit is unchanged.
+
+## Standalone line/point correctness and resident GPU checkpoint
+
+- Line cells now interpolate selected point scalars and preserve selected cell
+  values per primitive. Vertex cells draw one physical target pixel. Both are
+  unlit and honor validity masks, transfer alpha, actor opacity, user/frustum
+  clipping and opaque depth. An invalid endpoint omits its entire line; invalid
+  cells/points are omitted. Lines draw before point markers within an actor.
+  Surface depth ties now use less-or-equal, matching the GPU comparison and
+  making the last coincident opaque primitive visible. General intersecting
+  transparency and ordering across primitive kinds remain open C4 work.
+- Software reads canonical f64 positions/scalars, carries attributes through
+  clipping, and uses perspective-correct line interpolation. An independent
+  pinhole oracle caught a 19-byte-level color error when attributes were sampled
+  at coverage-step positions. Interpolation/depth now use the segment projection
+  of each covered pixel center. Constant color and depth skip that calculation;
+  unclipped segments skip redundant endpoint interpolation/clamping. Geometry
+  coverage still permits backend endpoint/junction raster-rule differences.
+  The perspective oracle allows six color levels for subpixel/LUT/unorm effects,
+  checks three interior positions after near-plane clipping, adds user clipping,
+  and deliberately interpolates raw values outside the transfer range before
+  mapping. Clamping endpoints first would fail that oracle.
+- Preparation retains compact cell IDs and borrows the canonical connectivity,
+  positions, scalar arrays and masks. IDs use u32 where representable and a wide
+  path for larger usize cell indices; the boundary is tested without constructing
+  billions of cells. Pure line/point datasets skip surface extraction and cell
+  averaging. In mixed datasets their cell values cannot pollute surface averages.
+  Existing surface-to-surface cell averaging remains unresolved. At ordinary cell
+  counts each valid line/point retains four ID bytes. This replaces eight bytes
+  per old line; point selection adds storage where points were previously absent.
+  Empty selection metadata adds 72 bytes to each prepared geometry relative to
+  the old single line vector, including surface-only actors; this is excluded
+  from derived-payload counters. Compaction's transient overlap, infallible
+  selection-vector growth and aggregate preparation limits remain C5/P1 work.
+- GPU LineList/PointList buffers contain interleaved local position plus raw
+  scalar (16 bytes/vertex), two vertices/line or one/point, without normals or
+  index buffers. Per-kind opaque/transparent pipeline pairs initialize lazily;
+  surface-only uploads initialize neither pair. Each packed upload is bounded by
+  device buffer bytes, the u32 draw count and the default one-million-primitive
+  chunk cap. Temporary packing is bounded per chunk; byte sums are checked before
+  buffer creation. Aggregate staging/residency budgets remain open. Tests check
+  cap arithmetic, exactly 48 uploaded bytes for a line plus a point, stable
+  buffer handles over 12 camera/material updates and one geometry preparation,
+  and zero uploaded primitive bytes after a mask revision removes both cells.
+- The point vertex entry snaps the projected position to a pixel center and uses
+  half-open physical viewport bounds. Uniform ABI **4** retains size 192, count
+  offset 176 and wireframe ULP offset 76; physical width/height are aligned at
+  offsets 184/188. `scene_uniform_block_for_target` fills those dimensions and
+  rejects zero sizes. Custom point hosts must adopt that builder/layout; older
+  builders intentionally leave viewport zero and therefore suppress points.
+- GPU primitive packing rejects nonfinite f32 conversions, underflow-to-zero
+  and subnormal results. Transfer-domain precision checks remain in force. GPUI
+  retains the compatibility verdict across camera/material changes, selects an
+  actual retained software image for unsupported precision and recovers the
+  custom GPU route on a representable field revision. Tests cover 24 camera
+  updates per verdict with one compatibility scan, revision invalidation, an
+  f64 scalar domain separated by 2^-40 and raw values of 1e300. This does not
+  qualify arbitrary f64 geometry/scalar ranges for GPU rendering or solve all
+  software geometric precision limits; explicit software projection/clipping
+  precision failures remain possible.
+- `tests/primitives.rs` runs the same public oracles on software and required
+  Metal: selected associations at shared nodes, finite masked placeholders,
+  large translated origins, one-pixel points, exact half-open viewport edges,
+  clipping, unlit gradients, half alpha, near/far rejection, the pinhole test,
+  depth ties and exact opaque occlusion in either actor order. In an isolated
+  archive of unchanged `171abbfc`, all three tests fail for substantive reasons:
+  software lines keep their flat color, software points disappear, and GPU
+  upload rejects line cells. The same fixture passes on the candidate.
+- `qa/perf/20261019-primitives-paired.json` archives the exact release probe,
+  dependency lock, paired runner, raw samples, source/binary/test hashes and
+  baseline/candidate oracle results. Baseline/candidate have separate targets;
+  allocator-disabled ABBA twice supplies four fresh processes/version with five
+  samples/case. Allocation builds are separate, and no task-owned builds/tests
+  run during timing. Preparation uses fresh scene caches; warm software retains
+  one geometry build. GPU upload timings reuse prepared geometry and initialized
+  pipelines; resident submissions exclude completion/readback, which wait and
+  check exact within-version pixels outside timing. Initial measurements before
+  the constant-value/unclipped fast paths remain in
+  `qa/perf/20261019-primitives-initial.json`. All candidate image hashes match
+  between those initial and final probes. At 65,536 cells, 128-square frames:
+
+  | Operation | Baseline process CPU | Current process CPU | Baseline / current allocated bytes | Baseline / current derived payload |
+  |---|---:|---:|---:|---:|
+  | Cold plain-line preparation | 0.454 ms | 0.388 ms | 526,552 / 264,480 | 524,288 / 262,144 |
+  | Cold point-colored-line preparation | 0.483 ms | 0.505 ms | 526,649 / 264,577 | 524,288 / 262,144 |
+  | Cold cell-colored-line preparation | 0.602 ms | 0.426 ms | 3,672,377 / 264,577 | 524,288 / 262,144 |
+  | Cold point preparation | 0.302 ms | 0.408 ms | 2,361 / 264,577 | 0 / 262,144 |
+  | Warm flat software lines | 14.398 ms | 15.367 ms | 131,072 / 131,072 | 524,288 / 262,144 |
+  | Warm point-colored software lines | 14.418 ms | 66.931 ms | 131,072 / 131,072 | 524,288 / 262,144 |
+  | Warm cell-colored software lines | 14.441 ms | 15.735 ms | 131,072 / 131,072 | 524,288 / 262,144 |
+  | Warm software points | 0.003 ms | 0.778 ms | 131,072 / 131,072 | 0 / 262,144 |
+
+  Baseline coloring/point cases omit required work and are correctness-cost
+  references, not equivalent-output performance gates. Flat software line pixels
+  match exactly at all three sizes. Their initial 46% CPU regression falls to
+  6.7% at the largest case; 256/8,192-line cases are about 6% faster/0.3% slower.
+  **The remaining large flat-line CPU regression stays open.** Warm software uses
+  two frame allocations and no per-primitive allocation; retained selection bytes
+  halve. Cell-line cold allocation bytes fall about 93% by avoiding unused
+  surface expansion. Point preparation now pays for valid point selection.
+  The unchanged surface control has exact CPU/GPU pixels and the same draw
+  allocation counts; small timing differences are not an improvement claim.
+- Candidate GPU uploads use 2,097,152 geometry bytes for 65,536 lines or
+  1,048,576 for points; warm upload CPU is roughly 0.41–0.71 ms, with 55 allocation
+  calls and 2,105,495 / 1,056,919 allocated bytes. Resident line/point submissions
+  take about 37–44 microseconds of process CPU at that size, retaining 61/64
+  allocation calls and 9,620 bytes per submission across 256/8,192/65,536 cells.
+  Those fixed host/driver allocations remain optimization work. GPU line support
+  removes the forced software route for representable GPUI scenes, but upload
+  packing duplicates shared line endpoints and increases residency relative to
+  CPU ID metadata. First use, GPU execution, overdraw, total RSS/VRAM, mobile
+  pressure and measured energy remain unqualified; submission CPU is not power.
+- Final required-GPU verification passes 103 scene library tests and all public
+  scene/pressure integrations, including existing surface and wireframe oracles.
+  Software-only verification passes 75 library tests and all three rendering
+  integrations. The native viewer passes at 2x DPI. Strict Clippy passes the
+  production library and three rendering integration targets with `--no-deps`;
+  previously recorded broad all-target lint failures remain open. Changed-file
+  formatting/diff checks and the GPU/GPUI wasm library closure pass.
+- C3/C4 remain unchecked for other validity consumers, surface cell ownership,
+  nonlinear/banded transfer parity, arbitrary transparency and remaining f64
+  limits. Aggregate memory, scheduling, FFI/text, other platform/device gates,
+  Taffy, CUDA/MLX experiments and full acceptance remain in scope. The original
+  audit is unchanged; this checkpoint does not complete the implementation goal.

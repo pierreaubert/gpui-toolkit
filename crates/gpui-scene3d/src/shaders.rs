@@ -12,8 +12,8 @@
 /// Maximum clipping planes in the shader uniform block.
 pub const MAX_CLIP_PLANES: usize = 6;
 
-/// Uniform ABI version: the fourth scalar-range slot controls wireframe depth ULPs.
-pub const SCENE_UNIFORM_VERSION: u32 = 3;
+/// Uniform ABI version: viewport dimensions occupy the final aligned eight bytes.
+pub const SCENE_UNIFORM_VERSION: u32 = 4;
 /// Maximum forward f32 depth steps for black surface edge overlays.
 ///
 /// Four representable steps cover surface/line interpolation rounding without a
@@ -31,12 +31,15 @@ pub const SCENE_UNIFORM_SIZE: usize = 192;
 /// - `clip_equations[i]`: local `[normal.xyz, offset]` plane coefficients;
 ///   fragments with a negative distance to any active plane are discarded.
 /// - `clip_count`: number of active planes.
+/// - `viewport`: physical target dimensions, aligned at byte 184. Required by
+///   `vs_point`; use [`scene_uniform_block_for_target`] for point-cell hosts.
 pub const SURFACE_WGSL: &str = r"
 struct SceneUniforms {
     view_proj: mat4x4<f32>,
     scalar_range: vec4<f32>,
     clip_equations: array<vec4<f32>, 6>,
     clip_count: u32,
+    viewport: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> scene: SceneUniforms;
@@ -63,6 +66,44 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     out.local_position = input.position;
     out.normal = input.normal;
     out.scalar = input.scalar;
+    return out;
+}
+
+struct PrimitiveInput {
+    @location(0) position: vec3<f32>,
+    @location(2) scalar: f32,
+};
+
+fn primitive_vertex(input: PrimitiveInput) -> VertexOutput {
+    var out: VertexOutput;
+    out.clip_position = scene.view_proj * vec4<f32>(input.position, 1.0);
+    out.local_position = input.position;
+    out.normal = vec3<f32>(0.0);
+    out.scalar = input.scalar;
+    return out;
+}
+
+@vertex
+fn vs_primitive(input: PrimitiveInput) -> VertexOutput {
+    return primitive_vertex(input);
+}
+
+@vertex
+fn vs_point(input: PrimitiveInput) -> VertexOutput {
+    var out = primitive_vertex(input);
+    let clip = out.clip_position;
+    if (clip.w <= 0.0 || clip.z < 0.0 || clip.z > clip.w || any(scene.viewport <= vec2<f32>(0.0))) {
+        out.clip_position = vec4<f32>(0.0, 0.0, -1.0, 1.0);
+        return out;
+    }
+    let ndc = clip.xy / clip.w;
+    let pixel = floor(vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * scene.viewport);
+    if (any(pixel < vec2<f32>(0.0)) || any(pixel >= scene.viewport)) {
+        out.clip_position = vec4<f32>(0.0, 0.0, -1.0, 1.0);
+        return out;
+    }
+    let center = (pixel + vec2<f32>(0.5)) / scene.viewport;
+    out.clip_position = vec4<f32>(vec2<f32>(center.x * 2.0 - 1.0, 1.0 - center.y * 2.0) * clip.w, clip.z, clip.w);
     return out;
 }
 
@@ -103,6 +144,12 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     return colour;
 }
 
+@fragment
+fn fs_unlit(input: VertexOutput) -> @location(0) vec4<f32> {
+    let color = material_color(input);
+    return vec4<f32>(color.rgb, color.a * scene.scalar_range.z);
+}
+
 struct WireOutput {
     @location(0) color: vec4<f32>,
     @builtin(frag_depth) depth: f32,
@@ -127,7 +174,9 @@ fn fs_wire(input: VertexOutput) -> WireOutput {
 ///
 /// Layout matches `SceneUniforms` in [`SURFACE_WGSL`]: view-projection
 /// (64 bytes), scalar range (16), local plane equations (96), count (4),
-/// padded to 16-byte alignment.
+/// alignment padding (4), and physical viewport dimensions (8).
+/// The viewport remains zero here; point-cell hosts must instead use
+/// [`scene_uniform_block_for_target`].
 ///
 /// # Errors
 ///
@@ -175,6 +224,9 @@ pub fn scene_uniform_bytes_relative_to(
 
 /// Builds the fixed-size uniform block without a heap allocation.
 ///
+/// The viewport remains zero; use [`scene_uniform_block_for_target`] when
+/// rendering point cells with `vs_point`.
+///
 /// # Errors
 ///
 /// Returns an error for invalid plane coefficients or too many planes.
@@ -192,6 +244,43 @@ pub fn scene_uniform_block_relative_to(
         opacity,
         &equations,
     ))
+}
+
+/// Builds uniforms with physical viewport dimensions for one-pixel point cells.
+///
+/// # Errors
+///
+/// Returns an error for zero target dimensions, invalid plane coefficients or
+/// more than [`MAX_CLIP_PLANES`] planes.
+pub fn scene_uniform_block_for_target(
+    view_projection: &[f32; 16],
+    scalar_range: [f32; 2],
+    opacity: f32,
+    clip_planes: &[crate::ClipPlane],
+    origin: [f64; 3],
+    size: [u32; 2],
+) -> Result<[u8; SCENE_UNIFORM_SIZE], crate::SceneError> {
+    let mut bytes = scene_uniform_block_relative_to(
+        view_projection,
+        scalar_range,
+        opacity,
+        clip_planes,
+        origin,
+    )?;
+    set_viewport(&mut bytes, size)?;
+    Ok(bytes)
+}
+
+pub(crate) fn set_viewport(
+    bytes: &mut [u8; SCENE_UNIFORM_SIZE],
+    size: [u32; 2],
+) -> Result<(), crate::SceneError> {
+    if size.contains(&0) {
+        return Err(crate::SceneError::InvalidSize(size[0], size[1]));
+    }
+    bytes[184..188].copy_from_slice(&(size[0] as f32).to_le_bytes());
+    bytes[188..192].copy_from_slice(&(size[1] as f32).to_le_bytes());
+    Ok(())
 }
 
 pub(crate) type PackedClipPlanes = smallvec::SmallVec<[[f32; 4]; MAX_CLIP_PLANES]>;
@@ -248,6 +337,26 @@ pub(crate) fn scene_uniform_block_with_equations(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn viewport_uses_reserved_tail_without_changing_uniform_stride() {
+        let bytes =
+            scene_uniform_block_for_target(&[0.0; 16], [0.0, 1.0], 1.0, &[], [0.0; 3], [96, 80])
+                .unwrap();
+        assert_eq!(bytes.len(), 192);
+        assert_eq!(
+            f32::from_le_bytes(bytes[184..188].try_into().unwrap()),
+            96.0
+        );
+        assert_eq!(
+            f32::from_le_bytes(bytes[188..192].try_into().unwrap()),
+            80.0
+        );
+        assert!(matches!(
+            scene_uniform_block_for_target(&[0.0; 16], [0.0, 1.0], 1.0, &[], [0.0; 3], [0, 80]),
+            Err(crate::SceneError::InvalidSize(0, 80))
+        ));
+    }
 
     #[test]
     fn uniform_block_is_aligned_and_counts_planes() {
@@ -312,7 +421,7 @@ mod tests {
             ),
             Err(crate::SceneError::InvalidClipPlane(_))
         ));
-        assert_eq!(SCENE_UNIFORM_VERSION, 3);
+        assert_eq!(SCENE_UNIFORM_VERSION, 4);
         assert_eq!(SCENE_UNIFORM_SIZE, 192);
     }
 }

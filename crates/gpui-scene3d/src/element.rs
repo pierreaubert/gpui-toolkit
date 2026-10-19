@@ -268,6 +268,40 @@ mod tests {
 
     #[test]
     #[cfg(feature = "gpui-gpu")]
+    fn primitive_precision_fallback_retains_image_and_recovers_gpu_route() {
+        let data = DataSet::new(
+            "wide primitive",
+            vec![[-0.5, 0.0, 0.0], [0.5, 0.0, 0.0]],
+            gpui_mesh::Cells::from_cells(&[
+                (gpui_mesh::CellType::Line, &[0, 1]),
+                (gpui_mesh::CellType::Vertex, &[0]),
+            ]),
+        )
+        .with_field(gpui_mesh::Field::scalar("p", vec![1e300; 2]));
+        let mut scene = Scene::new().with_actor(
+            Actor::new(data).coloured_by("p", crate::TransferFunction::viridis([0.0, 1.0])),
+        );
+        let camera = Camera::fitted(scene.bounds().unwrap());
+        let mut state = ElementState::default();
+        let PaintSource::Image(first) = state.prepare(&scene, camera, [48, 48], true).unwrap()
+        else {
+            panic!("primitive precision needs actual software image");
+        };
+        let PaintSource::Image(second) = state.prepare(&scene, camera, [48, 48], true).unwrap()
+        else {
+            panic!("primitive precision image was not retained");
+        };
+        assert!(Arc::ptr_eq(&first, &second));
+        scene.actors[0].dataset.point_data[0] = gpui_mesh::Field::scalar("p", vec![0.0, 1.0]);
+        assert!(matches!(
+            state.prepare(&scene, camera, [48, 48], true).unwrap(),
+            PaintSource::Custom(_)
+        ));
+        assert!(state.image.is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "gpui-gpu")]
     fn actual_presentation_decision_uses_and_retains_precision_fallback_image() {
         let mut scene = crate::scene::coefficient_sensitive_scene();
         let camera = Camera::fitted(scene.bounds().unwrap());

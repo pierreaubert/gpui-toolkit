@@ -110,7 +110,7 @@ pub(crate) fn clip_planes(poly: &mut Polygon, planes: &[PlaneEquation]) {
     }
 }
 
-fn frustum_distance(point: [f64; 4], plane: usize) -> f64 {
+pub(crate) fn frustum_distance(point: [f64; 4], plane: usize) -> f64 {
     match plane {
         0 => point[0] + point[3],
         1 => point[3] - point[0],
@@ -175,7 +175,7 @@ pub(crate) fn clip_frustum(poly: &mut Polygon) {
     }
 }
 
-fn segment_interval<const N: usize>(
+pub(crate) fn segment_interval<const N: usize>(
     points: [[f64; N]; 2],
     count: usize,
     distance: impl Fn([f64; N], usize) -> f64,
@@ -188,7 +188,13 @@ fn segment_interval<const N: usize>(
             return None;
         }
         if (da < 0.0) != (db < 0.0) {
-            let t = da / (da - db);
+            let denominator = da - db;
+            let t = if denominator.is_finite() {
+                da / denominator
+            } else {
+                let scale = da.abs().max(db.abs());
+                (da / scale) / ((da / scale) - (db / scale))
+            };
             if da < 0.0 {
                 enter = enter.max(t);
             } else {
@@ -202,6 +208,7 @@ fn segment_interval<const N: usize>(
     Some([enter, exit])
 }
 
+#[cfg(test)]
 fn segment<const N: usize>(
     points: [[f64; N]; 2],
     count: usize,
@@ -247,12 +254,14 @@ pub(crate) fn clip_frustum_line_vertices(vertices: [Vertex; 2]) -> Option<[Verte
     Some(clipped)
 }
 
+#[cfg(test)]
 pub(crate) fn clip_line(points: [[f64; 3]; 2], planes: &[PlaneEquation]) -> Option<[[f64; 3]; 2]> {
     segment(points, planes.len(), |point, plane| {
         planes[plane].distance(point)
     })
 }
 
+#[cfg(test)]
 pub(crate) fn clip_frustum_line(points: [[f32; 4]; 2]) -> Option<[[f32; 4]; 2]> {
     segment(points.map(|p| p.map(f64::from)), 6, frustum_distance).and_then(|points| {
         if points

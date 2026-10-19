@@ -4,8 +4,8 @@
 
 use crate::camera::{Camera, transform};
 use crate::clipping::{
-    BoundsVisibility, Polygon, Vertex, classify_bounds, clip_frustum, clip_frustum_line,
-    clip_frustum_line_vertices, clip_line, clip_line_vertices, clip_planes, triangle_visibility,
+    BoundsVisibility, Polygon, Vertex, classify_bounds, clip_frustum, clip_frustum_line_vertices,
+    clip_line_vertices, clip_planes, triangle_visibility,
 };
 use crate::limits::frame_buffer;
 use crate::retained::PreparedGeometry;
@@ -416,8 +416,18 @@ fn draw_actor(
         )?;
     }
     // Line cells (streamlines, glyphs) draw as 1px projected segments.
-    if !geometry.lines.is_empty() {
-        draw_lines(actor, &geometry.lines, camera, width, height, depth, rgba)?;
+    if geometry.primitives.lines.len() != 0 || geometry.primitives.points.len() != 0 {
+        draw_primitives(
+            actor,
+            geometry,
+            camera,
+            &material,
+            LineTarget {
+                size: [width, height],
+                depth,
+                rgba,
+            },
+        )?;
     }
     Ok(())
 }
@@ -434,6 +444,7 @@ impl LineTarget<'_> {
         points: [(f32, f32, f32); 2],
         depth_ulps: u32,
         write_depth: bool,
+        interpolate_color: bool,
         color: impl Fn(f32) -> [u8; 4],
     ) {
         let [a, b] = points;
@@ -441,13 +452,15 @@ impl LineTarget<'_> {
         // Homogeneous clipping bounds work by the physical viewport, even
         // when the source segment is much longer than the visible region.
         let steps = ((b.0 - a.0).abs().max((b.1 - a.1).abs()).ceil() as usize).max(1);
+        let delta = [b.0 - a.0, b.1 - a.1];
+        let squared = delta[0] * delta[0] + delta[1] * delta[1];
+        let inverse_squared = if squared > 0.0 { 1.0 / squared } else { 0.0 };
+        let sample_at_center = interpolate_color || a.2 != b.2;
         let mut previous = None;
         for step in 0..=steps {
             let t = step as f32 / steps as f32;
             let x = a.0 + (b.0 - a.0) * t;
             let y = a.1 + (b.1 - a.1) * t;
-            let z = (a.2 + (b.2 - a.2) * t).max(0.0);
-            let z = f32::from_bits((z.to_bits() & 0x7fff_ffff).saturating_sub(depth_ulps));
             if x < 0.0 || y < 0.0 || x >= width as f32 || y >= height as f32 {
                 continue;
             }
@@ -456,8 +469,19 @@ impl LineTarget<'_> {
                 continue;
             }
             previous = Some(index);
+            // Coverage stepping locates pixels; interpolate at the projection
+            // of each pixel center onto the segment, matching GPU line values.
+            let sample_t = if sample_at_center {
+                (((x.floor() + 0.5 - a.0) * delta[0] + (y.floor() + 0.5 - a.1) * delta[1])
+                    * inverse_squared)
+                    .clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let z = (a.2 + (b.2 - a.2) * sample_t).max(0.0);
+            let z = f32::from_bits((z.to_bits() & 0x7fff_ffff).saturating_sub(depth_ulps));
             if z <= self.depth[index] {
-                let color = color(t);
+                let color = color(sample_t);
                 source_over(&mut self.rgba[index * 4..index * 4 + 4], color);
                 if write_depth && color[3] == 255 {
                     self.depth[index] = z;
@@ -536,77 +560,231 @@ fn draw_wireframe(
             });
             if let Some(alpha) = constant_alpha {
                 let color = black(alpha);
-                target.draw(points, crate::shaders::WIREFRAME_DEPTH_ULPS, false, |_| {
-                    color
-                });
+                target.draw(
+                    points,
+                    crate::shaders::WIREFRAME_DEPTH_ULPS,
+                    false,
+                    false,
+                    |_| color,
+                );
             } else {
                 let inverse_w = vertices.map(|v| 1.0 / f64::from(v.position[3]));
-                target.draw(points, crate::shaders::WIREFRAME_DEPTH_ULPS, false, |t| {
-                    let weights = [
-                        (1.0 - f64::from(t)) * inverse_w[0],
-                        f64::from(t) * inverse_w[1],
-                    ];
-                    let scalar = (weights[0] * f64::from(vertices[0].scalar)
-                        + weights[1] * f64::from(vertices[1].scalar))
-                        / (weights[0] + weights[1]);
-                    black(
-                        material
-                            .transfer
-                            .as_ref()
-                            .expect("variable alpha uses transfer")
-                            .map(scalar)[3],
-                    )
-                });
+                target.draw(
+                    points,
+                    crate::shaders::WIREFRAME_DEPTH_ULPS,
+                    false,
+                    true,
+                    |t| {
+                        let weights = [
+                            (1.0 - f64::from(t)) * inverse_w[0],
+                            f64::from(t) * inverse_w[1],
+                        ];
+                        let scalar = (weights[0] * f64::from(vertices[0].scalar)
+                            + weights[1] * f64::from(vertices[1].scalar))
+                            / (weights[0] + weights[1]);
+                        black(
+                            material
+                                .transfer
+                                .as_ref()
+                                .expect("variable alpha uses transfer")
+                                .map(scalar)[3],
+                        )
+                    },
+                );
             }
         }
     }
     Ok(())
 }
 
-/// Clips and projects line cells before performing bounded screen-space work.
-fn draw_lines(
-    actor: &crate::scene::Actor,
-    lines: &[[u32; 2]],
+#[derive(Clone, Copy)]
+struct PrimitiveSample {
+    position: [f64; 4],
+    scalar: f64,
+}
+
+fn convex(a: f64, b: f64, t: f64) -> f64 {
+    if t == 0.0 || a == b {
+        a
+    } else if t == 1.0 {
+        b
+    } else if a.signum() == b.signum() {
+        a + (b - a) * t
+    } else {
+        a * (1.0 - t) + b * t
+    }
+}
+
+fn interpolate_sample(a: PrimitiveSample, b: PrimitiveSample, t: f64) -> PrimitiveSample {
+    PrimitiveSample {
+        position: std::array::from_fn(|axis| convex(a.position[axis], b.position[axis], t)),
+        scalar: convex(a.scalar, b.scalar, t),
+    }
+}
+
+fn interpolate_samples(vertices: [PrimitiveSample; 2], interval: [f64; 2]) -> [PrimitiveSample; 2] {
+    if interval == [0.0, 1.0] {
+        vertices
+    } else {
+        interval.map(|t| interpolate_sample(vertices[0], vertices[1], t))
+    }
+}
+
+fn transform_sample(
+    mut vertex: PrimitiveSample,
+    matrix: &[f32; 16],
+) -> Result<PrimitiveSample, SceneError> {
+    vertex.position = std::array::from_fn(|axis| {
+        f64::from(matrix[axis]) * vertex.position[0]
+            + f64::from(matrix[4 + axis]) * vertex.position[1]
+            + f64::from(matrix[8 + axis]) * vertex.position[2]
+            + f64::from(matrix[12 + axis])
+    });
+    if vertex.position.iter().any(|v| !v.is_finite()) {
+        return Err(SceneError::UnsupportedPrecision(
+            "primitive projection exceeds f64 range",
+        ));
+    }
+    Ok(vertex)
+}
+
+fn primitive_project(vertex: PrimitiveSample, size: [u32; 2]) -> (f32, f32, f32) {
+    (
+        ((vertex.position[0] / vertex.position[3] * 0.5 + 0.5) * f64::from(size[0])) as f32,
+        ((0.5 - vertex.position[1] / vertex.position[3] * 0.5) * f64::from(size[1])) as f32,
+        (vertex.position[2] / vertex.position[3]) as f32,
+    )
+}
+
+fn unlit_color(material: &RasterMaterial<'_>, scalar: f64) -> [u8; 4] {
+    let mut color = material
+        .transfer
+        .as_ref()
+        .map_or(material.color, |tf| tf.map(scalar));
+    color[3] *= material.opacity;
+    shaded_color(color, 1.0)
+}
+
+fn draw_primitives(
+    actor: &crate::Actor,
+    geometry: &PreparedGeometry,
     camera: &Camera,
-    width: u32,
-    height: u32,
-    depth: &mut [f32],
-    rgba: &mut [u8],
+    material: &RasterMaterial<'_>,
+    mut target: LineTarget<'_>,
 ) -> Result<(), SceneError> {
-    let dataset = &actor.dataset;
-    let origin = camera.target;
-    let matrix = camera.view_projection_relative_to(origin, width as f32 / height as f32);
-    let planes = crate::scene::local_planes(&actor.clip_planes, origin)?;
-    let colour = [
-        (actor.color[0].clamp(0.0, 1.0) * 255.0) as u8,
-        (actor.color[1].clamp(0.0, 1.0) * 255.0) as u8,
-        (actor.color[2].clamp(0.0, 1.0) * 255.0) as u8,
-        (actor.color[3].clamp(0.0, 1.0) * actor.opacity * 255.0) as u8,
-    ];
-    let mut target = LineTarget {
-        size: [width, height],
-        depth,
-        rgba,
+    let flat_color = material
+        .transfer
+        .is_none()
+        .then(|| unlit_color(material, 0.0));
+    let field = crate::retained::selected_field(actor)?.map(|(_, field)| field);
+    let matrix = camera
+        .view_projection_relative_to(camera.target, target.size[0] as f32 / target.size[1] as f32);
+    let planes = crate::scene::local_planes(&actor.clip_planes, camera.target)?;
+    let sample = |cell, node| {
+        let p = actor.dataset.positions[node as usize];
+        PrimitiveSample {
+            position: [
+                p[0] - camera.target[0],
+                p[1] - camera.target[1],
+                p[2] - camera.target[2],
+                1.0,
+            ],
+            scalar: if flat_color.is_some() {
+                0.0
+            } else {
+                crate::primitives::scalar(field, cell, node)
+            },
+        }
     };
-    for nodes in lines {
-        let points = nodes.map(|node| {
-            std::array::from_fn(|axis| dataset.positions[node as usize][axis] - origin[axis])
-        });
-        let Some(points) = clip_line(points, &planes) else {
+    let write_depth = !actor.is_transparent();
+    for cell in geometry.primitives.lines.iter() {
+        let nodes = actor.dataset.cells.cell(cell).expect("validated line");
+        let vertices = [sample(cell, nodes[0]), sample(cell, nodes[1])];
+        let points = vertices.map(|v| [v.position[0], v.position[1], v.position[2]]);
+        let Some(interval) =
+            crate::clipping::segment_interval(points, planes.len(), |p, i| planes[i].distance(p))
+        else {
             continue;
         };
-        let points = points.map(|point| transform(&matrix, point.map(|v| v as f32)));
-        let Some(points) = clip_frustum_line(points) else {
+        let mut vertices = interpolate_samples(vertices, interval);
+        for v in &mut vertices {
+            *v = transform_sample(*v, &matrix)?;
+        }
+        let Some(interval) = crate::clipping::segment_interval(
+            vertices.map(|v| v.position),
+            6,
+            crate::clipping::frustum_distance,
+        ) else {
             continue;
         };
-        let [a, b] = points.map(|clip| {
-            (
-                (clip[0] / clip[3] * 0.5 + 0.5) * width as f32,
-                (0.5 - clip[1] / clip[3] * 0.5) * height as f32,
-                clip[2] / clip[3],
-            )
-        });
-        target.draw([a, b], 0, true, |_| colour);
+        let mut clipped = interpolate_samples(vertices, interval);
+        for (i, v) in clipped.iter_mut().enumerate() {
+            let w = v.position[3];
+            if w <= 0.0 || interval == [0.0, 1.0] {
+                continue;
+            }
+            if interval[i] > 0.0
+                && interval[i] < 1.0
+                && (0..6).all(|plane| {
+                    crate::clipping::frustum_distance(v.position, plane)
+                        > w.abs() / f64::from(target.size[0].max(target.size[1])) * 0.25
+                })
+            {
+                return Err(SceneError::UnsupportedPrecision(
+                    "line clipping lost its viewport intersection",
+                ));
+            }
+            v.position[0] = v.position[0].clamp(-w, w);
+            v.position[1] = v.position[1].clamp(-w, w);
+            v.position[2] = v.position[2].clamp(0.0, w);
+        }
+        if clipped.iter().any(|v| v.position[3] <= 0.0) {
+            continue;
+        }
+        let points = clipped.map(|v| primitive_project(v, target.size));
+        if let Some(color) = flat_color {
+            target.draw(points, 0, write_depth, false, |_| color);
+        } else if clipped[0].scalar == clipped[1].scalar {
+            let color = unlit_color(material, clipped[0].scalar);
+            target.draw(points, 0, write_depth, false, |_| color);
+        } else {
+            let inverse_w = clipped.map(|v| 1.0 / v.position[3]);
+            target.draw(points, 0, write_depth, true, |t| {
+                let q = [
+                    (1.0 - f64::from(t)) * inverse_w[0],
+                    f64::from(t) * inverse_w[1],
+                ];
+                let t = q[1] / (q[0] + q[1]);
+                unlit_color(material, convex(clipped[0].scalar, clipped[1].scalar, t))
+            });
+        }
+    }
+    for cell in geometry.primitives.points.iter() {
+        let node = actor.dataset.cells.cell(cell).expect("validated point")[0];
+        let vertex = sample(cell, node);
+        if planes.iter().any(|plane| {
+            plane.distance([vertex.position[0], vertex.position[1], vertex.position[2]]) < 0.0
+        }) {
+            continue;
+        }
+        let vertex = transform_sample(vertex, &matrix)?;
+        if vertex.position[3] <= 0.0
+            || (0..6).any(|plane| crate::clipping::frustum_distance(vertex.position, plane) < 0.0)
+        {
+            continue;
+        }
+        let (x, y, z) = primitive_project(vertex, target.size);
+        if x < 0.0 || y < 0.0 || x >= target.size[0] as f32 || y >= target.size[1] as f32 {
+            continue;
+        }
+        let index = y as usize * target.size[0] as usize + x as usize;
+        if z <= target.depth[index] {
+            let color = flat_color.unwrap_or_else(|| unlit_color(material, vertex.scalar));
+            source_over(&mut target.rgba[index * 4..index * 4 + 4], color);
+            if write_depth && color[3] != 0 {
+                target.depth[index] = z;
+            }
+        }
     }
     Ok(())
 }
@@ -862,7 +1040,7 @@ fn rasterize_pixels<S: Fn([f64; 3]) -> [u8; 4]>(
             let z = (e0 as f32 * points[0].1 + e1 as f32 * points[1].1 + e2 as f32 * points[2].1)
                 * inverse_area;
             let idx = y as usize * width as usize + x as usize;
-            if z >= depth[idx] {
+            if z > depth[idx] {
                 continue;
             }
             let colour = shade([e0, e1, e2].map(|e| e * inverse_area_f64));

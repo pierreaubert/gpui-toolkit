@@ -20,7 +20,7 @@ use crate::shaders::{
     scene_uniform_block_with_equations,
 };
 use crate::{RenderLimits, SceneError};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use wgpu::util::DeviceExt;
 
 /// Failures reported by the GPU renderer.
@@ -48,7 +48,34 @@ struct GpuChunkBuffers {
     index: wgpu::Buffer,
     index_count: u32,
     edges: Option<(wgpu::Buffer, u32)>,
-    origin: [f64; 3],
+}
+
+#[derive(Clone, Copy)]
+enum PrimitiveKind {
+    Line,
+    Point,
+}
+
+struct GpuPrimitiveBuffer {
+    vertices: wgpu::Buffer,
+    count: u32,
+    kind: PrimitiveKind,
+}
+
+fn primitive_capacity(limit: u64, arity: usize) -> Result<usize, SceneError> {
+    let stride = arity as u64 * 16;
+    let capacity = usize::try_from(limit / stride)
+        .unwrap_or(usize::MAX)
+        .min(crate::prepare::DEFAULT_MAX_TRIANGLES)
+        .min(u32::MAX as usize / arity);
+    if capacity == 0 {
+        return Err(SceneError::ResourceLimit {
+            resource: "GPU primitive buffer bytes",
+            requested: stride,
+            limit,
+        });
+    }
+    Ok(capacity)
 }
 
 fn buffer_bytes(elements: usize, limit: u64, resource: &'static str) -> Result<u64, SceneError> {
@@ -102,6 +129,7 @@ fn chunk_layout(chunk: &crate::GpuChunk, limit: u64) -> Result<(u32, u32, u64), 
 
 struct GpuActor {
     chunks: Vec<GpuChunkBuffers>,
+    primitives: Vec<GpuPrimitiveBuffer>,
     uniform: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     scalar_range: [f32; 2],
@@ -169,6 +197,10 @@ pub struct GpuRenderer {
     pipeline_opaque: wgpu::RenderPipeline,
     pipeline_transparent: wgpu::RenderPipeline,
     pipeline_wireframe: wgpu::RenderPipeline,
+    line_pipelines: OnceLock<[wgpu::RenderPipeline; 2]>,
+    point_pipelines: OnceLock<[wgpu::RenderPipeline; 2]>,
+    shader: wgpu::ShaderModule,
+    pipeline_layout: wgpu::PipelineLayout,
     bind_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     format: wgpu::TextureFormat,
@@ -372,6 +404,10 @@ impl GpuRenderer {
                 false,
             ),
             pipeline_wireframe: make_pipeline(false, Some(wgpu::BlendState::ALPHA_BLENDING), true),
+            line_pipelines: OnceLock::new(),
+            point_pipelines: OnceLock::new(),
+            shader,
+            pipeline_layout,
             device,
             queue,
             bind_layout,
@@ -403,14 +439,6 @@ impl GpuRenderer {
                 return Err(GpuRenderError::UnsupportedFeature(
                     "more than six clipping planes",
                 ));
-            }
-            if actor
-                .dataset
-                .cells
-                .types
-                .contains(&gpui_mesh::CellType::Line)
-            {
-                return Err(GpuRenderError::UnsupportedFeature("line cells"));
             }
         }
         let prepared = scene.prepare()?;
@@ -476,9 +504,10 @@ impl GpuRenderer {
                             edge_count,
                         )
                     }),
-                    origin: chunk.origin,
                 });
             }
+            let primitives =
+                self.upload_primitives(actor, &geometry.primitives, origin, &mut geometry_bytes)?;
             // Colour LUT: the actor's transfer function, or a flat ramp.
             let (lut_bytes, scalar_range) = material_lut(actor)?;
             let lut = self.device.create_texture_with_data(
@@ -509,6 +538,7 @@ impl GpuRenderer {
             let bind_group = self.actor_bind_group(&uniform, &lut);
             actors.push(GpuActor {
                 chunks: gpu_chunks,
+                primitives,
                 uniform,
                 bind_group,
                 scalar_range,
@@ -530,6 +560,144 @@ impl GpuRenderer {
             geometry_bytes,
             prepared: SceneRevision::new(scene)?,
         })
+    }
+
+    fn primitive_pipeline(&self, kind: PrimitiveKind, transparent: bool) -> &wgpu::RenderPipeline {
+        let pipelines = match kind {
+            PrimitiveKind::Line => &self.line_pipelines,
+            PrimitiveKind::Point => &self.point_pipelines,
+        };
+        &pipelines.get_or_init(|| {
+            std::array::from_fn(|index| {
+                self.device
+                    .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        label: Some("scene unlit primitive"),
+                        layout: Some(&self.pipeline_layout),
+                        vertex: wgpu::VertexState {
+                            module: &self.shader,
+                            entry_point: Some(match kind {
+                                PrimitiveKind::Line => "vs_primitive",
+                                PrimitiveKind::Point => "vs_point",
+                            }),
+                            buffers: &[wgpu::VertexBufferLayout {
+                                array_stride: 16,
+                                step_mode: wgpu::VertexStepMode::Vertex,
+                                attributes: &[
+                                    wgpu::VertexAttribute {
+                                        format: wgpu::VertexFormat::Float32x3,
+                                        offset: 0,
+                                        shader_location: 0,
+                                    },
+                                    wgpu::VertexAttribute {
+                                        format: wgpu::VertexFormat::Float32,
+                                        offset: 12,
+                                        shader_location: 2,
+                                    },
+                                ],
+                            }],
+                            compilation_options: Default::default(),
+                        },
+                        fragment: Some(wgpu::FragmentState {
+                            module: &self.shader,
+                            entry_point: Some("fs_unlit"),
+                            targets: &[Some(wgpu::ColorTargetState {
+                                format: self.format,
+                                blend: (index == 1).then_some(wgpu::BlendState::ALPHA_BLENDING),
+                                write_mask: wgpu::ColorWrites::ALL,
+                            })],
+                            compilation_options: Default::default(),
+                        }),
+                        primitive: wgpu::PrimitiveState {
+                            topology: match kind {
+                                PrimitiveKind::Line => wgpu::PrimitiveTopology::LineList,
+                                PrimitiveKind::Point => wgpu::PrimitiveTopology::PointList,
+                            },
+                            ..Default::default()
+                        },
+                        depth_stencil: Some(wgpu::DepthStencilState {
+                            format: wgpu::TextureFormat::Depth32Float,
+                            depth_write_enabled: Some(index == 0),
+                            depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                            stencil: Default::default(),
+                            bias: Default::default(),
+                        }),
+                        multisample: Default::default(),
+                        multiview_mask: None,
+                        cache: None,
+                    })
+            })
+        })[usize::from(transparent)]
+    }
+
+    fn upload_primitives(
+        &self,
+        actor: &crate::Actor,
+        cells: &crate::primitives::PrimitiveCells,
+        origin: [f64; 3],
+        geometry_bytes: &mut u64,
+    ) -> Result<Vec<GpuPrimitiveBuffer>, SceneError> {
+        let field = crate::retained::selected_field(actor)?.map(|(_, field)| field);
+        let mut buffers = Vec::new();
+        for (kind, ids, arity) in [
+            (PrimitiveKind::Line, &cells.lines, 2usize),
+            (PrimitiveKind::Point, &cells.points, 1),
+        ] {
+            if ids.len() == 0 {
+                continue;
+            }
+            let capacity = primitive_capacity(self.device.limits().max_buffer_size, arity)?;
+            let mut source = ids.iter();
+            let mut remaining = ids.len();
+            while remaining != 0 {
+                let count = remaining.min(capacity);
+                remaining -= count;
+                let vertex_count = count * arity;
+                let bytes = buffer_bytes(
+                    vertex_count * 4,
+                    self.device.limits().max_buffer_size,
+                    "GPU primitive buffer bytes",
+                )?;
+                let mut vertices = Vec::new();
+                vertices
+                    .try_reserve_exact(vertex_count)
+                    .map_err(|_| SceneError::Allocation { bytes })?;
+                for _ in 0..count {
+                    let cell = source.next().expect("prepared cell count");
+                    for &node in actor.dataset.cells.cell(cell).expect("validated primitive") {
+                        vertices.push(crate::primitives::gpu_vertex(
+                            &actor.dataset,
+                            field,
+                            cell,
+                            node,
+                            origin,
+                        )?);
+                    }
+                }
+                let next_geometry_bytes =
+                    geometry_bytes
+                        .checked_add(bytes)
+                        .ok_or(SceneError::ResourceLimit {
+                            resource: "GPU primitive byte sum overflow",
+                            requested: u64::MAX,
+                            limit: u64::MAX,
+                        })?;
+                let vertices = self
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("scene primitive vertices"),
+                        contents: bytemuck::cast_slice(&vertices),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+                *geometry_bytes = next_geometry_bytes;
+                buffers.push(GpuPrimitiveBuffer {
+                    vertices,
+                    count: index_count(vertex_count, "GPU primitive vertex count")?,
+                    kind,
+                });
+            }
+            self.primitive_pipeline(kind, false);
+        }
+        Ok(buffers)
     }
 
     /// Synchronizes live materials and source revisions before drawing.
@@ -797,8 +965,8 @@ impl GpuRenderer {
         for actor in &mut scene.actors {
             // Distance for transparent sorting: chunk origins are all the
             // dataset centre, so use the first chunk's origin.
-            if let Some(first) = actor.chunks.first() {
-                let o = first.origin;
+            {
+                let o = actor.origin;
                 actor.distance =
                     ((o[0] - eye[0]).powi(2) + (o[1] - eye[1]).powi(2) + (o[2] - eye[2]).powi(2))
                         .sqrt();
@@ -818,14 +986,15 @@ impl GpuRenderer {
         if let Some(staging) = &staging {
             let mut mapped = staging.slice(..).get_mapped_range_mut();
             for (index, actor) in scene.actors.iter().enumerate() {
-                if let Some(first) = actor.chunks.first() {
-                    let mvp = camera.view_projection_relative_to(first.origin, aspect);
-                    let bytes = scene_uniform_block_with_equations(
+                {
+                    let mvp = camera.view_projection_relative_to(actor.origin, aspect);
+                    let mut bytes = scene_uniform_block_with_equations(
                         &mvp,
                         actor.scalar_range,
                         actor.opacity,
                         &actor.clip_coefficients,
                     );
+                    crate::shaders::set_viewport(&mut bytes, target.size)?;
                     mapped
                         .slice(index * SCENE_UNIFORM_SIZE..(index + 1) * SCENE_UNIFORM_SIZE)
                         .copy_from_slice(&bytes);
@@ -906,6 +1075,11 @@ impl GpuRenderer {
                             pass.draw_indexed(0..*count, 0, 0..1);
                         }
                     }
+                }
+                for primitive in &actor.primitives {
+                    pass.set_pipeline(self.primitive_pipeline(primitive.kind, actor.transparent));
+                    pass.set_vertex_buffer(0, primitive.vertices.slice(..));
+                    pass.draw(0..primitive.count, 0..1);
                 }
             }
         }
@@ -1104,6 +1278,82 @@ mod tests {
             }
             Err(error) => panic!("scene3d GPU initialization failed: {error}"),
         }
+    }
+
+    #[test]
+    fn primitive_chunks_follow_device_and_draw_limits_without_allocating() {
+        assert_eq!(primitive_capacity(64, 2).unwrap(), 2);
+        assert_eq!(primitive_capacity(64, 1).unwrap(), 4);
+        assert!(matches!(
+            primitive_capacity(31, 2),
+            Err(SceneError::ResourceLimit {
+                requested: 32,
+                limit: 31,
+                ..
+            })
+        ));
+        assert_eq!(
+            primitive_capacity(u64::MAX, 1).unwrap(),
+            crate::prepare::DEFAULT_MAX_TRIANGLES
+        );
+    }
+
+    #[test]
+    fn primitive_pipelines_and_vertex_buffers_are_lazy_and_resident() {
+        let Some(renderer) = renderer() else {
+            return;
+        };
+        assert!(renderer.line_pipelines.get().is_none());
+        assert!(renderer.point_pipelines.get().is_none());
+        let surface = Scene::new().with_actor(crate::Actor::new(DataSet::surface(
+            "surface",
+            vec![[0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2]],
+        )));
+        renderer.upload(&surface).unwrap();
+        assert!(renderer.line_pipelines.get().is_none());
+        assert!(renderer.point_pipelines.get().is_none());
+        let data = DataSet::new(
+            "primitive",
+            vec![[-0.5, 0.0, 0.0], [0.5, 0.0, 0.0]],
+            gpui_mesh::Cells::from_cells(&[
+                (gpui_mesh::CellType::Line, &[0, 1]),
+                (gpui_mesh::CellType::Vertex, &[0]),
+            ]),
+        )
+        .with_field(Field::scalar("p", vec![0.0, 1.0]));
+        let mut scene = Scene::new()
+            .with_actor(Actor::new(data).coloured_by("p", TransferFunction::viridis([0.0, 1.0])));
+        let mut uploaded = renderer.upload(&scene).unwrap();
+        assert!(renderer.line_pipelines.get().is_some());
+        assert!(renderer.point_pipelines.get().is_some());
+        assert_eq!(uploaded.geometry_bytes, 48);
+        let handles = uploaded.actors[0]
+            .primitives
+            .iter()
+            .map(|p| &p.vertices as *const wgpu::Buffer)
+            .collect::<Vec<_>>();
+        let target = renderer.create_target(48, 48).unwrap();
+        let mut camera = Camera::fitted(scene.bounds().unwrap());
+        for _ in 0..12 {
+            camera.orbit(0.01, 0.01);
+            scene.actors[0].opacity = 0.5;
+            assert!(!renderer.sync(&mut uploaded, &scene).unwrap());
+            renderer.render(&mut uploaded, &camera, &target).unwrap();
+            assert_eq!(
+                handles,
+                uploaded.actors[0]
+                    .primitives
+                    .iter()
+                    .map(|p| &p.vertices as *const wgpu::Buffer)
+                    .collect::<Vec<_>>()
+            );
+        }
+        assert_eq!(scene.preparation_stats().geometry_builds, 1);
+        scene.actors[0].dataset.point_data[0].valid = Some(vec![false, true].into());
+        assert!(renderer.sync(&mut uploaded, &scene).unwrap());
+        assert_eq!(uploaded.geometry_bytes, 0);
+        assert!(uploaded.actors[0].primitives.is_empty());
     }
 
     #[test]

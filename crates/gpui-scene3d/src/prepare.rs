@@ -57,8 +57,9 @@ impl GpuChunk {
 ///
 /// The boundary surface is extracted once per chunk budget, positions are
 /// rebased and converted, smooth normals are accumulated, and scalars are
-/// gathered per vertex (cell scalars are expanded by their owning point's
-/// first use; point scalars are gathered exactly).
+/// gathered per vertex. Surface cell scalars are currently averaged at shared
+/// nodes; standalone line/point values do not contribute to that average.
+/// Point scalars are gathered exactly.
 ///
 /// # Errors
 ///
@@ -88,6 +89,9 @@ pub(crate) fn prepare_chunks_with_bounds(
         }
         None
     };
+    if dataset.cells.types.iter().all(|kind| kind.dimension() < 2) {
+        return Ok((bounds, Vec::new()));
+    }
     // Cell scalars need triangle -> cell mapping; boundary extraction loses
     // it, so expand cell values to points by averaging owning cells first.
     let valid = actor
@@ -101,6 +105,9 @@ pub(crate) fn prepare_chunks_with_bounds(
             let mut sums = vec![0.0f64; dataset.point_count()];
             let mut counts = vec![0.0f64; dataset.point_count()];
             for (cell, &value) in values.iter().enumerate() {
+                if dataset.cells.types[cell].dimension() < 2 {
+                    continue;
+                }
                 if !value.is_finite() || valid.is_some_and(|mask| !mask[cell]) {
                     continue;
                 }

@@ -26,6 +26,7 @@ pub mod movie;
 pub mod prepare;
 #[cfg(any(feature = "gpui", test))]
 mod presentation;
+mod primitives;
 pub mod raster;
 pub mod retained;
 pub mod scene;

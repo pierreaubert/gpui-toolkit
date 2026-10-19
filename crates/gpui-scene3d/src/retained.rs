@@ -22,7 +22,7 @@ fn arc_id<T>(values: &Arc<[T]>) -> usize {
     Arc::as_ptr(values).cast::<T>() as usize
 }
 
-fn selected_field(actor: &Actor) -> Result<Option<(Association, &Field)>, SceneError> {
+pub(crate) fn selected_field(actor: &Actor) -> Result<Option<(Association, &Field)>, SceneError> {
     actor
         .field
         .as_ref()
@@ -124,7 +124,7 @@ pub(crate) struct PreparedGeometry {
     identity: GeometryIdentity,
     _source: GeometrySource,
     pub(crate) chunks: Vec<GpuChunk>,
-    pub(crate) lines: Vec<[u32; 2]>,
+    pub(crate) primitives: crate::primitives::PrimitiveCells,
     pub(crate) bounds: Option<Bounds>,
     bytes: u64,
 }
@@ -222,28 +222,17 @@ impl PreparationCache {
                 // Validate once per geometry revision before any indexing.
                 actor.dataset.validate()?;
                 let (bounds, chunks) = prepare_chunks_with_bounds(actor, DEFAULT_MAX_TRIANGLES)?;
-                let lines: Vec<[u32; 2]> = actor
-                    .dataset
-                    .cells
-                    .types
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, kind)| **kind == gpui_mesh::CellType::Line)
-                    .filter_map(|(cell, _)| {
-                        actor
-                            .dataset
-                            .cells
-                            .cell(cell)
-                            .map(|nodes| [nodes[0], nodes[1]])
-                    })
-                    .collect();
+                let primitives = crate::primitives::PrimitiveCells::prepare(
+                    &actor.dataset,
+                    selected_field(actor)?.map(|(_, field)| field),
+                );
                 let bytes =
-                    chunks.iter().map(GpuChunk::byte_len).sum::<u64>() + lines.len() as u64 * 8;
+                    chunks.iter().map(GpuChunk::byte_len).sum::<u64>() + primitives.byte_len();
                 let geometry = Arc::new(PreparedGeometry {
                     identity,
                     _source: GeometrySource::of(actor)?,
                     chunks,
-                    lines,
+                    primitives,
                     bounds,
                     bytes,
                 });

@@ -11,18 +11,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
-fn supports_topology(scene: &Scene) -> bool {
-    scene
-        .actors
-        .iter()
-        .filter(|actor| actor.visible)
-        .all(|actor| {
-            !actor
-                .dataset
-                .cells
-                .types
-                .contains(&gpui_mesh::CellType::Line)
-        })
+fn supports_topology(scene: &Scene) -> Result<bool, SceneError> {
+    for actor in scene.actors.iter().filter(|actor| actor.visible) {
+        if !crate::primitives::gpu_supported(actor)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 pub(crate) struct RegisteredSceneDraw {
@@ -69,7 +64,7 @@ impl RegisteredSceneDraw {
                 .topology_supported
         } else {
             state.compatibility_scans += 1;
-            supports_topology(scene)
+            supports_topology(scene)?
         };
         let same_precision = same_geometry
             && state.input.as_ref().is_some_and(|input| {
@@ -559,6 +554,39 @@ fn composite_quad(
 mod tests {
     use super::*;
     use gpui::{point, px, size};
+
+    #[test]
+    fn primitive_precision_verdict_is_retained_and_invalidated_by_field_revisions() {
+        use gpui_mesh::{CellType, Cells, DataSet, Field};
+        let data = DataSet::new(
+            "mixed",
+            vec![[-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            Cells::from_cells(&[(CellType::Line, &[0, 1]), (CellType::Vertex, &[0])]),
+        )
+        .with_field(Field::scalar("p", vec![0.0, 1.0]));
+        let mut scene = Scene::new().with_actor(
+            crate::Actor::new(data).coloured_by("p", crate::TransferFunction::viridis([0.0, 1.0])),
+        );
+        let mut camera = Camera::fitted(scene.bounds().unwrap());
+        let draw = RegisteredSceneDraw::new();
+        assert!(draw.update(&scene, camera, [96, 64]).unwrap());
+        for _ in 0..24 {
+            camera.orbit(0.01, 0.0);
+            scene.actors[0].opacity = 0.5;
+            assert!(draw.update(&scene, camera, [96, 64]).unwrap());
+        }
+        assert_eq!(draw.draw.state.borrow().compatibility_scans, 1);
+        scene.actors[0].dataset.point_data[0] = Field::scalar("p", vec![1e300, 1.0]);
+        assert!(!draw.update(&scene, camera, [96, 64]).unwrap());
+        for _ in 0..24 {
+            camera.orbit(0.01, 0.0);
+            assert!(!draw.update(&scene, camera, [96, 64]).unwrap());
+        }
+        assert_eq!(draw.draw.state.borrow().compatibility_scans, 2);
+        scene.actors[0].dataset.point_data[0] = Field::scalar("p", vec![0.0, 1.0]);
+        assert!(draw.update(&scene, camera, [96, 64]).unwrap());
+        assert_eq!(draw.draw.state.borrow().compatibility_scans, 3);
+    }
 
     #[test]
     fn compatibility_and_origin_metadata_are_retained_across_camera_updates() {
