@@ -1,370 +1,244 @@
-//! Analysis filters: expression calculator, grid resampling, statistics.
-//!
-//! The calculator evaluates a small arithmetic language per point over
-//! named scalar fields plus the coordinates `x`, `y`, `z`:
-//! `+ - * / ^`, unary minus, parentheses, and the functions `sin cos tan
-//! sqrt exp log abs min max` (the last two take two arguments).
+//! Validity-aware expression evaluation, scalar summaries and grid resampling.
 
 // Rust guideline compliant 2026-02-21
 
 use crate::TransformError;
-use crate::probe::probe;
+use crate::expression::Expression;
 use gpui_mesh::{Association, DataSet, Field};
 
-/// Appends a scalar field computed from an arithmetic expression.
+/// Computes a scalar expression with strict dependency validity.
+///
+/// Fields bind once before evaluation; one reusable stack serves every point.
+/// Missing inputs or nonfinite intermediate results produce masked NaNs, including
+/// inside min/max. Coordinates are `x`, `y`, `z`; arithmetic supports `+ - * / ^`
+/// and sin/cos/tan/sqrt/exp/log/abs/min/max. Powers associate right and precede
+/// unary signs. The output replaces an existing same-name point field.
 ///
 /// # Errors
 ///
-/// Returns an error for parse failures, unknown fields or functions, and
-/// non-scalar referenced fields.
+/// Returns an error for invalid datasets, syntax, unknown/non-scalar fields,
+/// unknown functions/arity, nonfinite constants, or expressions exceeding 64 KiB,
+/// 128 nested levels or 4096 instructions. Binding errors also apply to empty data.
 pub fn calculator(
     dataset: &DataSet,
     expression: &str,
     out_name: &str,
 ) -> Result<DataSet, TransformError> {
-    let ast = Parser::new(expression).parse()?;
-    let fields: Vec<(&str, &[f64])> = dataset
-        .point_data
-        .iter()
-        .filter_map(|f| f.as_scalar().map(|values| (f.name.as_ref(), values)))
-        .collect();
-    let values: Vec<f64> = dataset
+    dataset.validate()?;
+    let mut expression = Expression::new(dataset, expression)?;
+    let values = dataset
         .positions
         .iter()
         .enumerate()
-        .map(|(index, p)| eval(&ast, &fields, index, *p))
-        .collect::<Result<_, _>>()?;
+        .map(|(index, &point)| expression.evaluate(index, point))
+        .collect::<Vec<_>>();
+    let field = crate::validity::finish(Field::scalar(out_name.to_string(), values), |_| true);
     let mut out = dataset.clone();
-    out.point_data
-        .push(Field::scalar(out_name.to_string(), values));
+    out.point_data.retain(|f| f.name.as_ref() != out_name);
+    out.point_data.push(field);
     Ok(out)
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum Expr {
-    Number(f64),
-    Field(String),
-    Coord(usize),
-    Neg(Box<Expr>),
-    Binary(Box<Expr>, Op, Box<Expr>),
-    Call(String, Vec<Expr>),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Op {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Pow,
-}
-
-struct Parser<'a> {
-    chars: Vec<char>,
-    pos: usize,
-    source: &'a str,
-}
-
-impl<'a> Parser<'a> {
-    fn new(source: &'a str) -> Self {
-        Self {
-            chars: source.chars().collect(),
-            pos: 0,
-            source,
-        }
-    }
-
-    fn parse(mut self) -> Result<Expr, TransformError> {
-        let expr = self.expr()?;
-        self.skip_ws();
-        if self.pos != self.chars.len() {
-            return Err(self.error("trailing characters"));
-        }
-        Ok(expr)
-    }
-
-    fn error(&self, message: &str) -> TransformError {
-        TransformError::Degenerate(format!(
-            "calculator parse error at {} in {:?}: {message}",
-            self.pos, self.source
-        ))
-    }
-
-    fn skip_ws(&mut self) {
-        while self.pos < self.chars.len() && self.chars[self.pos].is_whitespace() {
-            self.pos += 1;
-        }
-    }
-
-    fn peek(&mut self) -> Option<char> {
-        self.skip_ws();
-        self.chars.get(self.pos).copied()
-    }
-
-    fn expr(&mut self) -> Result<Expr, TransformError> {
-        let mut lhs = self.term()?;
-        loop {
-            match self.peek() {
-                Some('+') => {
-                    self.pos += 1;
-                    lhs = Expr::Binary(Box::new(lhs), Op::Add, Box::new(self.term()?));
-                }
-                Some('-') => {
-                    self.pos += 1;
-                    lhs = Expr::Binary(Box::new(lhs), Op::Sub, Box::new(self.term()?));
-                }
-                _ => return Ok(lhs),
-            }
-        }
-    }
-
-    fn term(&mut self) -> Result<Expr, TransformError> {
-        let mut lhs = self.factor()?;
-        loop {
-            match self.peek() {
-                Some('*') => {
-                    self.pos += 1;
-                    lhs = Expr::Binary(Box::new(lhs), Op::Mul, Box::new(self.factor()?));
-                }
-                Some('/') => {
-                    self.pos += 1;
-                    lhs = Expr::Binary(Box::new(lhs), Op::Div, Box::new(self.factor()?));
-                }
-                _ => return Ok(lhs),
-            }
-        }
-    }
-
-    fn factor(&mut self) -> Result<Expr, TransformError> {
-        let base = self.unary()?;
-        if self.peek() == Some('^') {
-            self.pos += 1;
-            return Ok(Expr::Binary(
-                Box::new(base),
-                Op::Pow,
-                Box::new(self.factor()?),
-            ));
-        }
-        Ok(base)
-    }
-
-    fn unary(&mut self) -> Result<Expr, TransformError> {
-        if self.peek() == Some('-') {
-            self.pos += 1;
-            return Ok(Expr::Neg(Box::new(self.unary()?)));
-        }
-        self.primary()
-    }
-
-    fn primary(&mut self) -> Result<Expr, TransformError> {
-        match self.peek() {
-            Some('(') => {
-                self.pos += 1;
-                let inner = self.expr()?;
-                if self.peek() != Some(')') {
-                    return Err(self.error("expected ')'"));
-                }
-                self.pos += 1;
-                Ok(inner)
-            }
-            Some(c) if c.is_ascii_digit() || c == '.' => {
-                let start = self.pos;
-                while self.pos < self.chars.len()
-                    && (self.chars[self.pos].is_ascii_digit() || self.chars[self.pos] == '.')
-                {
-                    self.pos += 1;
-                }
-                let text: String = self.chars[start..self.pos].iter().collect();
-                text.parse::<f64>()
-                    .map(Expr::Number)
-                    .map_err(|_| self.error("bad number"))
-            }
-            Some(c) if c.is_alphabetic() || c == '_' => {
-                let start = self.pos;
-                while self.pos < self.chars.len()
-                    && (self.chars[self.pos].is_alphanumeric() || self.chars[self.pos] == '_')
-                {
-                    self.pos += 1;
-                }
-                let name: String = self.chars[start..self.pos].iter().collect();
-                if self.peek() == Some('(') {
-                    self.pos += 1;
-                    let mut args = vec![self.expr()?];
-                    while self.peek() == Some(',') {
-                        self.pos += 1;
-                        args.push(self.expr()?);
-                    }
-                    if self.peek() != Some(')') {
-                        return Err(self.error("expected ')' after arguments"));
-                    }
-                    self.pos += 1;
-                    return Ok(Expr::Call(name, args));
-                }
-                match name.as_str() {
-                    "x" => Ok(Expr::Coord(0)),
-                    "y" => Ok(Expr::Coord(1)),
-                    "z" => Ok(Expr::Coord(2)),
-                    _ => Ok(Expr::Field(name)),
-                }
-            }
-            _ => Err(self.error("unexpected character")),
-        }
-    }
-}
-
-fn eval(
-    expr: &Expr,
-    fields: &[(&str, &[f64])],
-    index: usize,
-    point: [f64; 3],
-) -> Result<f64, TransformError> {
-    match expr {
-        Expr::Number(v) => Ok(*v),
-        Expr::Coord(axis) => Ok(point[*axis]),
-        Expr::Field(name) => fields
-            .iter()
-            .find(|(n, _)| n == name)
-            .map(|(_, values)| values[index])
-            .ok_or_else(|| TransformError::FieldNotFound(name.clone())),
-        Expr::Neg(inner) => Ok(-eval(inner, fields, index, point)?),
-        Expr::Binary(a, op, b) => {
-            let (x, y) = (
-                eval(a, fields, index, point)?,
-                eval(b, fields, index, point)?,
-            );
-            Ok(match op {
-                Op::Add => x + y,
-                Op::Sub => x - y,
-                Op::Mul => x * y,
-                Op::Div => x / y,
-                Op::Pow => x.powf(y),
-            })
-        }
-        Expr::Call(name, args) => {
-            let values: Vec<f64> = args
-                .iter()
-                .map(|a| eval(a, fields, index, point))
-                .collect::<Result<_, _>>()?;
-            match (name.as_str(), values.len()) {
-                ("sin", 1) => Ok(values[0].sin()),
-                ("cos", 1) => Ok(values[0].cos()),
-                ("tan", 1) => Ok(values[0].tan()),
-                ("sqrt", 1) => Ok(values[0].sqrt()),
-                ("exp", 1) => Ok(values[0].exp()),
-                ("log", 1) => Ok(values[0].ln()),
-                ("abs", 1) => Ok(values[0].abs()),
-                ("min", 2) => Ok(values[0].min(values[1])),
-                ("max", 2) => Ok(values[0].max(values[1])),
-                _ => Err(TransformError::Degenerate(format!(
-                    "unknown function '{name}' or wrong arity"
-                ))),
-            }
-        }
-    }
-}
-
-/// Summary statistics of a scalar point or cell field.
+/// Summary statistics of supported scalar point or cell values.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldStats {
-    /// Number of finite values.
+    /// Number of valid finite values.
     pub count: usize,
-    /// Smallest finite value.
+    /// Smallest valid value.
     pub min: f64,
-    /// Largest finite value.
+    /// Largest valid value.
     pub max: f64,
     /// Arithmetic mean.
     pub mean: f64,
     /// Population standard deviation.
     pub std_dev: f64,
-    /// Median (50th percentile).
+    /// Median; even counts average the two middle values.
     pub median: f64,
 }
 
-/// Computes summary statistics; non-finite values are ignored.
+fn scalar_field<'a>(
+    dataset: &'a DataSet,
+    name: &str,
+    association: Association,
+) -> Result<(&'a Field, &'a [f64]), TransformError> {
+    dataset.validate()?;
+    let field = dataset
+        .field(association, name)
+        .ok_or_else(|| TransformError::FieldNotFound(name.into()))?;
+    let values = field
+        .as_scalar()
+        .ok_or_else(|| TransformError::WrongFieldShape {
+            field: name.into(),
+            reason: "analysis requires a scalar field".into(),
+        })?;
+    Ok((field, values))
+}
+
+fn supported_values<'a>(field: &'a Field, values: &'a [f64]) -> impl Iterator<Item = f64> + 'a {
+    // Validation establishes finiteness and matching mask lengths once.
+    values.iter().enumerate().filter_map(|(i, &value)| {
+        field
+            .valid
+            .as_ref()
+            .is_none_or(|mask| mask[i])
+            .then_some(value)
+    })
+}
+
+#[derive(Default)]
+struct Sum {
+    value: f64,
+    correction: f64,
+}
+
+impl Sum {
+    fn add(&mut self, value: f64) {
+        let next = self.value + value;
+        self.correction += if self.value.abs() >= value.abs() {
+            (self.value - next) + value
+        } else {
+            (value - next) + self.value
+        };
+        self.value = next;
+    }
+    fn total(&self) -> f64 {
+        self.value + self.correction
+    }
+}
+
+/// Computes validity-aware scalar summaries with linear-time median selection.
+///
+/// Uses one value-proportional scratch buffer. Centered/scaled compensated sums
+/// avoid overflow and preserve small spreads around large means. Missing entries
+/// are excluded; a population with no supported values returns an error.
 ///
 /// # Errors
 ///
-/// Returns an error when the field is missing, not scalar, or empty.
+/// Returns an error for invalid datasets, missing/non-scalar fields or no valid values.
 pub fn field_statistics(
     dataset: &DataSet,
     field_name: &str,
     association: Association,
 ) -> Result<FieldStats, TransformError> {
-    let field = dataset
-        .field(association, field_name)
-        .ok_or_else(|| TransformError::FieldNotFound(field_name.to_string()))?;
-    let values = field
-        .as_scalar()
-        .ok_or_else(|| TransformError::WrongFieldShape {
-            field: field_name.to_string(),
-            reason: "statistics require a scalar field".into(),
-        })?;
-    let mut finite: Vec<f64> = values.iter().copied().filter(|v| v.is_finite()).collect();
-    if finite.is_empty() {
+    let (field, values) = scalar_field(dataset, field_name, association)?;
+    let count = field.valid.as_ref().map_or(values.len(), |mask| {
+        mask.iter().filter(|&&valid| valid).count()
+    });
+    if count == 0 {
         return Err(TransformError::Degenerate(
-            "field has no finite values".into(),
+            "field has no valid values".into(),
         ));
     }
-    finite.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let count = finite.len();
-    let mean = finite.iter().sum::<f64>() / count as f64;
-    let variance = finite.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / count as f64;
+    let mut finite = Vec::with_capacity(count);
+    finite.extend(supported_values(field, values));
+    let min = finite.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = finite.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let center = f64::midpoint(min, max);
+    let scale = (min - center).abs().max((max - center).abs());
+    let (mean, std_dev) = if scale == 0.0 {
+        (center, 0.0)
+    } else {
+        let mut sum = Sum::default();
+        for &value in &finite {
+            sum.add((value - center) / scale);
+        }
+        let normalized_mean = (sum.total() / count as f64).clamp(-1.0, 1.0);
+        let mut squares = Sum::default();
+        for &value in &finite {
+            squares.add(((value - center) / scale - normalized_mean).powi(2));
+        }
+        (
+            ((normalized_mean * scale) + center).clamp(min, max),
+            (squares.total() / count as f64).sqrt().min(1.0) * scale,
+        )
+    };
+    let middle = count / 2;
+    let (lower, median, _) = finite.select_nth_unstable_by(middle, f64::total_cmp);
+    let median = if count.is_multiple_of(2) {
+        f64::midpoint(
+            lower.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+            *median,
+        )
+    } else {
+        *median
+    };
     Ok(FieldStats {
         count,
-        min: finite[0],
-        max: finite[count - 1],
+        min,
+        max,
         mean,
-        std_dev: variance.sqrt(),
-        median: finite[count / 2],
+        std_dev,
+        median,
     })
 }
 
-/// Histogram of a scalar field: `bins` equal-width counts over its range,
-/// returned as `(bin_centre, count)` pairs.
+/// Counts valid point scalars into equal-width bins without sorting values.
+///
+/// Returns `(center,count)` pairs. The maximum belongs to the final bin; a
+/// constant field belongs to the first bin. Centers remain finite for extreme
+/// ranges and subnormal widths. At most 1,048,576 bins are accepted, bounding
+/// count/result buffers to at most 24 MiB together on supported targets.
 ///
 /// # Errors
 ///
-/// Returns an error when the field is missing, not scalar, or `bins` is 0.
+/// Returns an error for invalid datasets, missing/non-scalar/wholly missing
+/// fields, or a bin count outside `1..=1_048_576`.
 pub fn histogram(
     dataset: &DataSet,
     field_name: &str,
     bins: usize,
 ) -> Result<Vec<(f64, usize)>, TransformError> {
-    if bins == 0 {
+    if bins == 0 || bins > 1_048_576 {
         return Err(TransformError::Degenerate(
-            "histogram needs bins > 0".into(),
+            "histogram needs 1..=1048576 bins".into(),
         ));
     }
-    let stats = field_statistics(dataset, field_name, Association::Point)?;
-    let field = dataset
-        .field(Association::Point, field_name)
-        .ok_or_else(|| TransformError::FieldNotFound(field_name.to_string()))?;
-    let values = field.as_scalar().unwrap_or(&[]);
-    let width = (stats.max - stats.min) / bins as f64;
+    let (field, values) = scalar_field(dataset, field_name, Association::Point)?;
+    let mut min = f64::INFINITY;
+    let mut max = f64::NEG_INFINITY;
+    for value in supported_values(field, values) {
+        min = min.min(value);
+        max = max.max(value);
+    }
+    if min > max {
+        return Err(TransformError::Degenerate(
+            "field has no valid values".into(),
+        ));
+    }
+    let span = max - min;
     let mut counts = vec![0usize; bins];
-    for v in values.iter().filter(|v| v.is_finite()) {
-        let index = if width == 0.0 {
-            0
+    for value in supported_values(field, values) {
+        let fraction = if min == max {
+            0.0
+        } else if span.is_finite() {
+            (value - min) / span
         } else {
-            ((v - stats.min) / width).floor() as usize
+            (value * 0.5 - min * 0.5) / (max * 0.5 - min * 0.5)
         };
-        counts[index.min(bins - 1)] += 1;
+        let index = ((fraction * bins as f64) as usize).min(bins - 1);
+        counts[index] += 1;
     }
     Ok(counts
-        .iter()
+        .into_iter()
         .enumerate()
-        .map(|(i, &c)| (stats.min + (i as f64 + 0.5) * width, c))
+        .map(|(i, count)| {
+            (
+                crate::convert::blend(min, max, (i as f64 + 0.5) / bins as f64),
+                count,
+            )
+        })
         .collect())
 }
 
-/// Resamples scalar point fields onto a new structured grid by probing.
+/// Resamples scalar point fields while preserving missing support and metadata.
 ///
-/// Points outside the source volume get `fill`. All scalar point fields
-/// of the source are resampled.
+/// Points without supported source samples receive `fill` with a false validity
+/// bit. Finite placeholders and NaN are permitted fill values. The output keeps
+/// each source field name, label and unit.
 ///
 /// # Errors
 ///
-/// Returns an error when the grid cannot be built or probing fails.
+/// Returns an error for invalid source/grid data or infinite fill values.
 pub fn resample_to_grid(
     dataset: &DataSet,
     dims: [usize; 3],
@@ -372,19 +246,32 @@ pub fn resample_to_grid(
     spacing: [f64; 3],
     fill: f64,
 ) -> Result<DataSet, TransformError> {
+    dataset.validate()?;
+    if fill.is_infinite() {
+        return Err(TransformError::Degenerate(
+            "resampling fill must be finite or NaN".into(),
+        ));
+    }
     let mut grid =
         DataSet::structured_grid(format!("{}-resampled", dataset.id), dims, origin, spacing)?;
-    let points: Vec<[f64; 3]> = grid.positions.iter().copied().collect();
-    let names: Vec<String> = dataset
+    for source in dataset
         .point_data
         .iter()
         .filter(|f| f.as_scalar().is_some())
-        .map(|f| f.name.to_string())
-        .collect();
-    for name in names {
-        let sampled = probe(dataset, &name, &points)?;
-        let values: Vec<f64> = sampled.iter().map(|v| v.unwrap_or(fill)).collect();
-        grid.point_data.push(Field::scalar(name, values));
+    {
+        let mut values = Vec::with_capacity(grid.point_count());
+        let mut valid = None::<Vec<bool>>;
+        for (index, sample) in crate::probe::samples(dataset, source, &grid.positions).enumerate() {
+            if sample.is_none() {
+                valid.get_or_insert_with(|| vec![true; grid.point_count()])[index] = false;
+            }
+            values.push(sample.unwrap_or(fill));
+        }
+        let mut field = Field::scalar(source.name.clone(), values);
+        field.label.clone_from(&source.label);
+        field.unit.clone_from(&source.unit);
+        field.valid = valid.map(Into::into);
+        grid.point_data.push(field);
     }
     Ok(grid)
 }

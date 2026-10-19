@@ -871,3 +871,79 @@ and pressure/large-dataset integrations pass with Metal required.
   unchecked: statistics/analysis, decimation/other geometry consumers, IO,
   general transparency/interpolation, aggregate budgets and device qualification
   still require implementation and verification.
+
+## Scalar analysis, bounded expressions and adaptive probing checkpoint
+
+- Statistics and histograms now exclude missing point/cell values, including
+  finite placeholders. The first public regression failed before the fix:
+  `[1,99,3,NaN]` with support `[true,false,true,false]` reported a count of three
+  instead of two. Invalid raw datasets now error rather than silently treating
+  malformed field/mask state as a population. Wholly missing populations error.
+- Statistics use one supported-value buffer and linear-time median selection,
+  replacing a full sort and repeated vector growth. Even counts use the arithmetic
+  midpoint of the two middle values. Centered/scaled Neumaier sums preserve finite
+  means/deviations over `[-MAX,MAX]`, cancellation with small residuals, subnormal
+  data and small spreads around a large mean. In particular, `[1e16,1e16+2]` has
+  population deviation 1 even though its exact mean is not representable. Missing
+  populations allocate no value-sized scratch; inputs remain unchanged.
+- Histograms use two streaming passes and O(bins) storage, without computing a
+  median or retaining field-sized scratch. Bin assignment divides before scaling
+  by count, avoiding underflowed widths; overflowing finite ranges use half-scaled
+  fractions, and convex bin centers remain finite. Maximum values enter the final
+  bin; constants enter the first bin. Bin counts outside `1..=1_048_576` error
+  before allocation, bounding count/result arrays to at most 24 MiB together.
+- Calculator expressions bind fields/functions once into bounded postfix
+  instructions, with one reusable evaluation stack. Field search, recursive AST
+  evaluation and argument-vector allocation no longer run per point. Missing
+  dependencies and nonfinite intermediate results stay missing through min/max,
+  multiplication by zero and subsequent operators. Derived entries become masked
+  NaNs; an existing output field is replaced. Empty data still checks field names,
+  types and arity. Scientific notation, Unicode identifiers and conventional
+  right-associative powers/unary precedence are covered. Source, nesting and
+  instruction limits (64 KiB/128/4096) bound parser storage/recursion independently;
+  a 4095-instruction flat expression succeeds and the next oversized one errors.
+- Scalar probing shares tracing's strict stencil support and finite convex
+  interpolation. Small batches walk original cells without an index; larger
+  batches use the compact BVH. Both preserve original-cell priority, including
+  overlapping cells with differing masks. Linear lookup is checked against an
+  independent ordered reference across boundaries. Surface nearest-point ordering
+  now survives squared-distance overflow/underflow instead of selecting a wrong
+  node; it still returns missing when the nearest node is unsupported.
+- Resampling streams query positions and scalar results, removes the copied point
+  array and intermediate Option arrays, and validates source state once across
+  fields. It preserves labels/units. Unsupported samples retain the requested
+  finite/NaN fill with a false support bit; infinite fill errors. These semantics
+  intentionally correct the former valid-placeholder output. General geometric
+  determinant cutoffs and volume acceleration unification remain C4/P5 work.
+- `qa/perf/20261019-analysis-paired.json` records identical release probes,
+  baseline `ffcf4d52`, source/binary hashes, allocator-disabled ABBA runs twice and
+  separate allocation builds, with correctness checks outside timing. Cold
+  validation, expression compilation and index construction are included:
+
+  | Case | Baseline median | Current median | Baseline allocated bytes | Current allocated bytes |
+  |---|---:|---:|---:|---:|
+  | Calculator, 48³ points | 14.180 ms | 4.129 ms | 23,168,790 | 1,771,502 |
+  | Statistics, 48³ points | 1.177 ms | 0.929 ms | 1,933,312 | 884,736 |
+  | Histogram, 48³ points / 64 bins | 1.229 ms | 0.596 ms | 1,934,848 | 1,536 |
+  | Probe, 24³ source / 64 queries | 9.996 ms | 4.880 ms | 2,098,176 | 1,024 |
+  | Probe, 24³ source / 256 queries | 39.530 ms | 8.885 ms | 2,101,248 | 166,904 |
+  | Resample, 8³ source to 9³ / two fields | 6.346 ms | 0.770 ms | 303,624 | 141,024 |
+
+  Calculator calls fall from 663,606 to 27; histogram calls from 19 to 2. The first
+  prototype built an index for every query and took about 9.2 ms for a cold single
+  query versus 0.35 ms previously. An eight-query cutoff still regressed 32-query
+  time 69%; preserved historical ABBA records show why it was rejected. A cutoff
+  of 64 removes that measured regression. Single near/far query medians are now
+  48/114 µs versus 346/474 µs, with only the 16-byte output allocation. The cutoff
+  is a measured host heuristic, not a universal/mobile crossover guarantee. These
+  are wall-time/cumulative-allocation diagnostics, without aggregate CPU-time,
+  peak RSS, thermal, power or whole-frame/device acceptance claims.
+- Required-Metal native core verification passes: 72 transformation, 15 mesh and
+  91 scene library tests, 50 public validity/flow/geometry/tracing/time/analysis
+  regressions, allocation contracts and large-dataset/pressure integrations.
+  Contracts cover fixed calculator allocation counts, O(bins) histogram storage,
+  supported-value statistics scratch, missing-population errors, bounded BVH
+  scratch and index-free empty/single queries. Strict mesh/transform all-target
+  Clippy and the full core wasm closure pass. C3/C4/C5/P5 remain unchecked:
+  decimation/append and other geometry consumers, IO, general material semantics,
+  aggregate budgets, streaming and physical-device qualification still need work.

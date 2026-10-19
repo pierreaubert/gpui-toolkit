@@ -1,4 +1,4 @@
-//! Compact cell BVH for validated vector/tensor stencil sampling.
+//! Compact cell lookup for validated scalar/vector/tensor stencil sampling.
 
 // Rust guideline compliant 2026-02-21
 
@@ -208,6 +208,38 @@ impl<'a> StencilLocator<'a> {
     }
 }
 
+/// Ordered, allocation-free lookup for batches too small to amortize a BVH.
+pub(crate) fn linear_weights(
+    dataset: &DataSet,
+    valid: Option<&[bool]>,
+    p: [f64; 3],
+) -> Option<([u32; 4], [f64; 4])> {
+    if !p.iter().all(|value| value.is_finite()) {
+        return None;
+    }
+    for cell in 0..dataset.cell_count() {
+        let kind = dataset.cells.types[cell];
+        if !kind.is_volume() {
+            continue;
+        }
+        let (min, max) = bounds(dataset, cell);
+        let (min, max) = expanded(min, max);
+        if !contains(min, max, p) {
+            continue;
+        }
+        for tet in tetrahedra(kind, dataset.cells.cell(cell).unwrap_or(&[])) {
+            if valid.is_some_and(|mask| tet.iter().any(|&node| !mask[node as usize])) {
+                continue;
+            }
+            if let Some(weights) = barycentric(tet.map(|node| dataset.positions[node as usize]), p)
+            {
+                return Some((tet, weights));
+            }
+        }
+    }
+    None
+}
+
 /// Barycentric weights of `p` in a tetrahedron, when inside (within tolerance).
 pub(crate) fn barycentric(tet: [[f64; 3]; 4], p: [f64; 3]) -> Option<[f64; 4]> {
     if !p.iter().all(|v| v.is_finite()) {
@@ -330,6 +362,11 @@ mod tests {
                             locator.weights(p),
                             reference(&dataset, mask, p),
                             "point {p:?}"
+                        );
+                        assert_eq!(
+                            linear_weights(&dataset, mask, p),
+                            reference(&dataset, mask, p),
+                            "linear point {p:?}"
                         );
                     }
                 }

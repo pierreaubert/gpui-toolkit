@@ -5,8 +5,9 @@
 // Rust guideline compliant 2026-02-21
 
 use gpui_dataset_transformation::{
-    GlyphKind, cell_data_to_point_data, flow_diagnostics, glyphs, hyperstreamlines,
-    point_data_to_cell_data, solid_arrows, streamlines, tensor_glyphs,
+    GlyphKind, calculator, cell_data_to_point_data, field_statistics, flow_diagnostics, glyphs,
+    histogram, hyperstreamlines, point_data_to_cell_data, probe as probe_points, solid_arrows,
+    streamlines, tensor_glyphs,
 };
 use gpui_mesh::{Association, CellType, Cells, DataSet, Field};
 use gpui_profiler::{AllocProbe, AllocationBudget};
@@ -151,4 +152,50 @@ fn allocation_cost_is_bounded_by_outputs_and_points_without_per_cell_scratch() {
     .assert_contains(probe.sample("compact-stencil-index"));
     output.validate().unwrap();
     assert_eq!(output.point_count(), 0);
+    for points in [16, 4096] {
+        let dataset = DataSet::new("analysis", vec![[1.0; 3]; points], Cells::from_cells(&[]))
+            .with_field(Field::scalar("p", vec![4.0; points]));
+        let mut allocations = AllocProbe::new();
+        allocations.reset();
+        let output = black_box(
+            calculator(&dataset, "min(sqrt(p),abs(-p))+sin(x)+cos(y)", "result").unwrap(),
+        );
+        AllocationBudget::new("compiled-expression", 64, 18 * points + 32768)
+            .assert_contains(allocations.sample("compiled-expression"));
+        output.validate().unwrap();
+        allocations.reset();
+        let stats = black_box(field_statistics(&dataset, "p", Association::Point).unwrap());
+        AllocationBudget::new("linear-statistics", 4, 8 * points + 8192)
+            .assert_contains(allocations.sample("linear-statistics"));
+        assert_eq!(stats.count, points);
+        assert_eq!(stats.mean, 4.0);
+        allocations.reset();
+        let output = black_box(histogram(&dataset, "p", 4).unwrap());
+        AllocationBudget::new("streaming-histogram", 4, 8192)
+            .assert_contains(allocations.sample("streaming-histogram"));
+        assert_eq!(output.iter().map(|(_, count)| count).sum::<usize>(), points);
+        let mut missing = dataset;
+        missing.point_data[0].valid = Some(vec![false; points].into());
+        allocations.reset();
+        black_box(field_statistics(&missing, "p", Association::Point)).unwrap_err();
+        AllocationBudget::new("missing-statistics", 4, 8192)
+            .assert_contains(allocations.sample("missing-statistics"));
+    }
+    let dataset = dataset.with_field(Field::scalar("p", vec![1.0; 4]));
+    let mut allocations = AllocProbe::new();
+    allocations.reset();
+    let output = black_box(probe_points(&dataset, "p", &[[0.1; 3]; 128]).unwrap());
+    AllocationBudget::new("compact-probe-index", 32, 16 * dataset.cell_count() + 8192)
+        .assert_contains(allocations.sample("compact-probe-index"));
+    assert_eq!(output, [Some(1.0); 128]);
+    allocations.reset();
+    let output = black_box(probe_points(&dataset, "p", &[[0.1; 3]]).unwrap());
+    AllocationBudget::new("single-probe-no-index", 1, 16)
+        .assert_contains(allocations.sample("single-probe-no-index"));
+    assert_eq!(output, [Some(1.0)]);
+    allocations.reset();
+    let output = black_box(probe_points(&dataset, "p", &[]).unwrap());
+    AllocationBudget::new("empty-probe-index", 0, 0)
+        .assert_contains(allocations.sample("empty-probe-index"));
+    assert!(output.is_empty());
 }

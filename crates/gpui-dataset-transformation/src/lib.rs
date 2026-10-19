@@ -26,6 +26,7 @@ mod clip;
 mod contours;
 mod convert;
 mod eigen;
+mod expression;
 mod flow;
 mod ftle;
 mod geometry;
