@@ -1,0 +1,8478 @@
+{
+  "kind": "bounded packed geometry/filter host diagnostic; no mobile or power acceptance claim",
+  "captured_utc": "2026-10-19T01:52:43.200039+00:00",
+  "baseline_commit": "2ddc33de",
+  "candidate": "checked validity-aware geometry filters, identified by source hashes",
+  "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "methodology": "Identical release probe source. Four allocator-disabled processes/version, ABBA twice, with one warmup and five samples/case; separate allocator-enabled builds. Fixture construction, complete output validation, analytic scalar/vector checks and destruction excluded from timing. Cold public entry points include input validation, schema planning, clustering and any scratch construction. Grids use 8/16/24 cubed points. Scalar/vector fixtures include both point/cell fields. Decimation merges 2-unit cubes or leaves points distinct at 0.25 units; tensor/complex decimation is not compared because baseline output lengths are incorrect. Append compares identical grids and an empty second side. Threshold selects all/no cells; sphere includes the full source. Additional append/threshold/sphere fixtures contain all four shapes in both associations. Timed data has no missing values or numeric overflows, giving equivalent numeric workloads; separate regressions cover corrected masks, missing appended fields, index/grid precision, invalid options, exact overflow fallback and reserved-field collisions. Baseline append/decimation omit input validation while candidate includes it. Native host without controlled affinity/thermal state or aggregate CPU time, peak RSS, energy or device qualification; no universal/whole-frame performance claim.",
+  "probe_source": "use gpui_dataset_transformation::{ThresholdMode,append_datasets,clip_sphere,decimate,threshold};\nuse gpui_mesh::{Association,Cells,DataSet,Field};\nuse gpui_profiler::AllocProbe;\nuse std::hint::black_box;\nuse std::time::Instant;\n\nfn grid(n:usize,all_shapes:bool)->DataSet {\n    let mut data=DataSet::structured_grid(\"source\",[n;3],[0.0;3],[1.0;3]).unwrap();\n    let points=data.point_count();let cells=data.cell_count();\n    data.point_data.push(Field::scalar(\"p\",data.positions.iter().map(|p|p[0]+2.0*p[1]+3.0*p[2]).collect::<Vec<_>>()));\n    data.point_data.push(Field::vector(\"v\",data.positions.iter().copied().collect::<Vec<_>>()));\n    data.cell_data.push(Field::scalar(\"c\",vec![0.25;cells]).on_cells());\n    data.cell_data.push(Field::vector(\"cv\",vec![[0.5,0.25,0.125];cells]).on_cells());\n    if all_shapes {\n        data.point_data.push(Field::tensor(\"t\",vec![[1.0,2.0,3.0,0.0,0.0,0.0];points]));\n        data.point_data.push(Field::complex(\"z\",vec![[3.0,4.0];points]));\n        data.cell_data.push(Field::tensor(\"ct\",vec![[1.0;6];cells]).on_cells());\n        data.cell_data.push(Field::complex(\"cz\",vec![[3.0,4.0];cells]).on_cells());\n    }\n    data\n}\n\nfn check(output:&DataSet,n:usize,case:&str) {\n    output.validate().unwrap();\n    let (points,cells)=if case==\"decimate_merge\" {((n/2).pow(3),(n/2-1).pow(3))}\n        else if case.starts_with(\"append_both\") {(2*n.pow(3),2*(n-1).pow(3))}\n        else if case==\"threshold_empty\" {(0,0)} else {(n.pow(3),(n-1).pow(3))};\n    assert_eq!(output.point_count(),points);assert_eq!(output.cell_count(),cells);\n    let scalar=output.field(Association::Point,\"p\").unwrap().as_scalar().unwrap();\n    let vector=output.field(Association::Point,\"v\").unwrap().as_vector().unwrap();\n    for (index,p) in output.positions.iter().enumerate() {\n        assert!((scalar[index]-(p[0]+2.0*p[1]+3.0*p[2])).abs()<1e-12);\n        assert_eq!(vector[index],*p);\n    }\n    assert!(output.cell_data[0].as_scalar().unwrap().iter().all(|&v|v==0.25));\n}\n\nfn measure(n:usize,case:&str,mut run:impl FnMut()->DataSet) {\n    let warm=black_box(run());check(&warm,n,case);drop(warm);\n    let mut times=Vec::with_capacity(5);let mut calls=Vec::with_capacity(5);let mut bytes=Vec::with_capacity(5);\n    for _ in 0..5 {\n        let mut allocations=AllocProbe::new();let start=Instant::now();let output=black_box(run());let elapsed=start.elapsed().as_nanos();let sample=allocations.sample(\"geometry\");\n        times.push(elapsed);calls.push(sample.count);bytes.push(sample.bytes);check(&output,n,case);drop(output);\n    }\n    println!(r#\"{{\"n\":{n},\"case\":\"{case}\",\"times_ns\":{times:?},\"allocation_calls\":{calls:?},\"allocated_bytes\":{bytes:?},\"allocator_instrumentation\":{}}}\"#,cfg!(feature=\"allocations\"));\n}\n\nfn main() {\n    let empty=DataSet::new(\"empty\",vec![],Cells::from_cells(&[]));\n    for n in [8usize,16,24] {\n        let data=grid(n,false);\n        measure(n,\"decimate_merge\",||decimate(&data,2.0).unwrap());\n        measure(n,\"decimate_identity\",||decimate(&data,0.25).unwrap());\n        measure(n,\"append_both\",||append_datasets(&data,&data).unwrap());\n        measure(n,\"append_empty\",||append_datasets(&data,&empty).unwrap());\n        measure(n,\"threshold_all\",||threshold(&data,\"c\",Association::Cell,0.0,1.0,ThresholdMode::All).unwrap());\n        measure(n,\"threshold_empty\",||threshold(&data,\"c\",Association::Cell,2.0,3.0,ThresholdMode::All).unwrap());\n        measure(n,\"sphere_all\",||clip_sphere(&data,[0.0;3],1e6,true,ThresholdMode::All).unwrap());\n        let data=grid(n,true);\n        measure(n,\"append_both_all_shapes\",||append_datasets(&data,&data).unwrap());\n        measure(n,\"threshold_all_shapes\",||threshold(&data,\"c\",Association::Cell,0.0,1.0,ThresholdMode::All).unwrap());\n        measure(n,\"sphere_all_shapes\",||clip_sphere(&data,[0.0;3],1e6,true,ThresholdMode::All).unwrap());\n    }\n}\n",
+  "source_sha256": {
+    "baseline": {
+      "crates/gpui-dataset-transformation/src/geometry.rs": "fcdaa7d15e3c52d1f12093c4eeb7d61b7b6b57afd10f293de9e42beee117a96e",
+      "crates/gpui-dataset-transformation/src/threshold.rs": "7b38568f7a54c91d93e1ed2ee09c516ad8dd9921ca18ac7908d1a8da9de36a67",
+      "crates/gpui-dataset-transformation/src/decimate.rs": null,
+      "crates/gpui-dataset-transformation/src/append.rs": null,
+      "crates/gpui-dataset-transformation/src/mean.rs": null,
+      "crates/gpui-dataset-transformation/src/validity.rs": "8aeada8b386384af2749580f6ee16004cd796a5273212e1c3692d4b7f9421c51",
+      "crates/gpui-mesh/src/dataset.rs": "165eef343967572d16a0d0cb9d61b61baa5dff722ef28386d31507525ffb83b6",
+      "crates/gpui-mesh/src/field.rs": "14dea11a921445b33fd34284d3cb739be930c67123e7d7622d706b6dd6009a48",
+      "Cargo.lock": "381e80d27ce33e86079c74f9595dd7ebeaad86f5203538ec4338138785b4ac67"
+    },
+    "candidate": {
+      "crates/gpui-dataset-transformation/src/geometry.rs": "8dc9c55673bd0c6db712609580d404830951d34761dc579ebb8998f5a2a8a69f",
+      "crates/gpui-dataset-transformation/src/threshold.rs": "6bd4cb225675252bab3f9eef62b2bd5026ef6d4e3d6be292221e5434b08d6bb4",
+      "crates/gpui-dataset-transformation/src/decimate.rs": "b7a4a6949cfda52f03a1dcdf2486def73943893e1db266acd2be1feb2f0c69d4",
+      "crates/gpui-dataset-transformation/src/append.rs": "941d4560e98469fbde8674b72462d2cc746357141b288edfd4ca930df3a46ca3",
+      "crates/gpui-dataset-transformation/src/mean.rs": "b1e34c1a2f3eedaa489819fae555e6f58f14bc5c260edd50caf8dff0b84996a9",
+      "crates/gpui-dataset-transformation/src/validity.rs": "8aeada8b386384af2749580f6ee16004cd796a5273212e1c3692d4b7f9421c51",
+      "crates/gpui-mesh/src/dataset.rs": "165eef343967572d16a0d0cb9d61b61baa5dff722ef28386d31507525ffb83b6",
+      "crates/gpui-mesh/src/field.rs": "14dea11a921445b33fd34284d3cb739be930c67123e7d7622d706b6dd6009a48",
+      "Cargo.lock": "381e80d27ce33e86079c74f9595dd7ebeaad86f5203538ec4338138785b4ac67"
+    }
+  },
+  "binary_sha256": {
+    "baseline": {
+      "timing": "d7a1d255b3b6d0f076a9577c6555e78bc8bc5d134a69e41ac7d1b34f6a728920",
+      "allocations": "2e7cf2cc538bd8cd83ed1909fd40022d4127c29d97efa9588119df72d4985947"
+    },
+    "candidate": {
+      "timing": "0664615e198853235558fc8f07dae06584713d41468d77ab0d61b02e19fa185c",
+      "allocations": "dbefe4351e92a6cb87ed0a9181323de99750285fedf3df6a7cf7961d25960ac2"
+    }
+  },
+  "summary": [
+    {
+      "n": 8,
+      "case": "decimate_merge",
+      "median_ns": {
+        "baseline": 44250.0,
+        "candidate": 21333.5
+      },
+      "time_ratio": 0.4821129943502825,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 1076,
+          "allocated_bytes": 69319
+        },
+        "candidate": {
+          "allocation_calls": 37,
+          "allocated_bytes": 28814
+        }
+      }
+    },
+    {
+      "n": 8,
+      "case": "decimate_identity",
+      "median_ns": {
+        "baseline": 57916.5,
+        "candidate": 33042.0
+      },
+      "time_ratio": 0.5705109942762425,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 1091,
+          "allocated_bytes": 281907
+        },
+        "candidate": {
+          "allocation_calls": 16,
+          "allocated_bytes": 86699
+        }
+      }
+    },
+    {
+      "n": 8,
+      "case": "append_both",
+      "median_ns": {
+        "baseline": 23354.0,
+        "candidate": 9583.5
+      },
+      "time_ratio": 0.41035796865633295,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 742,
+          "allocated_bytes": 298094
+        },
+        "candidate": {
+          "allocation_calls": 23,
+          "allocated_bytes": 215550
+        }
+      }
+    },
+    {
+      "n": 8,
+      "case": "append_empty",
+      "median_ns": {
+        "baseline": 13729.0,
+        "candidate": 2667.0
+      },
+      "time_ratio": 0.19426032485978587,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 396,
+          "allocated_bytes": 149703
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 496
+        }
+      }
+    },
+    {
+      "n": 8,
+      "case": "threshold_all",
+      "median_ns": {
+        "baseline": 26666.5,
+        "candidate": 10458.5
+      },
+      "time_ratio": 0.39219620122625765,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 422,
+          "allocated_bytes": 160478
+        },
+        "candidate": {
+          "allocation_calls": 25,
+          "allocated_bytes": 97246
+        }
+      }
+    },
+    {
+      "n": 8,
+      "case": "threshold_empty",
+      "median_ns": {
+        "baseline": 4271.0,
+        "candidate": 3313.0
+      },
+      "time_ratio": 0.7756965581830952,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 16,
+          "allocated_bytes": 3351
+        },
+        "candidate": {
+          "allocation_calls": 12,
+          "allocated_bytes": 871
+        }
+      }
+    },
+    {
+      "n": 8,
+      "case": "sphere_all",
+      "median_ns": {
+        "baseline": 35562.0,
+        "candidate": 10354.5
+      },
+      "time_ratio": 0.29116753838366793,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 441,
+          "allocated_bytes": 181667
+        },
+        "candidate": {
+          "allocation_calls": 29,
+          "allocated_bytes": 97819
+        }
+      }
+    },
+    {
+      "n": 8,
+      "case": "append_both_all_shapes",
+      "median_ns": {
+        "baseline": 25271.0,
+        "candidate": 16083.0
+      },
+      "time_ratio": 0.6364211942542836,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 762,
+          "allocated_bytes": 517134
+        },
+        "candidate": {
+          "allocation_calls": 31,
+          "allocated_bytes": 434878
+        }
+      }
+    },
+    {
+      "n": 8,
+      "case": "threshold_all_shapes",
+      "median_ns": {
+        "baseline": 35084.0,
+        "candidate": 12583.5
+      },
+      "time_ratio": 0.35866776878349105,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 446,
+          "allocated_bytes": 278174
+        },
+        "candidate": {
+          "allocation_calls": 29,
+          "allocated_bytes": 163198
+        }
+      }
+    },
+    {
+      "n": 8,
+      "case": "sphere_all_shapes",
+      "median_ns": {
+        "baseline": 43916.5,
+        "candidate": 13146.0
+      },
+      "time_ratio": 0.29934079446221806,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 466,
+          "allocated_bytes": 300323
+        },
+        "candidate": {
+          "allocation_calls": 33,
+          "allocated_bytes": 163771
+        }
+      }
+    },
+    {
+      "n": 16,
+      "case": "decimate_merge",
+      "median_ns": {
+        "baseline": 300458.5,
+        "candidate": 153459.0
+      },
+      "time_ratio": 0.5107494046598782,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 10187,
+          "allocated_bytes": 660083
+        },
+        "candidate": {
+          "allocation_calls": 44,
+          "allocated_bytes": 248498
+        }
+      }
+    },
+    {
+      "n": 16,
+      "case": "decimate_identity",
+      "median_ns": {
+        "baseline": 413083.0,
+        "candidate": 256333.0
+      },
+      "time_ratio": 0.620536308683727,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 10199,
+          "allocated_bytes": 2411771
+        },
+        "candidate": {
+          "allocation_calls": 19,
+          "allocated_bytes": 691867
+        }
+      }
+    },
+    {
+      "n": 16,
+      "case": "append_both",
+      "median_ns": {
+        "baseline": 168583.5,
+        "candidate": 73854.0
+      },
+      "time_ratio": 0.43808557777006646,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 6812,
+          "allocated_bytes": 2590542
+        },
+        "candidate": {
+          "allocation_calls": 23,
+          "allocated_bytes": 1903710
+        }
+      }
+    },
+    {
+      "n": 16,
+      "case": "append_empty",
+      "median_ns": {
+        "baseline": 84250.0,
+        "candidate": 19979.0
+      },
+      "time_ratio": 0.2371394658753709,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 3434,
+          "allocated_bytes": 1295927
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 496
+        }
+      }
+    },
+    {
+      "n": 16,
+      "case": "threshold_all",
+      "median_ns": {
+        "baseline": 201333.5,
+        "candidate": 75229.0
+      },
+      "time_ratio": 0.3736536641939866,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 3477,
+          "allocated_bytes": 1450534
+        },
+        "candidate": {
+          "allocation_calls": 28,
+          "allocated_bytes": 831910
+        }
+      }
+    },
+    {
+      "n": 16,
+      "case": "threshold_empty",
+      "median_ns": {
+        "baseline": 26729.0,
+        "candidate": 22645.5
+      },
+      "time_ratio": 0.8472258595532942,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 16,
+          "allocated_bytes": 20719
+        },
+        "candidate": {
+          "allocation_calls": 12,
+          "allocated_bytes": 3903
+        }
+      }
+    },
+    {
+      "n": 16,
+      "case": "sphere_all",
+      "median_ns": {
+        "baseline": 276459.0,
+        "candidate": 83729.5
+      },
+      "time_ratio": 0.302864077494312,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 3500,
+          "allocated_bytes": 1647851
+        },
+        "candidate": {
+          "allocation_calls": 32,
+          "allocated_bytes": 836067
+        }
+      }
+    },
+    {
+      "n": 16,
+      "case": "append_both_all_shapes",
+      "median_ns": {
+        "baseline": 192437.5,
+        "candidate": 113792.0
+      },
+      "time_ratio": 0.5913192594998377,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 6832,
+          "allocated_bytes": 4503278
+        },
+        "candidate": {
+          "allocation_calls": 31,
+          "allocated_bytes": 3816734
+        }
+      }
+    },
+    {
+      "n": 16,
+      "case": "threshold_all_shapes",
+      "median_ns": {
+        "baseline": 290396.0,
+        "candidate": 94625.0
+      },
+      "time_ratio": 0.3258481521784047,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 3509,
+          "allocated_bytes": 2537958
+        },
+        "candidate": {
+          "allocation_calls": 32,
+          "allocated_bytes": 1356614
+        }
+      }
+    },
+    {
+      "n": 16,
+      "case": "sphere_all_shapes",
+      "median_ns": {
+        "baseline": 367687.5,
+        "candidate": 102395.5
+      },
+      "time_ratio": 0.27848512663607006,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 3533,
+          "allocated_bytes": 2736235
+        },
+        "candidate": {
+          "allocation_calls": 36,
+          "allocated_bytes": 1360771
+        }
+      }
+    },
+    {
+      "n": 24,
+      "case": "decimate_merge",
+      "median_ns": {
+        "baseline": 969479.0,
+        "candidate": 514521.0
+      },
+      "time_ratio": 0.5307190769475151,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 36570,
+          "allocated_bytes": 2272855
+        },
+        "candidate": {
+          "allocation_calls": 47,
+          "allocated_bytes": 750734
+        }
+      }
+    },
+    {
+      "n": 24,
+      "case": "decimate_identity",
+      "median_ns": {
+        "baseline": 1321083.0,
+        "candidate": 737521.0
+      },
+      "time_ratio": 0.5582699951479203,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 36582,
+          "allocated_bytes": 7778739
+        },
+        "candidate": {
+          "allocation_calls": 20,
+          "allocated_bytes": 1411323
+        }
+      }
+    },
+    {
+      "n": 24,
+      "case": "append_both",
+      "median_ns": {
+        "baseline": 549708.5,
+        "candidate": 248979.0
+      },
+      "time_ratio": 0.4529291433550691,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 24400,
+          "allocated_bytes": 9331758
+        },
+        "candidate": {
+          "allocation_calls": 23,
+          "allocated_bytes": 6650046
+        }
+      }
+    },
+    {
+      "n": 24,
+      "case": "append_empty",
+      "median_ns": {
+        "baseline": 273271.0,
+        "candidate": 65854.5
+      },
+      "time_ratio": 0.24098605413673607,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 12230,
+          "allocated_bytes": 4666535
+        },
+        "candidate": {
+          "allocation_calls": 7,
+          "allocated_bytes": 496
+        }
+      }
+    },
+    {
+      "n": 24,
+      "case": "threshold_all",
+      "median_ns": {
+        "baseline": 731938.0,
+        "candidate": 252437.5
+      },
+      "time_ratio": 0.3448891846030675,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 12283,
+          "allocated_bytes": 5294830
+        },
+        "candidate": {
+          "allocation_calls": 30,
+          "allocated_bytes": 2897646
+        }
+      }
+    },
+    {
+      "n": 24,
+      "case": "threshold_empty",
+      "median_ns": {
+        "baseline": 94187.5,
+        "candidate": 79229.5
+      },
+      "time_ratio": 0.8411891174518912,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 16,
+          "allocated_bytes": 68423
+        },
+        "candidate": {
+          "allocation_calls": 12,
+          "allocated_bytes": 12695
+        }
+      }
+    },
+    {
+      "n": 24,
+      "case": "sphere_all",
+      "median_ns": {
+        "baseline": 1023937.5,
+        "candidate": 278312.5
+      },
+      "time_ratio": 0.2718061405115058,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 12308,
+          "allocated_bytes": 5979571
+        },
+        "candidate": {
+          "allocation_calls": 34,
+          "allocated_bytes": 2911531
+        }
+      }
+    },
+    {
+      "n": 24,
+      "case": "append_both_all_shapes",
+      "median_ns": {
+        "baseline": 641333.5,
+        "candidate": 392729.0
+      },
+      "time_ratio": 0.6123631464752738,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 24420,
+          "allocated_bytes": 15985614
+        },
+        "candidate": {
+          "allocation_calls": 31,
+          "allocated_bytes": 13304190
+        }
+      }
+    },
+    {
+      "n": 24,
+      "case": "threshold_all_shapes",
+      "median_ns": {
+        "baseline": 1084625.0,
+        "candidate": 315562.0
+      },
+      "time_ratio": 0.29094110867811457,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 12319,
+          "allocated_bytes": 9105070
+        },
+        "candidate": {
+          "allocation_calls": 34,
+          "allocated_bytes": 4667534
+        }
+      }
+    },
+    {
+      "n": 24,
+      "case": "sphere_all_shapes",
+      "median_ns": {
+        "baseline": 1363729.5,
+        "candidate": 343354.0
+      },
+      "time_ratio": 0.2517757370504928,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 12345,
+          "allocated_bytes": 9790771
+        },
+        "candidate": {
+          "allocation_calls": 38,
+          "allocated_bytes": 4681419
+        }
+      }
+    }
+  ],
+  "runs": [
+    {
+      "variant": "baseline",
+      "build": "timing",
+      "records": [
+        {
+          "n": 8,
+          "case": "decimate_merge",
+          "times_ns": [
+            91833,
+            90708,
+            93125,
+            98208,
+            92917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "decimate_identity",
+          "times_ns": [
+            140084,
+            131125,
+            129000,
+            129667,
+            129417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both",
+          "times_ns": [
+            54000,
+            48625,
+            50625,
+            51333,
+            47500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_empty",
+          "times_ns": [
+            28833,
+            28542,
+            29959,
+            26041,
+            27750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all",
+          "times_ns": [
+            97625,
+            68584,
+            61458,
+            63458,
+            61625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_empty",
+          "times_ns": [
+            19542,
+            8709,
+            8333,
+            8292,
+            8000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all",
+          "times_ns": [
+            80666,
+            79334,
+            80583,
+            83667,
+            82000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            58250,
+            56917,
+            56750,
+            61833,
+            57125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            88125,
+            85417,
+            84750,
+            85500,
+            86000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            103916,
+            103250,
+            103333,
+            103833,
+            105000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_merge",
+          "times_ns": [
+            690250,
+            697333,
+            667750,
+            419708,
+            285292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_identity",
+          "times_ns": [
+            423625,
+            416917,
+            410125,
+            422792,
+            417292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both",
+          "times_ns": [
+            169708,
+            167375,
+            160250,
+            150750,
+            150500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_empty",
+          "times_ns": [
+            82083,
+            81542,
+            83875,
+            82167,
+            83125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all",
+          "times_ns": [
+            231084,
+            219125,
+            212833,
+            210666,
+            214208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_empty",
+          "times_ns": [
+            28916,
+            29959,
+            27208,
+            27000,
+            26834
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all",
+          "times_ns": [
+            293750,
+            292708,
+            294292,
+            293917,
+            291917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            189834,
+            214875,
+            191625,
+            210083,
+            210500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            307291,
+            304750,
+            308084,
+            304000,
+            303791
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            382375,
+            388125,
+            383875,
+            380625,
+            376750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_merge",
+          "times_ns": [
+            987000,
+            1006250,
+            984000,
+            983667,
+            982834
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_identity",
+          "times_ns": [
+            1322041,
+            1338125,
+            1322291,
+            1312416,
+            1329292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both",
+          "times_ns": [
+            667625,
+            552042,
+            553417,
+            558625,
+            548083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_empty",
+          "times_ns": [
+            272125,
+            273167,
+            274583,
+            276209,
+            292959
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all",
+          "times_ns": [
+            773667,
+            760625,
+            766208,
+            774000,
+            770375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_empty",
+          "times_ns": [
+            100459,
+            98958,
+            97959,
+            94000,
+            96166
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all",
+          "times_ns": [
+            1080709,
+            1061666,
+            1064000,
+            1069458,
+            1054917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            655208,
+            646208,
+            646917,
+            647250,
+            655500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            1122083,
+            1115958,
+            1118959,
+            1113041,
+            1125041
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            1403042,
+            1397542,
+            1398959,
+            1403000,
+            1406333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "timing",
+      "records": [
+        {
+          "n": 8,
+          "case": "decimate_merge",
+          "times_ns": [
+            22500,
+            19583,
+            19167,
+            22750,
+            20292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "decimate_identity",
+          "times_ns": [
+            33292,
+            30542,
+            35750,
+            32292,
+            28458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both",
+          "times_ns": [
+            11458,
+            9250,
+            10208,
+            9417,
+            9292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_empty",
+          "times_ns": [
+            2375,
+            2291,
+            3125,
+            2292,
+            2209
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all",
+          "times_ns": [
+            13292,
+            12625,
+            10417,
+            12958,
+            11166
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_empty",
+          "times_ns": [
+            3084,
+            2917,
+            2834,
+            2792,
+            2750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all",
+          "times_ns": [
+            11834,
+            11125,
+            10000,
+            10042,
+            9834
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            16541,
+            15791,
+            15542,
+            19708,
+            16292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            12583,
+            12291,
+            12000,
+            12792,
+            11625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            16084,
+            16834,
+            12917,
+            12834,
+            12958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_merge",
+          "times_ns": [
+            157250,
+            156833,
+            151375,
+            158875,
+            152958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_identity",
+          "times_ns": [
+            258791,
+            258625,
+            262750,
+            258542,
+            264375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both",
+          "times_ns": [
+            73583,
+            71375,
+            72333,
+            74500,
+            74625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_empty",
+          "times_ns": [
+            19333,
+            21667,
+            19542,
+            19333,
+            19625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all",
+          "times_ns": [
+            75584,
+            75666,
+            74167,
+            76708,
+            76500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_empty",
+          "times_ns": [
+            23209,
+            23042,
+            22917,
+            22791,
+            25667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all",
+          "times_ns": [
+            87834,
+            84084,
+            82459,
+            87167,
+            85750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            116084,
+            115500,
+            115208,
+            110959,
+            111417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            92083,
+            94458,
+            95084,
+            98458,
+            94041
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            100209,
+            99000,
+            99750,
+            103375,
+            102834
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_merge",
+          "times_ns": [
+            512333,
+            503167,
+            518750,
+            521291,
+            517000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_identity",
+          "times_ns": [
+            752875,
+            758458,
+            770875,
+            757875,
+            750084
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both",
+          "times_ns": [
+            250375,
+            251541,
+            252959,
+            253458,
+            248792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_empty",
+          "times_ns": [
+            69084,
+            69500,
+            68250,
+            70583,
+            70625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all",
+          "times_ns": [
+            252042,
+            254833,
+            257375,
+            254833,
+            255375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_empty",
+          "times_ns": [
+            81875,
+            80334,
+            83334,
+            80042,
+            83459
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all",
+          "times_ns": [
+            284917,
+            283542,
+            281291,
+            283666,
+            279583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            460166,
+            393709,
+            394708,
+            398000,
+            392958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            325625,
+            317583,
+            316875,
+            318334,
+            314666
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            341375,
+            342834,
+            343291,
+            344750,
+            343875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "timing",
+      "records": [
+        {
+          "n": 8,
+          "case": "decimate_merge",
+          "times_ns": [
+            23916,
+            21417,
+            19417,
+            22500,
+            18250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "decimate_identity",
+          "times_ns": [
+            33583,
+            27542,
+            31458,
+            31875,
+            28250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both",
+          "times_ns": [
+            11875,
+            9500,
+            9375,
+            10792,
+            9708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_empty",
+          "times_ns": [
+            3042,
+            2917,
+            2875,
+            4167,
+            2334
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all",
+          "times_ns": [
+            11125,
+            9834,
+            9333,
+            10250,
+            10042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_empty",
+          "times_ns": [
+            3792,
+            3458,
+            3375,
+            3417,
+            3375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all",
+          "times_ns": [
+            10542,
+            13000,
+            11083,
+            10042,
+            10000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            15917,
+            16041,
+            19208,
+            16292,
+            15917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            14416,
+            12083,
+            11708,
+            14459,
+            12417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            13042,
+            13625,
+            14916,
+            13000,
+            12625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_merge",
+          "times_ns": [
+            152375,
+            153584,
+            157833,
+            153084,
+            152583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_identity",
+          "times_ns": [
+            260291,
+            249083,
+            261791,
+            255750,
+            263250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both",
+          "times_ns": [
+            78417,
+            76083,
+            72333,
+            73084,
+            75667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_empty",
+          "times_ns": [
+            21291,
+            23417,
+            20125,
+            20791,
+            20125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all",
+          "times_ns": [
+            74792,
+            74209,
+            76250,
+            73500,
+            77125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_empty",
+          "times_ns": [
+            25334,
+            23792,
+            22958,
+            22666,
+            22458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all",
+          "times_ns": [
+            82875,
+            84000,
+            85125,
+            81125,
+            82375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            108333,
+            108291,
+            113250,
+            111375,
+            111375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            95958,
+            92083,
+            93500,
+            93708,
+            96625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            103500,
+            106916,
+            101375,
+            102042,
+            102083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_merge",
+          "times_ns": [
+            504500,
+            516458,
+            499167,
+            513000,
+            526667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_identity",
+          "times_ns": [
+            735667,
+            737375,
+            735333,
+            741208,
+            759292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both",
+          "times_ns": [
+            246417,
+            250084,
+            251500,
+            243083,
+            245666
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_empty",
+          "times_ns": [
+            64042,
+            63875,
+            64000,
+            64166,
+            64208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all",
+          "times_ns": [
+            247167,
+            252667,
+            252042,
+            253916,
+            252542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_empty",
+          "times_ns": [
+            81375,
+            78834,
+            81167,
+            78584,
+            81250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all",
+          "times_ns": [
+            283583,
+            280708,
+            279583,
+            285708,
+            281375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            444541,
+            389250,
+            375708,
+            374708,
+            377875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            313541,
+            313875,
+            313000,
+            318042,
+            312625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            343541,
+            342083,
+            343292,
+            346042,
+            343417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "build": "timing",
+      "records": [
+        {
+          "n": 8,
+          "case": "decimate_merge",
+          "times_ns": [
+            43875,
+            42625,
+            45333,
+            50417,
+            49500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "decimate_identity",
+          "times_ns": [
+            59375,
+            59834,
+            55000,
+            55792,
+            58250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both",
+          "times_ns": [
+            24916,
+            23583,
+            24958,
+            22416,
+            21542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_empty",
+          "times_ns": [
+            13500,
+            12125,
+            14916,
+            15833,
+            13459
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all",
+          "times_ns": [
+            27750,
+            27166,
+            27958,
+            24875,
+            25666
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_empty",
+          "times_ns": [
+            4583,
+            4291,
+            4167,
+            4125,
+            3625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all",
+          "times_ns": [
+            36667,
+            34458,
+            33125,
+            32750,
+            37625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            25709,
+            25542,
+            26791,
+            26625,
+            24917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            37958,
+            35084,
+            34666,
+            36959,
+            34708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            43375,
+            44916,
+            42708,
+            45625,
+            44458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_merge",
+          "times_ns": [
+            311875,
+            316542,
+            300292,
+            292375,
+            283125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_identity",
+          "times_ns": [
+            409250,
+            422500,
+            413958,
+            413542,
+            418958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both",
+          "times_ns": [
+            175208,
+            171791,
+            165000,
+            165375,
+            166250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_empty",
+          "times_ns": [
+            91292,
+            84958,
+            84208,
+            84167,
+            86125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all",
+          "times_ns": [
+            217708,
+            205500,
+            200917,
+            201000,
+            198041
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_empty",
+          "times_ns": [
+            26750,
+            31250,
+            26875,
+            26750,
+            26625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all",
+          "times_ns": [
+            278375,
+            280541,
+            276334,
+            275125,
+            274667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            195292,
+            193416,
+            189625,
+            190041,
+            189500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            289667,
+            288500,
+            288916,
+            289292,
+            288750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            375792,
+            363584,
+            369375,
+            364958,
+            367375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_merge",
+          "times_ns": [
+            985542,
+            971417,
+            974208,
+            965584,
+            981250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_identity",
+          "times_ns": [
+            1337625,
+            1331542,
+            1327625,
+            1301458,
+            1312375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both",
+          "times_ns": [
+            690250,
+            573416,
+            573541,
+            575459,
+            573083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_empty",
+          "times_ns": [
+            291583,
+            281459,
+            286041,
+            279833,
+            279750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all",
+          "times_ns": [
+            735708,
+            726750,
+            744084,
+            726125,
+            727917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_empty",
+          "times_ns": [
+            105166,
+            100125,
+            103500,
+            102000,
+            100584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all",
+          "times_ns": [
+            1021292,
+            1022833,
+            1023416,
+            1016459,
+            1037667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            678083,
+            665709,
+            694209,
+            670250,
+            671584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            1091625,
+            1076875,
+            1069417,
+            1092083,
+            1105542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            1364709,
+            1360500,
+            1422833,
+            1379417,
+            1355000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "build": "timing",
+      "records": [
+        {
+          "n": 8,
+          "case": "decimate_merge",
+          "times_ns": [
+            42375,
+            43167,
+            42208,
+            47542,
+            42666
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "decimate_identity",
+          "times_ns": [
+            59458,
+            69041,
+            57583,
+            54500,
+            57042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both",
+          "times_ns": [
+            23625,
+            21875,
+            20833,
+            24791,
+            21083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_empty",
+          "times_ns": [
+            15958,
+            12875,
+            13541,
+            13958,
+            17000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all",
+          "times_ns": [
+            26625,
+            25416,
+            24500,
+            28708,
+            26042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_empty",
+          "times_ns": [
+            4042,
+            3625,
+            3458,
+            3375,
+            3333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all",
+          "times_ns": [
+            34458,
+            36125,
+            35125,
+            34250,
+            33000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            26750,
+            24209,
+            24750,
+            29250,
+            24542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            35834,
+            37291,
+            34666,
+            34750,
+            35084
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            43250,
+            44125,
+            45500,
+            42916,
+            43042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_merge",
+          "times_ns": [
+            305208,
+            305417,
+            300625,
+            282291,
+            278667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_identity",
+          "times_ns": [
+            404875,
+            401750,
+            406208,
+            405250,
+            403584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both",
+          "times_ns": [
+            169792,
+            172750,
+            170959,
+            170917,
+            149708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_empty",
+          "times_ns": [
+            87667,
+            79125,
+            85250,
+            82542,
+            83542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all",
+          "times_ns": [
+            215666,
+            206792,
+            201667,
+            199417,
+            198708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_empty",
+          "times_ns": [
+            26000,
+            25958,
+            25667,
+            28666,
+            25958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all",
+          "times_ns": [
+            277833,
+            275667,
+            276584,
+            276708,
+            275083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            199125,
+            182333,
+            183542,
+            186250,
+            182916
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            289125,
+            292375,
+            292834,
+            291250,
+            289417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            368000,
+            369667,
+            365750,
+            367917,
+            368916
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_merge",
+          "times_ns": [
+            959041,
+            956875,
+            947666,
+            938042,
+            943875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_identity",
+          "times_ns": [
+            1272417,
+            1268375,
+            1259584,
+            1267583,
+            1265333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both",
+          "times_ns": [
+            655667,
+            546000,
+            545417,
+            560667,
+            543625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_empty",
+          "times_ns": [
+            267041,
+            270875,
+            268166,
+            268542,
+            269209
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all",
+          "times_ns": [
+            728875,
+            739209,
+            750667,
+            717792,
+            732084
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_empty",
+          "times_ns": [
+            90917,
+            89958,
+            91083,
+            89583,
+            90416
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all",
+          "times_ns": [
+            1017875,
+            1017917,
+            1018417,
+            1010000,
+            1011083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            646708,
+            635417,
+            626000,
+            644458,
+            623250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            1072500,
+            1059500,
+            1074500,
+            1073167,
+            1074625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            1380416,
+            1362750,
+            1358417,
+            1367708,
+            1360458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "timing",
+      "records": [
+        {
+          "n": 8,
+          "case": "decimate_merge",
+          "times_ns": [
+            24833,
+            21250,
+            19084,
+            22500,
+            19542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "decimate_identity",
+          "times_ns": [
+            34875,
+            31708,
+            29333,
+            34917,
+            34375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both",
+          "times_ns": [
+            11792,
+            9625,
+            9875,
+            10916,
+            9750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_empty",
+          "times_ns": [
+            3250,
+            2500,
+            3417,
+            3583,
+            2541
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all",
+          "times_ns": [
+            11209,
+            11125,
+            9375,
+            10875,
+            9125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_empty",
+          "times_ns": [
+            3750,
+            3417,
+            3417,
+            4416,
+            3417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all",
+          "times_ns": [
+            10167,
+            11917,
+            10167,
+            10083,
+            10167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            18000,
+            16250,
+            16125,
+            15917,
+            16000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            15375,
+            13166,
+            12167,
+            12875,
+            11834
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            13833,
+            13875,
+            12667,
+            15459,
+            12875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_merge",
+          "times_ns": [
+            158834,
+            151000,
+            157042,
+            153834,
+            149708
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_identity",
+          "times_ns": [
+            257834,
+            245875,
+            249250,
+            253875,
+            254417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both",
+          "times_ns": [
+            78209,
+            76125,
+            74125,
+            73667,
+            73000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_empty",
+          "times_ns": [
+            21459,
+            20333,
+            20208,
+            18709,
+            18666
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all",
+          "times_ns": [
+            76625,
+            76125,
+            76791,
+            74916,
+            76917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_empty",
+          "times_ns": [
+            22333,
+            25125,
+            22292,
+            22334,
+            22167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all",
+          "times_ns": [
+            84084,
+            84750,
+            85458,
+            82750,
+            82875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            114292,
+            110042,
+            110000,
+            118333,
+            113084
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            96709,
+            94333,
+            92833,
+            97500,
+            96542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            105792,
+            106375,
+            108500,
+            101625,
+            101542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_merge",
+          "times_ns": [
+            517167,
+            523125,
+            516000,
+            510500,
+            515083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_identity",
+          "times_ns": [
+            722291,
+            720375,
+            721459,
+            717541,
+            733208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both",
+          "times_ns": [
+            255417,
+            260708,
+            259875,
+            258959,
+            257541
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_empty",
+          "times_ns": [
+            72000,
+            64625,
+            66459,
+            68334,
+            67667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all",
+          "times_ns": [
+            256416,
+            248292,
+            249750,
+            252542,
+            252333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_empty",
+          "times_ns": [
+            77292,
+            80250,
+            77000,
+            80084,
+            77000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all",
+          "times_ns": [
+            280500,
+            275250,
+            275000,
+            271875,
+            283584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            465958,
+            397500,
+            406042,
+            406458,
+            397458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            322875,
+            317833,
+            319666,
+            320792,
+            317292
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            346916,
+            346875,
+            349334,
+            347375,
+            347416
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "timing",
+      "records": [
+        {
+          "n": 8,
+          "case": "decimate_merge",
+          "times_ns": [
+            21875,
+            22750,
+            17959,
+            22542,
+            19875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "decimate_identity",
+          "times_ns": [
+            35125,
+            32083,
+            28208,
+            35583,
+            33792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both",
+          "times_ns": [
+            11208,
+            9083,
+            9041,
+            10125,
+            9459
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_empty",
+          "times_ns": [
+            2833,
+            2417,
+            3334,
+            2209,
+            2167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all",
+          "times_ns": [
+            13250,
+            9625,
+            10334,
+            9541,
+            9000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_empty",
+          "times_ns": [
+            3500,
+            3250,
+            3209,
+            3166,
+            3209
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all",
+          "times_ns": [
+            13083,
+            13042,
+            11333,
+            10250,
+            10000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            15667,
+            15500,
+            17959,
+            15542,
+            15625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            13917,
+            12750,
+            11958,
+            14333,
+            11709
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            12917,
+            14625,
+            13375,
+            12750,
+            13250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_merge",
+          "times_ns": [
+            146875,
+            152834,
+            149000,
+            150792,
+            151209
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_identity",
+          "times_ns": [
+            252916,
+            243625,
+            254750,
+            259042,
+            242250
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both",
+          "times_ns": [
+            71417,
+            71459,
+            67625,
+            67875,
+            73625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_empty",
+          "times_ns": [
+            19917,
+            19542,
+            19625,
+            22583,
+            19750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all",
+          "times_ns": [
+            72666,
+            75667,
+            73416,
+            76042,
+            74542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_empty",
+          "times_ns": [
+            21958,
+            21333,
+            22167,
+            23458,
+            21375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all",
+          "times_ns": [
+            85291,
+            84166,
+            80792,
+            82667,
+            83375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            110250,
+            114500,
+            114667,
+            114708,
+            112000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            91666,
+            96291,
+            94792,
+            94834,
+            92875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            101167,
+            102708,
+            102708,
+            102833,
+            104042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_merge",
+          "times_ns": [
+            491917,
+            515292,
+            508209,
+            519084,
+            513042
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_identity",
+          "times_ns": [
+            741084,
+            742208,
+            735875,
+            737667,
+            732875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both",
+          "times_ns": [
+            236000,
+            239875,
+            235500,
+            238125,
+            237417
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_empty",
+          "times_ns": [
+            65625,
+            64084,
+            62417,
+            60792,
+            60792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all",
+          "times_ns": [
+            242209,
+            247250,
+            245792,
+            247500,
+            247625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_empty",
+          "times_ns": [
+            74333,
+            77417,
+            77042,
+            77333,
+            73916
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all",
+          "times_ns": [
+            270791,
+            271083,
+            271125,
+            271000,
+            277458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            470375,
+            388541,
+            391417,
+            390292,
+            390750
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            319167,
+            311375,
+            312583,
+            311625,
+            310375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            343458,
+            338167,
+            340167,
+            337375,
+            342125
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "build": "timing",
+      "records": [
+        {
+          "n": 8,
+          "case": "decimate_merge",
+          "times_ns": [
+            44167,
+            41542,
+            43167,
+            47834,
+            42458
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "decimate_identity",
+          "times_ns": [
+            61750,
+            57375,
+            55167,
+            53375,
+            57208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both",
+          "times_ns": [
+            26542,
+            22375,
+            23125,
+            23333,
+            21167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_empty",
+          "times_ns": [
+            15291,
+            12459,
+            13542,
+            13250,
+            12500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all",
+          "times_ns": [
+            26167,
+            26000,
+            25209,
+            27708,
+            26625
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_empty",
+          "times_ns": [
+            6041,
+            4667,
+            4375,
+            4167,
+            4083
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all",
+          "times_ns": [
+            36666,
+            33417,
+            34042,
+            39125,
+            36917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            24750,
+            24041,
+            27833,
+            26042,
+            24833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            37792,
+            34667,
+            34459,
+            34458,
+            37833
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            42958,
+            47417,
+            43375,
+            43125,
+            45958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_merge",
+          "times_ns": [
+            325709,
+            307833,
+            296209,
+            276417,
+            278167
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "decimate_identity",
+          "times_ns": [
+            408500,
+            413084,
+            412208,
+            411750,
+            412375
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both",
+          "times_ns": [
+            180583,
+            176667,
+            173167,
+            167458,
+            153667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_empty",
+          "times_ns": [
+            83458,
+            88250,
+            82083,
+            85083,
+            86709
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all",
+          "times_ns": [
+            214875,
+            207209,
+            198916,
+            199375,
+            198875
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_empty",
+          "times_ns": [
+            26708,
+            26583,
+            29666,
+            26792,
+            26667
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all",
+          "times_ns": [
+            276333,
+            276333,
+            277208,
+            278500,
+            274583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            200250,
+            185917,
+            194834,
+            188000,
+            198583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            291667,
+            288208,
+            288292,
+            289875,
+            289542
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 16,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            363292,
+            367042,
+            363417,
+            370250,
+            363208
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_merge",
+          "times_ns": [
+            964750,
+            962500,
+            969167,
+            965750,
+            963584
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "decimate_identity",
+          "times_ns": [
+            1320959,
+            1308917,
+            1319875,
+            1317500,
+            1323958
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both",
+          "times_ns": [
+            653750,
+            545500,
+            543292,
+            544875,
+            567583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_empty",
+          "times_ns": [
+            278209,
+            269500,
+            286875,
+            271209,
+            271959
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all",
+          "times_ns": [
+            728917,
+            735042,
+            730875,
+            737667,
+            731792
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_empty",
+          "times_ns": [
+            91958,
+            89959,
+            89916,
+            91375,
+            88416
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all",
+          "times_ns": [
+            1024292,
+            1025042,
+            1015459,
+            1025542,
+            1026917
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            641458,
+            638958,
+            632583,
+            633667,
+            634333
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            1084666,
+            1077625,
+            1073042,
+            1078791,
+            1076500
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            1361708,
+            1368875,
+            1369291,
+            1359750,
+            1360583
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "build": "allocations",
+      "records": [
+        {
+          "n": 8,
+          "case": "decimate_merge",
+          "times_ns": [
+            43750,
+            42958,
+            45833,
+            44250,
+            41625
+          ],
+          "allocation_calls": [
+            1076,
+            1076,
+            1076,
+            1076,
+            1076
+          ],
+          "allocated_bytes": [
+            69319,
+            69319,
+            69319,
+            69319,
+            69319
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "decimate_identity",
+          "times_ns": [
+            59542,
+            58083,
+            59417,
+            58750,
+            53375
+          ],
+          "allocation_calls": [
+            1091,
+            1091,
+            1091,
+            1091,
+            1091
+          ],
+          "allocated_bytes": [
+            281907,
+            281907,
+            281907,
+            281907,
+            281907
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "append_both",
+          "times_ns": [
+            23959,
+            24666,
+            21416,
+            21625,
+            20292
+          ],
+          "allocation_calls": [
+            742,
+            742,
+            742,
+            742,
+            742
+          ],
+          "allocated_bytes": [
+            298094,
+            298094,
+            298094,
+            298094,
+            298094
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "append_empty",
+          "times_ns": [
+            11959,
+            16750,
+            11750,
+            14291,
+            12916
+          ],
+          "allocation_calls": [
+            396,
+            396,
+            396,
+            396,
+            396
+          ],
+          "allocated_bytes": [
+            149703,
+            149703,
+            149703,
+            149703,
+            149703
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "threshold_all",
+          "times_ns": [
+            26958,
+            28000,
+            24541,
+            24334,
+            26542
+          ],
+          "allocation_calls": [
+            422,
+            422,
+            422,
+            422,
+            422
+          ],
+          "allocated_bytes": [
+            160478,
+            160478,
+            160478,
+            160478,
+            160478
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "threshold_empty",
+          "times_ns": [
+            4583,
+            4250,
+            4167,
+            4084,
+            3708
+          ],
+          "allocation_calls": [
+            16,
+            16,
+            16,
+            16,
+            16
+          ],
+          "allocated_bytes": [
+            3351,
+            3351,
+            3351,
+            3351,
+            3351
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "sphere_all",
+          "times_ns": [
+            32708,
+            32334,
+            32250,
+            36459,
+            34042
+          ],
+          "allocation_calls": [
+            441,
+            441,
+            441,
+            441,
+            441
+          ],
+          "allocated_bytes": [
+            181667,
+            181667,
+            181667,
+            181667,
+            181667
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            24708,
+            26958,
+            24000,
+            23917,
+            23791
+          ],
+          "allocation_calls": [
+            762,
+            762,
+            762,
+            762,
+            762
+          ],
+          "allocated_bytes": [
+            517134,
+            517134,
+            517134,
+            517134,
+            517134
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            34750,
+            33875,
+            33833,
+            36916,
+            34083
+          ],
+          "allocation_calls": [
+            446,
+            446,
+            446,
+            446,
+            446
+          ],
+          "allocated_bytes": [
+            278174,
+            278174,
+            278174,
+            278174,
+            278174
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            43833,
+            43375,
+            47250,
+            44417,
+            44667
+          ],
+          "allocation_calls": [
+            466,
+            466,
+            466,
+            466,
+            466
+          ],
+          "allocated_bytes": [
+            300323,
+            300323,
+            300323,
+            300323,
+            300323
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "decimate_merge",
+          "times_ns": [
+            347584,
+            308500,
+            292083,
+            278083,
+            273209
+          ],
+          "allocation_calls": [
+            10187,
+            10187,
+            10187,
+            10187,
+            10187
+          ],
+          "allocated_bytes": [
+            660083,
+            660083,
+            660083,
+            660083,
+            660083
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "decimate_identity",
+          "times_ns": [
+            398500,
+            398500,
+            398625,
+            400750,
+            393958
+          ],
+          "allocation_calls": [
+            10199,
+            10199,
+            10199,
+            10199,
+            10199
+          ],
+          "allocated_bytes": [
+            2411771,
+            2411771,
+            2411771,
+            2411771,
+            2411771
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "append_both",
+          "times_ns": [
+            159792,
+            145959,
+            145542,
+            147209,
+            146625
+          ],
+          "allocation_calls": [
+            6812,
+            6812,
+            6812,
+            6812,
+            6812
+          ],
+          "allocated_bytes": [
+            2590542,
+            2590542,
+            2590542,
+            2590542,
+            2590542
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "append_empty",
+          "times_ns": [
+            83375,
+            77125,
+            77458,
+            87000,
+            81000
+          ],
+          "allocation_calls": [
+            3434,
+            3434,
+            3434,
+            3434,
+            3434
+          ],
+          "allocated_bytes": [
+            1295927,
+            1295927,
+            1295927,
+            1295927,
+            1295927
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "threshold_all",
+          "times_ns": [
+            212958,
+            202000,
+            201375,
+            201125,
+            196583
+          ],
+          "allocation_calls": [
+            3477,
+            3477,
+            3477,
+            3477,
+            3477
+          ],
+          "allocated_bytes": [
+            1450534,
+            1450534,
+            1450534,
+            1450534,
+            1450534
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "threshold_empty",
+          "times_ns": [
+            25625,
+            25417,
+            25416,
+            26334,
+            27500
+          ],
+          "allocation_calls": [
+            16,
+            16,
+            16,
+            16,
+            16
+          ],
+          "allocated_bytes": [
+            20719,
+            20719,
+            20719,
+            20719,
+            20719
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "sphere_all",
+          "times_ns": [
+            271750,
+            271709,
+            277791,
+            273584,
+            275000
+          ],
+          "allocation_calls": [
+            3500,
+            3500,
+            3500,
+            3500,
+            3500
+          ],
+          "allocated_bytes": [
+            1647851,
+            1647851,
+            1647851,
+            1647851,
+            1647851
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            189333,
+            194834,
+            193583,
+            189834,
+            191458
+          ],
+          "allocation_calls": [
+            6832,
+            6832,
+            6832,
+            6832,
+            6832
+          ],
+          "allocated_bytes": [
+            4503278,
+            4503278,
+            4503278,
+            4503278,
+            4503278
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            306792,
+            300625,
+            286583,
+            282500,
+            289875
+          ],
+          "allocation_calls": [
+            3509,
+            3509,
+            3509,
+            3509,
+            3509
+          ],
+          "allocated_bytes": [
+            2537958,
+            2537958,
+            2537958,
+            2537958,
+            2537958
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            366125,
+            362000,
+            363167,
+            367083,
+            365292
+          ],
+          "allocation_calls": [
+            3533,
+            3533,
+            3533,
+            3533,
+            3533
+          ],
+          "allocated_bytes": [
+            2736235,
+            2736235,
+            2736235,
+            2736235,
+            2736235
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "decimate_merge",
+          "times_ns": [
+            957291,
+            954416,
+            931042,
+            950750,
+            934959
+          ],
+          "allocation_calls": [
+            36570,
+            36570,
+            36570,
+            36570,
+            36570
+          ],
+          "allocated_bytes": [
+            2272855,
+            2272855,
+            2272855,
+            2272855,
+            2272855
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "decimate_identity",
+          "times_ns": [
+            1282083,
+            1266084,
+            1264916,
+            1260209,
+            1260958
+          ],
+          "allocation_calls": [
+            36582,
+            36582,
+            36582,
+            36582,
+            36582
+          ],
+          "allocated_bytes": [
+            7778739,
+            7778739,
+            7778739,
+            7778739,
+            7778739
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "append_both",
+          "times_ns": [
+            635417,
+            522125,
+            526333,
+            526667,
+            528125
+          ],
+          "allocation_calls": [
+            24400,
+            24400,
+            24400,
+            24400,
+            24400
+          ],
+          "allocated_bytes": [
+            9331758,
+            9331758,
+            9331758,
+            9331758,
+            9331758
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "append_empty",
+          "times_ns": [
+            278208,
+            266917,
+            271000,
+            263042,
+            267833
+          ],
+          "allocation_calls": [
+            12230,
+            12230,
+            12230,
+            12230,
+            12230
+          ],
+          "allocated_bytes": [
+            4666535,
+            4666535,
+            4666535,
+            4666535,
+            4666535
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "threshold_all",
+          "times_ns": [
+            720292,
+            717042,
+            721333,
+            724125,
+            715792
+          ],
+          "allocation_calls": [
+            12283,
+            12283,
+            12283,
+            12283,
+            12283
+          ],
+          "allocated_bytes": [
+            5294830,
+            5294830,
+            5294830,
+            5294830,
+            5294830
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "threshold_empty",
+          "times_ns": [
+            91125,
+            90375,
+            88000,
+            90583,
+            88291
+          ],
+          "allocation_calls": [
+            16,
+            16,
+            16,
+            16,
+            16
+          ],
+          "allocated_bytes": [
+            68423,
+            68423,
+            68423,
+            68423,
+            68423
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "sphere_all",
+          "times_ns": [
+            998708,
+            1000833,
+            1001375,
+            997291,
+            995833
+          ],
+          "allocation_calls": [
+            12308,
+            12308,
+            12308,
+            12308,
+            12308
+          ],
+          "allocated_bytes": [
+            5979571,
+            5979571,
+            5979571,
+            5979571,
+            5979571
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            635000,
+            614708,
+            610333,
+            614833,
+            609875
+          ],
+          "allocation_calls": [
+            24420,
+            24420,
+            24420,
+            24420,
+            24420
+          ],
+          "allocated_bytes": [
+            15985614,
+            15985614,
+            15985614,
+            15985614,
+            15985614
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            1054459,
+            1053000,
+            1052375,
+            1043667,
+            1046541
+          ],
+          "allocation_calls": [
+            12319,
+            12319,
+            12319,
+            12319,
+            12319
+          ],
+          "allocated_bytes": [
+            9105070,
+            9105070,
+            9105070,
+            9105070,
+            9105070
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            1348042,
+            1338958,
+            1339209,
+            1339583,
+            1325208
+          ],
+          "allocation_calls": [
+            12345,
+            12345,
+            12345,
+            12345,
+            12345
+          ],
+          "allocated_bytes": [
+            9790771,
+            9790771,
+            9790771,
+            9790771,
+            9790771
+          ],
+          "allocator_instrumentation": true
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "allocations",
+      "records": [
+        {
+          "n": 8,
+          "case": "decimate_merge",
+          "times_ns": [
+            22250,
+            19792,
+            22125,
+            22458,
+            22625
+          ],
+          "allocation_calls": [
+            37,
+            37,
+            37,
+            37,
+            37
+          ],
+          "allocated_bytes": [
+            28814,
+            28814,
+            28814,
+            28814,
+            28814
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "decimate_identity",
+          "times_ns": [
+            36000,
+            33250,
+            33917,
+            30125,
+            29584
+          ],
+          "allocation_calls": [
+            16,
+            16,
+            16,
+            16,
+            16
+          ],
+          "allocated_bytes": [
+            86699,
+            86699,
+            86699,
+            86699,
+            86699
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "append_both",
+          "times_ns": [
+            12667,
+            9583,
+            9333,
+            10333,
+            9250
+          ],
+          "allocation_calls": [
+            23,
+            23,
+            23,
+            23,
+            23
+          ],
+          "allocated_bytes": [
+            215550,
+            215550,
+            215550,
+            215550,
+            215550
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "append_empty",
+          "times_ns": [
+            2916,
+            2458,
+            2167,
+            2209,
+            2167
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            496,
+            496,
+            496,
+            496,
+            496
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "threshold_all",
+          "times_ns": [
+            12250,
+            10958,
+            9125,
+            10000,
+            8958
+          ],
+          "allocation_calls": [
+            25,
+            25,
+            25,
+            25,
+            25
+          ],
+          "allocated_bytes": [
+            97246,
+            97246,
+            97246,
+            97246,
+            97246
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "threshold_empty",
+          "times_ns": [
+            3500,
+            3292,
+            3292,
+            3250,
+            3167
+          ],
+          "allocation_calls": [
+            12,
+            12,
+            12,
+            12,
+            12
+          ],
+          "allocated_bytes": [
+            871,
+            871,
+            871,
+            871,
+            871
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "sphere_all",
+          "times_ns": [
+            11958,
+            13417,
+            12667,
+            10792,
+            10083
+          ],
+          "allocation_calls": [
+            29,
+            29,
+            29,
+            29,
+            29
+          ],
+          "allocated_bytes": [
+            97819,
+            97819,
+            97819,
+            97819,
+            97819
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            15750,
+            15542,
+            18750,
+            15583,
+            16000
+          ],
+          "allocation_calls": [
+            31,
+            31,
+            31,
+            31,
+            31
+          ],
+          "allocated_bytes": [
+            434878,
+            434878,
+            434878,
+            434878,
+            434878
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            12083,
+            11791,
+            11833,
+            13291,
+            12917
+          ],
+          "allocation_calls": [
+            29,
+            29,
+            29,
+            29,
+            29
+          ],
+          "allocated_bytes": [
+            163198,
+            163198,
+            163198,
+            163198,
+            163198
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            12917,
+            12750,
+            12791,
+            12583,
+            12500
+          ],
+          "allocation_calls": [
+            33,
+            33,
+            33,
+            33,
+            33
+          ],
+          "allocated_bytes": [
+            163771,
+            163771,
+            163771,
+            163771,
+            163771
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "decimate_merge",
+          "times_ns": [
+            159750,
+            156000,
+            154833,
+            159292,
+            155958
+          ],
+          "allocation_calls": [
+            44,
+            44,
+            44,
+            44,
+            44
+          ],
+          "allocated_bytes": [
+            248498,
+            248498,
+            248498,
+            248498,
+            248498
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "decimate_identity",
+          "times_ns": [
+            267042,
+            262584,
+            261333,
+            258791,
+            264041
+          ],
+          "allocation_calls": [
+            19,
+            19,
+            19,
+            19,
+            19
+          ],
+          "allocated_bytes": [
+            691867,
+            691867,
+            691867,
+            691867,
+            691867
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "append_both",
+          "times_ns": [
+            72417,
+            74667,
+            71292,
+            72541,
+            73792
+          ],
+          "allocation_calls": [
+            23,
+            23,
+            23,
+            23,
+            23
+          ],
+          "allocated_bytes": [
+            1903710,
+            1903710,
+            1903710,
+            1903710,
+            1903710
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "append_empty",
+          "times_ns": [
+            18042,
+            17875,
+            17584,
+            17791,
+            17833
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            496,
+            496,
+            496,
+            496,
+            496
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "threshold_all",
+          "times_ns": [
+            78208,
+            75500,
+            72584,
+            75417,
+            75792
+          ],
+          "allocation_calls": [
+            28,
+            28,
+            28,
+            28,
+            28
+          ],
+          "allocated_bytes": [
+            831910,
+            831910,
+            831910,
+            831910,
+            831910
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "threshold_empty",
+          "times_ns": [
+            21500,
+            21333,
+            26875,
+            22750,
+            22917
+          ],
+          "allocation_calls": [
+            12,
+            12,
+            12,
+            12,
+            12
+          ],
+          "allocated_bytes": [
+            3903,
+            3903,
+            3903,
+            3903,
+            3903
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "sphere_all",
+          "times_ns": [
+            85416,
+            84875,
+            81625,
+            85250,
+            84375
+          ],
+          "allocation_calls": [
+            32,
+            32,
+            32,
+            32,
+            32
+          ],
+          "allocated_bytes": [
+            836067,
+            836067,
+            836067,
+            836067,
+            836067
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            111667,
+            110667,
+            112416,
+            110792,
+            110583
+          ],
+          "allocation_calls": [
+            31,
+            31,
+            31,
+            31,
+            31
+          ],
+          "allocated_bytes": [
+            3816734,
+            3816734,
+            3816734,
+            3816734,
+            3816734
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            96917,
+            95125,
+            96250,
+            109250,
+            90334
+          ],
+          "allocation_calls": [
+            32,
+            32,
+            32,
+            32,
+            32
+          ],
+          "allocated_bytes": [
+            1356614,
+            1356614,
+            1356614,
+            1356614,
+            1356614
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 16,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            109125,
+            105000,
+            105333,
+            103500,
+            104334
+          ],
+          "allocation_calls": [
+            36,
+            36,
+            36,
+            36,
+            36
+          ],
+          "allocated_bytes": [
+            1360771,
+            1360771,
+            1360771,
+            1360771,
+            1360771
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "decimate_merge",
+          "times_ns": [
+            526208,
+            508000,
+            525834,
+            538250,
+            513208
+          ],
+          "allocation_calls": [
+            47,
+            47,
+            47,
+            47,
+            47
+          ],
+          "allocated_bytes": [
+            750734,
+            750734,
+            750734,
+            750734,
+            750734
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "decimate_identity",
+          "times_ns": [
+            789625,
+            786750,
+            774250,
+            779458,
+            773791
+          ],
+          "allocation_calls": [
+            20,
+            20,
+            20,
+            20,
+            20
+          ],
+          "allocated_bytes": [
+            1411323,
+            1411323,
+            1411323,
+            1411323,
+            1411323
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "append_both",
+          "times_ns": [
+            238458,
+            244917,
+            236125,
+            241125,
+            238333
+          ],
+          "allocation_calls": [
+            23,
+            23,
+            23,
+            23,
+            23
+          ],
+          "allocated_bytes": [
+            6650046,
+            6650046,
+            6650046,
+            6650046,
+            6650046
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "append_empty",
+          "times_ns": [
+            65542,
+            65375,
+            64125,
+            64750,
+            60959
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            496,
+            496,
+            496,
+            496,
+            496
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "threshold_all",
+          "times_ns": [
+            247042,
+            243917,
+            243916,
+            242917,
+            243417
+          ],
+          "allocation_calls": [
+            30,
+            30,
+            30,
+            30,
+            30
+          ],
+          "allocated_bytes": [
+            2897646,
+            2897646,
+            2897646,
+            2897646,
+            2897646
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "threshold_empty",
+          "times_ns": [
+            74041,
+            77458,
+            73667,
+            78917,
+            74750
+          ],
+          "allocation_calls": [
+            12,
+            12,
+            12,
+            12,
+            12
+          ],
+          "allocated_bytes": [
+            12695,
+            12695,
+            12695,
+            12695,
+            12695
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "sphere_all",
+          "times_ns": [
+            269250,
+            277583,
+            272792,
+            274917,
+            270250
+          ],
+          "allocation_calls": [
+            34,
+            34,
+            34,
+            34,
+            34
+          ],
+          "allocated_bytes": [
+            2911531,
+            2911531,
+            2911531,
+            2911531,
+            2911531
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "append_both_all_shapes",
+          "times_ns": [
+            449250,
+            378334,
+            377834,
+            376333,
+            375375
+          ],
+          "allocation_calls": [
+            31,
+            31,
+            31,
+            31,
+            31
+          ],
+          "allocated_bytes": [
+            13304190,
+            13304190,
+            13304190,
+            13304190,
+            13304190
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "threshold_all_shapes",
+          "times_ns": [
+            312250,
+            315333,
+            314958,
+            314500,
+            313667
+          ],
+          "allocation_calls": [
+            34,
+            34,
+            34,
+            34,
+            34
+          ],
+          "allocated_bytes": [
+            4667534,
+            4667534,
+            4667534,
+            4667534,
+            4667534
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "case": "sphere_all_shapes",
+          "times_ns": [
+            341584,
+            340792,
+            341333,
+            345375,
+            344250
+          ],
+          "allocation_calls": [
+            38,
+            38,
+            38,
+            38,
+            38
+          ],
+          "allocated_bytes": [
+            4681419,
+            4681419,
+            4681419,
+            4681419,
+            4681419
+          ],
+          "allocator_instrumentation": true
+        }
+      ]
+    }
+  ]
+}

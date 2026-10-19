@@ -9,7 +9,7 @@
 // Rust guideline compliant 2026-02-21
 
 use crate::TransformError;
-use crate::geometry::append_datasets;
+use crate::append_datasets;
 use crate::vtu::{read_vtu_bytes, write_vtu};
 use gpui_mesh::{DataSet, TimeSeries};
 use std::fmt::Write as _;

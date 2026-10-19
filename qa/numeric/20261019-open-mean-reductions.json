@@ -1,0 +1,21 @@
+{
+  "kind": "open C4 reduction diagnostics at packed-geometry checkpoint; not acceptance evidence",
+  "candidate_parent": "2ddc33de",
+  "source_sha256": {
+    "crates/gpui-dataset-transformation/src/analysis.rs": "f8e08512d84dfdf2a3f84beb34c7d0c51e94ac2b6a70f0ad06e7c983eaa0ecec",
+    "crates/gpui-dataset-transformation/src/convert.rs": "3d7449bb20ec4933f664d35edafbae56a997f4382585da36b05b54b33bc2164a"
+  },
+  "probe_source": "use gpui_dataset_transformation::{field_statistics,point_data_to_cell_data};\nuse gpui_mesh::{Association,DataSet,Field};\nfn main() {\n    let triangle=DataSet::surface(\"reduce\",vec![[0.0;3],[1.0,0.0,0.0],[0.0,1.0,0.0]],&[[0,1,2]]);\n    let data=triangle.clone().with_field(Field::scalar(\"p\",vec![f64::MAX,-f64::MAX,1e-300]));\n    let stats=field_statistics(&data,\"p\",Association::Point).unwrap();\n    println!(r#\"{{\"case\":\"statistics_extreme_residual\",\"actual\":{:.17e},\"expected\":{:.17e}}}\"#,stats.mean,1e-300/3.0);\n    let data=triangle.with_field(Field::scalar(\"p\",vec![1e16,3.0,-1e16]));\n    let out=point_data_to_cell_data(&data,\"p\",\"mean\").unwrap();\n    let mean=out.field(Association::Cell,\"mean\").unwrap().as_scalar().unwrap()[0];\n    println!(r#\"{{\"case\":\"conversion_cancellation\",\"actual\":{mean:.17e},\"expected\":1.0}}\"#);\n}\n",
+  "records": [
+    {
+      "case": "statistics_extreme_residual",
+      "actual": 0.0,
+      "expected": 3.3333333333333334e-301
+    },
+    {
+      "case": "conversion_cancellation",
+      "actual": 1.3333333333333333,
+      "expected": 1.0
+    }
+  ]
+}

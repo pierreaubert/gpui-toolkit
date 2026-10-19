@@ -18,6 +18,7 @@
 // Rust guideline compliant 2026-02-21
 
 mod analysis;
+mod append;
 mod base64;
 
 pub use base64::{decode as decode_base64, encode as encode_base64};
@@ -25,6 +26,7 @@ mod calculator;
 mod clip;
 mod contours;
 mod convert;
+mod decimate;
 mod eigen;
 mod expression;
 mod flow;
@@ -37,6 +39,7 @@ mod interp;
 mod isosurface;
 mod lic;
 mod lines;
+mod mean;
 mod parallel;
 mod particles;
 mod plane;
@@ -56,6 +59,8 @@ mod warp;
 mod xdmf;
 
 pub use analysis::{FieldStats, calculator, field_statistics, histogram, resample_to_grid};
+#[doc(inline)]
+pub use append::append_datasets;
 pub use calculator::{complex_magnitude, complex_phase, vector_magnitude};
 pub use clip::{clip_halfspace, slice};
 pub use contours::contour_lines;
@@ -63,12 +68,14 @@ pub use convert::{
     cell_data_to_point_data, cell_data_to_point_data_validated, point_data_to_cell_data,
     point_data_to_cell_data_validated,
 };
+#[doc(inline)]
+pub use decimate::decimate;
 pub use flow::{
     divergence, flow_diagnostics, lambda2, q_criterion, swirling_strength, vorticity,
     vorticity_magnitude,
 };
 pub use ftle::ftle;
-pub use geometry::{append_datasets, clip_sphere, decimate, smooth, transform_dataset};
+pub use geometry::{clip_sphere, smooth, transform_dataset};
 pub use glyph::{GlyphKind, glyphs, solid_arrows, tensor_glyphs};
 pub use isosurface::isosurface;
 pub use lic::lic;

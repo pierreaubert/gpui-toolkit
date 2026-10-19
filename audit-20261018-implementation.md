@@ -947,3 +947,78 @@ and pressure/large-dataset integrations pass with Metal required.
   Clippy and the full core wasm closure pass. C3/C4/C5/P5 remain unchecked:
   decimation/append and other geometry consumers, IO, general material semantics,
   aggregate budgets, streaming and physical-device qualification still need work.
+
+## Packed geometry and coherent append checkpoint
+
+- Decimation now averages scalar/vector/tensor/complex point fields over supported
+  members only, emits masked NaNs for clusters with no field support, and subsets
+  every cell-field shape with its mask. Vertex cells survive; cells with repeated
+  remapped nodes are dropped. Field metadata is preserved. Source datasets/options
+  are checked before processing. The former i64-saturating grid key merged distinct
+  large coordinates; keys now preserve distinct representable coordinates when
+  quotients exceed exact integer precision or overflow. Ordinary grid cubes retain
+  zero-origin floor semantics, including negative coordinates and signed zero.
+- Ordinary cluster means use compensated sums. Overflowing clusters use a bounded
+  exact integer accumulator, retaining tiny residuals after cancellation instead
+  of returning infinity or losing them through global scaling. Its two 34-limb
+  signs cover finite f64 values summed up to a 64-bit usize count, and rounding
+  uses one u128 division. Accumulators live per component on the stack; a lazily
+  built O(points+clusters) membership table is reused across fields. No large
+  accumulator array is retained per cluster. Independent Python Fraction checks
+  match all 720 generated finite-bit-pattern cases, including constant extremes,
+  mixed signs, cancellation and subnormal ties. The checked-in oracle fixture and
+  portable `qa/numeric/generate_exact_mean_fixture.py` reproduce those expectations.
+- Append validates both datasets, combined sizes/indices and all shared field
+  shapes/units before copying geometry. It concatenates source masks; absent sides
+  receive masked NaNs instead of valid zeros. Empty-side schemas and payload/mask
+  sharing are covered. Matching uses borrowed names, an aligned-schema fast path
+  and indexed lookup for large reordered schemas. Geometry is concatenated into
+  packed arrays without per-cell vectors. Internal PVD callers use the same API.
+- Threshold and sphere selection share packed cell output and compute first-use
+  point order once, replacing per-cell vectors and per-field sorting. Identity
+  selections share source buffers; empty selections skip a source-sized remap.
+  Shape/mask subsetting is common with decimation. Threshold rejects NaN/reversed
+  bounds while accepting ordered infinite bounds. Sphere selection directly tests
+  robust distances, preserving user fields named `__sphere_distance`; it no longer
+  stages a colliding implementation field. Radius/center checks and inclusive
+  boundary behavior cover zero, subnormal and extreme finite ranges.
+- All ten new public filter test functions fail on unchanged baseline production
+  source `2ddc33de`, including invalid output field lengths, lost masks, saturated
+  clustering, infinite means, inconsistent units and the sphere-name collision.
+  All pass on the candidate. Existing glyph/warp geometry regressions are retained
+  unchanged; a test-file name collision was caught and corrected before the full
+  suite, with new cases placed in `geometry_filter_validity.rs`.
+- `qa/perf/20261019-geometry-packed-paired.json` contains identical release probe
+  source, source/binary hashes, allocator-disabled ABBA runs twice and separate
+  allocation builds. Cold validation/planning is included. At 24³ points:
+
+  | Scalar/vector case | Baseline median | Current median | Baseline calls / bytes | Current calls / bytes |
+  |---|---:|---:|---:|---:|
+  | Merging decimation | 969 µs | 515 µs | 36,570 / 2,272,855 | 47 / 750,734 |
+  | Identity decimation | 1,321 µs | 738 µs | 36,582 / 7,778,739 | 20 / 1,411,323 |
+  | Append both inputs | 550 µs | 249 µs | 24,400 / 9,331,758 | 23 / 6,650,046 |
+  | Append empty side | 273 µs | 66 µs | 12,230 / 4,666,535 | 7 / 496 |
+  | Select all cells | 732 µs | 252 µs | 12,283 / 5,294,830 | 30 / 2,897,646 |
+  | Sphere includes all | 1,024 µs | 278 µs | 12,308 / 5,979,571 | 34 / 2,911,531 |
+
+  All-shape append/threshold/sphere cases also improve (38.8%/70.9%/74.8%).
+  Tensor/complex decimation is covered by correctness/allocation checks rather
+  than an invalid baseline performance comparison. Timed data has no missing
+  values/overflow; exact fallback cost is not qualified by those timing results.
+  These are bounded wall-time/cumulative-allocation diagnostics, without aggregate
+  CPU time, peak RSS, energy, thermal or physical-device acceptance claims.
+- Required-Metal full core verification passes: 75 transformation, 15 mesh and
+  91 scene library tests; 60 public validity/flow/geometry/tracing/time/analysis
+  regressions; allocation and large-dataset/pressure integrations. Allocation
+  contracts cover all four field shapes, packed geometry, empty selection,
+  compatibility errors before output copying, and many overflowing clusters
+  without per-cluster heap accumulators. Strict mesh/transform all-target Clippy
+  and the full wasm core closure pass. The rational fixture regenerates exactly.
+- C3/C4/C5/P5 remain open. Smoothing/affine correctness, remaining field/IO
+  consumers, general rendering semantics, aggregate memory budgets, streaming
+  and device qualification still need work. The exact helper currently serves
+  clustering. `qa/numeric/20261019-open-mean-reductions.json` records further C4
+  defects for the next reduction pass: statistics on `[MAX,-MAX,1e-300]` returns
+  zero instead of `1e-300/3`, and point-to-cell conversion on `[1e16,3,-1e16]`
+  returns `4/3` instead of 1. Passing mask tests does not qualify numeric precision
+  across all consumers; those findings are explicitly unresolved.

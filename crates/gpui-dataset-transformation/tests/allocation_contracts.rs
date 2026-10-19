@@ -5,9 +5,10 @@
 // Rust guideline compliant 2026-02-21
 
 use gpui_dataset_transformation::{
-    GlyphKind, calculator, cell_data_to_point_data, field_statistics, flow_diagnostics, glyphs,
-    histogram, hyperstreamlines, point_data_to_cell_data, probe as probe_points, solid_arrows,
-    streamlines, tensor_glyphs,
+    GlyphKind, ThresholdMode, append_datasets, calculator, cell_data_to_point_data, clip_sphere,
+    decimate, field_statistics, flow_diagnostics, glyphs, histogram, hyperstreamlines,
+    point_data_to_cell_data, probe as probe_points, solid_arrows, streamlines, tensor_glyphs,
+    threshold,
 };
 use gpui_mesh::{Association, CellType, Cells, DataSet, Field};
 use gpui_profiler::{AllocProbe, AllocationBudget};
@@ -198,4 +199,105 @@ fn allocation_cost_is_bounded_by_outputs_and_points_without_per_cell_scratch() {
     AllocationBudget::new("empty-probe-index", 0, 0)
         .assert_contains(allocations.sample("empty-probe-index"));
     assert!(output.is_empty());
+    for n in [4usize, 16] {
+        let mut data =
+            DataSet::structured_grid("packed-geometry", [n; 3], [0.0; 3], [1.0; 3]).unwrap();
+        let points = data.point_count();
+        let cells = data.cell_count();
+        for field in [
+            Field::scalar("s", vec![0.5; points]),
+            Field::vector("v", vec![[0.5; 3]; points]),
+            Field::tensor("t", vec![[0.5; 6]; points]),
+            Field::complex("z", vec![[0.5; 2]; points]),
+        ] {
+            data.point_data.push(field);
+        }
+        for field in [
+            Field::scalar("s", vec![0.5; cells]),
+            Field::vector("v", vec![[0.5; 3]; cells]),
+            Field::tensor("t", vec![[0.5; 6]; cells]),
+            Field::complex("z", vec![[0.5; 2]; cells]),
+        ] {
+            data.cell_data.push(field.on_cells());
+        }
+        let mut allocations = AllocProbe::new();
+        allocations.reset();
+        let output = black_box(decimate(&data, 2.0).unwrap());
+        AllocationBudget::new(
+            "clustered-packed-geometry",
+            128,
+            256 * points + 64 * cells + 65536,
+        )
+        .assert_contains(allocations.sample("clustered-packed-geometry"));
+        output.validate().unwrap();
+        allocations.reset();
+        let output = black_box(append_datasets(&data, &data).unwrap());
+        AllocationBudget::new(
+            "appended-packed-geometry",
+            96,
+            640 * (points + cells) + 32768,
+        )
+        .assert_contains(allocations.sample("appended-packed-geometry"));
+        output.validate().unwrap();
+        allocations.reset();
+        let output = black_box(
+            threshold(&data, "s", Association::Cell, 0.5, 0.5, ThresholdMode::All).unwrap(),
+        );
+        AllocationBudget::new(
+            "selected-packed-geometry",
+            96,
+            384 * points + 128 * cells + 32768,
+        )
+        .assert_contains(allocations.sample("selected-packed-geometry"));
+        output.validate().unwrap();
+        allocations.reset();
+        let output =
+            black_box(clip_sphere(&data, [0.0; 3], 1e10, true, ThresholdMode::All).unwrap());
+        AllocationBudget::new(
+            "sphere-packed-geometry",
+            96,
+            384 * points + 128 * cells + 32768,
+        )
+        .assert_contains(allocations.sample("sphere-packed-geometry"));
+        output.validate().unwrap();
+        let mut mismatch = data.clone();
+        allocations.reset();
+        let empty = black_box(
+            threshold(&data, "s", Association::Cell, 2.0, 3.0, ThresholdMode::All).unwrap(),
+        );
+        AllocationBudget::new("empty-selected-geometry", 32, cells + 8192)
+            .assert_contains(allocations.sample("empty-selected-geometry"));
+        empty.validate().unwrap();
+        assert_eq!(empty.point_count(), 0);
+        mismatch.point_data[0].unit = Some("different".into());
+        allocations.reset();
+        black_box(append_datasets(&data, &mismatch)).unwrap_err();
+        AllocationBudget::new("append-schema-error", 12, 8192)
+            .assert_contains(allocations.sample("append-schema-error"));
+    }
+    let count = 4096usize;
+    let nodes = (0..count as u32).map(|node| [node]).collect::<Vec<_>>();
+    let cells = nodes
+        .iter()
+        .map(|node| (CellType::Vertex, node.as_slice()))
+        .collect::<Vec<_>>();
+    let data = DataSet::new(
+        "exact-clusters",
+        (0..count)
+            .map(|i| [(i / 2) as f64, 0.0, 0.0])
+            .collect::<Vec<_>>(),
+        Cells::from_cells(&cells),
+    )
+    .with_field(Field::scalar("s", vec![f64::MAX; count]))
+    .with_field(Field::vector("v", vec![[f64::MAX; 3]; count]))
+    .with_field(Field::tensor("t", vec![[f64::MAX; 6]; count]))
+    .with_field(Field::complex("z", vec![[f64::MAX; 2]; count]));
+    let mut allocations = AllocProbe::new();
+    allocations.reset();
+    let output = black_box(decimate(&data, 1.0).unwrap());
+    AllocationBudget::new("bounded-exact-clusters", 160, 576 * count + 65536)
+        .assert_contains(allocations.sample("bounded-exact-clusters"));
+    output.validate().unwrap();
+    assert_eq!(output.point_count(), count / 2);
+    assert_eq!(output.point_data[0].as_scalar().unwrap()[0], f64::MAX);
 }

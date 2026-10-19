@@ -1,9 +1,9 @@
-//! Scalar-range cell selection.
+//! Validity-aware cell selection with packed output storage.
 
 // Rust guideline compliant 2026-02-21
 
 use crate::TransformError;
-use gpui_mesh::{Association, Cells, DataSet, Field};
+use gpui_mesh::{Association, Cells, DataSet, Field, FieldData};
 
 /// How point values decide whether a cell survives a threshold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,17 +14,16 @@ pub enum ThresholdMode {
     Any,
 }
 
-/// Keeps cells whose field values lie in `[lower, upper]`.
+/// Keeps cells whose supported scalar values lie in `[lower,upper]`.
 ///
-/// Cell fields test the single cell value. Point fields test the cell's
-/// nodes under `mode`. Retained cells are remapped onto the points they
-/// still use; point and cell fields are subset consistently. Invalid or
-/// nonfinite entries never match; `All` therefore rejects any invalid node.
+/// Invalid nodes never match; All rejects any invalid node. Fields and points
+/// are subset consistently, preserving first-use point order and source masks.
+/// Infinite bounds are allowed. NaN/reversed bounds return an error.
 ///
 /// # Errors
 ///
-/// Returns an error when the field is missing, not scalar, or the dataset
-/// is invalid.
+/// Returns an error for invalid datasets, bounds, missing/non-scalar fields or
+/// output indices beyond the u32 representation.
 pub fn threshold(
     dataset: &DataSet,
     field_name: &str,
@@ -34,121 +33,164 @@ pub fn threshold(
     mode: ThresholdMode,
 ) -> Result<DataSet, TransformError> {
     dataset.validate()?;
-    let field: &Field = dataset
+    if lower.is_nan() || upper.is_nan() || lower > upper {
+        return Err(TransformError::Degenerate(
+            "threshold bounds must be ordered and not NaN".into(),
+        ));
+    }
+    let field = dataset
         .field(association, field_name)
-        .ok_or_else(|| TransformError::FieldNotFound(field_name.to_string()))?;
+        .ok_or_else(|| TransformError::FieldNotFound(field_name.into()))?;
     let values = field
         .as_scalar()
         .ok_or_else(|| TransformError::WrongFieldShape {
-            field: field_name.to_string(),
+            field: field_name.into(),
             reason: "threshold requires a scalar field".into(),
         })?;
-    let in_range =
+    let matches =
         |index: usize| field.is_valid(index) && values[index] >= lower && values[index] <= upper;
-
-    let mut keep = vec![false; dataset.cell_count()];
-    for (cell, kept) in keep.iter_mut().enumerate() {
-        *kept = match association {
-            Association::Cell => in_range(cell),
-            Association::Point => {
-                let nodes = dataset.cells.cell(cell).unwrap_or(&[]);
-                match mode {
-                    ThresholdMode::All => nodes.iter().all(|&n| in_range(n as usize)),
-                    ThresholdMode::Any => nodes.iter().any(|&n| in_range(n as usize)),
-                }
-            }
-        };
-    }
-    Ok(subset(dataset, &keep))
+    let keep = (0..dataset.cell_count())
+        .map(|cell| match association {
+            Association::Cell => matches(cell),
+            Association::Point => match mode {
+                ThresholdMode::All => dataset
+                    .cells
+                    .cell(cell)
+                    .unwrap()
+                    .iter()
+                    .all(|&node| matches(node as usize)),
+                ThresholdMode::Any => dataset
+                    .cells
+                    .cell(cell)
+                    .unwrap()
+                    .iter()
+                    .any(|&node| matches(node as usize)),
+            },
+        })
+        .collect::<Vec<_>>();
+    subset(dataset, &keep)
 }
 
-/// Extracts the sub-dataset of kept cells, remapping points and fields.
-pub(crate) fn subset(dataset: &DataSet, keep: &[bool]) -> DataSet {
-    let mut remap = vec![u32::MAX; dataset.point_count()];
-    let mut positions: Vec<[f64; 3]> = Vec::new();
-    let mut types = Vec::new();
-    let mut cell_nodes: Vec<Vec<u32>> = Vec::new();
-    for (cell, kept) in keep.iter().enumerate() {
-        if !kept {
-            continue;
+/// Extracts kept cells from validated input, with one shared point-order map.
+pub(crate) fn subset(dataset: &DataSet, keep: &[bool]) -> Result<DataSet, TransformError> {
+    debug_assert_eq!(keep.len(), dataset.cell_count());
+    // A common identity selection shares all storage. A first-visit sequence
+    // reaches the next index exactly; lower indices were already encountered.
+    if keep.iter().all(|keep| *keep) {
+        let mut next = 0usize;
+        let ordered = dataset.cells.connectivity.iter().all(|&node| {
+            let node = node as usize;
+            if node == next {
+                next += 1;
+                true
+            } else {
+                node < next
+            }
+        });
+        if ordered && next == dataset.point_count() {
+            return Ok(dataset.clone());
         }
-        types.push(dataset.cells.types[cell]);
-        let nodes = dataset.cells.cell(cell).unwrap_or(&[]);
-        let mapped: Vec<u32> = nodes
+    }
+    let count = keep.iter().filter(|&&kept| kept).count();
+    if count == 0 {
+        let mut result = DataSet::new(dataset.id.clone(), Vec::new(), Cells::from_cells(&[]));
+        result.point_data = dataset
+            .point_data
             .iter()
-            .map(|&n| {
-                if remap[n as usize] == u32::MAX {
-                    remap[n as usize] = positions.len() as u32;
-                    positions.push(dataset.positions[n as usize]);
-                }
-                remap[n as usize]
-            })
+            .map(|field| pick(field, &[]))
             .collect();
-        cell_nodes.push(mapped);
+        result.cell_data = dataset
+            .cell_data
+            .iter()
+            .map(|field| pick(field, &[]))
+            .collect();
+        return Ok(result);
     }
-    let refs: Vec<(gpui_mesh::CellType, &[u32])> = types
-        .iter()
-        .copied()
-        .zip(cell_nodes.iter().map(Vec::as_slice))
-        .collect();
-    let mut result = DataSet::new(
-        format!("{}-subset", dataset.id),
-        positions,
-        Cells::from_cells(&refs),
-    );
-    for field in &dataset.point_data {
-        result.point_data.push(subset_field(field, &remap));
-    }
-    let kept_indices: Vec<usize> = keep
+    let mut remap = vec![usize::MAX; dataset.point_count()];
+    let mut order = Vec::new();
+    let mut kept = Vec::with_capacity(count);
+    let connectivity_count = keep
         .iter()
         .enumerate()
-        .filter_map(|(i, k)| k.then_some(i))
-        .collect();
-    for field in &dataset.cell_data {
-        result
-            .cell_data
-            .push(subset_cell_field(field, &kept_indices));
+        .filter(|(_, kept)| **kept)
+        .map(|(cell, _)| dataset.cells.cell(cell).unwrap().len())
+        .sum();
+    let mut types = Vec::with_capacity(count);
+    let mut offsets = Vec::with_capacity(count + 1);
+    let mut connectivity = Vec::with_capacity(connectivity_count);
+    offsets.push(0);
+    for (cell, &keep) in keep.iter().enumerate() {
+        if !keep {
+            continue;
+        }
+        kept.push(cell);
+        types.push(dataset.cells.types[cell]);
+        for &node in dataset.cells.cell(cell).unwrap() {
+            let source = node as usize;
+            if remap[source] == usize::MAX {
+                crate::geometry::output_base(order.len(), 1)?;
+                remap[source] = order.len();
+                order.push(source);
+            }
+            connectivity.push(u32::try_from(remap[source]).expect("checked output index"));
+        }
+        offsets.push(connectivity.len() as u64);
     }
-    result.id = dataset.id.clone();
-    result
+    let positions = order
+        .iter()
+        .map(|&index| dataset.positions[index])
+        .collect::<Vec<_>>();
+    let mut result = DataSet::new(
+        dataset.id.clone(),
+        positions,
+        Cells {
+            types: types.into(),
+            offsets: offsets.into(),
+            connectivity: connectivity.into(),
+        },
+    );
+    result.point_data = dataset
+        .point_data
+        .iter()
+        .map(|field| pick(field, &order))
+        .collect();
+    result.cell_data = dataset
+        .cell_data
+        .iter()
+        .map(|field| pick(field, &kept))
+        .collect();
+    Ok(result)
 }
 
-fn subset_field(field: &Field, remap: &[u32]) -> Field {
-    let mut order: Vec<usize> = (0..remap.len()).filter(|&i| remap[i] != u32::MAX).collect();
-    order.sort_by_key(|&i| remap[i]);
-    pick(field, &order)
-}
-
-fn subset_cell_field(field: &Field, kept: &[usize]) -> Field {
-    pick(field, kept)
-}
-
-fn pick(field: &Field, order: &[usize]) -> Field {
+/// Selects field entries without changing support; identity selections share data.
+pub(crate) fn pick(field: &Field, order: &[usize]) -> Field {
+    if order.len() == field.data.len() && order.iter().enumerate().all(|(i, &index)| i == index) {
+        return field.clone();
+    }
     let data = match &field.data {
-        gpui_mesh::FieldData::Scalar(v) => {
-            gpui_mesh::FieldData::Scalar(order.iter().map(|&i| v[i]).collect::<Vec<_>>().into())
+        FieldData::Scalar(v) => {
+            FieldData::Scalar(order.iter().map(|&i| v[i]).collect::<Vec<_>>().into())
         }
-        gpui_mesh::FieldData::Vector(v) => {
-            gpui_mesh::FieldData::Vector(order.iter().map(|&i| v[i]).collect::<Vec<_>>().into())
+        FieldData::Vector(v) => {
+            FieldData::Vector(order.iter().map(|&i| v[i]).collect::<Vec<_>>().into())
         }
-        gpui_mesh::FieldData::Tensor(v) => {
-            gpui_mesh::FieldData::Tensor(order.iter().map(|&i| v[i]).collect::<Vec<_>>().into())
+        FieldData::Tensor(v) => {
+            FieldData::Tensor(order.iter().map(|&i| v[i]).collect::<Vec<_>>().into())
         }
-        gpui_mesh::FieldData::Complex(v) => {
-            gpui_mesh::FieldData::Complex(order.iter().map(|&i| v[i]).collect::<Vec<_>>().into())
+        FieldData::Complex(v) => {
+            FieldData::Complex(order.iter().map(|&i| v[i]).collect::<Vec<_>>().into())
         }
     };
-    let valid = field
-        .valid
-        .as_ref()
-        .map(|mask| order.iter().map(|&i| mask[i]).collect::<Vec<_>>().into());
     Field {
         name: field.name.clone(),
         label: field.label.clone(),
         unit: field.unit.clone(),
         association: field.association,
         data,
-        valid,
+        valid: field
+            .valid
+            .as_ref()
+            .map(|mask| order.iter().map(|&i| mask[i]).collect::<Vec<_>>().into()),
     }
 }
 
