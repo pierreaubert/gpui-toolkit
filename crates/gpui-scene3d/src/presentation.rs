@@ -27,6 +27,9 @@ pub(crate) struct RenderKey {
     camera: Camera,
     size: [u32; 2],
     background: [f32; 4],
+    surface_limits: gpui_mesh::SurfaceExtractionLimits,
+    gpu_upload_limits: crate::GpuUploadLimits,
+    resource_retry: u64,
     materials: Vec<MaterialKey>,
 }
 
@@ -34,6 +37,24 @@ impl RenderKey {
     #[cfg(feature = "gpui-gpu")]
     pub(crate) fn geometry_matches(&self, scene: &Scene) -> Result<bool, SceneError> {
         self.prepared.matches(scene)
+    }
+
+    #[cfg(feature = "gpui-gpu")]
+    pub(crate) fn resource_inputs_match(
+        &self,
+        scene: &Scene,
+        size: [u32; 2],
+    ) -> Result<bool, SceneError> {
+        Ok(self.size == size
+            && self.surface_limits == scene.surface_limits
+            && self.gpu_upload_limits == scene.gpu_upload_limits
+            && self.resource_retry == scene.resource_retry
+            && self.prepared.matches(scene)?
+            && self
+                .materials
+                .iter()
+                .zip(scene.actors.iter().filter(|actor| actor.visible))
+                .all(|(material, actor)| material.matches(actor)))
     }
 
     pub(crate) fn new(scene: &Scene, camera: Camera, size: [u32; 2]) -> Result<Self, SceneError> {
@@ -44,6 +65,9 @@ impl RenderKey {
             camera,
             size,
             background: scene.background,
+            surface_limits: scene.surface_limits,
+            gpu_upload_limits: scene.gpu_upload_limits,
+            resource_retry: scene.resource_retry,
             materials: scene
                 .actors
                 .iter()
@@ -67,6 +91,9 @@ impl RenderKey {
         Ok(self.camera == camera
             && self.size == size
             && self.background == scene.background
+            && self.surface_limits == scene.surface_limits
+            && self.gpu_upload_limits == scene.gpu_upload_limits
+            && self.resource_retry == scene.resource_retry
             && self.prepared.matches(scene)?
             && self
                 .materials
@@ -163,6 +190,24 @@ mod tests {
         mapped.actors[0].color = [f32::NAN; 4];
         mapped.validate_render_state().unwrap();
         assert!(mapped_key.matches(&mapped, camera, [16, 16]).unwrap());
+    }
+
+    #[test]
+    fn policy_changes_refresh_presentation_without_invalidating_geometry_identity() {
+        let mut scene = Scene::new().with_actor(Actor::new(DataSet::surface(
+            "policy",
+            vec![[0.0; 3]; 3],
+            &[[0, 1, 2]],
+        )));
+        let camera = Camera::default();
+        let key = RenderKey::new(&scene, camera, [16, 16]).unwrap();
+        scene.surface_limits.max_face_bytes = 0;
+        assert!(!key.matches(&scene, camera, [16, 16]).unwrap());
+        assert!(key.prepared.matches(&scene).unwrap());
+        scene.surface_limits = gpui_mesh::SurfaceExtractionLimits::default();
+        scene.gpu_upload_limits.max_resource_bytes = 0;
+        assert!(!key.matches(&scene, camera, [16, 16]).unwrap());
+        assert!(key.prepared.matches(&scene).unwrap());
     }
 
     #[test]

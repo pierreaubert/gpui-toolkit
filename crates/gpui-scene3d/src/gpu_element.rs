@@ -173,6 +173,7 @@ impl RegisteredSceneDraw {
         });
         if !gpu_supported {
             state.resources = None;
+            state.failure = None;
         }
         Ok(gpu_supported)
     }
@@ -200,6 +201,34 @@ struct DrawState {
     input: Option<Input>,
     resources: Option<Resources>,
     compatibility_scans: u64,
+    initialization_attempts: u64,
+    failure: Option<ResourceFailure>,
+}
+
+struct ResourceFailure {
+    device: Arc<wgpu::Device>,
+    format: wgpu::TextureFormat,
+    key: RenderKey,
+}
+
+impl ResourceFailure {
+    fn new(ctx: &WgpuContext, format: wgpu::TextureFormat, input: &Input) -> Self {
+        Self {
+            device: ctx.device.clone(),
+            format,
+            key: RenderKey::new(&input.scene, input.camera, input.size)
+                .expect("presentation input already validated"),
+        }
+    }
+
+    fn matches(&self, ctx: &WgpuContext, format: wgpu::TextureFormat, input: &Input) -> bool {
+        Arc::ptr_eq(&self.device, &ctx.device)
+            && self.format == format
+            && self
+                .key
+                .resource_inputs_match(&input.scene, input.size)
+                .unwrap_or(false)
+    }
 }
 
 struct SceneDraw {
@@ -378,7 +407,11 @@ impl WgpuCustomDraw for SceneDraw {
     ) {
         let mut state = self.state.borrow_mut();
         let DrawState {
-            input, resources, ..
+            input,
+            resources,
+            failure,
+            initialization_attempts,
+            ..
         } = &mut *state;
         let Some(input) = input.as_ref() else {
             return;
@@ -386,13 +419,25 @@ impl WgpuCustomDraw for SceneDraw {
         if !input.gpu_supported {
             return;
         }
+        // Stable failures must not recreate pipelines or repack geometry on
+        // every paint/camera tick. Only changed resource inputs retry.
+        if failure
+            .as_ref()
+            .is_some_and(|failed| failed.matches(ctx, target_format, input))
+        {
+            return;
+        }
+        *failure = None;
         if resources
             .as_ref()
             .is_none_or(|r| !Arc::ptr_eq(&r.device, &ctx.device) || r.format != target_format)
         {
             // Drop the old device's resources before allocating replacements.
             *resources = None;
+            *initialization_attempts += 1;
             let Ok(created) = Resources::new(ctx, target_format, input) else {
+                input.scene.clear_preparation();
+                *failure = Some(ResourceFailure::new(ctx, target_format, input));
                 return;
             };
             *resources = Some(created);
@@ -403,6 +448,8 @@ impl WgpuCustomDraw for SceneDraw {
                 .renderer
                 .create_target(input.size[0], input.size[1])
             else {
+                *resources = None;
+                *failure = Some(ResourceFailure::new(ctx, target_format, input));
                 return;
             };
             resource.target = target;
@@ -420,6 +467,9 @@ impl WgpuCustomDraw for SceneDraw {
                 .sync(&mut resource.scene, &input.scene)
                 .is_err()
             {
+                input.scene.clear_preparation();
+                *resources = None;
+                *failure = Some(ResourceFailure::new(ctx, target_format, input));
                 return;
             }
             input.scene.clear_preparation();
@@ -433,6 +483,8 @@ impl WgpuCustomDraw for SceneDraw {
                 )
                 .is_err()
             {
+                *resources = None;
+                *failure = Some(ResourceFailure::new(ctx, target_format, input));
                 return;
             }
             resource.rendered_revision = Some(input.revision);
@@ -673,6 +725,91 @@ mod tests {
             ..visible
         };
         assert!(composite_quad(invalid, full, 1.0, [200, 200]).is_none());
+    }
+
+    #[test]
+    #[cfg(not(target_family = "wasm"))]
+    fn resource_failures_are_cached_across_camera_ticks_and_recover_on_policy_change() {
+        match GpuRenderer::new(wgpu::TextureFormat::Rgba8Unorm) {
+            Ok(_) => {}
+            Err(GpuRenderError::NoAdapter) if std::env::var_os("GPUI_REQUIRE_GPU").is_none() => {
+                return;
+            }
+            Err(error) => panic!("required presentation GPU: {error}"),
+        }
+        let ctx = WgpuContext::headless().unwrap();
+        let renderer = GpuRenderer::from_shared_device(
+            ctx.device.clone(),
+            ctx.queue.clone(),
+            wgpu::TextureFormat::Rgba8Unorm,
+        )
+        .unwrap();
+        let target = renderer.create_target(48, 48).unwrap();
+        let data =
+            gpui_mesh::DataSet::structured_grid("policy", [2; 3], [-0.5; 3], [1.0; 3]).unwrap();
+        let mut scene = Scene::new().with_actor(crate::Actor::new(data));
+        scene.gpu_upload_limits.max_resource_bytes = 0;
+        let mut camera = Camera::fitted(scene.bounds().unwrap());
+        let draw = RegisteredSceneDraw::new();
+        let bounds = Bounds {
+            origin: point(px(0.0), px(0.0)),
+            size: size(px(48.0), px(48.0)),
+        };
+        let paint = |scene: &Scene, camera| {
+            draw.update(scene, camera, [48, 48]).unwrap();
+            let mut encoder = ctx.device.create_command_encoder(&Default::default());
+            draw.draw.draw_wgpu(
+                &ctx,
+                &mut encoder,
+                target.color_view(),
+                wgpu::TextureFormat::Rgba8Unorm,
+                [48, 48],
+                bounds,
+                bounds,
+                1.0,
+            );
+            ctx.queue.submit([encoder.finish()]);
+        };
+        for i in 0..32 {
+            camera.orbit(0.01, 0.0);
+            scene.background[0] = i as f32 / 32.0;
+            paint(&scene, camera);
+        }
+        {
+            let state = draw.draw.state.borrow();
+            assert_eq!(state.initialization_attempts, 1);
+            assert!(state.failure.is_some());
+            assert!(state.resources.is_none());
+        }
+        assert_eq!(scene.preparation_stats().retained_bytes, 0);
+        scene.retry_gpu_resources();
+        paint(&scene, camera);
+        paint(&scene, camera);
+        assert_eq!(
+            draw.draw.state.borrow().initialization_attempts,
+            2,
+            "explicit retry runs once even while the same policy still fails"
+        );
+        scene.gpu_upload_limits = crate::GpuUploadLimits::default();
+        paint(&scene, camera);
+        assert!(draw.draw.state.borrow().resources.is_some());
+        assert_eq!(draw.draw.state.borrow().initialization_attempts, 3);
+        scene.gpu_upload_limits.max_resource_bytes = 0;
+        paint(&scene, camera);
+        assert!(
+            draw.draw.state.borrow().resources.is_none(),
+            "failed sync releases the old owned scene"
+        );
+        for _ in 0..32 {
+            camera.orbit(0.01, 0.0);
+            paint(&scene, camera);
+        }
+        assert_eq!(draw.draw.state.borrow().initialization_attempts, 3);
+        scene.gpu_upload_limits = crate::GpuUploadLimits::default();
+        paint(&scene, camera);
+        assert_eq!(draw.draw.state.borrow().initialization_attempts, 4);
+        assert!(draw.draw.state.borrow().failure.is_none());
+        assert!(draw.draw.state.borrow().resources.is_some());
     }
 
     #[test]

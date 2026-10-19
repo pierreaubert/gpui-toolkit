@@ -486,6 +486,14 @@ pub struct Scene {
     pub background: [f32; 4],
     /// Text annotations for hosts with a text system (GPUI element).
     pub annotations: Vec<crate::legend::Annotation>,
+    /// Workspace allowance for newly built surface geometry.
+    ///
+    /// Changing it does not discard already prepared geometry. Clear preparation
+    /// explicitly to release cached buffers; existing snapshots may still own them.
+    pub surface_limits: gpui_mesh::SurfaceExtractionLimits,
+    /// GPU resource and CPU primitive-packing allowances applied on upload/sync.
+    pub gpu_upload_limits: crate::GpuUploadLimits,
+    pub(crate) resource_retry: u64,
     pub(crate) preparation: Arc<Mutex<crate::retained::PreparationCache>>,
 }
 
@@ -561,6 +569,9 @@ impl Scene {
             actors: Vec::new(),
             background: [0.08, 0.09, 0.11, 1.0],
             annotations: Vec::new(),
+            surface_limits: gpui_mesh::SurfaceExtractionLimits::default(),
+            gpu_upload_limits: crate::GpuUploadLimits::default(),
+            resource_retry: 0,
             preparation: Arc::default(),
         }
     }
@@ -572,6 +583,31 @@ impl Scene {
         self
     }
 
+    /// Sets the surface workspace allowance for future geometry builds.
+    ///
+    /// Cached geometry remains reusable because it needs no face workspace.
+    #[must_use]
+    pub fn with_surface_limits(mut self, limits: gpui_mesh::SurfaceExtractionLimits) -> Self {
+        self.surface_limits = limits;
+        self
+    }
+
+    /// Sets requested-resource and primitive-packing limits for GPU uploads.
+    #[must_use]
+    pub fn with_gpu_upload_limits(mut self, limits: crate::GpuUploadLimits) -> Self {
+        self.gpu_upload_limits = limits;
+        self
+    }
+
+    /// Requests another GPU resource attempt after a transient presentation failure.
+    ///
+    /// Call after freeing resources or recovering from pressure, then request a
+    /// host repaint. Cached CPU geometry and successful GPU geometry remain valid.
+    /// Camera/background ticks alone do not retry a failed resource allocation.
+    pub fn retry_gpu_resources(&mut self) {
+        self.resource_retry = self.resource_retry.wrapping_add(1);
+    }
+
     /// Returns shared geometry, rebuilding only changed dataset revisions.
     ///
     /// Scene clones share this cache. Cameras and materials do not invalidate
@@ -579,7 +615,8 @@ impl Scene {
     ///
     /// # Errors
     ///
-    /// Returns an error for invalid datasets or missing/non-scalar fields.
+    /// Returns an error for invalid datasets, missing/non-scalar fields or exceeded
+    /// face-workspace limits during a new geometry build.
     ///
     /// # Panics
     ///

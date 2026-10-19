@@ -127,6 +127,94 @@ fn chunk_layout(chunk: &crate::GpuChunk, limit: u64) -> Result<(u32, u32, u64), 
     Ok((count, edges, bytes))
 }
 
+const ACTOR_MATERIAL_BYTES: u64 = 256 * 4 + SCENE_UNIFORM_SIZE as u64;
+
+struct UploadPlan {
+    geometry_bytes: u64,
+    resource_bytes: u64,
+}
+
+fn checked_resource_sum(current: u64, additional: u64, limit: u64) -> Result<u64, SceneError> {
+    let requested = current
+        .checked_add(additional)
+        .ok_or(SceneError::ResourceLimit {
+            resource: "GPU upload resource bytes",
+            requested: u64::MAX,
+            limit,
+        })?;
+    if requested > limit {
+        return Err(SceneError::ResourceLimit {
+            resource: "GPU upload resource bytes",
+            requested,
+            limit,
+        });
+    }
+    Ok(requested)
+}
+
+fn upload_plan(
+    prepared: &crate::PreparedScene,
+    buffer_limit: u64,
+    lut_width_limit: u32,
+    limits: crate::GpuUploadLimits,
+    previous_bytes: u64,
+) -> Result<UploadPlan, SceneError> {
+    let mut plan = UploadPlan {
+        geometry_bytes: 0,
+        resource_bytes: 0,
+    };
+    let mut live = checked_resource_sum(previous_bytes, 0, limits.max_resource_bytes)?;
+    for geometry in prepared.actors.iter().flatten() {
+        if SCENE_UNIFORM_SIZE as u64 > buffer_limit {
+            return Err(SceneError::ResourceLimit {
+                resource: "GPU material uniform buffer bytes",
+                requested: SCENE_UNIFORM_SIZE as u64,
+                limit: buffer_limit,
+            });
+        }
+        if lut_width_limit < 256 {
+            return Err(SceneError::ResourceLimit {
+                resource: "GPU material LUT width",
+                requested: 256,
+                limit: u64::from(lut_width_limit),
+            });
+        }
+        // Upload currently creates independent buffers/materials for each actor,
+        // even when CPU preparation shares a geometry allocation.
+        live = checked_resource_sum(live, ACTOR_MATERIAL_BYTES, limits.max_resource_bytes)?;
+        plan.resource_bytes += ACTOR_MATERIAL_BYTES;
+        for chunk in &geometry.chunks {
+            if chunk.indices.is_empty() {
+                continue;
+            }
+            let (_, _, bytes) = chunk_layout(chunk, buffer_limit)?;
+            live = checked_resource_sum(live, bytes, limits.max_resource_bytes)?;
+            plan.resource_bytes += bytes;
+            plan.geometry_bytes += bytes;
+        }
+        for (ids, arity) in [
+            (&geometry.primitives.lines, 2usize),
+            (&geometry.primitives.points, 1),
+        ] {
+            if ids.len() == 0 {
+                continue;
+            }
+            primitive_capacity(buffer_limit.min(limits.max_primitive_staging_bytes), arity)?;
+            let bytes = (ids.len() as u64).checked_mul(arity as u64 * 16).ok_or(
+                SceneError::ResourceLimit {
+                    resource: "GPU upload resource bytes",
+                    requested: u64::MAX,
+                    limit: limits.max_resource_bytes,
+                },
+            )?;
+            live = checked_resource_sum(live, bytes, limits.max_resource_bytes)?;
+            plan.resource_bytes += bytes;
+            plan.geometry_bytes += bytes;
+        }
+    }
+    Ok(plan)
+}
+
 struct GpuActor {
     chunks: Vec<GpuChunkBuffers>,
     primitives: Vec<GpuPrimitiveBuffer>,
@@ -151,8 +239,22 @@ pub struct GpuScene {
     /// Total bytes of uploaded geometry (positions, normals, scalars,
     /// triangle/edge indices) — proof of residency for diagnostics.
     pub geometry_bytes: u64,
+    // Authoritative accounting is private: the legacy public diagnostic counter
+    // can be changed by callers and must not control memory admission.
+    resource_bytes: u64,
     order: Vec<usize>,
     prepared: SceneRevision,
+}
+
+impl GpuScene {
+    /// Requested geometry/material storage retained by this uploaded scene.
+    ///
+    /// Excludes targets, pipelines, driver overhead and externally retained
+    /// resources. See [`crate::GpuUploadLimits`] for the accounting scope.
+    #[must_use]
+    pub fn resource_bytes(&self) -> u64 {
+        self.resource_bytes
+    }
 }
 
 /// An offscreen render target owned by the renderer.
@@ -428,8 +530,23 @@ impl GpuRenderer {
     ///
     /// Returns an error for invalid render settings, missing fields,
     /// unsupported scalar/clip precision, unsupported geometry features, or
-    /// device buffer/index limits exceeded by a prepared chunk.
+    /// device buffer/index limits exceeded by a prepared chunk, or the scene
+    /// upload resource/primitive-packing allowance. Resource preflight precedes
+    /// all new actor GPU buffers and LUTs; CPU preparation has separate limits.
     pub fn upload(&self, scene: &Scene) -> Result<GpuScene, GpuRenderError> {
+        self.upload_replacement(scene, 0)
+    }
+
+    fn upload_replacement(
+        &self,
+        scene: &Scene,
+        previous_bytes: u64,
+    ) -> Result<GpuScene, GpuRenderError> {
+        checked_resource_sum(
+            previous_bytes,
+            0,
+            scene.gpu_upload_limits.max_resource_bytes,
+        )?;
         scene.validate_render_state()?;
         for actor in scene.actors.iter().filter(|actor| actor.visible) {
             if let Some(transfer) = actor.active_transfer() {
@@ -442,8 +559,15 @@ impl GpuRenderer {
             }
         }
         let prepared = scene.prepare()?;
+        let device_limits = self.device.limits();
+        let plan = upload_plan(
+            &prepared,
+            device_limits.max_buffer_size,
+            device_limits.max_texture_dimension_1d,
+            scene.gpu_upload_limits,
+            previous_bytes,
+        )?;
         let mut actors = Vec::new();
-        let mut geometry_bytes = 0u64;
         for (index, actor) in scene
             .actors
             .iter()
@@ -461,16 +585,8 @@ impl GpuRenderer {
                 if chunk.indices.is_empty() {
                     continue;
                 }
-                let (index_count, edge_count, bytes) =
+                let (index_count, edge_count, _) =
                     chunk_layout(chunk, self.device.limits().max_buffer_size)?;
-                geometry_bytes =
-                    geometry_bytes
-                        .checked_add(bytes)
-                        .ok_or(SceneError::ResourceLimit {
-                            resource: "GPU scene byte sum overflow",
-                            requested: u64::MAX,
-                            limit: u64::MAX,
-                        })?;
                 let make = |data: &[f32], label: &str| {
                     self.device
                         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -506,8 +622,12 @@ impl GpuRenderer {
                     }),
                 });
             }
-            let primitives =
-                self.upload_primitives(actor, &geometry.primitives, origin, &mut geometry_bytes)?;
+            let primitives = self.upload_primitives(
+                actor,
+                &geometry.primitives,
+                origin,
+                scene.gpu_upload_limits,
+            )?;
             // Colour LUT: the actor's transfer function, or a flat ramp.
             let (lut_bytes, scalar_range) = material_lut(actor)?;
             let lut = self.device.create_texture_with_data(
@@ -557,7 +677,8 @@ impl GpuRenderer {
             order: (0..actors.len()).collect(),
             actors,
             background: scene.background,
-            geometry_bytes,
+            geometry_bytes: plan.geometry_bytes,
+            resource_bytes: plan.resource_bytes,
             prepared: SceneRevision::new(scene)?,
         })
     }
@@ -634,7 +755,7 @@ impl GpuRenderer {
         actor: &crate::Actor,
         cells: &crate::primitives::PrimitiveCells,
         origin: [f64; 3],
-        geometry_bytes: &mut u64,
+        limits: crate::GpuUploadLimits,
     ) -> Result<Vec<GpuPrimitiveBuffer>, SceneError> {
         let field = crate::retained::selected_field(actor)?.map(|(_, field)| field);
         let mut buffers = Vec::new();
@@ -645,7 +766,13 @@ impl GpuRenderer {
             if ids.len() == 0 {
                 continue;
             }
-            let capacity = primitive_capacity(self.device.limits().max_buffer_size, arity)?;
+            let capacity = primitive_capacity(
+                self.device
+                    .limits()
+                    .max_buffer_size
+                    .min(limits.max_primitive_staging_bytes),
+                arity,
+            )?;
             let mut source = ids.iter();
             let mut remaining = ids.len();
             while remaining != 0 {
@@ -673,14 +800,6 @@ impl GpuRenderer {
                         )?);
                     }
                 }
-                let next_geometry_bytes =
-                    geometry_bytes
-                        .checked_add(bytes)
-                        .ok_or(SceneError::ResourceLimit {
-                            resource: "GPU primitive byte sum overflow",
-                            requested: u64::MAX,
-                            limit: u64::MAX,
-                        })?;
                 let vertices = self
                     .device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -688,7 +807,6 @@ impl GpuRenderer {
                         contents: bytemuck::cast_slice(&vertices),
                         usage: wgpu::BufferUsages::VERTEX,
                     });
-                *geometry_bytes = next_geometry_bytes;
                 buffers.push(GpuPrimitiveBuffer {
                     vertices,
                     count: index_count(vertex_count, "GPU primitive vertex count")?,
@@ -708,8 +826,17 @@ impl GpuRenderer {
     ///
     /// # Errors
     ///
-    /// Returns the same preparation errors as [`Self::upload`].
+    /// Returns the same preparation errors as [`Self::upload`]. Replacing
+    /// geometry includes the old scene's requested resources in the allowance;
+    /// failure preserves the old scene. Hosts can drop it and call `upload` when
+    /// replacement cannot fit both. Unchanged geometry is checked against the
+    /// current allowance without allocating/repacking it.
     pub fn sync(&self, uploaded: &mut GpuScene, scene: &Scene) -> Result<bool, GpuRenderError> {
+        checked_resource_sum(
+            uploaded.resource_bytes,
+            0,
+            scene.gpu_upload_limits.max_resource_bytes,
+        )?;
         scene.validate_render_state()?;
         for actor in scene.actors.iter().filter(|actor| actor.visible) {
             if let Some(transfer) = actor.active_transfer() {
@@ -717,7 +844,7 @@ impl GpuRenderer {
             }
         }
         if !uploaded.prepared.matches(scene)? {
-            *uploaded = self.upload(scene)?;
+            *uploaded = self.upload_replacement(scene, uploaded.resource_bytes)?;
             return Ok(true);
         }
         if scene
@@ -1278,6 +1405,125 @@ mod tests {
             }
             Err(error) => panic!("scene3d GPU initialization failed: {error}"),
         }
+    }
+
+    #[test]
+    fn upload_arithmetic_and_shared_actor_storage_are_preflighted() {
+        assert!(checked_resource_sum(u64::MAX, 1, u64::MAX).is_err());
+        assert_eq!(checked_resource_sum(17, 23, 40).unwrap(), 40);
+        assert!(checked_resource_sum(17, 23, 39).is_err());
+        let actor = Actor::new(DataSet::surface(
+            "triangle",
+            vec![[0.0; 3]; 3],
+            &[[0, 1, 2]],
+        ));
+        let scene = Scene::new().with_actor(actor.clone()).with_actor(actor);
+        let prepared = scene.prepare().unwrap();
+        // The CPU cache shares geometry, but GPU upload currently duplicates it.
+        assert!(Arc::ptr_eq(
+            prepared.actors[0].as_ref().unwrap(),
+            prepared.actors[1].as_ref().unwrap()
+        ));
+        let expected = 2 * (96 + ACTOR_MATERIAL_BYTES);
+        let mut limits = crate::GpuUploadLimits {
+            max_resource_bytes: expected,
+            ..Default::default()
+        };
+        let plan = upload_plan(&prepared, u64::MAX, 256, limits, 0).unwrap();
+        assert_eq!(plan.geometry_bytes, 192);
+        assert_eq!(plan.resource_bytes, expected);
+        limits.max_resource_bytes -= 1;
+        assert!(upload_plan(&prepared, u64::MAX, 256, limits, 0).is_err());
+        assert!(matches!(
+            upload_plan(&prepared, 191, 256, crate::GpuUploadLimits::default(), 0),
+            Err(SceneError::ResourceLimit {
+                resource: "GPU material uniform buffer bytes",
+                ..
+            })
+        ));
+        assert!(matches!(
+            upload_plan(
+                &prepared,
+                u64::MAX,
+                255,
+                crate::GpuUploadLimits::default(),
+                0
+            ),
+            Err(SceneError::ResourceLimit {
+                resource: "GPU material LUT width",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn primitive_packing_and_replacement_respect_host_limits() {
+        let Some(renderer) = renderer() else {
+            return;
+        };
+        let data = DataSet::new(
+            "line",
+            vec![[-0.5, 0.0, 0.0], [0.5, 0.0, 0.0]],
+            gpui_mesh::Cells::lines(&[[0, 1]; 9]),
+        );
+        let mut scene = Scene::new()
+            .with_actor(Actor::new(data))
+            .with_gpu_upload_limits(crate::GpuUploadLimits {
+                max_resource_bytes: 9 * 32 + ACTOR_MATERIAL_BYTES,
+                max_primitive_staging_bytes: 32,
+            });
+        scene.gpu_upload_limits.max_resource_bytes -= 1;
+        assert!(renderer.upload(&scene).is_err());
+        assert!(
+            renderer.line_pipelines.get().is_none(),
+            "failure precedes new primitive resources"
+        );
+        scene.gpu_upload_limits.max_resource_bytes += 1;
+        scene.gpu_upload_limits.max_primitive_staging_bytes = 31;
+        assert!(renderer.upload(&scene).is_err());
+        assert!(renderer.line_pipelines.get().is_none());
+        scene.gpu_upload_limits.max_primitive_staging_bytes = 32;
+        let mut uploaded = renderer.upload(&scene).unwrap();
+        assert_eq!(uploaded.geometry_bytes, 9 * 32);
+        assert_eq!(
+            uploaded.resource_bytes(),
+            scene.gpu_upload_limits.max_resource_bytes
+        );
+        assert_eq!(uploaded.actors[0].primitives.len(), 9);
+        assert!(
+            uploaded.actors[0]
+                .primitives
+                .iter()
+                .all(|buffer| buffer.vertices.size() == 32)
+        );
+        let target = renderer.create_target(32, 32).unwrap();
+        let camera = Camera::fitted(scene.bounds().unwrap());
+        renderer.render(&mut uploaded, &camera, &target).unwrap();
+        let expected = renderer.read_rgba(&target).unwrap();
+        let old_bytes = uploaded.resource_bytes();
+        uploaded.geometry_bytes = 0; // Public diagnostics must not control admission.
+        scene.gpu_upload_limits.max_resource_bytes = old_bytes - 1;
+        assert!(renderer.sync(&mut uploaded, &scene).is_err());
+        scene.gpu_upload_limits.max_resource_bytes = old_bytes;
+        scene.gpu_upload_limits.max_primitive_staging_bytes = 0;
+        assert!(
+            !renderer.sync(&mut uploaded, &scene).unwrap(),
+            "resident data needs no repacking"
+        );
+        scene.gpu_upload_limits.max_primitive_staging_bytes = 32;
+        Arc::make_mut(&mut scene.actors[0].dataset.positions)[0][0] -= 0.1;
+        scene.gpu_upload_limits.max_resource_bytes = old_bytes * 2 - 1;
+        assert!(
+            renderer.sync(&mut uploaded, &scene).is_err(),
+            "old plus replacement must fit"
+        );
+        assert_eq!(uploaded.resource_bytes(), old_bytes);
+        renderer.render(&mut uploaded, &camera, &target).unwrap();
+        assert_eq!(renderer.read_rgba(&target).unwrap().rgba, expected.rgba);
+        scene.gpu_upload_limits.max_resource_bytes += 1;
+        assert!(renderer.sync(&mut uploaded, &scene).unwrap());
+        assert_eq!(uploaded.resource_bytes(), old_bytes);
+        assert_eq!(scene.preparation_stats().geometry_builds, 2);
     }
 
     #[test]

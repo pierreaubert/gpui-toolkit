@@ -2097,3 +2097,141 @@ and pressure/large-dataset integrations pass with Metal required.
   C3/C4, remaining renderer/cache work, scheduling/power, text/FFI, other
   platforms/devices, Taffy, CUDA/MLX experiments and full acceptance remain in
   scope. The full implementation goal remains active.
+
+## Host-owned scene allowances and bounded GPU upload checkpoint
+
+- Previous goal turn: progress (`295ae7ad`). `Scene::surface_limits` and
+  `with_surface_limits` now pass the host allowance through retained preparation,
+  software rendering and GPU upload. Limits govern new face-workspace allocation;
+  already prepared geometry needs no face workspace and stays reusable under a
+  lower allowance. A changed source or cleared cache must satisfy the new limit.
+  Scene clones still share preparation; a rejected build preserves the previous
+  usable snapshot. No budget change forces a geometry rebuild by itself.
+- `GpuUploadLimits`, stored on `Scene::gpu_upload_limits` (and available through
+  `with_gpu_upload_limits`), defaults to **256 MiB requested GPU resources** and
+  **4 MiB temporary primitive-vertex element bytes per packing chunk**. Upload
+  preflight counts all visible actors' position/normal/scalar/index/edge buffers,
+  packed line/point vertices, 256 RGBA8 LUT texels and the 192-byte uniform.
+  CPU-shared geometry is counted once per actual uploaded actor because GPU
+  upload currently duplicates those buffers. Buffer/index arithmetic and material
+  buffer/LUT width device limits are checked before new actor GPU resources.
+  Empty triangle chunks retain the prior skipped-upload behavior.
+- Transactional `GpuRenderer::sync` includes the old scene's owned resource
+  lengths while preparing its replacement. It rejects before GPU replacement
+  allocation when old plus new cannot fit, preserving the old scene on failure.
+  Hosts can explicitly drop the old scene and upload afresh when simultaneous
+  replacement is impossible. An unchanged scene is checked against its current
+  allowance without repacking/reuploading; lowering the packing allowance to zero
+  is safe while geometry remains resident. Authoritative resource accounting is
+  private, so changing the legacy public `geometry_bytes` diagnostic cannot bypass
+  admission. `GpuScene::resource_bytes()` exposes the requested-resource total.
+- This is a scoped upload allowance, not a physical VRAM or process-memory cap.
+  It excludes allocator/driver overhead, targets/pipelines, canonical/prepared CPU
+  arrays, wgpu internal staging, other uploaded scenes and resources retained
+  externally by pending command buffers. Material/frame updates have separate
+  working sets. The primitive allowance governs requested temporary vector
+  elements; allocator rounding is outside its scope. Source/output/cache and
+  in-flight CPU/GPU aggregate accounting remain open. CPU preparation can still
+  allocate before GPU preflight; this change does not make CPU output bounded.
+- Primitive buffer sizing now intersects device/draw limits with the host packing
+  allowance. At 1,048,576 cells, the former one-million-cell cap produced two
+  buffers, with largest temporary line/point vectors requesting 32,000,000 /
+  16,000,000 bytes. The 4 MiB default produces eight line buffers or four point
+  buffers. Final geometry bytes stay equal. This reduces packing peak storage
+  while increasing draw/buffer bookkeeping; a host can choose a larger allowance
+  when profiling justifies the memory cost.
+- GPUI presentation keys now include resource policies without changing geometry
+  identity. Failed resource creation/resize/sync/encode retains one failure key,
+  drops failed owned resources and clears derived CPU preparation where needed.
+  Camera/background ticks matching the failure no longer recreate pipelines or
+  repack geometry. Changed source/material/size/policy/device/format permits a
+  retry. `Scene::retry_gpu_resources()` explicitly permits one more attempt after
+  pressure/transient-failure recovery; the host then requests a repaint. Successful
+  geometry remains reusable. This avoids an indefinite transient-failure verdict
+  without adding a polling timer or busy retry loop.
+- Native headless GPUI tests exercise 32 camera/background ticks with a denied
+  upload: one actual resource-initialization attempt, no retained derived CPU
+  bytes, explicit one-shot retry under the still-failing policy, success after
+  raising the allowance, dropped resources on failed sync, 32 more camera ticks
+  without another initialization, and recovery. The test uses actual wgpu draws;
+  it does not assert measured power savings. Custom-draw failures still suppress
+  painting under the existing host contract; surfacing a detailed presentation
+  error to the product UI remains open. Public upload/sync return typed errors.
+- Tests also cover overflow/exact byte boundaries, independent material device
+  limits, GPU duplication of CPU-shared actor geometry, primitive packing at the
+  minimum line stride, rejected requests before lazy primitive pipeline creation,
+  successful exact-budget upload, unchanged resident data under a zero packing
+  allowance, old-plus-new rejection with exact preservation of old rendered
+  pixels, and successful transactional retry. Public render tests compare exact
+  point/line/surface images with 32-byte packing versus the default. Retained
+  preparation tests cover cold rejection, warm reuse, changed-source rejection,
+  cache clearing and externally held snapshot validity.
+- `qa/perf/20261019-upload-budget-paired.json` archives release source/lock,
+  runner, raw CPU/wall/allocation/RSS samples and source/test/binary hashes.
+  Isolated baseline/candidate and timing/allocation targets; allocator-disabled
+  ABBA twice gives four fresh timing processes/version, one warmup and five
+  samples/case, with separate allocation runs and no task-owned builds/tests
+  during timing. All **24 cases** preserve cross-version image hashes and GPU
+  geometry payloads exactly. An initialized Metal renderer and prepared source
+  precede timing. Upload is CPU buffer/LUT creation/upload work; rendering,
+  readback, completion and validation are outside that clock. Sync batches 1,000
+  unchanged calls per sample, normalized per call; submit clocks CPU encode and
+  queue submission, with completion/readback outside. Line/point cases share
+  source points and constant colors, deliberately avoiding ambiguous tied-color
+  output; repeated overdraw is not a GPU throughput benchmark. Canonical/general
+  48-cubed surface controls retain their prepared geometry.
+
+  | Operation | Baseline process CPU | Current process CPU | Baseline / current allocated bytes |
+  |---|---:|---:|---:|
+  | Upload 1,048,576 lines | 9.298 ms | 9.479 ms | 33,563,719 / 33,569,151 |
+  | Upload 1,048,576 points | 5.441 ms | 5.161 ms | 16,786,503 / 16,788,263 |
+  | Upload canonical 48-cubed surface | 127.5 µs | 125.5 µs | 10,997 / 10,997 |
+  | Upload general 48-cubed surface | 126.0 µs | 137.5 µs | 10,997 / 10,997 |
+
+  Large-line upload CPU increases about 1.9%, and general-surface upload about
+  9.1%; these costs remain open for profiling. The initial run also observed a
+  general-control cost, about 16%, so no broad CPU speedup is claimed. Large-line
+  allocation calls rise 65 to 118 and point calls 65 to 83 because packing creates
+  more buffers. Total allocated element traffic is nearly unchanged; the goal is
+  smaller simultaneous packing storage, not less cumulative vertex work. Sync
+  stays allocation-free (about 24 ns/call in this simple retained one-actor case).
+  Resident-submit results are mixed: large lines measure 67 to 56 microseconds
+  of CPU, but allocation calls/bytes rise 61/9,234 to 63/10,722; the general
+  surface control measures 33.5 to 36.5 microseconds, with 60/9,282 to 63/9,354.
+  These counters include Rust-side driver work and do not establish unchanged
+  frame allocation cost. Small point submits also show extra calls. Shader
+  execution, first use, realistic overdraw and measured energy are not qualified
+  by these CPU submission timings.
+- Separate allocator-disabled macOS `time -l` runs perform one large upload per
+  fresh process, ABBA twice per primitive family. Median maximum process RSS is
+  **121,274,368 to 92,110,848 bytes** for lines (about 24.0% lower) and
+  **78,528,512 to 66,928,640 bytes** for points (about 14.8% lower). These include
+  source/CPU preparation, renderer initialization, render/readback and validation.
+  RSS is neither the requested-resource allowance nor physical GPU/mobile memory.
+  Thermal/affinity are uncontrolled; no whole-app or energy improvement is claimed.
+  The earlier diagnostic remains in `20261019-upload-budget-initial.json`, before
+  explicit retry/material-device checks. Its baseline-chunk wording is corrected
+  in metadata; the original executed runner is preserved. All final candidate
+  images/payloads match that diagnostic exactly, and final measured source/test
+  hashes match the files now retained.
+- Verification passes 27 mesh / 74 transformation library tests and integrations
+  in the broader check, 110 required-GPU scene library tests and all scene
+  integrations, 79 software-only scene library tests and integrations, and 223
+  Rust Python-runtime tests with supported Python. Targeted strict scene
+  production/integration Clippy, doctests, native viewer compilation and the wasm
+  GPU/GPUI closure pass. Broad all-target lint failures recorded earlier remain
+  open. The original audit and prior checkpoint evidence are unchanged.
+- P1/C5/P3 remain unchecked for complete CPU source/output/cache budgets, all
+  import/legacy consumers, in-flight submissions and shared device totals. The
+  new cold-upload costs, earlier software-line regression, C3/C4 validity and
+  representation parity, demand scheduling/thermal/power, text/FFI, other
+  renderers/platforms/physical devices, Taffy, CUDA/MLX experiments and full
+  acceptance remain in scope. The full implementation goal remains active.
+- Review also confirms a remaining C4 camera-precision gap: `Camera::validate`
+  checks projection at unit aspect and a view relative to its own target, while
+  `encode_to_views` forms actor-relative MVPs and writes them without a final
+  finite-coefficient check. Extreme valid finite targets/scales can therefore
+  need stronger backend checks. This is unqualified, not completion evidence;
+  add a public reproduce-and-recover oracle before the precision fix. Encoding
+  error caching must account for camera-dependent failures when those checks
+  are introduced, while allocation-failure caching can stay camera-independent.

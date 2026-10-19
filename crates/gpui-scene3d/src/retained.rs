@@ -2,7 +2,7 @@
 
 // Rust guideline compliant 2026-02-21
 
-use crate::prepare::{DEFAULT_MAX_TRIANGLES, GpuChunk, prepare_chunks_with_bounds};
+use crate::prepare::{DEFAULT_MAX_TRIANGLES, GpuChunk, prepare_chunks_with_bounds_and_limits};
 use crate::{Actor, Scene, SceneError};
 use gpui_mesh::{Association, Bounds, Cells, Field, FieldData};
 use std::collections::HashMap;
@@ -220,7 +220,11 @@ impl PreparationCache {
                 geometry.clone()
             } else {
                 // Preparation validates once per geometry revision before indexing.
-                let (bounds, chunks) = prepare_chunks_with_bounds(actor, DEFAULT_MAX_TRIANGLES)?;
+                let (bounds, chunks) = prepare_chunks_with_bounds_and_limits(
+                    actor,
+                    DEFAULT_MAX_TRIANGLES,
+                    scene.surface_limits,
+                )?;
                 let primitives = crate::primitives::PrimitiveCells::prepare(
                     &actor.dataset,
                     selected_field(actor)?.map(|(_, field)| field),

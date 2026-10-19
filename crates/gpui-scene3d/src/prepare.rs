@@ -98,7 +98,7 @@ pub fn prepare_chunks_with_limits(
     prepare_chunks_with_bounds_and_limits(actor, max_triangles, limits).map(|(_, chunks)| chunks)
 }
 
-fn prepare_chunks_with_bounds_and_limits(
+pub(crate) fn prepare_chunks_with_bounds_and_limits(
     actor: &Actor,
     max_triangles: usize,
     limits: gpui_mesh::SurfaceExtractionLimits,

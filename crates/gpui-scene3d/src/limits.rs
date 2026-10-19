@@ -30,6 +30,35 @@ impl Default for RenderLimits {
     }
 }
 
+/// Bounds resources requested by one scene upload or transactional replacement.
+///
+/// Counts geometry buffers, per-actor LUT texels and uniform buffer lengths.
+/// A replacement includes the old uploaded scene while the new one is built.
+/// Excludes allocator/driver overhead, pipelines, targets, canonical/prepared CPU
+/// data and resources retained externally by command buffers or other scenes.
+/// It is not a physical VRAM or total device-memory limit. Material/frame updates
+/// have separate working sets; this allowance covers geometry upload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GpuUploadLimits {
+    /// Maximum requested GPU geometry/material bytes during upload.
+    pub max_resource_bytes: u64,
+    /// Maximum temporary CPU primitive-vertex element bytes per upload chunk.
+    ///
+    /// Surface attributes are borrowed from prepared geometry. Primitive chunks
+    /// are packed in a temporary vector, then copied into their GPU buffer.
+    /// This excludes Vec/allocator overhead and wgpu's internal staging.
+    pub max_primitive_staging_bytes: u64,
+}
+
+impl Default for GpuUploadLimits {
+    fn default() -> Self {
+        Self {
+            max_resource_bytes: 256 * 1024 * 1024,
+            max_primitive_staging_bytes: 4 * 1024 * 1024,
+        }
+    }
+}
+
 impl RenderLimits {
     /// Checks dimensions and total live storage without allocating.
     ///
