@@ -1983,3 +1983,117 @@ and pressure/large-dataset integrations pass with Metal required.
   and physical-device coverage, Taffy, CUDA/MLX experiments and final acceptance
   remain in scope. The original audit stays frozen and the full implementation
   goal remains active.
+
+## General volume face-workspace checkpoint
+
+- Previous checkpoint: progress (`3ecd939d`). General volume extraction now
+  collects fixed-size face records into one fallibly reserved array, sorts keys
+  in place and emits only keys with exactly one owner. The production global hash
+  map and separate surviving-face vector are removed. Source cell IDs, sorted
+  polygon-key order, owning winding, fan diagonals and the rule that all faces
+  with two or more owners are culled remain unchanged. Canonical hexahedral grids
+  retain the constant-space cursor route. The previous map implementation remains
+  under `cfg(test)` as an independent ordered-output oracle.
+- Additive `SurfaceExtractionLimits { max_face_bytes }`,
+  `try_for_each_surface_chunk_with_limits` and `surface_chunks_with_limits`
+  preflight the conservative face-table record count, element bytes and address
+  space before reserving or invoking any callbacks. Degenerate faces can reduce
+  actual record count but do not reduce this preflight allowance. Only face-record
+  element storage is covered: allocator overhead, sorting stack, source arrays,
+  chunk vectors/remapping, callbacks' retained output and GPU residency are not.
+  Face reservation failures return typed allocation errors; other chunk/output
+  vectors retain their prior infallible allocation behavior.
+- Scene point/cell/uncolored preparation uses the **64 MiB** default face-record
+  allowance. `prepare_chunks_with_limits` provides a standalone explicit override.
+  Default retained scene preparation can now return a mesh resource-limit error
+  for large unstructured/noncanonical meshes. A host supplying its own allowance
+  must also budget the other live arrays; this is not an aggregate scene bound.
+  Legacy mesh convenience/callback APIs retain unlimited face-workspace behavior
+  for signature compatibility and can panic on a failed face reservation. Other
+  transformation/export consumers of those legacy APIs still need migration.
+- `surface_chunks` now feeds a shared chunk builder directly from extraction,
+  removing the full intermediate triangle vector. Collected surface chunks do
+  not allocate source-cell IDs. The builder reuses its remapping table across
+  chunk boundaries, caps local indices to u32 and preserves first-use vertex
+  ordering. It still retains all chunks for convenience callers, including scene
+  point preparation; callback streaming remains available to consuming hosts.
+- Tests check exact mixed direct/volume triangle order, owners and winding,
+  budgets at the exact internal record-byte boundary, rejection before direct
+  surface callbacks, zero workspace for canonical/surface-only paths, callback
+  cancellation and three-owner nonmanifold culling. Scene tests verify explicit
+  limits for uncolored, point and cell associations. Existing 125 canonical-grid
+  comparisons and edited/reordered fallback cases compare against the old map.
+  An isolated native 48-cubed noncanonical visitor guard with 4,096-triangle
+  chunks requires fewer than 32 MiB cumulative Rust allocations, excluding source
+  construction/validation. The identical release fixture fails unchanged
+  `3ecd939d` at 44,285,984 bytes and passes the candidate. This is allocation
+  traffic, not a peak/live-memory guarantee.
+- `qa/perf/20261019-general-boundary-paired.json` records exact release
+  probe/lock, runner, raw allocator-disabled ABBA-twice samples, separate
+  allocation builds, source/test/binary hashes and the memory oracle. Four fresh
+  timing processes/version, one warmup and five samples/case; no task-owned
+  builds/tests overlap measurement. All **72 cases** preserve cross-version
+  image/ordered-output hashes and retained payload lengths exactly. The general
+  grids rotate the last hex to defeat canonical detection while preserving face
+  sets. This is an exercised general algorithm, not a representative survey of
+  every arbitrary tetrahedral mesh distribution. The old map stays the separate
+  unit oracle for mixed cell families.
+
+  | Operation | Baseline process CPU | Current process CPU | Baseline / current cumulative allocated bytes |
+  |---|---:|---:|---:|
+  | Cold general point scene, 48 cubed | 27.071 ms | 20.334 ms | 45,092,721 / 21,192,757 |
+  | Cold general uniform-cell scene, 48 cubed | 26.104 ms | 20.555 ms | 45,168,081 / 21,455,141 |
+  | Cold general varying-cell scene, 48 cubed | 26.674 ms | 21.100 ms | 45,965,285 / 22,252,345 |
+  | Cold general missing-cell scene, 48 cubed | 26.026 ms | 20.511 ms | 45,168,081 / 21,455,141 |
+  | General owned-chunk visit, 48 cubed | 26.426 ms | 20.062 ms | 44,285,984 / 20,573,044 |
+  | General boundary vector, 96 cubed | 241.178 ms | 173.398 ms | 348,127,236 / 166,188,864 |
+  | General owned-chunk visit, 96 cubed | 246.397 ms | 178.366 ms | 348,827,704 / 166,889,332 |
+
+  Cold preparation uses a fresh Scene/cache and includes validation; source
+  construction is excluded. Owned visitors prevalidate outside timing and hash
+  exact owners/global IDs inside timing, retaining only count/hash. Boundary
+  vectors check exact ordered IDs outside timing. Face detection/preflight,
+  collection, in-place sorting and culling remain timed. At 48 cubed, general
+  cold CPU falls 21–25% and allocation bytes 52–53%; 8/24-cubed general cases also
+  improve both. Varying-cell wire preparation at 24 cubed falls 3.692 to 3.029 ms
+  and 6,575,633 to 3,373,949 allocated bytes.
+- The unchanged canonical point control saves allocation bytes but has a small
+  cold CPU cost: 29 to 29.5 microseconds at 8 cubed, 336.5 to 342 at 24 cubed,
+  and 1.696 to 1.719 ms at 48 cubed (about 1.3–1.7%). At 48 cubed its allocation
+  traffic drops 1,445,765 to 1,258,741 bytes, with one extra allocation call.
+  Dynamic chunk-vector growth replaces the old exact-sized index reservation;
+  capacities and allocator rounding are excluded from retained payload figures.
+  This cost remains explicit, alongside the earlier large flat-line CPU cost.
+  Warm frame/draw allocations and CPU/GPU geometry payloads remain unchanged;
+  small warm timing changes do not establish a per-frame improvement.
+- Separate allocator-disabled macOS `time -l` runs perform one general 96-cubed
+  visitor per fresh process, ABBA twice, with identical owner/node hash. Median
+  maximum process RSS falls **425,746,432 to 284,475,392 bytes**, about 33.2%.
+  These runs include source construction, validation and callback hashing; they
+  use the legacy unlimited visitor deliberately to qualify the larger workload.
+  That 96-cubed general face array exceeds the new 64 MiB scene default and would
+  require an explicit allowance in a limited API. RSS is not the face-record
+  element budget, VRAM or mobile memory. No power/energy, GPU execution time,
+  whole-application or physical-device improvement is claimed.
+- The first measurement attempt was rejected because the oracle test rebuilt
+  the allocation executable without its GPU feature, yielding only 40 cases.
+  Rebuilding the intended feature set and rerunning produces 72 cases in every
+  timing/allocation process. An output-path-only correction is archived with the
+  exact executed runner; the preceding structured-boundary artifact is restored
+  byte-for-byte from Git. No compiled source, probe, binary, sample or measurement
+  logic changed for that destination correction.
+- Verification passes 27 mesh / 74 transformation / 106 required-GPU scene
+  library tests and public integrations, plus 78 software-only scene library
+  tests and software integrations. Mesh doctests, strict mesh-test Clippy,
+  targeted scene production/workspace-test Clippy, native viewer compilation,
+  all 223 Rust Python-runtime tests with supported Python, and the wasm GPU/GPUI
+  library closure pass. The pre-existing broad all-target lint
+  failures remain open. Final source/test/lock hashes match the measured files;
+  the original audit and earlier evidence artifacts remain unchanged.
+- P1/C5 remain unchecked for legacy consumer migration, retained-scene host
+  allowance configuration, chunk/output/source/import and aggregate CPU/GPU
+  budgets. This bounds one workspace by returning structured errors; it does not
+  stream arbitrarily large unstructured topology through a tiny allowance.
+  C3/C4, remaining renderer/cache work, scheduling/power, text/FFI, other
+  platforms/devices, Taffy, CUDA/MLX experiments and full acceptance remain in
+  scope. The full implementation goal remains active.

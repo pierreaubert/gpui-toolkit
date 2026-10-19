@@ -45,7 +45,7 @@ pub use legend::{
 #[doc(inline)]
 pub use limits::RenderLimits;
 pub use movie::{MovieError, TimedFrame, frame_rate, validate_frames};
-pub use prepare::{GpuChunk, prepare_chunks};
+pub use prepare::{GpuChunk, prepare_chunks, prepare_chunks_with_limits};
 pub use raster::{Frame, render, render_with_limits};
 #[doc(inline)]
 pub use retained::{PreparationStats, PreparedScene};

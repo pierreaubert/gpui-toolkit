@@ -19,7 +19,10 @@ mod grid;
 mod structured_boundary;
 mod time_series;
 
-pub use chunk::{SurfaceChunk, boundary_triangles, surface_chunks, try_for_each_surface_chunk};
+pub use chunk::{
+    SurfaceChunk, SurfaceExtractionLimits, boundary_triangles, surface_chunks,
+    surface_chunks_with_limits, try_for_each_surface_chunk, try_for_each_surface_chunk_with_limits,
+};
 pub use composite::{Block, CompositeDataSet};
 pub use dataset::{Bounds, CellType, Cells, DataSet, DataSetKind, MeshError, ValidatedDataSet};
 pub use decomposition::tetrahedra;

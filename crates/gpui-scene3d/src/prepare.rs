@@ -62,7 +62,8 @@ impl GpuChunk {
 ///
 /// # Errors
 ///
-/// Returns a mesh error for invalid geometry or field storage, or
+/// Uses the default face-workspace limit from [`gpui_mesh::SurfaceExtractionLimits`].
+/// Returns a mesh error for invalid geometry, field storage or workspace limits, or
 /// [`SceneError::FieldNotFound`] for a missing or nonscalar coloring field.
 pub fn prepare_chunks(actor: &Actor, max_triangles: usize) -> Result<Vec<GpuChunk>, SceneError> {
     prepare_chunks_with_bounds(actor, max_triangles).map(|(_, chunks)| chunks)
@@ -71,6 +72,36 @@ pub fn prepare_chunks(actor: &Actor, max_triangles: usize) -> Result<Vec<GpuChun
 pub(crate) fn prepare_chunks_with_bounds(
     actor: &Actor,
     max_triangles: usize,
+) -> Result<(Option<gpui_mesh::Bounds>, Vec<GpuChunk>), SceneError> {
+    prepare_chunks_with_bounds_and_limits(
+        actor,
+        max_triangles,
+        gpui_mesh::SurfaceExtractionLimits::default(),
+    )
+}
+
+/// Prepares actor chunks within an explicit temporary face-workspace limit.
+///
+/// The limit excludes source data, chunk/output arrays and GPU residency. See
+/// [`gpui_mesh::SurfaceExtractionLimits`] for its exact scope. Other semantics
+/// match [`prepare_chunks`].
+///
+/// # Errors
+///
+/// Returns geometry/field errors, face workspace/allocation errors or a missing
+/// coloring field. A zero triangle budget is treated as one.
+pub fn prepare_chunks_with_limits(
+    actor: &Actor,
+    max_triangles: usize,
+    limits: gpui_mesh::SurfaceExtractionLimits,
+) -> Result<Vec<GpuChunk>, SceneError> {
+    prepare_chunks_with_bounds_and_limits(actor, max_triangles, limits).map(|(_, chunks)| chunks)
+}
+
+fn prepare_chunks_with_bounds_and_limits(
+    actor: &Actor,
+    max_triangles: usize,
+    limits: gpui_mesh::SurfaceExtractionLimits,
 ) -> Result<(Option<gpui_mesh::Bounds>, Vec<GpuChunk>), SceneError> {
     let checked = actor.dataset.validated()?;
     let dataset = checked.as_dataset();
@@ -102,9 +133,10 @@ pub(crate) fn prepare_chunks_with_bounds(
         // Cell splits may duplicate a global edge within one chunk as well as
         // across chunks. The first emitted valid owner supplies its wire alpha.
         let mut seen = actor.wireframe.then(std::collections::HashSet::new);
-        gpui_mesh::try_for_each_surface_chunk(
+        gpui_mesh::try_for_each_surface_chunk_with_limits(
             checked,
             max_triangles.clamp(1, DEFAULT_MAX_TRIANGLES),
+            limits,
             |chunk, owners| {
                 if let Some(chunk) =
                     cell_chunk(dataset, origin, chunk, owners, values, valid, seen.as_mut())
@@ -118,7 +150,7 @@ pub(crate) fn prepare_chunks_with_bounds(
     }
     let point_scalars = scalar_lookup.map(|(_, values)| values);
 
-    let chunks = gpui_mesh::surface_chunks(dataset, max_triangles.max(1));
+    let chunks = gpui_mesh::surface_chunks_with_limits(checked, max_triangles.max(1), limits)?;
     let mut seen_edges = (actor.wireframe && chunks.len() > 1).then(std::collections::HashSet::new);
     let mut out = Vec::with_capacity(chunks.len());
     for chunk in chunks {

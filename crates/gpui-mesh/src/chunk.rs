@@ -2,9 +2,11 @@
 
 // Rust guideline compliant 2026-02-21
 
-use crate::dataset::{CellType, DataSet, ValidatedDataSet};
+use crate::dataset::{CellType, DataSet, MeshError, ValidatedDataSet};
 use std::collections::HashMap;
-use std::num::{NonZeroU8, NonZeroUsize};
+use std::num::NonZeroU8;
+#[cfg(test)]
+use std::num::NonZeroUsize;
 
 #[derive(Clone, Copy)]
 struct Face {
@@ -40,11 +42,51 @@ impl Face {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 struct FaceOwner {
     // One-based so Option<FaceOwner> needs no extra discriminant.
     cell: NonZeroUsize,
     face: u8,
+}
+
+/// Limits temporary volume-face storage during surface extraction.
+///
+/// Counts face-record element bytes, excluding allocator overhead, source data,
+/// chunk remapping/storage, callback-retained output and sorting stack space.
+/// Canonical hexahedral grids need no face-record array. This is not a total
+/// extraction or process-memory budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SurfaceExtractionLimits {
+    /// Maximum temporary volume-face record element bytes.
+    pub max_face_bytes: u64,
+}
+
+impl Default for SurfaceExtractionLimits {
+    fn default() -> Self {
+        Self {
+            // Allow common moderate unstructured meshes without a giant
+            // accidental workspace; constrained hosts should choose less.
+            max_face_bytes: 64 * 1024 * 1024,
+        }
+    }
+}
+
+struct FaceRecord {
+    key: [u32; 5],
+    cell: usize,
+    face: u8,
+}
+
+enum BoundaryError<E> {
+    Mesh(MeshError),
+    Callback(E),
+}
+
+impl<E> From<MeshError> for BoundaryError<E> {
+    fn from(error: MeshError) -> Self {
+        Self::Mesh(error)
+    }
 }
 
 /// One bounded chunk of extracted surface triangles.
@@ -118,14 +160,98 @@ pub fn boundary_triangles(dataset: &DataSet) -> Vec<[u32; 3]> {
 
 fn visit_boundary<E>(
     dataset: &DataSet,
-    mut visit: impl FnMut(usize, [u32; 3]) -> Result<(), E>,
+    visit: impl FnMut(usize, [u32; 3]) -> Result<(), E>,
 ) -> Result<(), E> {
-    if let Some(grid) = crate::structured_boundary::CanonicalHexGrid::detect(dataset) {
-        return grid.visit(|cell, face| visit_face(dataset, cell, usize::from(face), &mut visit));
+    // Legacy APIs cannot represent workspace errors. Their allocation behavior
+    // remains infallible; new callers should select the explicitly limited API.
+    match visit_boundary_with_limits(dataset, u64::MAX, visit) {
+        Ok(()) => Ok(()),
+        Err(BoundaryError::Callback(error)) => Err(error),
+        Err(BoundaryError::Mesh(error)) => panic!("surface extraction failed: {error}"),
     }
-    visit_general_boundary(dataset, visit)
 }
 
+fn face_workspace(dataset: &DataSet, max_bytes: u64) -> Result<usize, MeshError> {
+    let address_limit = (isize::MAX as u64).min(max_bytes);
+    let capacity = dataset.cells.types.iter().try_fold(0usize, |count, &kind| {
+        count.checked_add(volume_faces(kind).len())
+    });
+    let bytes = capacity.and_then(|n| n.checked_mul(size_of::<FaceRecord>()));
+    let requested = bytes.map_or(u64::MAX, |n| n as u64);
+    if requested > address_limit || capacity.is_none() || bytes.is_none() {
+        return Err(MeshError::ResourceLimit {
+            resource: "surface face workspace bytes",
+            requested,
+            limit: address_limit,
+        });
+    }
+    Ok(capacity.expect("checked face count"))
+}
+
+fn visit_boundary_with_limits<E>(
+    dataset: &DataSet,
+    max_face_bytes: u64,
+    mut visit: impl FnMut(usize, [u32; 3]) -> Result<(), E>,
+) -> Result<(), BoundaryError<E>> {
+    if let Some(grid) = crate::structured_boundary::CanonicalHexGrid::detect(dataset) {
+        return grid
+            .visit(|cell, face| visit_face(dataset, cell, usize::from(face), &mut visit))
+            .map_err(BoundaryError::Callback);
+    }
+    let capacity = face_workspace(dataset, max_face_bytes)?;
+    let mut faces = Vec::<FaceRecord>::new();
+    faces
+        .try_reserve_exact(capacity)
+        .map_err(|_| MeshError::Allocation {
+            bytes: capacity as u64 * size_of::<FaceRecord>() as u64,
+        })?;
+    for cell in 0..dataset.cell_count() {
+        let Some(nodes) = dataset.cells.cell(cell) else {
+            continue;
+        };
+        let kind = dataset.cells.types[cell];
+        match kind {
+            CellType::Triangle | CellType::Quad | CellType::Polygon => {
+                for i in 1..nodes.len() - 1 {
+                    visit(cell, [nodes[0], nodes[i], nodes[i + 1]])
+                        .map_err(BoundaryError::Callback)?;
+                }
+            }
+            CellType::Tetra | CellType::Hexahedron | CellType::Wedge | CellType::Pyramid => {
+                for (face_index, face) in volume_faces(kind).iter().enumerate() {
+                    if let Some(polygon) = Face::new(nodes, face) {
+                        faces.push(FaceRecord {
+                            key: polygon.key(),
+                            cell,
+                            face: face_index as u8,
+                        });
+                    }
+                }
+            }
+            CellType::Vertex | CellType::Line => {}
+        }
+    }
+    // In-place sorting avoids a map plus a second surviving-face allocation.
+    // Equal keys are all interior/nonmanifold, irrespective of multiplicity.
+    faces.sort_unstable_by_key(|record| record.key);
+    let mut start = 0;
+    while start < faces.len() {
+        let mut end = start + 1;
+        while end < faces.len() && faces[end].key == faces[start].key {
+            end += 1;
+        }
+        if end == start + 1 {
+            let record = &faces[start];
+            visit_face(dataset, record.cell, usize::from(record.face), &mut visit)
+                .map_err(BoundaryError::Callback)?;
+        }
+        start = end;
+    }
+    Ok(())
+}
+
+// Independent previous implementation is retained only as an exact test oracle.
+#[cfg(test)]
 fn visit_general_boundary<E>(
     dataset: &DataSet,
     mut visit: impl FnMut(usize, [u32; 3]) -> Result<(), E>,
@@ -207,15 +333,14 @@ fn visit_face<E>(
     Ok(())
 }
 
-/// Visits bounded surface chunks with each triangle's source cell index.
+/// Visits surface chunks with each triangle's source cell index.
 ///
 /// `cell_ids[i]` owns the triangle at `chunk.indices[i * 3..i * 3 + 3]`.
-/// The cell IDs are borrowed only during the callback. Surface ordering and
-/// volume-face culling match [`boundary_triangles`]. No full triangle array is
-/// constructed. Verified canonical hexahedral grids use constant-space face
-/// cursors; other volume topologies still use a dataset-wide face map.
-/// The triangle budget is capped to keep every chunk-local index representable.
-/// The validated view keeps source geometry immutable throughout traversal.
+/// The cell IDs are borrowed only during the callback. Ordering and face culling
+/// match [`boundary_triangles`]. No full triangle array is constructed.
+/// Chunk indices remain representable as u32. Source geometry stays immutable.
+/// This legacy API has no face-workspace byte limit; prefer
+/// [`try_for_each_surface_chunk_with_limits`] for constrained or untrusted input.
 ///
 /// # Errors
 ///
@@ -223,81 +348,214 @@ fn visit_face<E>(
 ///
 /// # Panics
 ///
-/// Panics when `max_triangles` is zero.
+/// Panics when `max_triangles` is zero or face storage cannot be allocated.
 pub fn try_for_each_surface_chunk<E>(
     dataset: ValidatedDataSet<'_>,
     max_triangles: usize,
-    mut visit: impl FnMut(SurfaceChunk, &[usize]) -> Result<(), E>,
+    visit: impl FnMut(SurfaceChunk, &[usize]) -> Result<(), E>,
 ) -> Result<(), E> {
-    assert!(max_triangles > 0, "max_triangles must be at least 1");
-    let dataset = dataset.as_dataset();
-    let max_triangles = max_triangles.min(u32::MAX as usize / 3);
-    let mut local = HashMap::<u32, u32>::new();
-    let mut point_ids = Vec::new();
-    let mut indices = Vec::new();
-    let mut cell_ids = Vec::new();
-    visit_boundary(dataset, |cell, triangle| {
+    let mut chunks = ChunkBuilder::new(max_triangles, true, visit);
+    visit_boundary(dataset.as_dataset(), |cell, triangle| {
+        chunks.push(cell, triangle)
+    })?;
+    chunks.finish()
+}
+
+/// Visits surface chunks within an explicit volume-face workspace limit.
+///
+/// The same ordering, ownership and chunk sizing as
+/// [`try_for_each_surface_chunk`] apply. General volume meshes preflight all
+/// face-record bytes before allocating the workspace or invoking callbacks.
+/// Verified canonical grids use constant-space cursors and no face records.
+/// Direct surface cells need no face records. Limits exclude output retained by
+/// callbacks and the chunk's vectors/remapping table; triangle caps bound their
+/// element counts separately. Callbacks can stop traversal, including canonical
+/// traversal, with their first error.
+///
+/// # Errors
+///
+/// Returns workspace/address limits, failed face-array reservation or the first
+/// callback error. `E` must convert a [`MeshError`] for resource failures.
+///
+/// # Panics
+///
+/// Panics when `max_triangles` is zero.
+pub fn try_for_each_surface_chunk_with_limits<E: From<MeshError>>(
+    dataset: ValidatedDataSet<'_>,
+    max_triangles: usize,
+    limits: SurfaceExtractionLimits,
+    visit: impl FnMut(SurfaceChunk, &[usize]) -> Result<(), E>,
+) -> Result<(), E> {
+    let mut chunks = ChunkBuilder::new(max_triangles, true, visit);
+    visit_boundary_with_limits(
+        dataset.as_dataset(),
+        limits.max_face_bytes,
+        |cell, triangle| chunks.push(cell, triangle),
+    )
+    .map_err(|error| match error {
+        BoundaryError::Mesh(error) => E::from(error),
+        BoundaryError::Callback(error) => error,
+    })?;
+    chunks.finish()
+}
+
+struct ChunkBuilder<F> {
+    max_triangles: usize,
+    record_owners: bool,
+    triangle_count: usize,
+    local: HashMap<u32, u32>,
+    point_ids: Vec<u32>,
+    indices: Vec<u32>,
+    cell_ids: Vec<usize>,
+    visit: F,
+}
+
+impl<F> ChunkBuilder<F> {
+    fn new(max_triangles: usize, record_owners: bool, visit: F) -> Self {
+        assert!(max_triangles > 0, "max_triangles must be at least 1");
+        Self {
+            max_triangles: max_triangles.min(u32::MAX as usize / 3),
+            record_owners,
+            triangle_count: 0,
+            local: HashMap::new(),
+            point_ids: Vec::new(),
+            indices: Vec::new(),
+            cell_ids: Vec::new(),
+            visit,
+        }
+    }
+
+    fn push<E>(&mut self, cell: usize, triangle: [u32; 3]) -> Result<(), E>
+    where
+        F: FnMut(SurfaceChunk, &[usize]) -> Result<(), E>,
+    {
         for point in triangle {
-            let id = *local.entry(point).or_insert_with(|| {
-                let id = point_ids.len() as u32;
-                point_ids.push(point);
+            let id = *self.local.entry(point).or_insert_with(|| {
+                let id = self.point_ids.len() as u32;
+                self.point_ids.push(point);
                 id
             });
-            indices.push(id);
+            self.indices.push(id);
         }
-        cell_ids.push(cell);
-        if cell_ids.len() == max_triangles {
-            visit(
+        if self.record_owners {
+            self.cell_ids.push(cell);
+        }
+        self.triangle_count += 1;
+        if self.triangle_count == self.max_triangles {
+            (self.visit)(
                 SurfaceChunk {
-                    point_ids: std::mem::take(&mut point_ids),
-                    indices: std::mem::take(&mut indices),
+                    point_ids: std::mem::take(&mut self.point_ids),
+                    indices: std::mem::take(&mut self.indices),
                 },
-                &cell_ids,
+                &self.cell_ids,
             )?;
-            cell_ids.clear();
-            local.clear();
+            self.cell_ids.clear();
+            self.triangle_count = 0;
+            self.local.clear();
         }
         Ok(())
-    })?;
-    if !cell_ids.is_empty() {
-        visit(SurfaceChunk { point_ids, indices }, &cell_ids)?;
     }
-    Ok(())
+
+    fn finish<E>(mut self) -> Result<(), E>
+    where
+        F: FnMut(SurfaceChunk, &[usize]) -> Result<(), E>,
+    {
+        if self.triangle_count != 0 {
+            (self.visit)(
+                SurfaceChunk {
+                    point_ids: self.point_ids,
+                    indices: self.indices,
+                },
+                &self.cell_ids,
+            )?;
+        }
+        Ok(())
+    }
 }
 
 /// Splits the boundary surface into chunks of at most `max_triangles` each.
 ///
+/// Chunks are collected without a full intermediate triangle array. This legacy
+/// convenience API retains all output and has no workspace byte limit. Prefer
+/// [`try_for_each_surface_chunk_with_limits`] for a streaming consumer.
+///
 /// # Panics
 ///
-/// Panics when `max_triangles` is zero, which can never produce a chunk.
+/// Panics when `max_triangles` is zero or face storage cannot be allocated.
 #[must_use]
 pub fn surface_chunks(dataset: &DataSet, max_triangles: usize) -> Vec<SurfaceChunk> {
-    assert!(max_triangles > 0, "max_triangles must be at least 1");
-    let triangles = boundary_triangles(dataset);
-    let mut chunks = Vec::new();
-    for group in triangles.chunks(max_triangles) {
-        let mut local: HashMap<u32, u32> = HashMap::new();
-        let mut point_ids: Vec<u32> = Vec::new();
-        let mut indices: Vec<u32> = Vec::with_capacity(group.len() * 3);
-        for tri in group {
-            for &point in tri {
-                let id = *local.entry(point).or_insert_with(|| {
-                    let id = point_ids.len() as u32;
-                    point_ids.push(point);
-                    id
-                });
-                indices.push(id);
-            }
-        }
-        chunks.push(SurfaceChunk { point_ids, indices });
+    let mut output = Vec::new();
+    let mut chunks = ChunkBuilder::new(max_triangles, false, |chunk, _: &[usize]| {
+        output.push(chunk);
+        Ok::<(), std::convert::Infallible>(())
+    });
+    let result = visit_boundary(dataset, |cell, triangle| chunks.push(cell, triangle))
+        .and_then(|()| chunks.finish());
+    match result {
+        Ok(()) => output,
+        Err(never) => match never {},
     }
-    chunks
+}
+
+/// Collects surface chunks with a volume-face workspace limit.
+///
+/// Unlike the streaming visitor, this retains all chunks. The limit covers only
+/// temporary face records, as described by [`SurfaceExtractionLimits`]. No
+/// per-triangle source-cell array or full intermediate triangle array is built.
+///
+/// # Errors
+///
+/// Returns workspace/address limits or failed face-array reservation.
+///
+/// # Panics
+///
+/// Panics when `max_triangles` is zero.
+pub fn surface_chunks_with_limits(
+    dataset: ValidatedDataSet<'_>,
+    max_triangles: usize,
+    limits: SurfaceExtractionLimits,
+) -> Result<Vec<SurfaceChunk>, MeshError> {
+    let mut output = Vec::new();
+    let mut chunks = ChunkBuilder::new(max_triangles, false, |chunk, _: &[usize]| {
+        output.push(chunk);
+        Ok::<(), MeshError>(())
+    });
+    visit_boundary_with_limits(
+        dataset.as_dataset(),
+        limits.max_face_bytes,
+        |cell, triangle| chunks.push(cell, triangle),
+    )
+    .map_err(|error| match error {
+        BoundaryError::Mesh(error) | BoundaryError::Callback(error) => error,
+    })?;
+    chunks.finish()?;
+    Ok(output)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::dataset::Cells;
+
+    #[test]
+    fn face_record_budget_boundary_is_checked_before_reservation() {
+        let dataset = DataSet::new(
+            "tet",
+            vec![[0.0; 3]; 4],
+            Cells::from_cells(&[(CellType::Tetra, &[0, 1, 2, 3])]),
+        );
+        let bytes = 4 * size_of::<FaceRecord>() as u64;
+        assert_eq!(face_workspace(&dataset, bytes).unwrap(), 4);
+        assert_eq!(
+            face_workspace(&dataset, bytes - 1),
+            Err(MeshError::ResourceLimit {
+                resource: "surface face workspace bytes",
+                requested: bytes,
+                limit: bytes - 1,
+            })
+        );
+        assert!(size_of::<FaceRecord>() <= 32);
+    }
 
     #[test]
     fn canonical_grids_match_general_face_order_owners_and_winding() {
