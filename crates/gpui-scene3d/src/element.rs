@@ -268,6 +268,41 @@ mod tests {
 
     #[test]
     #[cfg(feature = "gpui-gpu")]
+    fn camera_precision_fallback_retains_image_and_recovers_without_source_changes() {
+        let scene = Scene::new().with_actor(Actor::new(
+            DataSet::structured_grid("camera", [2; 3], [-0.5; 3], [1.0; 3]).unwrap(),
+        ));
+        let good = Camera::fitted(scene.bounds().unwrap());
+        let bad = Camera {
+            target: [1e100; 3],
+            ..good
+        };
+        bad.validate().unwrap();
+        let mut state = ElementState::default();
+        assert!(matches!(
+            state.prepare(&scene, good, [32, 32], true).unwrap(),
+            PaintSource::Custom(_)
+        ));
+        let PaintSource::Image(first) = state.prepare(&scene, bad, [32, 32], true).unwrap() else {
+            panic!("unsupported actor-relative matrices must use software");
+        };
+        let PaintSource::Image(second) = state.prepare(&scene, bad, [32, 32], true).unwrap() else {
+            panic!("software camera frame should stay cached");
+        };
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(
+            matches!(
+                state.prepare(&scene, good, [32, 32], true).unwrap(),
+                PaintSource::Custom(_)
+            ),
+            "camera precision must not poison the cached material/topology verdict"
+        );
+        assert!(state.image.is_none());
+        assert_eq!(scene.preparation_stats().geometry_builds, 1);
+    }
+
+    #[test]
+    #[cfg(feature = "gpui-gpu")]
     fn primitive_precision_fallback_retains_image_and_recovers_gpu_route() {
         let data = DataSet::new(
             "wide primitive",

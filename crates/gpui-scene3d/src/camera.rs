@@ -253,29 +253,7 @@ impl Camera {
         let eye: [f64; 3] =
             std::array::from_fn(|axis| self.target[axis] - origin[axis] + f64::from(offset[axis]));
         let (s, u, f) = (self.right(), self.up(), self.forward());
-        let dot = |direction: [f32; 3]| {
-            (f64::from(direction[0]) * eye[0]
-                + f64::from(direction[1]) * eye[1]
-                + f64::from(direction[2]) * eye[2]) as f32
-        };
-        [
-            s[0],
-            u[0],
-            -f[0],
-            0.0,
-            s[1],
-            u[1],
-            -f[1],
-            0.0,
-            s[2],
-            u[2],
-            -f[2],
-            0.0,
-            -dot(s),
-            -dot(u),
-            dot(f),
-            1.0,
-        ]
+        view_from_eye(s, u, f, eye)
     }
 
     /// Projection matrix for an aspect ratio, column-major, wgpu depth [0,1].
@@ -308,6 +286,173 @@ impl Camera {
             self.projection_matrix(aspect),
             self.view_matrix_relative_to(origin),
         )
+    }
+
+    /// Checks a viewport-specific actor-relative matrix for GPU representation.
+    ///
+    /// Uses the actual positive aspect ratio, without the legacy raw matrix
+    /// helper's minimum-aspect clamp. Returned coefficients are finite and all
+    /// nonzero coefficients are normal f32 values. This conservative profile
+    /// does not promise exact f64 geometry or a bound on float rounding error.
+    ///
+    /// # Errors
+    ///
+    /// Returns invalid-camera errors for invalid parameters/aspect, or unsupported
+    /// precision when the viewport/origin cannot meet this GPU float profile.
+    pub fn try_view_projection_relative_to(
+        &self,
+        origin: [f64; 3],
+        aspect: f32,
+    ) -> Result<[f32; 16], crate::SceneError> {
+        self.gpu_frame(aspect)?
+            .project_origin(origin, false)
+            .map(|(matrix, _)| matrix)
+    }
+
+    pub(crate) fn gpu_frame(&self, aspect: f32) -> Result<CameraFrame, crate::SceneError> {
+        self.validate()?;
+        if !aspect.is_finite() || aspect <= 0.0 {
+            return Err(crate::SceneError::InvalidCamera(
+                "aspect must be finite and positive",
+            ));
+        }
+        let projection = self.projection_at_aspect(aspect);
+        if !projection_fits_gpu(&projection) {
+            return Err(crate::SceneError::UnsupportedPrecision(
+                "viewport projection exceeds the GPU float profile",
+            ));
+        }
+        let basis = [self.right(), self.up(), self.forward()];
+        if !basis.iter().all(|axis| normal_coefficients(axis)) {
+            return Err(crate::SceneError::UnsupportedPrecision(
+                "camera basis exceeds the GPU float profile",
+            ));
+        }
+        Ok(CameraFrame {
+            projection,
+            basis,
+            offset: self.eye_offset(),
+            target: self.target,
+        })
+    }
+
+    fn projection_at_aspect(&self, aspect: f32) -> [f32; 16] {
+        match self.projection {
+            Projection::Perspective { fov_y } => perspective(fov_y, aspect, self.near, self.far),
+            Projection::Orthographic { half_height } => {
+                orthographic(half_height, aspect, self.near, self.far)
+            }
+        }
+    }
+
+    pub(crate) fn needs_reference_projection(&self, aspect: f32) -> bool {
+        !projection_fits_gpu(&self.projection_at_aspect(aspect))
+    }
+
+    // The render entry point validates the camera and viewport first.
+    pub(crate) fn software_primitive_matrix(
+        &self,
+        origin: [f64; 3],
+        aspect: f32,
+    ) -> Result<[f64; 16], crate::SceneError> {
+        let projection = self.projection_at_aspect(aspect);
+        let raw = multiply(projection, self.view_matrix_relative_to(origin));
+        if projection_fits_gpu(&projection) && raw.iter().all(|value| value.is_finite()) {
+            // Preserve ordinary raster arithmetic exactly, promoting the same
+            // f32 coefficients once instead of at every primitive vertex.
+            return Ok(raw.map(f64::from));
+        }
+        let near = f64::from(self.near);
+        let far = f64::from(self.far);
+        let aspect = f64::from(aspect);
+        let projection = match self.projection {
+            Projection::Perspective { fov_y } => {
+                let focal = 1.0 / (f64::from(fov_y) * 0.5).tan();
+                let a = far / (near - far);
+                [
+                    focal / aspect,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    focal,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    a,
+                    -1.0,
+                    0.0,
+                    0.0,
+                    near * a,
+                    0.0,
+                ]
+            }
+            Projection::Orthographic { half_height } => {
+                let height = f64::from(half_height);
+                let a = -1.0 / (far - near);
+                [
+                    1.0 / (height * aspect),
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0 / height,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    a,
+                    0.0,
+                    0.0,
+                    0.0,
+                    near * a,
+                    1.0,
+                ]
+            }
+        };
+        let offset = self.eye_offset();
+        let eye: [f64; 3] =
+            std::array::from_fn(|axis| self.target[axis] - origin[axis] + f64::from(offset[axis]));
+        let (s, u, f) = (
+            self.right().map(f64::from),
+            self.up().map(f64::from),
+            self.forward().map(f64::from),
+        );
+        let dot = |direction: [f64; 3]| {
+            direction[0] * eye[0] + direction[1] * eye[1] + direction[2] * eye[2]
+        };
+        let view = [
+            s[0],
+            u[0],
+            -f[0],
+            0.0,
+            s[1],
+            u[1],
+            -f[1],
+            0.0,
+            s[2],
+            u[2],
+            -f[2],
+            0.0,
+            -dot(s),
+            -dot(u),
+            dot(f),
+            1.0,
+        ];
+        let matrix: [f64; 16] = std::array::from_fn(|index| {
+            let row = index % 4;
+            let column = index / 4;
+            (0..4)
+                .map(|k| projection[k * 4 + row] * view[column * 4 + k])
+                .sum()
+        });
+        if matrix.iter().any(|value| !value.is_finite()) {
+            return Err(crate::SceneError::UnsupportedPrecision(
+                "software primitive camera exceeds f64 range",
+            ));
+        }
+        Ok(matrix)
     }
 
     pub(crate) fn ray_grid_relative_to(
@@ -413,6 +558,107 @@ fn perspective(fov_y: f32, aspect: f32, near: f32, far: f32) -> [f32; 16] {
     ]
 }
 
+// Projection and trigonometric basis are shared by all actors for one camera.
+pub(crate) struct CameraFrame {
+    projection: [f32; 16],
+    basis: [[f32; 3]; 3],
+    offset: [f32; 3],
+    target: [f64; 3],
+}
+
+fn projection_fits_gpu(projection: &[f32; 16]) -> bool {
+    normal_coefficients(projection)
+        && [0, 5, 10, 14]
+            .into_iter()
+            .all(|index| projection[index].is_normal())
+}
+
+#[inline]
+fn normal_coefficients(values: &[f32]) -> bool {
+    // Clearing the sign leaves ordered IEEE magnitudes. A zero exponent with
+    // nonzero fraction is subnormal; an all-ones exponent is infinity or NaN.
+    // Bitwise boolean reduction permits vectorization of this small hot check.
+    const MIN_NORMAL_BITS: u32 = f32::MIN_POSITIVE.to_bits();
+    const INFINITY_BITS: u32 = f32::INFINITY.to_bits();
+    values.iter().fold(0u32, |invalid, value| {
+        let magnitude = value.to_bits() & 0x7fff_ffff;
+        let nonzero = u32::from(magnitude != 0);
+        let outside =
+            u32::from(magnitude < MIN_NORMAL_BITS) | u32::from(magnitude >= INFINITY_BITS);
+        invalid | (nonzero & outside)
+    }) == 0
+}
+
+fn local_distance(eye: [f64; 3]) -> f64 {
+    // Accepted local views have f32-range translations, so their f64 squares
+    // cannot overflow. Scale only very small vectors to avoid double underflow.
+    const SMALL_LENGTH: f64 = 1e-150;
+    let scale = eye.into_iter().map(f64::abs).fold(0.0, f64::max);
+    if scale == 0.0 {
+        return 0.0;
+    }
+    if scale < SMALL_LENGTH {
+        let scaled = eye.map(|value| value / scale);
+        return scale
+            * (scaled[0] * scaled[0] + scaled[1] * scaled[1] + scaled[2] * scaled[2]).sqrt();
+    }
+    (eye[0] * eye[0] + eye[1] * eye[1] + eye[2] * eye[2]).sqrt()
+}
+
+fn view_from_eye(s: [f32; 3], u: [f32; 3], f: [f32; 3], eye: [f64; 3]) -> [f32; 16] {
+    let dot = |direction: [f32; 3]| {
+        (f64::from(direction[0]) * eye[0]
+            + f64::from(direction[1]) * eye[1]
+            + f64::from(direction[2]) * eye[2]) as f32
+    };
+    [
+        s[0],
+        u[0],
+        -f[0],
+        0.0,
+        s[1],
+        u[1],
+        -f[1],
+        0.0,
+        s[2],
+        u[2],
+        -f[2],
+        0.0,
+        -dot(s),
+        -dot(u),
+        dot(f),
+        1.0,
+    ]
+}
+
+impl CameraFrame {
+    pub(crate) fn project_origin(
+        &self,
+        origin: [f64; 3],
+        sort_transparent: bool,
+    ) -> Result<([f32; 16], f64), crate::SceneError> {
+        let eye: [f64; 3] = std::array::from_fn(|axis| {
+            self.target[axis] - origin[axis] + f64::from(self.offset[axis])
+        });
+        let [s, u, f] = self.basis;
+        let view = view_from_eye(s, u, f, eye);
+        let matrix = multiply(self.projection, view);
+        if !normal_coefficients(&matrix) {
+            return Err(crate::SceneError::UnsupportedPrecision(
+                "actor-relative camera matrix exceeds the GPU float profile",
+            ));
+        }
+        // World-space eye addition can lose the orbit offset at large targets.
+        // Only translucent actor ordering needs this length; opaque actors skip it.
+        let distance = if sort_transparent {
+            local_distance(eye)
+        } else {
+            0.0
+        };
+        Ok((matrix, distance))
+    }
+}
+
 fn orthographic(half_height: f32, aspect: f32, near: f32, far: f32) -> [f32; 16] {
     let half_width = half_height * aspect;
     let depth = far - near;
@@ -447,6 +693,130 @@ fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coefficient_reduction_checks_ieee_boundaries_and_local_length_keeps_small_values() {
+        for sign in [0u32, 0x8000_0000] {
+            for exponent in 0..256 {
+                for fraction in [0, 1, 0x7f_ffff] {
+                    let value = f32::from_bits(sign | (exponent << 23) | fraction);
+                    let expected = value == 0.0 || value.is_normal();
+                    for index in [0, 7, 15] {
+                        let mut values = [1.0; 16];
+                        values[index] = value;
+                        assert_eq!(
+                            normal_coefficients(&values),
+                            expected,
+                            "bits {:08x}",
+                            value.to_bits()
+                        );
+                    }
+                }
+            }
+        }
+        assert_eq!(local_distance([0.0; 3]), 0.0);
+        assert!((local_distance([3.0, 4.0, 0.0]) - 5.0).abs() < 1e-15);
+        for length in [1e-250, 1e38] {
+            assert!((local_distance([length, 0.0, 0.0]) / length - 1.0).abs() < 1e-15);
+        }
+    }
+
+    #[test]
+    fn checked_gpu_frames_preserve_normal_matrices_and_local_orbit_distance() {
+        for target in [[0.0; 3], [1e12 + 0.125, -1e12, 1e12]] {
+            for aspect in [0.25, 1.0, 2.0] {
+                for azimuth in [0.0, 0.7, 2.0] {
+                    let camera = Camera {
+                        target,
+                        azimuth,
+                        ..Default::default()
+                    };
+                    let frame = camera.gpu_frame(aspect).unwrap();
+                    for origin in [target, target.map(|v| v - 2.0)] {
+                        let (matrix, _) = frame.project_origin(origin, false).unwrap();
+                        assert_eq!(
+                            matrix.map(f32::to_bits),
+                            camera
+                                .view_projection_relative_to(origin, aspect)
+                                .map(f32::to_bits)
+                        );
+                    }
+                }
+            }
+        }
+        let camera = Camera {
+            target: [1e300; 3],
+            ..Default::default()
+        };
+        let (_, distance) = camera
+            .gpu_frame(1.0)
+            .unwrap()
+            .project_origin(camera.target, true)
+            .unwrap();
+        assert!(
+            (distance - f64::from(camera.distance)).abs() < 1e-6,
+            "world eye addition must not lose the local orbit offset"
+        );
+        assert_eq!(camera.eye(), camera.target); // The old world-space sort distance was zero.
+        for aspect in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            assert!(matches!(
+                camera.try_view_projection_relative_to(camera.target, aspect),
+                Err(crate::SceneError::InvalidCamera(_))
+            ));
+        }
+        assert!(matches!(
+            camera.try_view_projection_relative_to([0.0; 3], 1.0),
+            Err(crate::SceneError::UnsupportedPrecision(_))
+        ));
+    }
+
+    #[test]
+    fn checked_viewport_uses_actual_aspect_and_rejects_collapsed_or_subnormal_coefficients() {
+        let camera = Camera {
+            azimuth: 0.0,
+            elevation: 0.0,
+            ..Default::default()
+        };
+        let matrix = camera
+            .try_view_projection_relative_to([0.0; 3], 1e-7)
+            .unwrap();
+        assert_eq!(matrix[0], camera.projection_matrix(1.0)[0] / 1e-7);
+        assert_ne!(
+            matrix[0],
+            camera.view_projection_relative_to([0.0; 3], 1e-7)[0]
+        );
+        let tiny_basis = Camera {
+            azimuth: 1e-40,
+            ..camera
+        };
+        tiny_basis.validate().unwrap();
+        assert!(matches!(
+            tiny_basis.try_view_projection_relative_to([0.0; 3], 1.0),
+            Err(crate::SceneError::UnsupportedPrecision(_))
+        ));
+        let shallow_bias = Camera {
+            distance: 0.0,
+            near: 1e-38,
+            far: 1e36,
+            projection: Projection::Orthographic { half_height: 1.0 },
+            ..camera
+        };
+        shallow_bias.validate().unwrap();
+        assert_eq!(shallow_bias.projection_matrix(1.0)[14], 0.0);
+        assert!(matches!(
+            shallow_bias.try_view_projection_relative_to([0.0; 3], 1.0),
+            Err(crate::SceneError::UnsupportedPrecision(_))
+        ));
+        let wide = Camera {
+            projection: Projection::Orthographic { half_height: 1e36 },
+            ..camera
+        };
+        wide.validate().unwrap();
+        assert!(matches!(
+            wide.try_view_projection_relative_to([0.0; 3], 4096.0),
+            Err(crate::SceneError::UnsupportedPrecision(_))
+        ));
+    }
 
     #[test]
     fn fitted_camera_looks_at_bounds_centre() {

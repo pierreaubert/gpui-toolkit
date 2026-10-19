@@ -70,12 +70,14 @@ impl Frame {
 /// clipping interpolates both attributes before projection. Transfer sampling
 /// uses the prepared function rather than the GPU's quantized RGBA8 LUT, so
 /// byte-identical backend colors are not guaranteed. Sorted transparency remains
-/// an approximation for intersecting surfaces.
+/// an approximation for intersecting surfaces. Line/point projection can use
+/// f64 coefficients when the normal f32 projection loses required terms.
+/// Surface/wire clipping still requires a representable f32 projection.
 ///
 /// # Errors
 ///
 /// Returns an error for invalid dimensions, exceeded default memory limits,
-/// allocation failure, or an actor with a missing field.
+/// allocation failure, unsupported surface camera precision, or a missing field.
 pub fn render(
     scene: &Scene,
     camera: &Camera,
@@ -90,7 +92,8 @@ pub fn render(
 /// # Errors
 ///
 /// Returns an error for invalid dimensions, exhausted memory, exceeded frame
-/// or transparent-triangle working-storage limits, or a missing field.
+/// or transparent-triangle working-storage limits, unsupported surface camera
+/// precision, or a missing field.
 pub fn render_with_limits(
     scene: &Scene,
     camera: &Camera,
@@ -101,6 +104,26 @@ pub fn render_with_limits(
     camera.validate()?;
     scene.validate_render_state()?;
     let pixels = limits.pixel_count(width, height, 8)?;
+    if camera.needs_reference_projection(width as f32 / height as f32)
+        && scene
+            .actors
+            .iter()
+            .filter(|actor| actor.visible)
+            .any(|actor| {
+                actor
+                    .dataset
+                    .cells
+                    .types
+                    .iter()
+                    .any(|kind| kind.dimension() >= 2)
+            })
+    {
+        // Homogeneous surface/wire clipping still stores f32 coordinates.
+        // Primitive clipping below has f64 positions and a reference projection.
+        return Err(SceneError::UnsupportedPrecision(
+            "software surface projection requires f64 clipping",
+        ));
+    }
     let prepared = scene.prepare()?;
     let bg = scene.background;
     let mut rgba = frame_buffer(pixels * 4, 0u8)?;
@@ -632,13 +655,13 @@ fn interpolate_samples(vertices: [PrimitiveSample; 2], interval: [f64; 2]) -> [P
 
 fn transform_sample(
     mut vertex: PrimitiveSample,
-    matrix: &[f32; 16],
+    matrix: &[f64; 16],
 ) -> Result<PrimitiveSample, SceneError> {
     vertex.position = std::array::from_fn(|axis| {
-        f64::from(matrix[axis]) * vertex.position[0]
-            + f64::from(matrix[4 + axis]) * vertex.position[1]
-            + f64::from(matrix[8 + axis]) * vertex.position[2]
-            + f64::from(matrix[12 + axis])
+        matrix[axis] * vertex.position[0]
+            + matrix[4 + axis] * vertex.position[1]
+            + matrix[8 + axis] * vertex.position[2]
+            + matrix[12 + axis]
     });
     if vertex.position.iter().any(|v| !v.is_finite()) {
         return Err(SceneError::UnsupportedPrecision(
@@ -678,7 +701,7 @@ fn draw_primitives(
         .then(|| unlit_color(material, 0.0));
     let field = crate::retained::selected_field(actor)?.map(|(_, field)| field);
     let matrix = camera
-        .view_projection_relative_to(camera.target, target.size[0] as f32 / target.size[1] as f32);
+        .software_primitive_matrix(camera.target, target.size[0] as f32 / target.size[1] as f32)?;
     let planes = crate::scene::local_planes(&actor.clip_planes, camera.target)?;
     let sample = |cell, node| {
         let p = actor.dataset.positions[node as usize];

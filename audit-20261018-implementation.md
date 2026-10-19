@@ -2235,3 +2235,144 @@ and pressure/large-dataset integrations pass with Metal required.
   add a public reproduce-and-recover oracle before the precision fix. Encoding
   error caching must account for camera-dependent failures when those checks
   are introduced, while allocation-failure caching can stay camera-independent.
+
+## Checked GPU camera matrices and fallback recovery checkpoint
+
+- Previous goal turn: progress (`4d85b18b`). The public camera oracle reproduces
+  two independent failures on unchanged source: a finite valid target makes the
+  actor-relative GPU matrix contain nonfinite coefficients, and a viewport aspect
+  makes an otherwise valid orthographic projection collapse horizontally. The
+  renderer previously returned success and encoded those uniforms. Both tests
+  fail on the exact baseline and pass on the candidate. A tiny valid perspective
+  field of view that overflows only at the actual viewport aspect is also covered.
+- `Camera::try_view_projection_relative_to` is an additive checked matrix API.
+  GPU encoding creates a frame-local projection and trigonometric basis once,
+  using the actual positive aspect ratio without the legacy raw helper's minimum
+  clamp. It checks required projection terms and final actor-relative matrices
+  against a conservative normal-or-zero f32 coefficient profile. Nonfinite,
+  collapsed projection or subnormal required/uploaded coefficients return
+  `UnsupportedPrecision`; invalid camera/aspect parameters return camera errors.
+  Raw matrix helpers keep their original behavior. The profile is explicit and
+  does not promise exact f64 geometry or a bound on float rounding error.
+- Every actor matrix is checked before GPU staging allocation or encoder commands.
+  A per-actor 64-byte CPU matrix scratch field avoids repeating the projection/
+  basis work while filling uniforms. The uniform ABI remains 192 bytes; geometry
+  buffers/payloads do not change. Matrix scratch is CPU metadata excluded from the
+  requested GPU resource allowance. Opaque actors skip unused distance work;
+  translucent center sorting uses the local eye offset before world-coordinate
+  cancellation. Finite accepted view translations keep f64 squares in range;
+  a scaled path preserves very small local distances. General intersecting
+  transparency remains approximate.
+- The coefficient classifier uses an integer reduction suitable for vectorization.
+  Tests compare it against standard-library float classification across both
+  signs, every exponent and representative mantissa boundaries at multiple matrix
+  positions. Normal viewport/origin matrices remain bit-identical to raw helpers
+  across 36 angle/aspect/origin combinations. Tests also cover actual tiny aspects
+  instead of the old clamp, conservative subnormal rejection, a large target whose
+  world-space eye loses its orbit offset, and underflow-safe local sort lengths.
+- GPUI retains a scene/material precision verdict independently of camera precision.
+  It checks the current camera against cached actor origins, selects the existing
+  software image route for unsupported GPU coefficients, retains static fallback
+  images and recovers the GPU route when the camera becomes representable. A bad
+  camera no longer poisons the cached topology/material verdict. Encoding failures
+  include the camera in their retry key; allocation/resize/sync failures remain
+  camera-independent. The existing render key supplies that camera identity,
+  avoiding another stored Camera copy in the failure metadata.
+- Unclipped scenes now also need origin metadata for camera checks. The first
+  applicable source revision scans positions and retains 24 bytes of origin
+  elements per visible actor plus Arc/collection metadata. Subsequent camera
+  updates reuse it. Position Arc identity, pinned by the prior input, lets scalar,
+  mask or topology updates reuse the same bounds independently of full geometry
+  identity; changed positions rebuild them. Tests assert Arc reuse across field
+  and camera updates and invalidation after copy-on-write position edits. These
+  are metadata tests, not whole-GPUI timing or total-memory measurements.
+- `tests/camera_precision.rs` owns a real shared wgpu device/queue. Rejection must
+  preserve the prior target's exact pixels, a valid earlier pass in the same
+  submitted encoder, and that pass when a later actor in a different uploaded
+  scene has an invalid matrix. A valid render after rejection recovers unchanged.
+  Existing public surface/point/line/wire/cell render oracles stay green. Actual
+  `ElementState` tests check image retention and GPU recovery without a source
+  change; metadata tests verify no extra geometry preparation or origin rebuild
+  over repeated bad-camera updates.
+- A third public GPU fixture exposes a defect shared by the old software and
+  GPU paths: orthographic near `1e-38`, far `1e36` makes the f32 near-depth bias
+  zero. Both baseline backends draw a point behind the near plane (foreground
+  counts **1/1**, expected **0/0**). Promoting already rounded matrix coefficients
+  to f64 was insufficient. The candidate rejects this GPU projection and uses a
+  true f64 primitive projection in software when required f32 terms are lost or
+  a primitive matrix becomes nonfinite. Ordinary primitive frames retain their
+  original f32 coefficients, promoted once per actor instead of per vertex.
+  `tests/camera_reference.rs` independently checks hidden/exact-near/front points
+  and a line crossing the near plane. Its identical source fails on baseline and
+  passes on candidate. The three required-GPU tests likewise fail on baseline
+  and pass on candidate; raw results and exact sources are archived below.
+- Software surface/wire homogeneous clipping still uses f32 coordinates. A
+  projection requiring the new reference path returns `UnsupportedPrecision`
+  before scene preparation or frame allocation when visible surface/volume cells
+  exist. The public reference fixture checks this explicit limit and no geometry
+  build. This is not full f64 surface support: actor-relative surface matrices,
+  attributes, normals, scalar representation and arbitrary transparency still
+  need qualification. Camera parameter validation also retains its existing
+  unit-aspect f32 checks; this change does not accept every mathematically valid
+  f64 camera. GPU fallback applies to the whole scene; per-actor f64 culling or
+  rescaling is not implemented.
+- Final measurement evidence is
+  [`qa/perf/20261019-camera-precision-paired.json`](qa/perf/20261019-camera-precision-paired.json).
+  It retains exact probe/runner/lock sources, binary/source/test hashes, all raw
+  samples, both public oracle results, and fresh-process RSS. Allocator-disabled
+  release ABBA twice gives four fresh processes/version per GPU/software phase,
+  one warmup plus five samples/case. Separate allocation processes measure calls
+  and positive allocated-byte growth. There are 42 GPU cases (upload, unchanged
+  sync and resident CPU submission for primitive sizes, canonical/general 48-cube
+  controls and 1/16/128 opaque/translucent actors) plus four software cases in
+  separate processes that exit before GPU initialization. Prepared geometry and
+  renderer initialization precede timing; GPU completion/readback are outside
+  submission timing. All **46** cross-version image hashes and payload lengths
+  match exactly. The final candidate also matches the initial diagnostic's 42
+  shared cases. Initial evidence remains in `20261019-camera-precision-initial.json`;
+  it predates the coefficient-reduction/local-length optimizations and the shared
+  near-plane reference correction and is not the final acceptance measurement.
+
+  | Operation/case | Baseline CPU | Candidate CPU | Change |
+  |---|---:|---:|---:|
+  | Submit, 256 lines | 32.5 µs | 32.0 µs | -1.5% |
+  | Submit, 1,048,576 lines | 91.5 µs | 60.0 µs | -34.4% |
+  | Submit, general 48-cube surface | 31.0 µs | 31.5 µs | +1.6% |
+  | Submit, 128 opaque actors | 180.5 µs | 175.0 µs | -3.0% |
+  | Submit, 128 half-alpha actors | 188.0 µs | 178.0 µs | -5.3% |
+  | Upload, general 48-cube surface | 108.0 µs | 118.0 µs | +9.3% |
+  | Upload, 256 lines | 30.5 µs | 33.0 µs | +8.2% |
+  | Software, 256 lines | 21.0 µs | 22.0 µs | +4.8% |
+  | Software, 65,536 lines | 5.334 ms | 5.458 ms | +2.3% |
+  | Software, 65,536 points | 539 µs | 482 µs | -10.6% |
+
+- These are scoped diagnostics, not an across-platform speedup. The large-line
+  scene has extreme overdraw and completion is excluded from submission CPU;
+  its result establishes no GPU throughput improvement. Small timings have
+  process-clock granularity and uncontrolled thermal/affinity. Software line
+  regression and general upload costs remain visible follow-ups. Unchanged sync
+  stays allocation-free (roughly 21–22 ns for one actor, 1.1 µs for 128). Every
+  resident-submit and software allocation count/byte result matches baseline.
+  Upload calls match, while metadata allocation grows 256 bytes for the small
+  one-actor Vec capacity, 1,024 bytes for 16 actors and 8,192 bytes for 128 actors;
+  the element cost is 64 bytes/actor. Retained GPUI origins add a separate
+  24 bytes/visible actor plus metadata and a first-revision position scan, which
+  the standalone GPU probe does not time. No total-memory saving is claimed.
+- Separate allocator-disabled `time -l` uploads (ABBA twice/kind) measure maximum
+  process RSS **92,200,960 to 92,217,344 bytes** for large lines and
+  **66,936,832 to 66,936,832 bytes** for large points. Those include preparation,
+  GPU initialization, rendering/readback and validation. RSS is not physical VRAM,
+  mobile memory or the resource allowance. No measured energy, GPU execution,
+  realistic first-use, whole-GPUI or physical-device power claim is made.
+- Verification passes 27 mesh / 74 transformation / **116 required-GPU scene**
+  library tests and the public integrations, **82 software-only scene** library
+  tests and integrations, and **223 Python-runtime Rust** library tests with a
+  supported Homebrew Python. Targeted strict scene production/camera integration
+  Clippy, doctests, native viewer compilation and the wasm GPU/GPUI library closure
+  pass. Existing broad all-target lint failures remain open. Final source/test
+  hashes match the measured files; the frozen audit and previous checkpoint
+  evidence are unchanged.
+- This checkpoint advances C4 and retained camera handling; it does not close C4,
+  C3/C5, platform/FFI/text work, aggregate budgets, earlier performance regressions,
+  scheduling/thermal/power, Taffy adoption experiments, CUDA/MLX experiments or full
+  acceptance. The full implementation goal remains active.

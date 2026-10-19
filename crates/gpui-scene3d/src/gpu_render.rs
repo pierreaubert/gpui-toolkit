@@ -227,6 +227,7 @@ struct GpuActor {
     origin: [f64; 3],
     transparent: bool,
     distance: f64,
+    view_projection: [f32; 16],
     lut: wgpu::Texture,
     transfer: Option<crate::TransferFunction>,
     color: [f32; 4],
@@ -668,6 +669,7 @@ impl GpuRenderer {
                 origin,
                 transparent: actor.is_transparent(),
                 distance: 0.0,
+                view_projection: [0.0; 16],
                 lut,
                 transfer: actor.active_transfer().cloned(),
                 color: actor.effective_color(),
@@ -1074,7 +1076,6 @@ impl GpuRenderer {
         camera: &Camera,
         target: GpuAttachments<'_>,
     ) -> Result<(), GpuRenderError> {
-        camera.validate()?;
         if target.size.contains(&0) {
             return Err(SceneError::InvalidSize(target.size[0], target.size[1]).into());
         }
@@ -1088,16 +1089,12 @@ impl GpuRenderer {
             .into());
         }
         let aspect = target.size[0] as f32 / target.size[1].max(1) as f32;
-        let eye = camera.eye();
+        let camera_frame = camera.gpu_frame(aspect)?;
+        // Validate every actor before allocating GPU staging or adding encoder
+        // commands. Scratch matrices avoid recomputing trigonometry/projection.
         for actor in &mut scene.actors {
-            // Distance for transparent sorting: chunk origins are all the
-            // dataset centre, so use the first chunk's origin.
-            {
-                let o = actor.origin;
-                actor.distance =
-                    ((o[0] - eye[0]).powi(2) + (o[1] - eye[1]).powi(2) + (o[2] - eye[2]).powi(2))
-                        .sqrt();
-            }
+            (actor.view_projection, actor.distance) =
+                camera_frame.project_origin(actor.origin, actor.transparent)?;
         }
         // Copies belong to this encoder, so encoding two cameras before one
         // host submission preserves both views. Queue::write_buffer would
@@ -1114,9 +1111,8 @@ impl GpuRenderer {
             let mut mapped = staging.slice(..).get_mapped_range_mut();
             for (index, actor) in scene.actors.iter().enumerate() {
                 {
-                    let mvp = camera.view_projection_relative_to(actor.origin, aspect);
                     let mut bytes = scene_uniform_block_with_equations(
-                        &mvp,
+                        &actor.view_projection,
                         actor.scalar_range,
                         actor.opacity,
                         &actor.clip_coefficients,

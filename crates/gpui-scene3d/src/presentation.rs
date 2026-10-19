@@ -40,6 +40,11 @@ impl RenderKey {
     }
 
     #[cfg(feature = "gpui-gpu")]
+    pub(crate) fn camera_matches(&self, camera: Camera) -> bool {
+        self.camera == camera
+    }
+
+    #[cfg(feature = "gpui-gpu")]
     pub(crate) fn resource_inputs_match(
         &self,
         scene: &Scene,

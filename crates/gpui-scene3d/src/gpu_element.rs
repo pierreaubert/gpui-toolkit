@@ -20,6 +20,18 @@ fn supports_topology(scene: &Scene) -> Result<bool, SceneError> {
     Ok(true)
 }
 
+fn same_positions(left: &Scene, right: &Scene) -> bool {
+    let mut left = left.actors.iter().filter(|actor| actor.visible);
+    let mut right = right.actors.iter().filter(|actor| actor.visible);
+    loop {
+        match (left.next(), right.next()) {
+            (None, None) => return true,
+            (Some(a), Some(b)) if Arc::ptr_eq(&a.dataset.positions, &b.dataset.positions) => {}
+            _ => return false,
+        }
+    }
+}
+
 pub(crate) struct RegisteredSceneDraw {
     id: gpui::CustomDrawId,
     draw: Rc<SceneDraw>,
@@ -85,7 +97,15 @@ impl RegisteredSceneDraw {
             .iter()
             .filter(|actor| actor.visible)
             .all(|actor| actor.clip_planes.len() <= crate::shaders::MAX_CLIP_PLANES);
-        let mut ranges_supported = true;
+        let mut ranges_supported = if same_precision {
+            state
+                .input
+                .as_ref()
+                .expect("existing input")
+                .scene_precision_supported
+        } else {
+            true
+        };
         if !same_precision {
             for actor in scene.actors.iter().filter(|actor| actor.visible) {
                 if let Some(transfer) = actor.active_transfer() {
@@ -103,15 +123,19 @@ impl RegisteredSceneDraw {
         let needs_origins = ranges_supported
             && topology_supported
             && clip_limit
-            && scene
-                .actors
-                .iter()
-                .any(|actor| actor.visible && !actor.clip_planes.is_empty());
+            && scene.actors.iter().any(|actor| actor.visible);
+        // Scalar/mask/topology changes can leave all position allocations
+        // unchanged. Reuse bounds across those updates rather than rescanning
+        // every point. The prior input pins those immutable Arc allocations.
+        let same_origins = state
+            .input
+            .as_ref()
+            .is_some_and(|input| same_positions(&input.scene, scene));
         let origins = if needs_origins {
             state
                 .input
                 .as_ref()
-                .filter(|_| same_geometry)
+                .filter(|_| same_origins)
                 .and_then(|input| input.origins.clone())
                 .or_else(|| {
                     Some(
@@ -130,12 +154,20 @@ impl RegisteredSceneDraw {
                     )
                 })
         } else {
-            None
+            state
+                .input
+                .as_ref()
+                .filter(|_| same_origins)
+                .and_then(|input| input.origins.clone())
         };
-        let gpu_supported = if !ranges_supported || !topology_supported || !clip_limit {
+        let scene_precision_supported = if !ranges_supported || !topology_supported || !clip_limit {
             false
         } else if same_precision {
-            state.input.as_ref().expect("existing input").gpu_supported
+            state
+                .input
+                .as_ref()
+                .expect("existing input")
+                .scene_precision_supported
         } else if let Some(origins) = &origins {
             let mut supported = true;
             for (actor, origin) in scene
@@ -157,6 +189,26 @@ impl RegisteredSceneDraw {
         } else {
             true
         };
+        // Camera/viewport precision is independent of the retained source and
+        // material verdict. A normal camera must recover after a bad one.
+        let gpu_supported = if scene_precision_supported {
+            let check = || -> Result<bool, SceneError> {
+                let frame = camera.gpu_frame(size[0] as f32 / size[1].max(1) as f32)?;
+                if let Some(origins) = &origins {
+                    for &origin in origins.iter() {
+                        frame.project_origin(origin, false)?;
+                    }
+                }
+                Ok(true)
+            };
+            match check() {
+                Ok(supported) => supported,
+                Err(SceneError::UnsupportedPrecision(_)) => false,
+                Err(error) => return Err(error),
+            }
+        } else {
+            false
+        };
         let revision = state
             .input
             .as_ref()
@@ -169,6 +221,7 @@ impl RegisteredSceneDraw {
             revision,
             origins,
             topology_supported,
+            scene_precision_supported,
             gpu_supported,
         });
         if !gpu_supported {
@@ -193,6 +246,7 @@ struct Input {
     revision: u64,
     origins: Option<Arc<[[f64; 3]]>>,
     topology_supported: bool,
+    scene_precision_supported: bool,
     gpu_supported: bool,
 }
 
@@ -209,6 +263,7 @@ struct ResourceFailure {
     device: Arc<wgpu::Device>,
     format: wgpu::TextureFormat,
     key: RenderKey,
+    camera_sensitive: bool,
 }
 
 impl ResourceFailure {
@@ -216,6 +271,7 @@ impl ResourceFailure {
         Self {
             device: ctx.device.clone(),
             format,
+            camera_sensitive: false,
             key: RenderKey::new(&input.scene, input.camera, input.size)
                 .expect("presentation input already validated"),
         }
@@ -224,6 +280,7 @@ impl ResourceFailure {
     fn matches(&self, ctx: &WgpuContext, format: wgpu::TextureFormat, input: &Input) -> bool {
         Arc::ptr_eq(&self.device, &ctx.device)
             && self.format == format
+            && (!self.camera_sensitive || self.key.camera_matches(input.camera))
             && self
                 .key
                 .resource_inputs_match(&input.scene, input.size)
@@ -484,7 +541,9 @@ impl WgpuCustomDraw for SceneDraw {
                 .is_err()
             {
                 *resources = None;
-                *failure = Some(ResourceFailure::new(ctx, target_format, input));
+                let mut failed = ResourceFailure::new(ctx, target_format, input);
+                failed.camera_sensitive = true;
+                *failure = Some(failed);
                 return;
             }
             resource.rendered_revision = Some(input.revision);
@@ -606,6 +665,97 @@ fn composite_quad(
 mod tests {
     use super::*;
     use gpui::{point, px, size};
+
+    #[test]
+    fn source_position_identity_retains_origins_through_field_updates() {
+        use gpui_mesh::{DataSet, Field};
+        let data = DataSet::structured_grid("origins", [2; 3], [-0.5; 3], [1.0; 3])
+            .unwrap()
+            .with_field(Field::scalar("p", vec![0.5; 8]));
+        let mut scene = Scene::new().with_actor(
+            crate::Actor::new(data).coloured_by("p", crate::TransferFunction::viridis([0.0, 1.0])),
+        );
+        let camera = Camera::fitted(scene.bounds().unwrap());
+        let draw = RegisteredSceneDraw::new();
+        assert!(draw.update(&scene, camera, [48, 48]).unwrap());
+        let origins = draw
+            .draw
+            .state
+            .borrow()
+            .input
+            .as_ref()
+            .unwrap()
+            .origins
+            .clone()
+            .unwrap();
+        for value in [0.2, 0.8] {
+            scene.actors[0].dataset.point_data[0] = Field::scalar("p", vec![value; 8]);
+            assert!(draw.update(&scene, camera, [48, 48]).unwrap());
+            assert!(Arc::ptr_eq(
+                &origins,
+                draw.draw
+                    .state
+                    .borrow()
+                    .input
+                    .as_ref()
+                    .unwrap()
+                    .origins
+                    .as_ref()
+                    .unwrap()
+            ));
+        }
+        Arc::make_mut(&mut scene.actors[0].dataset.positions)[0][0] -= 0.25;
+        assert!(draw.update(&scene, camera, [48, 48]).unwrap());
+        assert!(!Arc::ptr_eq(
+            &origins,
+            draw.draw
+                .state
+                .borrow()
+                .input
+                .as_ref()
+                .unwrap()
+                .origins
+                .as_ref()
+                .unwrap()
+        ));
+    }
+
+    #[test]
+    fn camera_verdict_rechecks_without_rebuilding_unclipped_origin_metadata() {
+        let scene = Scene::new().with_actor(crate::Actor::new(
+            gpui_mesh::DataSet::structured_grid("camera", [2; 3], [-0.5; 3], [1.0; 3]).unwrap(),
+        ));
+        let good = Camera::fitted(scene.bounds().unwrap());
+        let draw = RegisteredSceneDraw::new();
+        assert!(draw.update(&scene, good, [48, 48]).unwrap());
+        let origins = draw
+            .draw
+            .state
+            .borrow()
+            .input
+            .as_ref()
+            .unwrap()
+            .origins
+            .clone()
+            .unwrap();
+        let mut bad = Camera {
+            target: [1e100; 3],
+            ..good
+        };
+        for _ in 0..24 {
+            bad.orbit(0.01, 0.0);
+            assert!(!draw.update(&scene, bad, [48, 48]).unwrap());
+            let state = draw.draw.state.borrow();
+            assert!(state.input.as_ref().unwrap().scene_precision_supported);
+            assert!(Arc::ptr_eq(
+                &origins,
+                state.input.as_ref().unwrap().origins.as_ref().unwrap()
+            ));
+        }
+        assert!(draw.update(&scene, good, [48, 48]).unwrap());
+        assert_eq!(draw.draw.state.borrow().compatibility_scans, 1);
+        assert_eq!(scene.preparation_stats().geometry_builds, 0);
+    }
 
     #[test]
     fn primitive_precision_verdict_is_retained_and_invalidated_by_field_revisions() {
