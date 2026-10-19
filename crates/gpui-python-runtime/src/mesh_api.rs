@@ -787,6 +787,31 @@ fn read_dataset_bytes(bytes: &[u8], format: &str) -> Result<DataSet, String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn structured_grid_requests_return_size_errors_instead_of_panicking() {
+        let overflow = json!({"structured":{"dims":[usize::MAX,2,2]}});
+        let error = dataset_from_spec(&overflow).unwrap_err();
+        assert!(
+            error.contains("grid point count"),
+            "unexpected error: {error}"
+        );
+        let excessive = json!({"structured":{"dims":[256,256,256]}});
+        let error = dataset_from_spec(&excessive).unwrap_err();
+        assert!(
+            error.contains("grid array workspace bytes"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn singleton_grid_requests_keep_plane_line_and_vertex_cells() {
+        for (dims, expected) in [([3, 4, 1], 6), ([1, 4, 1], 3), ([1, 1, 1], 1)] {
+            let data = dataset_from_spec(&json!({"structured":{"dims":dims}})).unwrap();
+            assert_eq!(data.cell_count(), expected);
+            data.validate().unwrap();
+        }
+    }
+
     fn rotation_request() -> String {
         // 5x5x5 solid-body rotation v = (-y, x, 0): vorticity is (0, 0, 2).
         let mut scalars = Vec::new();

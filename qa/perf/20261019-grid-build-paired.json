@@ -1,0 +1,7046 @@
+{
+  "kind": "bounded direct grid-array construction CPU/allocation/native-process-RSS diagnostic",
+  "baseline_commit": "be2a4f55",
+  "captured_utc": "2026-10-19T07:59:03.401154+00:00",
+  "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "methodology": "Identical release probe/lock in separate baseline/candidate and timing/allocation targets. Allocator-disabled ABBA twice, four fresh processes/version, one warmup and five samples/case; separate allocation builds. Checked CLOCK_PROCESS_CPUTIME_ID. No task-owned builds/checks/tests ran during timing. Three constructors at 16/48/96 cubed; source-coordinate setup excluded. Curvilinear input Vec clone is staged before the clock/probe, but consuming/converting it and cell construction are timed. Output validation, ordered f64-bit/type/offset/index hash, checks and destruction are outside timing. 3D outputs and array payload lengths must match exactly. Six lower-dimensional affine cases now add real quad/line cells where baseline returns none, so they are correctness-cost references rather than equivalent-work performance comparisons. Payload counts array elements, excluding capacity/metadata/identifiers/fields and allocator overhead. Allocation bytes include positive realloc growth; do not measure peak/live memory. Separate allocator-disabled native process RSS samples use macOS time -l, ABBA twice per constructor at 96 cubed, one fresh process/construction per sample. They include runtime/allocator, coordinate generation and validation/hash work; no curvilinear template clone is retained. RSS is process maximum, not the planned constructor element-workspace budget, VRAM or mobile memory. Thermal/affinity uncontrolled; no measured energy or whole-application claim.",
+  "probe_source": "// Rust guideline compliant 2026-02-21\nuse gpui_mesh::{CellType,DataSet};\nuse gpui_profiler::AllocProbe;\nuse std::{hint::black_box,time::Instant};\nfn cpu_ns()->u128 {\n let mut ts=libc::timespec{tv_sec:0,tv_nsec:0};\n // SAFETY: ts is writable storage for this synchronous clock call, which\n // retains no pointer; status and timestamp are checked before conversion.\n let rc=unsafe{libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID,&mut ts)};\n assert_eq!(rc,0);assert!(ts.tv_sec>=0 && (0..1_000_000_000).contains(&ts.tv_nsec));\n ts.tv_sec as u128*1_000_000_000+ts.tv_nsec as u128\n}\nfn fold(h:&mut u64,b:&[u8]) {for &v in b {*h=(*h^u64::from(v)).wrapping_mul(0x100000001b3);}}\nfn hash(d:&DataSet)->u64 {let mut h=0xcbf29ce484222325;\n for p in d.positions.iter(){for v in p {fold(&mut h,&v.to_bits().to_le_bytes());}}\n for t in d.cells.types.iter(){let code=match t {CellType::Vertex=>0,CellType::Line=>1,CellType::Triangle=>2,CellType::Quad=>3,CellType::Tetra=>4,CellType::Hexahedron=>5,CellType::Wedge=>6,CellType::Pyramid=>7,CellType::Polygon=>8};fold(&mut h,&[code]);}\n for v in d.cells.offsets.iter(){fold(&mut h,&v.to_le_bytes());}for v in d.cells.connectivity.iter(){fold(&mut h,&v.to_le_bytes());}h\n}\nfn payload(d:&DataSet)->usize {d.positions.len()*24+d.cells.types.len()*size_of::<CellType>()+d.cells.offsets.len()*8+d.cells.connectivity.len()*4}\nfn axes(n:usize)->[Vec<f64>;3] {std::array::from_fn(|a|(0..n).map(|i|[0.125,-1.5,2.0][a]+i as f64*[0.25,0.5,-0.75][a]).collect())}\nfn positions(dims:[usize;3],warped:bool)->Vec<[f64;3]> {\n let mut out=Vec::with_capacity(dims.into_iter().product());\n for k in 0..dims[2]{for j in 0..dims[1]{for i in 0..dims[0]{let p=[0.125+i as f64*0.25,-1.5+j as f64*0.5,2.0-k as f64*0.75];out.push(if warped{[p[0]+0.01*p[1]*p[2],p[1]+0.02*p[0]*p[2],p[2]+0.03*p[0]*p[1]]}else{p});}}}out\n}\nfn measure<I>(dims:[usize;3],method:&str,mut input:impl FnMut()->I,mut build:impl FnMut(I)->DataSet) {\n let reference=build(input());reference.validate().unwrap();let expected=hash(&reference);let bytes=payload(&reference);let cells=reference.cell_count();drop(reference);\n let(mut times,mut cpus,mut calls,mut allocations)=(Vec::new(),Vec::new(),Vec::new(),Vec::new());\n let warm=build(input());assert_eq!(hash(&warm),expected);drop(warm);\n for _ in 0..5 {let prepared=input();let mut probe=AllocProbe::new();let before=cpu_ns();let start=Instant::now();let data=black_box(build(prepared));let elapsed=start.elapsed().as_nanos();let cpu=cpu_ns()-before;let a=probe.sample(\"grid-construction\");\n  times.push(elapsed);cpus.push(cpu);calls.push(a.count);allocations.push(a.bytes);data.validate().unwrap();assert_eq!(hash(&data),expected);assert_eq!(payload(&data),bytes);drop(data);\n }\n println!(r#\"{{\"dims\":{dims:?},\"method\":\"{method}\",\"cells\":{cells},\"payload_bytes\":{bytes},\"output_hash\":\"{expected:016x}\",\"times_ns\":{times:?},\"cpu_times_ns\":{cpus:?},\"allocation_calls\":{calls:?},\"allocated_bytes\":{allocations:?},\"allocator_instrumentation\":{}}}\"#,cfg!(feature=\"allocations\"));\n}\nfn rss(method:&str,n:usize) {\n let dims=[n;3];let data=match method {\n  \"affine\"=>DataSet::structured_grid(\"probe\",dims,[0.125,-1.5,2.0],[0.25,0.5,-0.75]).unwrap(),\n  \"rectilinear\"=>{let a=axes(n);DataSet::rectilinear_grid(\"probe\",&a[0],&a[1],&a[2]).unwrap()},\n  \"curvilinear\"=>DataSet::curvilinear_grid(\"probe\",dims,positions(dims,true)).unwrap(),\n  _=>panic!(\"method\")\n };data.validate().unwrap();println!(r#\"{{\"method\":\"{method}\",\"n\":{n},\"payload_bytes\":{},\"output_hash\":\"{:016x}\"}}\"#,payload(&data),hash(&data));black_box(data);\n}\nfn main(){let args=std::env::args().collect::<Vec<_>>();if args.get(1).is_some_and(|v|v==\"--rss\"){rss(&args[2],args[3].parse().unwrap());return;}\n for n in [16,48,96] {let dims=[n;3];\n  measure(dims,\"affine\",||(),|()|DataSet::structured_grid(\"probe\",dims,[0.125,-1.5,2.0],[0.25,0.5,-0.75]).unwrap());\n  let a=axes(n);measure(dims,\"rectilinear\",||(),|()|DataSet::rectilinear_grid(\"probe\",&a[0],&a[1],&a[2]).unwrap());\n  let template=positions(dims,true);measure(dims,\"curvilinear\",||template.clone(),|p|DataSet::curvilinear_grid(\"probe\",dims,p).unwrap());\n }\n for dims in [[64,64,1],[64,1,64],[1,64,64],[4096,1,1],[1,4096,1],[1,1,4096]] {measure(dims,\"affine\",||(),|()|DataSet::structured_grid(\"probe\",dims,[0.125,-1.5,2.0],[0.25,0.5,-0.75]).unwrap());}\n}\n",
+  "probe_manifests": {
+    "baseline": "[package]\nname=\"gpui-grid-build-probe\"\nversion=\"0.0.0\"\nedition=\"2024\"\n[features]\nallocations=[\"gpui-profiler/global-allocator\"]\n[dependencies]\nlibc=\"0.2\"\ngpui-mesh={path=\"/Volumes/home_tmp/tmp/gpui-grid-build-baseline-be2a4f55/crates/gpui-mesh\"}\ngpui-profiler={path=\"/Volumes/home_tmp/tmp/gpui-grid-build-baseline-be2a4f55/crates/gpui-profiler\"}\n[workspace]\n",
+    "candidate": "[package]\nname=\"gpui-grid-build-probe\"\nversion=\"0.0.0\"\nedition=\"2024\"\n[features]\nallocations=[\"gpui-profiler/global-allocator\"]\n[dependencies]\nlibc=\"0.2\"\ngpui-mesh={path=\"/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-mesh\"}\ngpui-profiler={path=\"/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-profiler\"}\n[workspace]\n"
+  },
+  "probe_lock": "# This file is automatically @generated by Cargo.\n# It is not intended for manual editing.\nversion = 4\n\n[[package]]\nname = \"gpui-grid-build-probe\"\nversion = \"0.0.0\"\ndependencies = [\n \"gpui-mesh\",\n \"gpui-profiler\",\n \"libc\",\n]\n\n[[package]]\nname = \"gpui-mesh\"\nversion = \"0.10.44\"\ndependencies = [\n \"thiserror\",\n]\n\n[[package]]\nname = \"gpui-profiler\"\nversion = \"0.10.44\"\ndependencies = [\n \"stats_alloc\",\n]\n\n[[package]]\nname = \"libc\"\nversion = \"0.2.191\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a\"\n\n[[package]]\nname = \"proc-macro2\"\nversion = \"1.0.107\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9\"\ndependencies = [\n \"unicode-ident\",\n]\n\n[[package]]\nname = \"quote\"\nversion = \"1.0.47\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001\"\ndependencies = [\n \"proc-macro2\",\n]\n\n[[package]]\nname = \"stats_alloc\"\nversion = \"0.1.10\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"5c0e04424e733e69714ca1bbb9204c1a57f09f5493439520f9f68c132ad25eec\"\n\n[[package]]\nname = \"syn\"\nversion = \"3.0.9\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"d78c8dee4c7bf0e14673097256fed6142ce9d3b85a408189d07482442145823b\"\ndependencies = [\n \"proc-macro2\",\n \"quote\",\n \"unicode-ident\",\n]\n\n[[package]]\nname = \"thiserror\"\nversion = \"2.0.21\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e\"\ndependencies = [\n \"thiserror-impl\",\n]\n\n[[package]]\nname = \"thiserror-impl\"\nversion = \"2.0.21\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524\"\ndependencies = [\n \"proc-macro2\",\n \"quote\",\n \"syn\",\n]\n\n[[package]]\nname = \"unicode-ident\"\nversion = \"1.0.27\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563\"\n",
+  "probe_lock_sha256": "11c627dea7e671253702cecbac7146a436f9c920cdcff5b0ab5659a6331d9dad",
+  "orchestration_source": "import datetime,hashlib,json,platform,re,statistics,subprocess\nfrom pathlib import Path\nroot=Path('/Users/pierre/.codex/worktrees/af04/gpui-toolkit');tmp=Path('/Volumes/home_tmp/tmp')\nsources={'baseline':tmp/'gpui-grid-build-baseline-be2a4f55','candidate':root};packages={v:tmp/f'gpui-grid-build-{v}-probe'for v in sources}\nprobe=(packages['candidate']/'src/main.rs').read_bytes();lock=(packages['candidate']/'Cargo.lock').read_bytes()\nassert (packages['baseline']/'src/main.rs').read_bytes()==probe;assert (packages['baseline']/'Cargo.lock').read_bytes()==lock\nfiles=['crates/gpui-mesh/src/'+f+'.rs'for f in ['dataset','grid','lib']]+['crates/gpui-profiler/src/alloc_count.rs','Cargo.lock']\ndef hashes():return {v:{f:hashlib.sha256((s/f).read_bytes()).hexdigest()if(s/f).exists()else None for f in files}for v,s in sources.items()}\nbefore=hashes();runs=[]\nfor build,order in [('timing',['baseline','candidate','candidate','baseline']*2),('allocations',['baseline','candidate'])]:\n for v in order:\n  records=[json.loads(line)for line in subprocess.check_output([str(packages[v]/f'target/{build}/release/gpui-grid-build-probe')],text=True).splitlines()]\n  assert len(records)==15,(v,len(records));assert all(r['allocator_instrumentation']==(build=='allocations')for r in records)\n  runs.append(dict(variant=v,build=build,records=records));print(build,v,len(records),flush=True)\ndef key(r):return tuple(r['dims']),r['method']\ndef rows(v,b,k):return[r for run in runs if run['variant']==v and run['build']==b for r in run['records']if key(r)==k]\nsummary=[]\nfor ref in next(run['records']for run in runs if run['variant']=='candidate'):\n k=key(ref);cpu={};wall={};alloc={};payload={};output={};cells={}\n for v in sources:\n  timed=rows(v,'timing',k);assert len({r['output_hash']for r in timed})==1\n  cpu[v]=statistics.median(statistics.median(r['cpu_times_ns'])for r in timed);wall[v]=statistics.median(statistics.median(r['times_ns'])for r in timed)\n  a=rows(v,'allocations',k)[0];alloc[v]={f:statistics.median(a[f])for f in ['allocation_calls','allocated_bytes']};payload[v]=a['payload_bytes'];output[v]=a['output_hash'];cells[v]=a['cells']\n equal=output['baseline']==output['candidate'];equivalent=all(n>1 for n in k[0])\n if equivalent:assert equal and payload['baseline']==payload['candidate'] and cells['baseline']==cells['candidate'],('3D output differs',k)\n else:assert cells['baseline']==0 and cells['candidate']>0,('lower-dimensional fix missing',k)\n summary.append(dict(dims=list(k[0]),method=k[1],equivalent_work=equivalent,matching_output=equal,cpu_median_ns=cpu,wall_median_ns=wall,cpu_ratio=cpu['candidate']/cpu['baseline'],allocations=alloc,payload_bytes=payload,output_hash=output,cells=cells))\nrss=[]\nassert platform.system()=='Darwin','This RSS runner uses macOS /usr/bin/time -l byte units'\nfor method in ['affine','rectilinear','curvilinear']:\n for v in ['baseline','candidate','candidate','baseline']*2:\n  command=['/usr/bin/time','-l',str(packages[v]/'target/timing/release/gpui-grid-build-probe'),'--rss',method,'96']\n  r=subprocess.run(command,text=True,capture_output=True,check=True)\n  match=re.search(r'^\\s*(\\d+)\\s+maximum resident set size\\s*$',r.stderr,re.MULTILINE);assert match,r.stderr\n  rss.append(dict(variant=v,method=method,maximum_resident_bytes=int(match[1]),output=json.loads(r.stdout),raw_stderr=r.stderr));print('rss',method,v,match[1],flush=True)\nassert hashes()==before\noracle={v:json.loads((tmp/f'gpui-grid-build-{v}-oracle-result.json').read_text())for v in sources}\nassert oracle['baseline']['status']==101 and 'capacity overflow'in oracle['baseline']['stdout'];assert oracle['candidate']['status']==0\nfor method in ['affine','rectilinear','curvilinear']:\n assert len({r['output']['output_hash']for r in rss if r['method']==method})==1\nverification=['crates/gpui-mesh/tests/'+f for f in ['grid_construction.rs','grid_construction_limits.rs','grid_rejection_allocations.rs']]+['crates/gpui-scene3d/tests/grid_dimensions.rs','crates/gpui-python-runtime/src/mesh_api.rs']\nrunner=Path(__file__).read_text()\ndata=dict(kind='bounded direct grid-array construction CPU/allocation/native-process-RSS diagnostic',baseline_commit='be2a4f55',captured_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),host=platform.platform(),rustc=subprocess.check_output(['/Users/pierre/.cargo/bin/rustc','--version'],cwd=root,text=True).strip(),methodology='Identical release probe/lock in separate baseline/candidate and timing/allocation targets. Allocator-disabled ABBA twice, four fresh processes/version, one warmup and five samples/case; separate allocation builds. Checked CLOCK_PROCESS_CPUTIME_ID. No task-owned builds/checks/tests ran during timing. Three constructors at 16/48/96 cubed; source-coordinate setup excluded. Curvilinear input Vec clone is staged before the clock/probe, but consuming/converting it and cell construction are timed. Output validation, ordered f64-bit/type/offset/index hash, checks and destruction are outside timing. 3D outputs and array payload lengths must match exactly. Six lower-dimensional affine cases now add real quad/line cells where baseline returns none, so they are correctness-cost references rather than equivalent-work performance comparisons. Payload counts array elements, excluding capacity/metadata/identifiers/fields and allocator overhead. Allocation bytes include positive realloc growth; do not measure peak/live memory. Separate allocator-disabled native process RSS samples use macOS time -l, ABBA twice per constructor at 96 cubed, one fresh process/construction per sample. They include runtime/allocator, coordinate generation and validation/hash work; no curvilinear template clone is retained. RSS is process maximum, not the planned constructor element-workspace budget, VRAM or mobile memory. Thermal/affinity uncontrolled; no measured energy or whole-application claim.',probe_source=probe.decode(),probe_manifests={v:(p/'Cargo.toml').read_text()for v,p in packages.items()},probe_lock=lock.decode(),probe_lock_sha256=hashlib.sha256(lock).hexdigest(),orchestration_source=runner,orchestration_sha256=hashlib.sha256(runner.encode()).hexdigest(),source_sha256=before,verification_sha256={f:hashlib.sha256((root/f).read_bytes()).hexdigest()for f in verification},oracle_source=(root/'crates/gpui-mesh/tests/grid_construction.rs').read_text(),oracle=oracle,binary_sha256={v:{b:hashlib.sha256((p/f'target/{b}/release/gpui-grid-build-probe').read_bytes()).hexdigest()for b in ['timing','allocations']}for v,p in packages.items()},summary=summary,runs=runs,rss=rss,rss_summary={method:{v:statistics.median(r['maximum_resident_bytes']for r in rss if r['method']==method and r['variant']==v)for v in sources}for method in ['affine','rectilinear','curvilinear']})\n(root/'qa/perf/20261019-grid-build-paired.json').write_text(json.dumps(data,indent=2)+'\\n')\nfor row in summary:\n if row['dims']==[96,96,96]or not row['equivalent_work']:print(json.dumps(row),flush=True)\nprint('RSS',json.dumps(data['rss_summary']),flush=True)\n",
+  "orchestration_sha256": "ddc8e9a3d622ccc8e80e05e66aeeb831fe5f92decb42d6baac305952c5a56f95",
+  "source_sha256": {
+    "baseline": {
+      "crates/gpui-mesh/src/dataset.rs": "165eef343967572d16a0d0cb9d61b61baa5dff722ef28386d31507525ffb83b6",
+      "crates/gpui-mesh/src/grid.rs": null,
+      "crates/gpui-mesh/src/lib.rs": "3280c81e7bc9d1a971a4dfa640bb38e8c847bc91da71975ad0a56ba85db131af",
+      "crates/gpui-profiler/src/alloc_count.rs": "5c71f681fcd1f0993d75e672b9cbb2d51b7256f876493a61d786d57743c9e4d9",
+      "Cargo.lock": "381e80d27ce33e86079c74f9595dd7ebeaad86f5203538ec4338138785b4ac67"
+    },
+    "candidate": {
+      "crates/gpui-mesh/src/dataset.rs": "cb5ccebab73a1a76e9aa2f4723ae6c222af401ef135e78138b9edc9e287f2309",
+      "crates/gpui-mesh/src/grid.rs": "975bdb67b51dd09c65ecbde7764cd0e5da59ad496e3af7e6f910619d99e95a1b",
+      "crates/gpui-mesh/src/lib.rs": "1a6956bc563c7231f3ef48087426a71e792077b1c5b59cb6d30b450543b09126",
+      "crates/gpui-profiler/src/alloc_count.rs": "5c71f681fcd1f0993d75e672b9cbb2d51b7256f876493a61d786d57743c9e4d9",
+      "Cargo.lock": "381e80d27ce33e86079c74f9595dd7ebeaad86f5203538ec4338138785b4ac67"
+    }
+  },
+  "verification_sha256": {
+    "crates/gpui-mesh/tests/grid_construction.rs": "1b142f9be14627c485de2f20ed44e71130bd9841a2eb803491aa196a72535ce9",
+    "crates/gpui-mesh/tests/grid_construction_limits.rs": "010786e91ab2c4cd02675f9ab88984b5f293010c724c4a9964d356b6e0c46046",
+    "crates/gpui-mesh/tests/grid_rejection_allocations.rs": "747be9bddf7f3074f7a473b065763fa0be0da1de7855cfeba6d182ff09480807",
+    "crates/gpui-scene3d/tests/grid_dimensions.rs": "1492b2835fd198eae5cdeef2f7af73284313846a8bfc37ba13183c8992cc77cb",
+    "crates/gpui-python-runtime/src/mesh_api.rs": "0293a68012543aadb0d7ff61c31060b55dcedac812ec9fd21bb0d12f444897cd"
+  },
+  "oracle_source": "//! Grid construction topology and invalid-input oracles using existing APIs.\n\n// Rust guideline compliant 2026-02-21\n\nuse gpui_mesh::{CellType, DataSet};\n\n#[test]\nfn constructors_preserve_all_active_axes_and_x_fastest_cell_order() {\n    let origin = [0.25, -1.0, 2.0];\n    let spacing = [0.5, 1.25, -0.75];\n    for dims in [\n        [3, 4, 5],\n        [3, 4, 1],\n        [3, 1, 5],\n        [1, 4, 5],\n        [3, 1, 1],\n        [1, 4, 1],\n        [1, 1, 5],\n        [1, 1, 1],\n    ] {\n        let axes: [Vec<f64>; 3] = std::array::from_fn(|a| {\n            (0..dims[a])\n                .map(|i| origin[a] + i as f64 * spacing[a])\n                .collect()\n        });\n        let affine = DataSet::structured_grid(\"grid\", dims, origin, spacing).unwrap();\n        let rect = DataSet::rectilinear_grid(\"grid\", &axes[0], &axes[1], &axes[2]).unwrap();\n        let curved = DataSet::curvilinear_grid(\"grid\", dims, affine.positions.to_vec()).unwrap();\n        assert_eq!(affine, rect);\n        assert_eq!(affine, curved);\n        affine.validate().unwrap();\n        let dimension = dims.iter().filter(|&&n| n > 1).count();\n        let kind = [\n            CellType::Vertex,\n            CellType::Line,\n            CellType::Quad,\n            CellType::Hexahedron,\n        ][dimension];\n        let cell_dims = dims.map(|n| n.saturating_sub(1).max(1));\n        assert_eq!(\n            affine.cell_count(),\n            cell_dims.into_iter().product::<usize>(),\n            \"missing topology for {dims:?}\"\n        );\n        for (cell, &ty) in affine.cells.types.iter().enumerate() {\n            assert_eq!(ty, kind);\n            let nodes = affine.cells.cell(cell).unwrap();\n            assert_eq!(nodes.len(), 1 << dimension);\n            let mut unique = nodes.to_vec();\n            unique.sort_unstable();\n            unique.dedup();\n            assert_eq!(unique.len(), nodes.len());\n            for axis in 0..3 {\n                let stride = dims[..axis].iter().product::<usize>();\n                let coords = nodes\n                    .iter()\n                    .map(|&id| (id as usize / stride) % dims[axis])\n                    .collect::<Vec<_>>();\n                let min = *coords.iter().min().unwrap();\n                let max = *coords.iter().max().unwrap();\n                assert_eq!(max - min, usize::from(dims[axis] > 1));\n                let expected =\n                    (cell / cell_dims[..axis].iter().product::<usize>()) % cell_dims[axis];\n                assert_eq!(\n                    min, expected,\n                    \"cell order differs for {dims:?}, cell {cell}, axis {axis}\"\n                );\n            }\n        }\n    }\n    let hex = DataSet::structured_grid(\"hex\", [3, 2, 2], [0.0; 3], [1.0; 3]).unwrap();\n    assert_eq!(hex.cells.cell(0).unwrap(), [0, 1, 4, 3, 6, 7, 10, 9]);\n    assert_eq!(hex.cells.cell(1).unwrap(), [1, 2, 5, 4, 7, 8, 11, 10]);\n    for dims in [[3, 2, 1], [3, 1, 2], [1, 3, 2]] {\n        let quad = DataSet::structured_grid(\"quad\", dims, [0.0; 3], [1.0; 3]).unwrap();\n        assert_eq!(quad.cells.cell(0).unwrap(), [0, 1, 4, 3]);\n        assert_eq!(quad.cells.cell(1).unwrap(), [1, 2, 5, 4]);\n    }\n}\n\n#[test]\nfn impossible_dimensions_return_an_error_without_capacity_panics() {\n    DataSet::structured_grid(\"huge\", [usize::MAX, 2, 2], [0.0; 3], [1.0; 3]).unwrap_err();\n    DataSet::curvilinear_grid(\"huge\", [usize::MAX, 2, 2], vec![]).unwrap_err();\n    DataSet::structured_grid(\"zero\", [0, usize::MAX, 2], [0.0; 3], [1.0; 3]).unwrap_err();\n}\n\n#[test]\nfn constructors_reject_nonfinite_coordinates() {\n    DataSet::structured_grid(\"bad\", [2; 3], [f64::NAN, 0.0, 0.0], [1.0; 3]).unwrap_err();\n    DataSet::structured_grid(\"bad\", [2; 3], [0.0; 3], [f64::INFINITY, 1.0, 1.0]).unwrap_err();\n    DataSet::structured_grid(\n        \"overflow\",\n        [3, 1, 1],\n        [-f64::MAX, 0.0, 0.0],\n        [f64::MAX, 1.0, 1.0],\n    )\n    .unwrap_err();\n    DataSet::rectilinear_grid(\"bad\", &[0.0, f64::INFINITY], &[0.0], &[0.0]).unwrap_err();\n    let mut positions = vec![[0.0; 3]; 8];\n    positions[5][2] = f64::NAN;\n    DataSet::curvilinear_grid(\"bad\", [2; 3], positions).unwrap_err();\n}\n",
+  "oracle": {
+    "baseline": {
+      "status": 101,
+      "stdout": "\nrunning 3 tests\nimpossible_dimensions_return_an_error_without_capacity_panics --- FAILED\nconstructors_reject_nonfinite_coordinates --- FAILED\nconstructors_preserve_all_active_axes_and_x_fastest_cell_order --- FAILED\n\nfailures:\n\n---- impossible_dimensions_return_an_error_without_capacity_panics stdout ----\n\nthread 'impossible_dimensions_return_an_error_without_capacity_panics' (316839967) panicked at /rustc/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library/alloc/src/raw_vec/mod.rs:28:5:\ncapacity overflow\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n---- constructors_reject_nonfinite_coordinates stdout ----\n\nthread 'constructors_reject_nonfinite_coordinates' (316839966) panicked at tests/constructor_oracle.rs:90:77:\ncalled `Result::unwrap_err()` on an `Ok` value: DataSet { id: \"bad\", positions: [[NaN, 0.0, 0.0], [NaN, 0.0, 0.0], [NaN, 1.0, 0.0], [NaN, 1.0, 0.0], [NaN, 0.0, 1.0], [NaN, 0.0, 1.0], [NaN, 1.0, 1.0], [NaN, 1.0, 1.0]], cells: Cells { types: [Hexahedron], offsets: [0, 8], connectivity: [0, 1, 3, 2, 4, 5, 7, 6] }, point_data: [], cell_data: [] }\n\n---- constructors_preserve_all_active_axes_and_x_fastest_cell_order stdout ----\n\nthread 'constructors_preserve_all_active_axes_and_x_fastest_cell_order' (316839965) panicked at tests/constructor_oracle.rs:40:9:\nassertion `left == right` failed: missing topology for [3, 4, 1]\n  left: 0\n right: 6\n\n\nfailures:\n    constructors_preserve_all_active_axes_and_x_fastest_cell_order\n    constructors_reject_nonfinite_coordinates\n    impossible_dimensions_return_an_error_without_capacity_panics\n\ntest result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "stderr": "error: test failed, to rerun pass `--test constructor_oracle`\n"
+    },
+    "candidate": {
+      "status": 0,
+      "stdout": "\nrunning 3 tests\n...\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "stderr": ""
+    }
+  },
+  "binary_sha256": {
+    "baseline": {
+      "timing": "0bc129cea5389146a9a07c30c39ebfeec37c2d4f1ed80b51e3336770cd4789cc",
+      "allocations": "415a0c3e8fc4a17863665ada542e85adbc8e866eb376360f3affdc520bd32109"
+    },
+    "candidate": {
+      "timing": "01c17ff1587b48ff4d7b70ec84d30401b37b6abe34915f269fb03160ab4d3c44",
+      "allocations": "fdf57fcc4b98dee9a1af97f4a5811db6a5d6eb57af60f89f7f1d224de3d4e4e5"
+    }
+  },
+  "summary": [
+    {
+      "dims": [
+        16,
+        16,
+        16
+      ],
+      "method": "affine",
+      "equivalent_work": true,
+      "matching_output": true,
+      "cpu_median_ns": {
+        "baseline": 32500.0,
+        "candidate": 14500.0
+      },
+      "wall_median_ns": {
+        "baseline": 31333.5,
+        "candidate": 13750.5
+      },
+      "cpu_ratio": 0.4461538461538462,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 33,
+          "allocated_bytes": 724991
+        },
+        "candidate": {
+          "allocation_calls": 9,
+          "allocated_bytes": 473463
+        }
+      },
+      "payload_bytes": {
+        "baseline": 236687,
+        "candidate": 236687
+      },
+      "output_hash": {
+        "baseline": "4987dbd767c20ef6",
+        "candidate": "4987dbd767c20ef6"
+      },
+      "cells": {
+        "baseline": 3375,
+        "candidate": 3375
+      }
+    },
+    {
+      "dims": [
+        16,
+        16,
+        16
+      ],
+      "method": "rectilinear",
+      "equivalent_work": true,
+      "matching_output": true,
+      "cpu_median_ns": {
+        "baseline": 30000.0,
+        "candidate": 14500.0
+      },
+      "wall_median_ns": {
+        "baseline": 29291.5,
+        "candidate": 14312.5
+      },
+      "cpu_ratio": 0.48333333333333334,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 33,
+          "allocated_bytes": 724991
+        },
+        "candidate": {
+          "allocation_calls": 9,
+          "allocated_bytes": 473463
+        }
+      },
+      "payload_bytes": {
+        "baseline": 236687,
+        "candidate": 236687
+      },
+      "output_hash": {
+        "baseline": "4987dbd767c20ef6",
+        "candidate": "4987dbd767c20ef6"
+      },
+      "cells": {
+        "baseline": 3375,
+        "candidate": 3375
+      }
+    },
+    {
+      "dims": [
+        16,
+        16,
+        16
+      ],
+      "method": "curvilinear",
+      "equivalent_work": true,
+      "matching_output": true,
+      "cpu_median_ns": {
+        "baseline": 23500.0,
+        "candidate": 9000.0
+      },
+      "wall_median_ns": {
+        "baseline": 23312.5,
+        "candidate": 8812.5
+      },
+      "cpu_ratio": 0.3829787234042553,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 32,
+          "allocated_bytes": 626687
+        },
+        "candidate": {
+          "allocation_calls": 8,
+          "allocated_bytes": 375159
+        }
+      },
+      "payload_bytes": {
+        "baseline": 236687,
+        "candidate": 236687
+      },
+      "output_hash": {
+        "baseline": "94f36497db2f6f2b",
+        "candidate": "94f36497db2f6f2b"
+      },
+      "cells": {
+        "baseline": 3375,
+        "candidate": 3375
+      }
+    },
+    {
+      "dims": [
+        48,
+        48,
+        48
+      ],
+      "method": "affine",
+      "equivalent_work": true,
+      "matching_output": true,
+      "cpu_median_ns": {
+        "baseline": 1031000.0,
+        "candidate": 400500.0
+      },
+      "wall_median_ns": {
+        "baseline": 1030375.0,
+        "candidate": 400312.5
+      },
+      "cpu_ratio": 0.38845780795344326,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 43,
+          "allocated_bytes": 21904319
+        },
+        "candidate": {
+          "allocation_calls": 9,
+          "allocated_bytes": 13822007
+        }
+      },
+      "payload_bytes": {
+        "baseline": 6910959,
+        "candidate": 6910959
+      },
+      "output_hash": {
+        "baseline": "f016163f8372c9be",
+        "candidate": "f016163f8372c9be"
+      },
+      "cells": {
+        "baseline": 103823,
+        "candidate": 103823
+      }
+    },
+    {
+      "dims": [
+        48,
+        48,
+        48
+      ],
+      "method": "rectilinear",
+      "equivalent_work": true,
+      "matching_output": true,
+      "cpu_median_ns": {
+        "baseline": 1050000.0,
+        "candidate": 404500.0
+      },
+      "wall_median_ns": {
+        "baseline": 1049875.0,
+        "candidate": 404000.0
+      },
+      "cpu_ratio": 0.3852380952380952,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 43,
+          "allocated_bytes": 21904319
+        },
+        "candidate": {
+          "allocation_calls": 9,
+          "allocated_bytes": 13822007
+        }
+      },
+      "payload_bytes": {
+        "baseline": 6910959,
+        "candidate": 6910959
+      },
+      "output_hash": {
+        "baseline": "f016163f8372c9be",
+        "candidate": "f016163f8372c9be"
+      },
+      "cells": {
+        "baseline": 103823,
+        "candidate": 103823
+      }
+    },
+    {
+      "dims": [
+        48,
+        48,
+        48
+      ],
+      "method": "curvilinear",
+      "equivalent_work": true,
+      "matching_output": true,
+      "cpu_median_ns": {
+        "baseline": 877500.0,
+        "candidate": 268500.0
+      },
+      "wall_median_ns": {
+        "baseline": 876958.5,
+        "candidate": 267041.5
+      },
+      "cpu_ratio": 0.305982905982906,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 42,
+          "allocated_bytes": 19250111
+        },
+        "candidate": {
+          "allocation_calls": 8,
+          "allocated_bytes": 11167799
+        }
+      },
+      "payload_bytes": {
+        "baseline": 6910959,
+        "candidate": 6910959
+      },
+      "output_hash": {
+        "baseline": "cd99a6b7c4b520ee",
+        "candidate": "cd99a6b7c4b520ee"
+      },
+      "cells": {
+        "baseline": 103823,
+        "candidate": 103823
+      }
+    },
+    {
+      "dims": [
+        96,
+        96,
+        96
+      ],
+      "method": "affine",
+      "equivalent_work": true,
+      "matching_output": true,
+      "cpu_median_ns": {
+        "baseline": 11258000.0,
+        "candidate": 3281500.0
+      },
+      "wall_median_ns": {
+        "baseline": 11256312.5,
+        "candidate": 3280270.5
+      },
+      "cpu_ratio": 0.2914816130751466,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 49,
+          "allocated_bytes": 177216351
+        },
+        "candidate": {
+          "allocation_calls": 9,
+          "allocated_bytes": 112772183
+        }
+      },
+      "payload_bytes": {
+        "baseline": 56386047,
+        "candidate": 56386047
+      },
+      "output_hash": {
+        "baseline": "fe64478668533722",
+        "candidate": "fe64478668533722"
+      },
+      "cells": {
+        "baseline": 857375,
+        "candidate": 857375
+      }
+    },
+    {
+      "dims": [
+        96,
+        96,
+        96
+      ],
+      "method": "rectilinear",
+      "equivalent_work": true,
+      "matching_output": true,
+      "cpu_median_ns": {
+        "baseline": 11021000.0,
+        "candidate": 3272500.0
+      },
+      "wall_median_ns": {
+        "baseline": 11020125.0,
+        "candidate": 3271500.0
+      },
+      "cpu_ratio": 0.2969331276653661,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 49,
+          "allocated_bytes": 177216351
+        },
+        "candidate": {
+          "allocation_calls": 9,
+          "allocated_bytes": 112772183
+        }
+      },
+      "payload_bytes": {
+        "baseline": 56386047,
+        "candidate": 56386047
+      },
+      "output_hash": {
+        "baseline": "fe64478668533722",
+        "candidate": "fe64478668533722"
+      },
+      "cells": {
+        "baseline": 857375,
+        "candidate": 857375
+      }
+    },
+    {
+      "dims": [
+        96,
+        96,
+        96
+      ],
+      "method": "curvilinear",
+      "equivalent_work": true,
+      "matching_output": true,
+      "cpu_median_ns": {
+        "baseline": 9544500.0,
+        "candidate": 2196000.0
+      },
+      "wall_median_ns": {
+        "baseline": 9542854.0,
+        "candidate": 2194708.5
+      },
+      "cpu_ratio": 0.23008015087223008,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 48,
+          "allocated_bytes": 155982687
+        },
+        "candidate": {
+          "allocation_calls": 8,
+          "allocated_bytes": 91538519
+        }
+      },
+      "payload_bytes": {
+        "baseline": 56386047,
+        "candidate": 56386047
+      },
+      "output_hash": {
+        "baseline": "ecf2167438a18427",
+        "candidate": "ecf2167438a18427"
+      },
+      "cells": {
+        "baseline": 857375,
+        "candidate": 857375
+      }
+    },
+    {
+      "dims": [
+        64,
+        64,
+        1
+      ],
+      "method": "affine",
+      "equivalent_work": false,
+      "matching_output": false,
+      "cpu_median_ns": {
+        "baseline": 9500.0,
+        "candidate": 15000.0
+      },
+      "wall_median_ns": {
+        "baseline": 9020.5,
+        "candidate": 14312.5
+      },
+      "cpu_ratio": 1.5789473684210527,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 196712
+        },
+        "candidate": {
+          "allocation_calls": 9,
+          "allocated_bytes": 395169
+        }
+      },
+      "payload_bytes": {
+        "baseline": 98312,
+        "candidate": 197537
+      },
+      "output_hash": {
+        "baseline": "f0421ab5fa5976ed",
+        "candidate": "a7fbe0735df501c6"
+      },
+      "cells": {
+        "baseline": 0,
+        "candidate": 3969
+      }
+    },
+    {
+      "dims": [
+        64,
+        1,
+        64
+      ],
+      "method": "affine",
+      "equivalent_work": false,
+      "matching_output": false,
+      "cpu_median_ns": {
+        "baseline": 10000.0,
+        "candidate": 14500.0
+      },
+      "wall_median_ns": {
+        "baseline": 8791.5,
+        "candidate": 14104.5
+      },
+      "cpu_ratio": 1.45,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 196712
+        },
+        "candidate": {
+          "allocation_calls": 9,
+          "allocated_bytes": 395169
+        }
+      },
+      "payload_bytes": {
+        "baseline": 98312,
+        "candidate": 197537
+      },
+      "output_hash": {
+        "baseline": "d6dd414632f253c5",
+        "candidate": "b792249e2a01804e"
+      },
+      "cells": {
+        "baseline": 0,
+        "candidate": 3969
+      }
+    },
+    {
+      "dims": [
+        1,
+        64,
+        64
+      ],
+      "method": "affine",
+      "equivalent_work": false,
+      "matching_output": false,
+      "cpu_median_ns": {
+        "baseline": 9000.0,
+        "candidate": 15000.0
+      },
+      "wall_median_ns": {
+        "baseline": 9083.5,
+        "candidate": 14604.0
+      },
+      "cpu_ratio": 1.6666666666666667,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 196712
+        },
+        "candidate": {
+          "allocation_calls": 9,
+          "allocated_bytes": 395169
+        }
+      },
+      "payload_bytes": {
+        "baseline": 98312,
+        "candidate": 197537
+      },
+      "output_hash": {
+        "baseline": "458fb3e86b74fea1",
+        "candidate": "7b883e5630b3852a"
+      },
+      "cells": {
+        "baseline": 0,
+        "candidate": 3969
+      }
+    },
+    {
+      "dims": [
+        4096,
+        1,
+        1
+      ],
+      "method": "affine",
+      "equivalent_work": false,
+      "matching_output": false,
+      "cpu_median_ns": {
+        "baseline": 9000.0,
+        "candidate": 12000.0
+      },
+      "wall_median_ns": {
+        "baseline": 9083.5,
+        "candidate": 11334.0
+      },
+      "cpu_ratio": 1.3333333333333333,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 196712
+        },
+        "candidate": {
+          "allocation_calls": 9,
+          "allocated_bytes": 335943
+        }
+      },
+      "payload_bytes": {
+        "baseline": 98312,
+        "candidate": 167927
+      },
+      "output_hash": {
+        "baseline": "2ff63d9013c3fe25",
+        "candidate": "b3b68e8e780c3b90"
+      },
+      "cells": {
+        "baseline": 0,
+        "candidate": 4095
+      }
+    },
+    {
+      "dims": [
+        1,
+        4096,
+        1
+      ],
+      "method": "affine",
+      "equivalent_work": false,
+      "matching_output": false,
+      "cpu_median_ns": {
+        "baseline": 9000.0,
+        "candidate": 13000.0
+      },
+      "wall_median_ns": {
+        "baseline": 8916.5,
+        "candidate": 11875.5
+      },
+      "cpu_ratio": 1.4444444444444444,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 196712
+        },
+        "candidate": {
+          "allocation_calls": 9,
+          "allocated_bytes": 335943
+        }
+      },
+      "payload_bytes": {
+        "baseline": 98312,
+        "candidate": 167927
+      },
+      "output_hash": {
+        "baseline": "8fc43bb5d757e292",
+        "candidate": "6bad04e2a3b1c111"
+      },
+      "cells": {
+        "baseline": 0,
+        "candidate": 4095
+      }
+    },
+    {
+      "dims": [
+        1,
+        1,
+        4096
+      ],
+      "method": "affine",
+      "equivalent_work": false,
+      "matching_output": false,
+      "cpu_median_ns": {
+        "baseline": 9000.0,
+        "candidate": 15500.0
+      },
+      "wall_median_ns": {
+        "baseline": 9208.5,
+        "candidate": 15375.0
+      },
+      "cpu_ratio": 1.7222222222222223,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 7,
+          "allocated_bytes": 196712
+        },
+        "candidate": {
+          "allocation_calls": 9,
+          "allocated_bytes": 335943
+        }
+      },
+      "payload_bytes": {
+        "baseline": 98312,
+        "candidate": 167927
+      },
+      "output_hash": {
+        "baseline": "3289abf720690325",
+        "candidate": "bad7092c402ce290"
+      },
+      "cells": {
+        "baseline": 0,
+        "candidate": 4095
+      }
+    }
+  ],
+  "runs": [
+    {
+      "variant": "baseline",
+      "build": "timing",
+      "records": [
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "affine",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            60709,
+            60625,
+            60750,
+            54125,
+            58000
+          ],
+          "cpu_times_ns": [
+            64000,
+            62000,
+            62000,
+            55000,
+            59000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "rectilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            27084,
+            26500,
+            32209,
+            33334,
+            27417
+          ],
+          "cpu_times_ns": [
+            29000,
+            28000,
+            32000,
+            33000,
+            28000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "curvilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "94f36497db2f6f2b",
+          "times_ns": [
+            24875,
+            20792,
+            20834,
+            23791,
+            20208
+          ],
+          "cpu_times_ns": [
+            25000,
+            21000,
+            22000,
+            24000,
+            20000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "affine",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            931000,
+            851584,
+            1184709,
+            1046583,
+            1070250
+          ],
+          "cpu_times_ns": [
+            932000,
+            852000,
+            1186000,
+            1047000,
+            1071000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "rectilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            1080500,
+            1078959,
+            1034417,
+            1049542,
+            1046958
+          ],
+          "cpu_times_ns": [
+            1082000,
+            1079000,
+            1035000,
+            1050000,
+            1047000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "curvilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "cd99a6b7c4b520ee",
+          "times_ns": [
+            854708,
+            1022541,
+            899791,
+            916125,
+            975042
+          ],
+          "cpu_times_ns": [
+            856000,
+            1023000,
+            901000,
+            917000,
+            975000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "affine",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            10526958,
+            11116125,
+            11392125,
+            11247541,
+            11200875
+          ],
+          "cpu_times_ns": [
+            10528000,
+            11118000,
+            11393000,
+            11250000,
+            11203000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "rectilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            11114708,
+            11055875,
+            11019791,
+            11083500,
+            11067292
+          ],
+          "cpu_times_ns": [
+            11116000,
+            11051000,
+            11021000,
+            11083000,
+            11068000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "curvilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "ecf2167438a18427",
+          "times_ns": [
+            9460250,
+            10866250,
+            9536833,
+            9627917,
+            8835333
+          ],
+          "cpu_times_ns": [
+            9462000,
+            10868000,
+            9539000,
+            9630000,
+            8836000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            64,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "f0421ab5fa5976ed",
+          "times_ns": [
+            8041,
+            8083,
+            8250,
+            8209,
+            8167
+          ],
+          "cpu_times_ns": [
+            8000,
+            8000,
+            8000,
+            8000,
+            8000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            1,
+            64
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "d6dd414632f253c5",
+          "times_ns": [
+            10375,
+            8916,
+            9416,
+            9000,
+            10375
+          ],
+          "cpu_times_ns": [
+            11000,
+            9000,
+            9000,
+            10000,
+            10000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            64,
+            64
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "458fb3e86b74fea1",
+          "times_ns": [
+            9000,
+            9041,
+            9084,
+            9250,
+            9584
+          ],
+          "cpu_times_ns": [
+            9000,
+            9000,
+            9000,
+            9000,
+            11000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            4096,
+            1,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "2ff63d9013c3fe25",
+          "times_ns": [
+            8917,
+            11250,
+            9167,
+            8958,
+            9208
+          ],
+          "cpu_times_ns": [
+            9000,
+            12000,
+            10000,
+            9000,
+            9000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            4096,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "8fc43bb5d757e292",
+          "times_ns": [
+            8709,
+            9292,
+            9000,
+            8208,
+            8250
+          ],
+          "cpu_times_ns": [
+            8000,
+            9000,
+            9000,
+            8000,
+            8000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            1,
+            4096
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "3289abf720690325",
+          "times_ns": [
+            8000,
+            8459,
+            9125,
+            9500,
+            11292
+          ],
+          "cpu_times_ns": [
+            8000,
+            8000,
+            11000,
+            10000,
+            11000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "timing",
+      "records": [
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "affine",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            13958,
+            12959,
+            13167,
+            12917,
+            13084
+          ],
+          "cpu_times_ns": [
+            15000,
+            13000,
+            14000,
+            13000,
+            13000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "rectilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            13208,
+            13833,
+            12917,
+            13042,
+            13000
+          ],
+          "cpu_times_ns": [
+            14000,
+            14000,
+            13000,
+            13000,
+            14000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "curvilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "94f36497db2f6f2b",
+          "times_ns": [
+            7875,
+            8291,
+            8041,
+            8917,
+            8041
+          ],
+          "cpu_times_ns": [
+            8000,
+            10000,
+            9000,
+            9000,
+            8000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "affine",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            393916,
+            387459,
+            391500,
+            391541,
+            399125
+          ],
+          "cpu_times_ns": [
+            394000,
+            389000,
+            393000,
+            391000,
+            400000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "rectilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            390625,
+            388708,
+            399584,
+            430417,
+            407042
+          ],
+          "cpu_times_ns": [
+            392000,
+            389000,
+            401000,
+            429000,
+            408000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "curvilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "cd99a6b7c4b520ee",
+          "times_ns": [
+            289000,
+            278375,
+            253208,
+            281042,
+            275667
+          ],
+          "cpu_times_ns": [
+            290000,
+            279000,
+            254000,
+            281000,
+            276000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "affine",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            3715458,
+            3314125,
+            3252500,
+            3306541,
+            3270708
+          ],
+          "cpu_times_ns": [
+            3718000,
+            3316000,
+            3254000,
+            3308000,
+            3271000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "rectilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            3244583,
+            3357292,
+            3265333,
+            3888833,
+            3296166
+          ],
+          "cpu_times_ns": [
+            3246000,
+            3359000,
+            3267000,
+            3889000,
+            3297000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "curvilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "ecf2167438a18427",
+          "times_ns": [
+            2294333,
+            2213500,
+            2135542,
+            2249209,
+            2290958
+          ],
+          "cpu_times_ns": [
+            2296000,
+            2215000,
+            2137000,
+            2251000,
+            2293000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            64,
+            1
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "a7fbe0735df501c6",
+          "times_ns": [
+            13292,
+            12833,
+            16750,
+            14375,
+            13917
+          ],
+          "cpu_times_ns": [
+            15000,
+            13000,
+            17000,
+            14000,
+            14000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            1,
+            64
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "b792249e2a01804e",
+          "times_ns": [
+            13292,
+            14250,
+            14500,
+            14042,
+            13834
+          ],
+          "cpu_times_ns": [
+            15000,
+            14000,
+            16000,
+            14000,
+            13000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            64,
+            64
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "7b883e5630b3852a",
+          "times_ns": [
+            12375,
+            14209,
+            13166,
+            16916,
+            14125
+          ],
+          "cpu_times_ns": [
+            12000,
+            15000,
+            13000,
+            17000,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            4096,
+            1,
+            1
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "b3b68e8e780c3b90",
+          "times_ns": [
+            9500,
+            9375,
+            14125,
+            9250,
+            13208
+          ],
+          "cpu_times_ns": [
+            11000,
+            10000,
+            14000,
+            10000,
+            13000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            4096,
+            1
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "6bad04e2a3b1c111",
+          "times_ns": [
+            12583,
+            13667,
+            13000,
+            15500,
+            13916
+          ],
+          "cpu_times_ns": [
+            13000,
+            14000,
+            14000,
+            16000,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            1,
+            4096
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "bad7092c402ce290",
+          "times_ns": [
+            15375,
+            15375,
+            14833,
+            16541,
+            15458
+          ],
+          "cpu_times_ns": [
+            15000,
+            16000,
+            15000,
+            18000,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "timing",
+      "records": [
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "affine",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            12541,
+            12709,
+            13791,
+            14458,
+            12791
+          ],
+          "cpu_times_ns": [
+            14000,
+            13000,
+            14000,
+            14000,
+            14000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "rectilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            13167,
+            15083,
+            14458,
+            14417,
+            14500
+          ],
+          "cpu_times_ns": [
+            13000,
+            16000,
+            15000,
+            15000,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "curvilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "94f36497db2f6f2b",
+          "times_ns": [
+            10083,
+            8500,
+            8917,
+            8750,
+            7791
+          ],
+          "cpu_times_ns": [
+            11000,
+            9000,
+            9000,
+            9000,
+            8000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "affine",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            399334,
+            407542,
+            409458,
+            392333,
+            386792
+          ],
+          "cpu_times_ns": [
+            400000,
+            408000,
+            411000,
+            394000,
+            388000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "rectilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            381167,
+            429250,
+            397750,
+            428750,
+            403917
+          ],
+          "cpu_times_ns": [
+            382000,
+            429000,
+            399000,
+            430000,
+            405000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "curvilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "cd99a6b7c4b520ee",
+          "times_ns": [
+            270083,
+            277750,
+            252792,
+            278083,
+            270125
+          ],
+          "cpu_times_ns": [
+            271000,
+            278000,
+            254000,
+            278000,
+            270000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "affine",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            3374833,
+            3419042,
+            3385291,
+            3397666,
+            3305250
+          ],
+          "cpu_times_ns": [
+            3377000,
+            3420000,
+            3386000,
+            3400000,
+            3307000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "rectilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            3319792,
+            3325834,
+            3238791,
+            3292667,
+            3746250
+          ],
+          "cpu_times_ns": [
+            3322000,
+            3327000,
+            3240000,
+            3293000,
+            3737000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "curvilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "ecf2167438a18427",
+          "times_ns": [
+            2223084,
+            2888333,
+            2187875,
+            2144917,
+            2114916
+          ],
+          "cpu_times_ns": [
+            2227000,
+            2890000,
+            2189000,
+            2147000,
+            2116000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            64,
+            1
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "a7fbe0735df501c6",
+          "times_ns": [
+            15791,
+            14125,
+            15333,
+            14208,
+            14084
+          ],
+          "cpu_times_ns": [
+            17000,
+            15000,
+            15000,
+            15000,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            1,
+            64
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "b792249e2a01804e",
+          "times_ns": [
+            13542,
+            14208,
+            13959,
+            14208,
+            14917
+          ],
+          "cpu_times_ns": [
+            17000,
+            14000,
+            15000,
+            14000,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            64,
+            64
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "7b883e5630b3852a",
+          "times_ns": [
+            15792,
+            14833,
+            14833,
+            14625,
+            14541
+          ],
+          "cpu_times_ns": [
+            16000,
+            15000,
+            16000,
+            15000,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            4096,
+            1,
+            1
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "b3b68e8e780c3b90",
+          "times_ns": [
+            9292,
+            8958,
+            15250,
+            10584,
+            13292
+          ],
+          "cpu_times_ns": [
+            12000,
+            9000,
+            17000,
+            11000,
+            13000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            4096,
+            1
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "6bad04e2a3b1c111",
+          "times_ns": [
+            12167,
+            10500,
+            10375,
+            12750,
+            10792
+          ],
+          "cpu_times_ns": [
+            13000,
+            10000,
+            10000,
+            13000,
+            11000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            1,
+            4096
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "bad7092c402ce290",
+          "times_ns": [
+            15042,
+            15416,
+            15209,
+            15084,
+            17416
+          ],
+          "cpu_times_ns": [
+            15000,
+            15000,
+            16000,
+            15000,
+            18000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "build": "timing",
+      "records": [
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "affine",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            27208,
+            26916,
+            31625,
+            31042,
+            28125
+          ],
+          "cpu_times_ns": [
+            28000,
+            27000,
+            32000,
+            31000,
+            29000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "rectilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            30250,
+            32375,
+            31250,
+            32542,
+            30375
+          ],
+          "cpu_times_ns": [
+            31000,
+            33000,
+            31000,
+            33000,
+            30000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "curvilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "94f36497db2f6f2b",
+          "times_ns": [
+            25542,
+            23375,
+            22084,
+            23042,
+            23500
+          ],
+          "cpu_times_ns": [
+            25000,
+            24000,
+            23000,
+            25000,
+            24000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "affine",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            909958,
+            792542,
+            1056917,
+            1065083,
+            1037417
+          ],
+          "cpu_times_ns": [
+            911000,
+            793000,
+            1058000,
+            1065000,
+            1038000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "rectilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            1041666,
+            1050208,
+            1050834,
+            1053000,
+            1009375
+          ],
+          "cpu_times_ns": [
+            1043000,
+            1050000,
+            1050000,
+            1053000,
+            1011000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "curvilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "cd99a6b7c4b520ee",
+          "times_ns": [
+            832959,
+            828083,
+            870375,
+            867083,
+            868625
+          ],
+          "cpu_times_ns": [
+            833000,
+            829000,
+            871000,
+            868000,
+            868000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "affine",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            10535208,
+            11510458,
+            11379791,
+            11311417,
+            11955000
+          ],
+          "cpu_times_ns": [
+            10538000,
+            11513000,
+            11380000,
+            11313000,
+            11956000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "rectilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            11338333,
+            10812166,
+            11068833,
+            11095959,
+            11197791
+          ],
+          "cpu_times_ns": [
+            11340000,
+            10814000,
+            11069000,
+            11097000,
+            11199000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "curvilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "ecf2167438a18427",
+          "times_ns": [
+            9583375,
+            9756917,
+            9639625,
+            10113583,
+            9127666
+          ],
+          "cpu_times_ns": [
+            9585000,
+            9758000,
+            9642000,
+            10115000,
+            9129000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            64,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "f0421ab5fa5976ed",
+          "times_ns": [
+            8916,
+            9500,
+            9166,
+            9167,
+            9125
+          ],
+          "cpu_times_ns": [
+            11000,
+            9000,
+            9000,
+            9000,
+            10000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            1,
+            64
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "d6dd414632f253c5",
+          "times_ns": [
+            7834,
+            11833,
+            8333,
+            8417,
+            11250
+          ],
+          "cpu_times_ns": [
+            8000,
+            11000,
+            10000,
+            8000,
+            11000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            64,
+            64
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "458fb3e86b74fea1",
+          "times_ns": [
+            8875,
+            8875,
+            9208,
+            10417,
+            9000
+          ],
+          "cpu_times_ns": [
+            10000,
+            9000,
+            9000,
+            10000,
+            10000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            4096,
+            1,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "2ff63d9013c3fe25",
+          "times_ns": [
+            8541,
+            9209,
+            8958,
+            9208,
+            7958
+          ],
+          "cpu_times_ns": [
+            9000,
+            9000,
+            9000,
+            9000,
+            9000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            4096,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "8fc43bb5d757e292",
+          "times_ns": [
+            7750,
+            8208,
+            9208,
+            10542,
+            8875
+          ],
+          "cpu_times_ns": [
+            9000,
+            8000,
+            9000,
+            11000,
+            9000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            1,
+            4096
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "3289abf720690325",
+          "times_ns": [
+            8584,
+            9125,
+            9166,
+            9291,
+            9084
+          ],
+          "cpu_times_ns": [
+            9000,
+            10000,
+            9000,
+            10000,
+            9000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "build": "timing",
+      "records": [
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "affine",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            31667,
+            31083,
+            32667,
+            31334,
+            32084
+          ],
+          "cpu_times_ns": [
+            33000,
+            31000,
+            33000,
+            31000,
+            33000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "rectilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            30042,
+            30250,
+            32625,
+            31709,
+            29334
+          ],
+          "cpu_times_ns": [
+            31000,
+            30000,
+            33000,
+            32000,
+            30000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "curvilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "94f36497db2f6f2b",
+          "times_ns": [
+            24791,
+            26250,
+            24166,
+            23666,
+            24625
+          ],
+          "cpu_times_ns": [
+            25000,
+            26000,
+            24000,
+            25000,
+            25000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "affine",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            909125,
+            827084,
+            1073792,
+            1023333,
+            1060958
+          ],
+          "cpu_times_ns": [
+            909000,
+            827000,
+            1075000,
+            1024000,
+            1062000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "rectilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            1002916,
+            999292,
+            1038125,
+            1000708,
+            1028042
+          ],
+          "cpu_times_ns": [
+            1004000,
+            1000000,
+            1039000,
+            1002000,
+            1029000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "curvilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "cd99a6b7c4b520ee",
+          "times_ns": [
+            849125,
+            834917,
+            872916,
+            857333,
+            853333
+          ],
+          "cpu_times_ns": [
+            851000,
+            835000,
+            874000,
+            858000,
+            854000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "affine",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            10472500,
+            11382292,
+            11415875,
+            11311750,
+            11019417
+          ],
+          "cpu_times_ns": [
+            10474000,
+            11385000,
+            11420000,
+            11313000,
+            11021000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "rectilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            10805208,
+            10298708,
+            10867084,
+            10911000,
+            10979041
+          ],
+          "cpu_times_ns": [
+            10807000,
+            10300000,
+            10870000,
+            10913000,
+            10980000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "curvilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "ecf2167438a18427",
+          "times_ns": [
+            9707208,
+            9456750,
+            9547417,
+            9384625,
+            8826417
+          ],
+          "cpu_times_ns": [
+            9709000,
+            9458000,
+            9548000,
+            9387000,
+            8828000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            64,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "f0421ab5fa5976ed",
+          "times_ns": [
+            8834,
+            8834,
+            9000,
+            8875,
+            9084
+          ],
+          "cpu_times_ns": [
+            11000,
+            9000,
+            10000,
+            9000,
+            10000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            1,
+            64
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "d6dd414632f253c5",
+          "times_ns": [
+            8583,
+            9125,
+            10959,
+            8041,
+            8042
+          ],
+          "cpu_times_ns": [
+            10000,
+            10000,
+            11000,
+            8000,
+            8000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            64,
+            64
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "458fb3e86b74fea1",
+          "times_ns": [
+            8125,
+            9708,
+            9083,
+            8875,
+            9166
+          ],
+          "cpu_times_ns": [
+            8000,
+            10000,
+            9000,
+            9000,
+            10000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            4096,
+            1,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "2ff63d9013c3fe25",
+          "times_ns": [
+            8791,
+            9375,
+            8917,
+            9042,
+            9000
+          ],
+          "cpu_times_ns": [
+            8000,
+            11000,
+            9000,
+            9000,
+            9000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            4096,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "8fc43bb5d757e292",
+          "times_ns": [
+            8833,
+            8958,
+            8959,
+            8834,
+            9042
+          ],
+          "cpu_times_ns": [
+            9000,
+            9000,
+            9000,
+            9000,
+            10000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            1,
+            4096
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "3289abf720690325",
+          "times_ns": [
+            8875,
+            9292,
+            9917,
+            9292,
+            9083
+          ],
+          "cpu_times_ns": [
+            9000,
+            10000,
+            10000,
+            9000,
+            9000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "timing",
+      "records": [
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "affine",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            14959,
+            15041,
+            14875,
+            14958,
+            15000
+          ],
+          "cpu_times_ns": [
+            16000,
+            15000,
+            15000,
+            15000,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "rectilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            14792,
+            14917,
+            15083,
+            15083,
+            15250
+          ],
+          "cpu_times_ns": [
+            15000,
+            15000,
+            16000,
+            15000,
+            16000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "curvilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "94f36497db2f6f2b",
+          "times_ns": [
+            8875,
+            9167,
+            7584,
+            7917,
+            9042
+          ],
+          "cpu_times_ns": [
+            9000,
+            9000,
+            8000,
+            8000,
+            9000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "affine",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            406333,
+            391917,
+            406459,
+            406209,
+            408083
+          ],
+          "cpu_times_ns": [
+            406000,
+            392000,
+            407000,
+            406000,
+            408000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "rectilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            406083,
+            407833,
+            386250,
+            413084,
+            386875
+          ],
+          "cpu_times_ns": [
+            406000,
+            408000,
+            387000,
+            415000,
+            387000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "curvilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "cd99a6b7c4b520ee",
+          "times_ns": [
+            285375,
+            262042,
+            251959,
+            271000,
+            255958
+          ],
+          "cpu_times_ns": [
+            286000,
+            262000,
+            254000,
+            272000,
+            256000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "affine",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            3773583,
+            3214167,
+            3233000,
+            3267834,
+            3205250
+          ],
+          "cpu_times_ns": [
+            3776000,
+            3215000,
+            3235000,
+            3269000,
+            3206000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "rectilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            3336208,
+            3235708,
+            3226292,
+            3246834,
+            3371084
+          ],
+          "cpu_times_ns": [
+            3339000,
+            3236000,
+            3228000,
+            3248000,
+            3372000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "curvilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "ecf2167438a18427",
+          "times_ns": [
+            2285000,
+            2191666,
+            2151458,
+            2086167,
+            2145000
+          ],
+          "cpu_times_ns": [
+            2288000,
+            2193000,
+            2153000,
+            2088000,
+            2148000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            64,
+            1
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "a7fbe0735df501c6",
+          "times_ns": [
+            15833,
+            14958,
+            14875,
+            15000,
+            15166
+          ],
+          "cpu_times_ns": [
+            18000,
+            16000,
+            15000,
+            16000,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            1,
+            64
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "b792249e2a01804e",
+          "times_ns": [
+            16042,
+            14542,
+            12625,
+            14167,
+            12333
+          ],
+          "cpu_times_ns": [
+            17000,
+            15000,
+            13000,
+            15000,
+            13000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            64,
+            64
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "7b883e5630b3852a",
+          "times_ns": [
+            16417,
+            13667,
+            12666,
+            15333,
+            14375
+          ],
+          "cpu_times_ns": [
+            16000,
+            14000,
+            13000,
+            16000,
+            14000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            4096,
+            1,
+            1
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "b3b68e8e780c3b90",
+          "times_ns": [
+            13709,
+            16500,
+            9500,
+            13875,
+            9708
+          ],
+          "cpu_times_ns": [
+            15000,
+            17000,
+            11000,
+            14000,
+            9000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            4096,
+            1
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "6bad04e2a3b1c111",
+          "times_ns": [
+            12959,
+            12958,
+            12875,
+            14667,
+            14583
+          ],
+          "cpu_times_ns": [
+            13000,
+            14000,
+            13000,
+            15000,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            1,
+            4096
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "bad7092c402ce290",
+          "times_ns": [
+            15875,
+            13209,
+            15667,
+            13334,
+            15916
+          ],
+          "cpu_times_ns": [
+            16000,
+            15000,
+            16000,
+            13000,
+            17000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "timing",
+      "records": [
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "affine",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            14167,
+            14417,
+            14541,
+            14250,
+            14625
+          ],
+          "cpu_times_ns": [
+            15000,
+            15000,
+            15000,
+            14000,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "rectilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            14459,
+            14583,
+            12750,
+            12708,
+            14167
+          ],
+          "cpu_times_ns": [
+            14000,
+            14000,
+            14000,
+            13000,
+            14000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "curvilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "94f36497db2f6f2b",
+          "times_ns": [
+            9125,
+            8958,
+            8875,
+            8667,
+            8708
+          ],
+          "cpu_times_ns": [
+            9000,
+            9000,
+            9000,
+            8000,
+            10000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "affine",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            394667,
+            401291,
+            390125,
+            405375,
+            414042
+          ],
+          "cpu_times_ns": [
+            395000,
+            401000,
+            391000,
+            407000,
+            414000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "rectilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            404083,
+            410084,
+            415583,
+            391958,
+            402459
+          ],
+          "cpu_times_ns": [
+            404000,
+            410000,
+            416000,
+            392000,
+            403000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "curvilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "cd99a6b7c4b520ee",
+          "times_ns": [
+            263958,
+            269000,
+            261041,
+            258834,
+            279875
+          ],
+          "cpu_times_ns": [
+            266000,
+            270000,
+            261000,
+            259000,
+            280000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "affine",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            4065958,
+            3252417,
+            3313375,
+            3254000,
+            3241791
+          ],
+          "cpu_times_ns": [
+            4068000,
+            3253000,
+            3314000,
+            3255000,
+            3243000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "rectilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            3332208,
+            3233208,
+            3234625,
+            3246500,
+            3332000
+          ],
+          "cpu_times_ns": [
+            3312000,
+            3236000,
+            3234000,
+            3248000,
+            3333000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "curvilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "ecf2167438a18427",
+          "times_ns": [
+            2214542,
+            2159333,
+            2332000,
+            2201542,
+            2196541
+          ],
+          "cpu_times_ns": [
+            2217000,
+            2161000,
+            2334000,
+            2203000,
+            2198000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            64,
+            1
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "a7fbe0735df501c6",
+          "times_ns": [
+            12416,
+            12875,
+            15833,
+            14417,
+            15167
+          ],
+          "cpu_times_ns": [
+            14000,
+            14000,
+            16000,
+            15000,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            1,
+            64
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "b792249e2a01804e",
+          "times_ns": [
+            13541,
+            14834,
+            13833,
+            15333,
+            13833
+          ],
+          "cpu_times_ns": [
+            14000,
+            16000,
+            14000,
+            15000,
+            14000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            64,
+            64
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "7b883e5630b3852a",
+          "times_ns": [
+            16042,
+            14083,
+            16417,
+            14625,
+            16083
+          ],
+          "cpu_times_ns": [
+            16000,
+            15000,
+            17000,
+            15000,
+            16000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            4096,
+            1,
+            1
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "b3b68e8e780c3b90",
+          "times_ns": [
+            12084,
+            9250,
+            13083,
+            8875,
+            14959
+          ],
+          "cpu_times_ns": [
+            12000,
+            9000,
+            13000,
+            9000,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            4096,
+            1
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "6bad04e2a3b1c111",
+          "times_ns": [
+            10500,
+            11500,
+            10458,
+            12791,
+            10500
+          ],
+          "cpu_times_ns": [
+            11000,
+            11000,
+            12000,
+            13000,
+            12000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            1,
+            4096
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "bad7092c402ce290",
+          "times_ns": [
+            15166,
+            15375,
+            15583,
+            15542,
+            15250
+          ],
+          "cpu_times_ns": [
+            15000,
+            16000,
+            16000,
+            17000,
+            15000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "build": "timing",
+      "records": [
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "affine",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            31000,
+            30459,
+            28166,
+            33750,
+            31833
+          ],
+          "cpu_times_ns": [
+            32000,
+            31000,
+            29000,
+            34000,
+            32000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "rectilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            28333,
+            30042,
+            26292,
+            29250,
+            27625
+          ],
+          "cpu_times_ns": [
+            30000,
+            30000,
+            26000,
+            29000,
+            28000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "curvilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "94f36497db2f6f2b",
+          "times_ns": [
+            26792,
+            21000,
+            23250,
+            21958,
+            23541
+          ],
+          "cpu_times_ns": [
+            27000,
+            21000,
+            24000,
+            22000,
+            23000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "affine",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            910083,
+            805959,
+            1059042,
+            1035417,
+            1005583
+          ],
+          "cpu_times_ns": [
+            911000,
+            807000,
+            1059000,
+            1035000,
+            1007000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "rectilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            1027583,
+            1043000,
+            1075833,
+            1083584,
+            1080125
+          ],
+          "cpu_times_ns": [
+            1029000,
+            1043000,
+            1077000,
+            1086000,
+            1082000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "curvilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "cd99a6b7c4b520ee",
+          "times_ns": [
+            884416,
+            849250,
+            898792,
+            890333,
+            886834
+          ],
+          "cpu_times_ns": [
+            886000,
+            849000,
+            899000,
+            891000,
+            887000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "affine",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            10292667,
+            10608208,
+            11811833,
+            10900208,
+            10918083
+          ],
+          "cpu_times_ns": [
+            10295000,
+            10609000,
+            11814000,
+            10901000,
+            10919000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "rectilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            11206750,
+            10253292,
+            10910917,
+            10972958,
+            10979666
+          ],
+          "cpu_times_ns": [
+            11209000,
+            10254000,
+            10912000,
+            10974000,
+            10981000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "curvilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "ecf2167438a18427",
+          "times_ns": [
+            9676291,
+            9615125,
+            9483625,
+            9548875,
+            8810666
+          ],
+          "cpu_times_ns": [
+            9678000,
+            9616000,
+            9484000,
+            9550000,
+            8812000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            64,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "f0421ab5fa5976ed",
+          "times_ns": [
+            11042,
+            9000,
+            9500,
+            9292,
+            9208
+          ],
+          "cpu_times_ns": [
+            12000,
+            9000,
+            10000,
+            10000,
+            9000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            64,
+            1,
+            64
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "d6dd414632f253c5",
+          "times_ns": [
+            9000,
+            9042,
+            9250,
+            8208,
+            8709
+          ],
+          "cpu_times_ns": [
+            9000,
+            10000,
+            9000,
+            8000,
+            8000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            64,
+            64
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "458fb3e86b74fea1",
+          "times_ns": [
+            9208,
+            8583,
+            9417,
+            9459,
+            9209
+          ],
+          "cpu_times_ns": [
+            10000,
+            8000,
+            10000,
+            9000,
+            9000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            4096,
+            1,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "2ff63d9013c3fe25",
+          "times_ns": [
+            9167,
+            9083,
+            9250,
+            9125,
+            11583
+          ],
+          "cpu_times_ns": [
+            10000,
+            10000,
+            10000,
+            9000,
+            11000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            4096,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "8fc43bb5d757e292",
+          "times_ns": [
+            9125,
+            9375,
+            9125,
+            9500,
+            10083
+          ],
+          "cpu_times_ns": [
+            10000,
+            10000,
+            10000,
+            10000,
+            10000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "dims": [
+            1,
+            1,
+            4096
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "3289abf720690325",
+          "times_ns": [
+            9125,
+            11125,
+            9125,
+            9417,
+            9333
+          ],
+          "cpu_times_ns": [
+            9000,
+            12000,
+            9000,
+            9000,
+            10000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "build": "allocations",
+      "records": [
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "affine",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            29917,
+            26959,
+            28292,
+            30125,
+            31416
+          ],
+          "cpu_times_ns": [
+            44000,
+            27000,
+            29000,
+            30000,
+            32000
+          ],
+          "allocation_calls": [
+            33,
+            33,
+            33,
+            33,
+            33
+          ],
+          "allocated_bytes": [
+            724991,
+            724991,
+            724991,
+            724991,
+            724991
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "rectilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            29958,
+            30625,
+            31125,
+            28750,
+            27125
+          ],
+          "cpu_times_ns": [
+            30000,
+            32000,
+            32000,
+            29000,
+            27000
+          ],
+          "allocation_calls": [
+            33,
+            33,
+            33,
+            33,
+            33
+          ],
+          "allocated_bytes": [
+            724991,
+            724991,
+            724991,
+            724991,
+            724991
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "curvilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "94f36497db2f6f2b",
+          "times_ns": [
+            22208,
+            21417,
+            23208,
+            20417,
+            23167
+          ],
+          "cpu_times_ns": [
+            23000,
+            22000,
+            23000,
+            21000,
+            23000
+          ],
+          "allocation_calls": [
+            32,
+            32,
+            32,
+            32,
+            32
+          ],
+          "allocated_bytes": [
+            626687,
+            626687,
+            626687,
+            626687,
+            626687
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "affine",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            928541,
+            802875,
+            1077834,
+            1026958,
+            1092250
+          ],
+          "cpu_times_ns": [
+            931000,
+            804000,
+            1078000,
+            1028000,
+            1091000
+          ],
+          "allocation_calls": [
+            43,
+            43,
+            43,
+            43,
+            43
+          ],
+          "allocated_bytes": [
+            21904319,
+            21904319,
+            21904319,
+            21904319,
+            21904319
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "rectilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            1027667,
+            1073750,
+            1046000,
+            1070750,
+            1075041
+          ],
+          "cpu_times_ns": [
+            1029000,
+            1074000,
+            1047000,
+            1071000,
+            1075000
+          ],
+          "allocation_calls": [
+            43,
+            43,
+            43,
+            43,
+            43
+          ],
+          "allocated_bytes": [
+            21904319,
+            21904319,
+            21904319,
+            21904319,
+            21904319
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "curvilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "cd99a6b7c4b520ee",
+          "times_ns": [
+            994000,
+            978417,
+            928500,
+            931709,
+            894833
+          ],
+          "cpu_times_ns": [
+            996000,
+            980000,
+            930000,
+            933000,
+            895000
+          ],
+          "allocation_calls": [
+            42,
+            42,
+            42,
+            42,
+            42
+          ],
+          "allocated_bytes": [
+            19250111,
+            19250111,
+            19250111,
+            19250111,
+            19250111
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "affine",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            10091791,
+            10898209,
+            11221083,
+            11251125,
+            11203625
+          ],
+          "cpu_times_ns": [
+            10094000,
+            10898000,
+            11223000,
+            11253000,
+            11206000
+          ],
+          "allocation_calls": [
+            49,
+            49,
+            49,
+            49,
+            49
+          ],
+          "allocated_bytes": [
+            177216351,
+            177216351,
+            177216351,
+            177216351,
+            177216351
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "rectilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            10898292,
+            10707333,
+            11202875,
+            11038625,
+            11413542
+          ],
+          "cpu_times_ns": [
+            10901000,
+            10709000,
+            11205000,
+            11040000,
+            11414000
+          ],
+          "allocation_calls": [
+            49,
+            49,
+            49,
+            49,
+            49
+          ],
+          "allocated_bytes": [
+            177216351,
+            177216351,
+            177216351,
+            177216351,
+            177216351
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "curvilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "ecf2167438a18427",
+          "times_ns": [
+            9633834,
+            9832917,
+            9787333,
+            9459000,
+            9001334
+          ],
+          "cpu_times_ns": [
+            9635000,
+            9834000,
+            9792000,
+            9460000,
+            9004000
+          ],
+          "allocation_calls": [
+            48,
+            48,
+            48,
+            48,
+            48
+          ],
+          "allocated_bytes": [
+            155982687,
+            155982687,
+            155982687,
+            155982687,
+            155982687
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            64,
+            64,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "f0421ab5fa5976ed",
+          "times_ns": [
+            8834,
+            9292,
+            9583,
+            9125,
+            9250
+          ],
+          "cpu_times_ns": [
+            10000,
+            11000,
+            10000,
+            10000,
+            9000
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            196712,
+            196712,
+            196712,
+            196712,
+            196712
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            64,
+            1,
+            64
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "d6dd414632f253c5",
+          "times_ns": [
+            8959,
+            9000,
+            9375,
+            10625,
+            9250
+          ],
+          "cpu_times_ns": [
+            9000,
+            9000,
+            11000,
+            11000,
+            9000
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            196712,
+            196712,
+            196712,
+            196712,
+            196712
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            1,
+            64,
+            64
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "458fb3e86b74fea1",
+          "times_ns": [
+            9000,
+            9042,
+            9417,
+            9291,
+            9375
+          ],
+          "cpu_times_ns": [
+            10000,
+            9000,
+            9000,
+            9000,
+            10000
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            196712,
+            196712,
+            196712,
+            196712,
+            196712
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            4096,
+            1,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "2ff63d9013c3fe25",
+          "times_ns": [
+            10458,
+            9333,
+            9167,
+            9417,
+            9583
+          ],
+          "cpu_times_ns": [
+            10000,
+            10000,
+            9000,
+            9000,
+            9000
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            196712,
+            196712,
+            196712,
+            196712,
+            196712
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            1,
+            4096,
+            1
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "8fc43bb5d757e292",
+          "times_ns": [
+            9125,
+            9208,
+            9375,
+            10250,
+            9458
+          ],
+          "cpu_times_ns": [
+            10000,
+            9000,
+            11000,
+            10000,
+            9000
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            196712,
+            196712,
+            196712,
+            196712,
+            196712
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            1,
+            1,
+            4096
+          ],
+          "method": "affine",
+          "cells": 0,
+          "payload_bytes": 98312,
+          "output_hash": "3289abf720690325",
+          "times_ns": [
+            9167,
+            11416,
+            9458,
+            9334,
+            9500
+          ],
+          "cpu_times_ns": [
+            10000,
+            11000,
+            10000,
+            10000,
+            11000
+          ],
+          "allocation_calls": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allocated_bytes": [
+            196712,
+            196712,
+            196712,
+            196712,
+            196712
+          ],
+          "allocator_instrumentation": true
+        }
+      ]
+    },
+    {
+      "variant": "candidate",
+      "build": "allocations",
+      "records": [
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "affine",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            14750,
+            14250,
+            14333,
+            14708,
+            14208
+          ],
+          "cpu_times_ns": [
+            25000,
+            14000,
+            16000,
+            15000,
+            15000
+          ],
+          "allocation_calls": [
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "allocated_bytes": [
+            473463,
+            473463,
+            473463,
+            473463,
+            473463
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "rectilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "4987dbd767c20ef6",
+          "times_ns": [
+            14875,
+            14041,
+            14292,
+            14125,
+            14917
+          ],
+          "cpu_times_ns": [
+            15000,
+            14000,
+            14000,
+            16000,
+            15000
+          ],
+          "allocation_calls": [
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "allocated_bytes": [
+            473463,
+            473463,
+            473463,
+            473463,
+            473463
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            16,
+            16,
+            16
+          ],
+          "method": "curvilinear",
+          "cells": 3375,
+          "payload_bytes": 236687,
+          "output_hash": "94f36497db2f6f2b",
+          "times_ns": [
+            9459,
+            10791,
+            9417,
+            9125,
+            8958
+          ],
+          "cpu_times_ns": [
+            10000,
+            11000,
+            10000,
+            10000,
+            10000
+          ],
+          "allocation_calls": [
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "allocated_bytes": [
+            375159,
+            375159,
+            375159,
+            375159,
+            375159
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "affine",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            390459,
+            390500,
+            400458,
+            390625,
+            394958
+          ],
+          "cpu_times_ns": [
+            391000,
+            390000,
+            401000,
+            391000,
+            395000
+          ],
+          "allocation_calls": [
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "allocated_bytes": [
+            13822007,
+            13822007,
+            13822007,
+            13822007,
+            13822007
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "rectilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "f016163f8372c9be",
+          "times_ns": [
+            404500,
+            396917,
+            396083,
+            405125,
+            398583
+          ],
+          "cpu_times_ns": [
+            405000,
+            397000,
+            397000,
+            405000,
+            398000
+          ],
+          "allocation_calls": [
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "allocated_bytes": [
+            13822007,
+            13822007,
+            13822007,
+            13822007,
+            13822007
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            48,
+            48,
+            48
+          ],
+          "method": "curvilinear",
+          "cells": 103823,
+          "payload_bytes": 6910959,
+          "output_hash": "cd99a6b7c4b520ee",
+          "times_ns": [
+            275791,
+            275875,
+            264750,
+            270042,
+            267000
+          ],
+          "cpu_times_ns": [
+            276000,
+            277000,
+            265000,
+            270000,
+            269000
+          ],
+          "allocation_calls": [
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "allocated_bytes": [
+            11167799,
+            11167799,
+            11167799,
+            11167799,
+            11167799
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "affine",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            3282166,
+            3267542,
+            3252334,
+            3260375,
+            3282375
+          ],
+          "cpu_times_ns": [
+            3283000,
+            3268000,
+            3254000,
+            3261000,
+            3284000
+          ],
+          "allocation_calls": [
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "allocated_bytes": [
+            112772183,
+            112772183,
+            112772183,
+            112772183,
+            112772183
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "rectilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "fe64478668533722",
+          "times_ns": [
+            3296708,
+            3248416,
+            3311125,
+            3252000,
+            3254291
+          ],
+          "cpu_times_ns": [
+            3299000,
+            3253000,
+            3312000,
+            3254000,
+            3254000
+          ],
+          "allocation_calls": [
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "allocated_bytes": [
+            112772183,
+            112772183,
+            112772183,
+            112772183,
+            112772183
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            96,
+            96,
+            96
+          ],
+          "method": "curvilinear",
+          "cells": 857375,
+          "payload_bytes": 56386047,
+          "output_hash": "ecf2167438a18427",
+          "times_ns": [
+            2259875,
+            2187834,
+            2241875,
+            2229959,
+            2232334
+          ],
+          "cpu_times_ns": [
+            2262000,
+            2189000,
+            2243000,
+            2231000,
+            2234000
+          ],
+          "allocation_calls": [
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "allocated_bytes": [
+            91538519,
+            91538519,
+            91538519,
+            91538519,
+            91538519
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            64,
+            64,
+            1
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "a7fbe0735df501c6",
+          "times_ns": [
+            14250,
+            14333,
+            14333,
+            14833,
+            14416
+          ],
+          "cpu_times_ns": [
+            16000,
+            15000,
+            15000,
+            15000,
+            15000
+          ],
+          "allocation_calls": [
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "allocated_bytes": [
+            395169,
+            395169,
+            395169,
+            395169,
+            395169
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            64,
+            1,
+            64
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "b792249e2a01804e",
+          "times_ns": [
+            13542,
+            14625,
+            13667,
+            14208,
+            16292
+          ],
+          "cpu_times_ns": [
+            13000,
+            15000,
+            13000,
+            15000,
+            16000
+          ],
+          "allocation_calls": [
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "allocated_bytes": [
+            395169,
+            395169,
+            395169,
+            395169,
+            395169
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            1,
+            64,
+            64
+          ],
+          "method": "affine",
+          "cells": 3969,
+          "payload_bytes": 197537,
+          "output_hash": "7b883e5630b3852a",
+          "times_ns": [
+            14333,
+            14666,
+            14375,
+            14167,
+            14125
+          ],
+          "cpu_times_ns": [
+            14000,
+            14000,
+            15000,
+            15000,
+            14000
+          ],
+          "allocation_calls": [
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "allocated_bytes": [
+            395169,
+            395169,
+            395169,
+            395169,
+            395169
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            4096,
+            1,
+            1
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "b3b68e8e780c3b90",
+          "times_ns": [
+            9834,
+            13042,
+            13208,
+            11042,
+            13500
+          ],
+          "cpu_times_ns": [
+            10000,
+            13000,
+            15000,
+            11000,
+            13000
+          ],
+          "allocation_calls": [
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "allocated_bytes": [
+            335943,
+            335943,
+            335943,
+            335943,
+            335943
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            1,
+            4096,
+            1
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "6bad04e2a3b1c111",
+          "times_ns": [
+            18292,
+            14000,
+            18250,
+            22000,
+            11666
+          ],
+          "cpu_times_ns": [
+            19000,
+            14000,
+            20000,
+            22000,
+            11000
+          ],
+          "allocation_calls": [
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "allocated_bytes": [
+            335943,
+            335943,
+            335943,
+            335943,
+            335943
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "dims": [
+            1,
+            1,
+            4096
+          ],
+          "method": "affine",
+          "cells": 4095,
+          "payload_bytes": 167927,
+          "output_hash": "bad7092c402ce290",
+          "times_ns": [
+            15209,
+            16333,
+            15500,
+            21542,
+            15584
+          ],
+          "cpu_times_ns": [
+            15000,
+            17000,
+            19000,
+            23000,
+            15000
+          ],
+          "allocation_calls": [
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "allocated_bytes": [
+            335943,
+            335943,
+            335943,
+            335943,
+            335943
+          ],
+          "allocator_instrumentation": true
+        }
+      ]
+    }
+  ],
+  "rss": [
+    {
+      "variant": "baseline",
+      "method": "affine",
+      "maximum_resident_bytes": 146538496,
+      "output": {
+        "method": "affine",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           146538496  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                9143  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   8  involuntary context switches\n           476629260  instructions retired\n           303712284  cycles elapsed\n           145998376  peak memory footprint\n"
+    },
+    {
+      "variant": "candidate",
+      "method": "affine",
+      "maximum_resident_bytes": 114999296,
+      "output": {
+        "method": "affine",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           114999296  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                7217  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                  10  involuntary context switches\n           393019741  instructions retired\n           282593538  cycles elapsed\n           114393592  peak memory footprint\n"
+    },
+    {
+      "variant": "candidate",
+      "method": "affine",
+      "maximum_resident_bytes": 115015680,
+      "output": {
+        "method": "affine",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           115015680  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                7219  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   8  involuntary context switches\n           390520970  instructions retired\n           280147609  cycles elapsed\n           114393568  peak memory footprint\n"
+    },
+    {
+      "variant": "baseline",
+      "method": "affine",
+      "maximum_resident_bytes": 146538496,
+      "output": {
+        "method": "affine",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           146538496  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                9142  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   9  involuntary context switches\n           476383297  instructions retired\n           305952794  cycles elapsed\n           145998376  peak memory footprint\n"
+    },
+    {
+      "variant": "baseline",
+      "method": "affine",
+      "maximum_resident_bytes": 146538496,
+      "output": {
+        "method": "affine",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           146538496  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                9143  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                  10  involuntary context switches\n           472914319  instructions retired\n           300679763  cycles elapsed\n           145998376  peak memory footprint\n"
+    },
+    {
+      "variant": "candidate",
+      "method": "affine",
+      "maximum_resident_bytes": 115015680,
+      "output": {
+        "method": "affine",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           115015680  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                7219  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                  10  involuntary context switches\n           380824160  instructions retired\n           275417169  cycles elapsed\n           114409976  peak memory footprint\n"
+    },
+    {
+      "variant": "candidate",
+      "method": "affine",
+      "maximum_resident_bytes": 115015680,
+      "output": {
+        "method": "affine",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           115015680  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                7219  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   7  involuntary context switches\n           380721118  instructions retired\n           274535821  cycles elapsed\n           114409976  peak memory footprint\n"
+    },
+    {
+      "variant": "baseline",
+      "method": "affine",
+      "maximum_resident_bytes": 146538496,
+      "output": {
+        "method": "affine",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           146538496  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                9143  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   8  involuntary context switches\n           465372965  instructions retired\n           294917235  cycles elapsed\n           145998376  peak memory footprint\n"
+    },
+    {
+      "variant": "baseline",
+      "method": "rectilinear",
+      "maximum_resident_bytes": 146538496,
+      "output": {
+        "method": "rectilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           146538496  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                9142  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   8  involuntary context switches\n           455967063  instructions retired\n           294731496  cycles elapsed\n           145998376  peak memory footprint\n"
+    },
+    {
+      "variant": "candidate",
+      "method": "rectilinear",
+      "maximum_resident_bytes": 115015680,
+      "output": {
+        "method": "rectilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           115015680  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                7219  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   8  involuntary context switches\n           378945501  instructions retired\n           274772425  cycles elapsed\n           114409976  peak memory footprint\n"
+    },
+    {
+      "variant": "candidate",
+      "method": "rectilinear",
+      "maximum_resident_bytes": 115015680,
+      "output": {
+        "method": "rectilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           115015680  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                7219  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   8  involuntary context switches\n           379213634  instructions retired\n           275400141  cycles elapsed\n           114409976  peak memory footprint\n"
+    },
+    {
+      "variant": "baseline",
+      "method": "rectilinear",
+      "maximum_resident_bytes": 146538496,
+      "output": {
+        "method": "rectilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           146538496  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                9143  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                  10  involuntary context switches\n           458366524  instructions retired\n           296515413  cycles elapsed\n           145998376  peak memory footprint\n"
+    },
+    {
+      "variant": "baseline",
+      "method": "rectilinear",
+      "maximum_resident_bytes": 146538496,
+      "output": {
+        "method": "rectilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           146538496  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                9142  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   9  involuntary context switches\n           460468915  instructions retired\n           298286730  cycles elapsed\n           145998376  peak memory footprint\n"
+    },
+    {
+      "variant": "candidate",
+      "method": "rectilinear",
+      "maximum_resident_bytes": 115015680,
+      "output": {
+        "method": "rectilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           115015680  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                7219  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   8  involuntary context switches\n           381747602  instructions retired\n           277787620  cycles elapsed\n           114409976  peak memory footprint\n"
+    },
+    {
+      "variant": "candidate",
+      "method": "rectilinear",
+      "maximum_resident_bytes": 115015680,
+      "output": {
+        "method": "rectilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           115015680  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                7218  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                  13  involuntary context switches\n           381345628  instructions retired\n           276401893  cycles elapsed\n           114409976  peak memory footprint\n"
+    },
+    {
+      "variant": "baseline",
+      "method": "rectilinear",
+      "maximum_resident_bytes": 146538496,
+      "output": {
+        "method": "rectilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "fe64478668533722"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           146538496  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                9143  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   7  involuntary context switches\n           458579163  instructions retired\n           295538405  cycles elapsed\n           145998376  peak memory footprint\n"
+    },
+    {
+      "variant": "baseline",
+      "method": "curvilinear",
+      "maximum_resident_bytes": 146538496,
+      "output": {
+        "method": "curvilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "ecf2167438a18427"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           146538496  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                9143  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   9  involuntary context switches\n           467589953  instructions retired\n           297301546  cycles elapsed\n           145998376  peak memory footprint\n"
+    },
+    {
+      "variant": "candidate",
+      "method": "curvilinear",
+      "maximum_resident_bytes": 115015680,
+      "output": {
+        "method": "curvilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "ecf2167438a18427"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           115015680  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                7219  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                  10  involuntary context switches\n           403566984  instructions retired\n           278058040  cycles elapsed\n           114409976  peak memory footprint\n"
+    },
+    {
+      "variant": "candidate",
+      "method": "curvilinear",
+      "maximum_resident_bytes": 115015680,
+      "output": {
+        "method": "curvilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "ecf2167438a18427"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           115015680  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                7219  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   9  involuntary context switches\n           403167030  instructions retired\n           278091334  cycles elapsed\n           114409976  peak memory footprint\n"
+    },
+    {
+      "variant": "baseline",
+      "method": "curvilinear",
+      "maximum_resident_bytes": 146538496,
+      "output": {
+        "method": "curvilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "ecf2167438a18427"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           146538496  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                9143  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                  10  involuntary context switches\n           468548318  instructions retired\n           296550418  cycles elapsed\n           145998376  peak memory footprint\n"
+    },
+    {
+      "variant": "baseline",
+      "method": "curvilinear",
+      "maximum_resident_bytes": 146538496,
+      "output": {
+        "method": "curvilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "ecf2167438a18427"
+      },
+      "raw_stderr": "        0.08 real         0.06 user         0.00 sys\n           146538496  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                9143  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   8  involuntary context switches\n           481176751  instructions retired\n           307832718  cycles elapsed\n           145998376  peak memory footprint\n"
+    },
+    {
+      "variant": "candidate",
+      "method": "curvilinear",
+      "maximum_resident_bytes": 115015680,
+      "output": {
+        "method": "curvilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "ecf2167438a18427"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           115015680  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                7219  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                  10  involuntary context switches\n           412041722  instructions retired\n           287563778  cycles elapsed\n           114409976  peak memory footprint\n"
+    },
+    {
+      "variant": "candidate",
+      "method": "curvilinear",
+      "maximum_resident_bytes": 115015680,
+      "output": {
+        "method": "curvilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "ecf2167438a18427"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           115015680  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                7219  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   8  involuntary context switches\n           409048439  instructions retired\n           280474574  cycles elapsed\n           114409976  peak memory footprint\n"
+    },
+    {
+      "variant": "baseline",
+      "method": "curvilinear",
+      "maximum_resident_bytes": 146538496,
+      "output": {
+        "method": "curvilinear",
+        "n": 96,
+        "payload_bytes": 56386047,
+        "output_hash": "ecf2167438a18427"
+      },
+      "raw_stderr": "        0.07 real         0.06 user         0.00 sys\n           146538496  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n                9143  page reclaims\n                   0  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                   0  voluntary context switches\n                   9  involuntary context switches\n           473681854  instructions retired\n           300197973  cycles elapsed\n           145998376  peak memory footprint\n"
+    }
+  ],
+  "rss_summary": {
+    "affine": {
+      "baseline": 146538496.0,
+      "candidate": 115015680.0
+    },
+    "rectilinear": {
+      "baseline": 146538496.0,
+      "candidate": 115015680.0
+    },
+    "curvilinear": {
+      "baseline": 146538496.0,
+      "candidate": 115015680.0
+    }
+  }
+}

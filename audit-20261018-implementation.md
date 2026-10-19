@@ -1892,3 +1892,94 @@ and pressure/large-dataset integrations pass with Metal required.
   budgets; C3/C4, scheduling/power, other renderers/caches, text/FFI, platform and
   device matrices, Taffy, CUDA/MLX and final acceptance remain in scope. The
   original audit is frozen and the full implementation goal remains active.
+
+## Checked grid construction and singleton topology checkpoint
+
+- Previous goal turn: progress (`be2a4f55`). Grid constructors now check dimension
+  products, u32 point addressing, connectivity/offset counts and per-array
+  address space before reserving geometry. Nonfinite affine origins/spacing,
+  overflowing affine endpoints, nonfinite rectilinear axes and nonfinite explicit
+  positions return errors. Curvilinear position counts must match the dimensions.
+  New typed mesh errors distinguish resource limits, failed vector reservations
+  and mismatched grid position counts. Existing factory signatures remain.
+- Public `GridBuildLimits { max_working_bytes }` and the three additive
+  `*_grid_with_limits` factories let hosts set an explicit construction budget.
+  Existing factories use **256 MiB**. This is a behavior change: formerly accepted
+  large grids can now return a resource error. Python specs use that default;
+  untrusted requests cannot choose an unlimited override. Constrained hosts should
+  lower it to their grid share of the aggregate application budget.
+- The plan bounds simultaneous **array element storage**, including Vec-to-Arc
+  conversion overlap and curvilinear input capacity. Positions convert before
+  cell arrays are built. Allocator/Arc headers, rounding, identifiers, borrowed
+  axes and later-added fields are excluded. It is neither an RSS bound nor an
+  allocation-success guarantee: vector reservations are fallible, but final Arc
+  allocations retain standard Rust infallible behavior. Source/import, output,
+  staging, GPU and total-application budgets remain open.
+- Cell types, offsets and connectivity are built directly with checked capacities,
+  removing the full temporary cell tuples and reference arrays. Three active axes
+  keep exactly the previous VTK hexahedra and x-fastest order. Two/one/zero active
+  axes now produce quads/lines/a single vertex; previously every singleton axis
+  suppressed all cells. Quad corners follow increasing active-axis order.
+  Coincident/nonmonotonic finite coordinates remain permitted; this is topology
+  construction, not a nondegenerate geometric Jacobian guarantee.
+- The baseline-compatible public oracle covers all active-axis permutations,
+  exact 3D/2D connectivity, finite coordinates and impossible dimensions. All
+  three tests fail substantively on isolated unchanged `be2a4f55` (missing plane
+  cells, accepted NaNs and capacity overflow) and pass on the candidate. Additional
+  tests exercise exact budget boundaries, oversized curvilinear capacity,
+  arithmetic/address headroom, default/explicit limits and wrong position counts.
+  An isolated native allocation test verifies rejected requests allocate no
+  grid-sized arrays. Python decoding checks enormous dimensions and singleton
+  topology. CPU and required-Metal render tests compare seven singleton shapes
+  against independently constructed quad/line/vertex cells with exact full images
+  and nonempty foreground.
+- `qa/perf/20261019-grid-build-paired.json` archives the release probe, identical
+  lock, runner, source/test/binary hashes, raw samples and baseline/candidate
+  oracle results. Separate timing/allocation and baseline/candidate targets are
+  used. Allocator-disabled ABBA twice gives four fresh timing processes/version,
+  one warmup and five samples/case, with no task-owned builds/tests during timing.
+  Coordinate input setup is excluded; curvilinear input consumption/conversion is
+  timed, its pre-staged clone is not. Validation, ordered exact-bit geometry hashes
+  and destruction are outside timing. All nine equivalent-work 3D cases at
+  16/48/96 cubed match output hashes, cell counts and array payloads exactly.
+
+  | Constructor, 96 cubed | Baseline process CPU | Current process CPU | Baseline / current cumulative allocated bytes |
+  |---|---:|---:|---:|
+  | Affine | 11.258 ms | 3.282 ms | 177,216,351 / 112,772,183 |
+  | Rectilinear | 11.021 ms | 3.273 ms | 177,216,351 / 112,772,183 |
+  | Curvilinear | 9.545 ms | 2.196 ms | 155,982,687 / 91,538,519 |
+
+  CPU falls 70–77% and cumulative allocated bytes 36–41% at that size; allocation
+  calls fall 49 to 9 (curvilinear 48 to 8). Final array payload stays 56,386,047
+  bytes. At 16/48 cubed, all equivalent-work constructor cases also improve CPU
+  and allocation bytes. These allocation counters include positive realloc growth
+  and are not peak/live memory measurements.
+- Separate allocator-disabled macOS `time -l` runs perform one 96-cubed build per
+  fresh process, ABBA twice for each constructor, and verify the same exact output
+  hash. Median **maximum process RSS is 146,538,496 to 115,015,680 bytes** for all
+  three constructors, about 21.5% lower. RSS includes runtime/allocator, source
+  coordinate generation and validation/hash; curvilinear RSS runs retain no
+  template clone. It differs from the planned element-workspace budget and says
+  nothing about VRAM or mobile device memory. Thermal/affinity are uncontrolled;
+  power savings and whole-application behavior are unmeasured.
+- Six lower-dimensional measurements are correctness-cost references, not speedup
+  gates: a 64-square plane now builds 3,969 quads (roughly 14.5–15 microseconds,
+  versus 9–10 for zero cells), and a 4,096-point line builds 4,095 lines (12–15.5
+  microseconds versus 9). Plane payload grows 98,312 to 197,537 bytes; line payload
+  to 167,927. Their increased work/memory must not be hidden as a regression-free
+  optimization. No new per-frame work is introduced.
+- Verification passes 26 mesh / 74 transformation / 106 required-GPU scene
+  library tests and public integrations, plus 78 software-only scene library
+  tests. The new rendering integration passes both CPU and required Metal.
+  All 223 Rust Python-runtime tests pass with a supported Python interpreter.
+  The initial system Python 3.9 run failed its cross-language import; the package
+  declares Python >=3.10, and scoped PATH selection of Homebrew Python resolves
+  that environment failure. Seven mesh doctests, strict mesh-test Clippy, targeted
+  scene production/grid-integration Clippy and the GPU/GPUI wasm closure pass.
+  Previously recorded broad all-target lint failures remain open. Final measured
+  production/test/lock hashes match the current files exactly.
+- C5/P1 remain unchecked for general topology, imports and aggregate residency.
+  C3/C4, other caches/renderers, demand scheduling/power, text/FFI, full platform
+  and physical-device coverage, Taffy, CUDA/MLX experiments and final acceptance
+  remain in scope. The original audit stays frozen and the full implementation
+  goal remains active.

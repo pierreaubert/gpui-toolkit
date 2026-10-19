@@ -207,6 +207,30 @@ pub enum DataSetKind {
 /// Validation failures for datasets and fields.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum MeshError {
+    /// A requested construction exceeds an address or array-workspace limit.
+    #[error("{resource} requires {requested}, limit is {limit}")]
+    ResourceLimit {
+        /// Limited count or byte category.
+        resource: &'static str,
+        /// Requested count/bytes; `u64::MAX` represents arithmetic overflow.
+        requested: u64,
+        /// Effective limit.
+        limit: u64,
+    },
+    /// Reserving a checked construction buffer failed.
+    #[error("could not allocate {bytes} bytes for mesh construction")]
+    Allocation {
+        /// Requested buffer element bytes.
+        bytes: u64,
+    },
+    /// Curvilinear positions must match the checked dimension product.
+    #[error("grid has {positions} positions, expected {expected}")]
+    GridPositionCountMismatch {
+        /// Provided position count.
+        positions: usize,
+        /// Checked dimension product.
+        expected: usize,
+    },
     /// Time-series steps are inconsistent with each other.
     #[error("invalid time series: {reason}")]
     InvalidTimeSeries {
@@ -395,60 +419,6 @@ impl DataSet {
         }
     }
 
-    /// Creates a rectilinear grid: per-axis coordinates, structured
-    /// hexahedral connectivity (x-fastest point order).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when any axis is empty.
-    pub fn rectilinear_grid(
-        id: impl Into<Arc<str>>,
-        xs: &[f64],
-        ys: &[f64],
-        zs: &[f64],
-    ) -> Result<Self, MeshError> {
-        let dims = [xs.len(), ys.len(), zs.len()];
-        if dims.contains(&0) {
-            return Err(MeshError::InvalidDims { dims });
-        }
-        let mut positions = Vec::with_capacity(dims[0] * dims[1] * dims[2]);
-        for &z in zs {
-            for &y in ys {
-                for &x in xs {
-                    positions.push([x, y, z]);
-                }
-            }
-        }
-        let cells = structured_cells(dims);
-        let refs: Vec<(CellType, &[u32])> = cells.iter().map(|(t, n)| (*t, n.as_slice())).collect();
-        Ok(Self::new(id, positions, Cells::from_cells(&refs)))
-    }
-
-    /// Creates a curvilinear structured grid from explicit points.
-    ///
-    /// `positions` must hold exactly `dims[0] * dims[1] * dims[2]` points
-    /// in x-fastest order; connectivity is the structured hexahedral
-    /// layout, positions arbitrary (warped grids, body-fitted meshes).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error on empty dimensions or a point-count mismatch.
-    pub fn curvilinear_grid(
-        id: impl Into<Arc<str>>,
-        dims: [usize; 3],
-        positions: Vec<[f64; 3]>,
-    ) -> Result<Self, MeshError> {
-        if dims.contains(&0) {
-            return Err(MeshError::InvalidDims { dims });
-        }
-        if positions.len() != dims[0] * dims[1] * dims[2] {
-            return Err(MeshError::InvalidDims { dims });
-        }
-        let cells = structured_cells(dims);
-        let refs: Vec<(CellType, &[u32])> = cells.iter().map(|(t, n)| (*t, n.as_slice())).collect();
-        Ok(Self::new(id, positions, Cells::from_cells(&refs)))
-    }
-
     /// Creates a triangle-surface dataset.
     pub fn surface(
         id: impl Into<Arc<str>>,
@@ -456,59 +426,6 @@ impl DataSet {
         triangles: &[[u32; 3]],
     ) -> Self {
         Self::new(id, positions, Cells::triangles(triangles))
-    }
-
-    /// Creates a structured hexahedral grid from dimensions and an origin/spacing mapping.
-    ///
-    /// Points are ordered x-fastest. A dimension of 1 yields a surface or line grid
-    /// topologically; hexahedra are only emitted when all dimensions exceed 1.
-    pub fn structured_grid(
-        id: impl Into<Arc<str>>,
-        dims: [usize; 3],
-        origin: [f64; 3],
-        spacing: [f64; 3],
-    ) -> Result<Self, MeshError> {
-        if dims.contains(&0) {
-            return Err(MeshError::InvalidDims { dims });
-        }
-        let [nx, ny, nz] = dims;
-        let mut positions = Vec::with_capacity(nx * ny * nz);
-        for k in 0..nz {
-            for j in 0..ny {
-                for i in 0..nx {
-                    positions.push([
-                        origin[0] + i as f64 * spacing[0],
-                        origin[1] + j as f64 * spacing[1],
-                        origin[2] + k as f64 * spacing[2],
-                    ]);
-                }
-            }
-        }
-        let idx = |i: usize, j: usize, k: usize| (k * ny * nx + j * nx + i) as u32;
-        let mut cells: Vec<(CellType, [u32; 8])> = Vec::new();
-        if nx > 1 && ny > 1 && nz > 1 {
-            for k in 0..nz - 1 {
-                for j in 0..ny - 1 {
-                    for i in 0..nx - 1 {
-                        cells.push((
-                            CellType::Hexahedron,
-                            [
-                                idx(i, j, k),
-                                idx(i + 1, j, k),
-                                idx(i + 1, j + 1, k),
-                                idx(i, j + 1, k),
-                                idx(i, j, k + 1),
-                                idx(i + 1, j, k + 1),
-                                idx(i + 1, j + 1, k + 1),
-                                idx(i, j + 1, k + 1),
-                            ],
-                        ));
-                    }
-                }
-            }
-        }
-        let refs: Vec<(CellType, &[u32])> = cells.iter().map(|(t, n)| (*t, n.as_slice())).collect();
-        Ok(Self::new(id, positions, Cells::from_cells(&refs)))
     }
 
     /// Adds a field, routing it by association. Returns `self` for chaining.
@@ -747,35 +664,6 @@ impl DataSet {
         }
         Ok(())
     }
-}
-
-/// Structured hexahedral connectivity for `dims` (x-fastest points).
-fn structured_cells(dims: [usize; 3]) -> Vec<(CellType, [u32; 8])> {
-    let [nx, ny, nz] = dims;
-    let idx = |i: usize, j: usize, k: usize| (k * ny * nx + j * nx + i) as u32;
-    let mut cells = Vec::new();
-    if nx > 1 && ny > 1 && nz > 1 {
-        for k in 0..nz - 1 {
-            for j in 0..ny - 1 {
-                for i in 0..nx - 1 {
-                    cells.push((
-                        CellType::Hexahedron,
-                        [
-                            idx(i, j, k),
-                            idx(i + 1, j, k),
-                            idx(i + 1, j + 1, k),
-                            idx(i, j + 1, k),
-                            idx(i, j, k + 1),
-                            idx(i + 1, j, k + 1),
-                            idx(i + 1, j + 1, k + 1),
-                            idx(i, j + 1, k + 1),
-                        ],
-                    ));
-                }
-            }
-        }
-    }
-    cells
 }
 
 #[cfg(test)]

@@ -15,6 +15,7 @@ mod composite;
 mod dataset;
 mod decomposition;
 mod field;
+mod grid;
 mod structured_boundary;
 mod time_series;
 
@@ -23,4 +24,6 @@ pub use composite::{Block, CompositeDataSet};
 pub use dataset::{Bounds, CellType, Cells, DataSet, DataSetKind, MeshError, ValidatedDataSet};
 pub use decomposition::tetrahedra;
 pub use field::{Association, Field, FieldData};
+#[doc(inline)]
+pub use grid::GridBuildLimits;
 pub use time_series::{PreparedTimeSeries, TimeAxis, TimeSeries, TimeSeriesSampler};
