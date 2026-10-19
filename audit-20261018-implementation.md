@@ -1022,3 +1022,82 @@ and pressure/large-dataset integrations pass with Metal required.
   zero instead of `1e-300/3`, and point-to-cell conversion on `[1e16,3,-1e16]`
   returns `4/3` instead of 1. Passing mask tests does not qualify numeric precision
   across all consumers; those findings are explicitly unresolved.
+
+## Cancellation precision and CPU cost checkpoint
+
+- Statistics now retains the mean of `[MAX,-MAX,1e-300]` as `1e-300/3`;
+  point-to-cell conversion retains `[1e16,3,-1e16]` as 1. Mixed-sign means use
+  exact accumulation and one correctly rounded division. Centered/scaled
+  compensated variance keeps its independent mean so small spreads around large
+  values survive rounding of the reported raw mean. Ordinary same-sign statistics
+  and conversion retain their floating paths; this is not a promise of correctly
+  rounded means for all same-sign populations.
+- Clustering also handles cancellation whose compensated sum stays finite but
+  loses a residual: `[1e308,1,1e-300,-1e308,-1]` retains `1e-300/5`, for every
+  field shape. Sign tracking is per component/cluster. Geometry uses the
+  zero-origin cube invariant to avoid unnecessary mixed-sign accumulation; the
+  negative nonzero quotient underflow case now maps to floor -1 instead of zero.
+  This prevents merging opposite-sign tiny coordinates at extreme cell widths.
+- Exact accumulation uses bounded adaptive storage: certified exact floating
+  prefixes, checked signed-magnitude u128 sums, then the existing 34-limb-per-sign
+  fallback. Promotion retains the original contributor count without replaying
+  that helper's input or allocating scratch. Small cell reductions construct
+  wide storage only on failed checked promotion. Dense point-to-cell fields can
+  share a conservative floating or signed-i64 range certificate; a certified
+  integer cell traverses its contributors once. Power-of-two counts avoid integer
+  division where exact scaling is safe. Sparse selections inspect referenced
+  values rather than allocating field-sized exact accumulators.
+- The Python Fraction oracle now contains 1,125 finite-bit-pattern cases. It
+  covers ordinary/full precision ranges, quantized values, cancellation,
+  overflow, subnormal ties and either side of the u128 range boundary. It
+  regenerates byte-for-byte. Wide, adaptive, small and eligible shared-integer
+  paths match its expected bits. Public statistics and conversion tests exercise
+  mixed-sign cases in both orders and fixed/variable cell types. Additional
+  public tests cover all four field shapes, masks, metadata and sparse/dense
+  support. All five new test functions fail on unchanged `7dd24e2c` production
+  source and pass on the candidate.
+- `qa/perf/20261019-reduction-precision-paired.json` records 64 cases with
+  identical release source/locks, source/binary hashes, allocator-disabled ABBA
+  twice and separate allocation builds. It measures both wall time and actual
+  aggregate process CPU using checked `CLOCK_PROCESS_CPUTIME_ID` calls in the
+  benchmark only. Input construction, output checks/destruction are excluded;
+  raw validation, numerical certificates and fallback scratch are included.
+  Timed output checks use a tolerance on conditioned bounded data; the separate
+  independent oracle supplies precision acceptance. At 24³ points:
+
+  | Case | Baseline CPU | Current CPU | Baseline allocated bytes | Current allocated bytes |
+  |---|---:|---:|---:|---:|
+  | Positive scalar conversion, raw | 94.5 µs | 100.5 µs | 195,288 | 195,288 |
+  | Mixed quantized scalar conversion, validated | 41 µs | 59.5 µs | 195,288 | 195,288 |
+  | Mixed quantized vector conversion, validated | 59 µs | 103.5 µs | 584,632 | 584,632 |
+  | Mixed full-precision vector conversion, validated | 59.5 µs | 329 µs | 584,632 | 584,632 |
+  | Mixed quantized clustering | 501.5 µs | 540 µs | 665,326 | 610,030 |
+  | Mixed full-precision clustering | 489.5 µs | 716.5 µs | 665,326 | 796,662 |
+
+  These are material CPU regressions, not performance acceptance. The first
+  streaming prototype measured about 25× baseline CPU for the full-precision
+  vector case; the shared integer certificate and single cell traversal reduce
+  that to 5.5× in the paired run. Exploratory superseded records are retained and
+  labelled without unavailable intermediate source hashes. At 48³ points,
+  mixed full-precision statistics uses 765 µs CPU versus 512.5 µs and retains the
+  same single 884,736-byte scratch allocation. Cancellation-sensitive clustering
+  can build the shared membership table, increasing cumulative allocated bytes;
+  certified quantized fields omit correction/sign buffers. CPU/memory work
+  remains open: revise certificate reuse and component traversal, then qualify
+  whole-frame/device workloads before adoption claims. CPU time does not measure
+  energy; these shared-host diagnostics qualify neither mobile peak RSS nor
+  thermal/power behavior.
+- Required-Metal native core verification passes: 75 transformation, 15 mesh and
+  91 scene library tests, 65 public validity/flow/geometry/tracing/time/analysis
+  regressions, allocation contracts and large-dataset/pressure integrations.
+  Strict mesh/transformation all-target Clippy and the core wasm closure pass.
+  Allocation contracts cover sparse exact conversion without source-sized
+  scratch, one statistics value buffer and many wide cancellation clusters
+  without per-cluster heap accumulators.
+- `qa/numeric/20261019-reduction-precision-status.json` preserves the two resolved
+  prior diagnostics and a newly executed remaining defect: three equal-weight
+  vertex cells with `[1e16,3,-1e16]` still convert to `4/3` instead of 1 at their
+  shared point. Weighted cell-to-point accumulation and interpolation remain C4
+  work. The earlier open-diagnostic artifact is historical evidence, not the
+  current status. C3/C4/C5 and all previously open platform, rendering, budget,
+  streaming, Taffy, CUDA/MLX and physical-device acceptance work stay unchecked.

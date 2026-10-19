@@ -142,6 +142,7 @@ fn decimation_uses_finite_compensated_and_exact_cluster_means() {
 fn decimation_never_saturates_large_grid_coordinates_or_infinite_quotients() {
     for (first, second, size) in [
         (1e20, f64::from_bits(1e20_f64.to_bits() + 1), 1.0),
+        (-f64::from_bits(1), f64::from_bits(1), f64::MAX),
         (
             1.0,
             f64::from_bits(1.0_f64.to_bits() + 1),

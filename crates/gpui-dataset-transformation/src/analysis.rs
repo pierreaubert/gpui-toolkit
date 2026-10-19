@@ -4,6 +4,7 @@
 
 use crate::TransformError;
 use crate::expression::Expression;
+use crate::mean::AdaptiveMean;
 use gpui_mesh::{Association, DataSet, Field};
 
 /// Computes a scalar expression with strict dependency validity.
@@ -111,6 +112,8 @@ impl Sum {
 /// Uses one value-proportional scratch buffer. Centered/scaled compensated sums
 /// avoid overflow and preserve small spreads around large means. Missing entries
 /// are excluded; a population with no supported values returns an error.
+/// Mixed-sign means use exact integer accumulation so cancellation cannot erase
+/// tiny residuals; centered variance retains its own precision independently.
 ///
 /// # Errors
 ///
@@ -139,16 +142,29 @@ pub fn field_statistics(
         (center, 0.0)
     } else {
         let mut sum = Sum::default();
-        for &value in &finite {
-            sum.add((value - center) / scale);
-        }
+        let exact_mean = if min < 0.0 && max > 0.0 {
+            // Keep the centered mean for variance (even when its rounded raw
+            // value cannot represent a small spread). Compute cancellation-prone
+            // raw means separately, preserving residuals across the full range.
+            let mut mean = AdaptiveMean::default();
+            for &value in &finite {
+                sum.add((value - center) / scale);
+                mean.add(value);
+            }
+            Some(mean.finish())
+        } else {
+            for &value in &finite {
+                sum.add((value - center) / scale);
+            }
+            None
+        };
         let normalized_mean = (sum.total() / count as f64).clamp(-1.0, 1.0);
         let mut squares = Sum::default();
         for &value in &finite {
             squares.add(((value - center) / scale - normalized_mean).powi(2));
         }
         (
-            ((normalized_mean * scale) + center).clamp(min, max),
+            exact_mean.unwrap_or_else(|| ((normalized_mean * scale) + center).clamp(min, max)),
             (squares.total() / count as f64).sqrt().min(1.0) * scale,
         )
     };

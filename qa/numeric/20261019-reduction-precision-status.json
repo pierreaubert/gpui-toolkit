@@ -1,0 +1,27 @@
+{
+  "kind": "C4 reduction checkpoint; two resolved prior diagnostics and one confirmed remaining weighted-conversion defect",
+  "candidate_parent": "7dd24e2c",
+  "source_sha256": {
+    "crates/gpui-dataset-transformation/src/mean.rs": "4c207b92666858357b2ee7d90c775751a5b4113218066281a333a3d4c6881c8e",
+    "crates/gpui-dataset-transformation/src/analysis.rs": "8d633a02e64f40763d75191404555364d2c8c10f4b0cde691baa774ff4c8af12",
+    "crates/gpui-dataset-transformation/src/convert.rs": "b8f752d286e457a0ae9bd7a77669dcdf417b95b5ab555de71738a40b9feb0cb2"
+  },
+  "probe_source": "use gpui_dataset_transformation::{cell_data_to_point_data,field_statistics,point_data_to_cell_data};\nuse gpui_mesh::{Association,CellType,Cells,DataSet,Field};\nfn main() {\n    let triangle=DataSet::surface(\"reduce\",vec![[0.0;3],[1.0,0.0,0.0],[0.0,1.0,0.0]],&[[0,1,2]]);\n    let data=triangle.clone().with_field(Field::scalar(\"p\",vec![f64::MAX,-f64::MAX,1e-300]));\n    let stats=field_statistics(&data,\"p\",Association::Point).unwrap();\n    println!(r#\"{{\"case\":\"statistics_extreme_residual\",\"actual\":{:.17e},\"expected\":{:.17e}}}\"#,stats.mean,1e-300/3.0);\n    let data=triangle.with_field(Field::scalar(\"p\",vec![1e16,3.0,-1e16]));\n    let out=point_data_to_cell_data(&data,\"p\",\"mean\").unwrap();\n    let mean=out.field(Association::Cell,\"mean\").unwrap().as_scalar().unwrap()[0];\n    println!(r#\"{{\"case\":\"point_to_cell_cancellation\",\"actual\":{mean:.17e},\"expected\":1.0}}\"#);\n    let data=DataSet::new(\"weighted\",vec![[0.0;3]],Cells::from_cells(&[(CellType::Vertex,&[0]),(CellType::Vertex,&[0]),(CellType::Vertex,&[0])]))\n        .with_field(Field::scalar(\"p\",vec![1e16,3.0,-1e16]).on_cells());\n    let out=cell_data_to_point_data(&data,\"p\",\"mean\").unwrap();\n    let mean=out.field(Association::Point,\"mean\").unwrap().as_scalar().unwrap()[0];\n    println!(r#\"{{\"case\":\"weighted_cell_to_point_cancellation\",\"actual\":{mean:.17e},\"expected\":1.0}}\"#);\n}\n",
+  "records": [
+    {
+      "case": "statistics_extreme_residual",
+      "actual": 3.3333333333333334e-301,
+      "expected": 3.3333333333333334e-301
+    },
+    {
+      "case": "point_to_cell_cancellation",
+      "actual": 1.0,
+      "expected": 1.0
+    },
+    {
+      "case": "weighted_cell_to_point_cancellation",
+      "actual": 1.3333333333333333,
+      "expected": 1.0
+    }
+  ]
+}

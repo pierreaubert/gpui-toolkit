@@ -7,8 +7,8 @@
 use gpui_dataset_transformation::{
     GlyphKind, ThresholdMode, append_datasets, calculator, cell_data_to_point_data, clip_sphere,
     decimate, field_statistics, flow_diagnostics, glyphs, histogram, hyperstreamlines,
-    point_data_to_cell_data, probe as probe_points, solid_arrows, streamlines, tensor_glyphs,
-    threshold,
+    point_data_to_cell_data, point_data_to_cell_data_validated, probe as probe_points,
+    solid_arrows, streamlines, tensor_glyphs, threshold,
 };
 use gpui_mesh::{Association, CellType, Cells, DataSet, Field};
 use gpui_profiler::{AllocProbe, AllocationBudget};
@@ -300,4 +300,90 @@ fn allocation_cost_is_bounded_by_outputs_and_points_without_per_cell_scratch() {
     output.validate().unwrap();
     assert_eq!(output.point_count(), count / 2);
     assert_eq!(output.point_data[0].as_scalar().unwrap()[0], f64::MAX);
+    for point_count in [64usize, 4096] {
+        let mut values = vec![f64::NAN; point_count];
+        values[..3].copy_from_slice(&[1e16, 3.0, -1e16]);
+        let mut valid = vec![false; point_count];
+        valid[..3].fill(true);
+        let mut sparse = DataSet::new(
+            "sparse-cancellation",
+            vec![[0.0; 3]; point_count],
+            Cells::triangles(&[[0, 1, 2]]),
+        )
+        .with_field(Field::scalar("p", values));
+        sparse.point_data[0].valid = Some(valid.into());
+        let checked = sparse.validated().unwrap();
+        allocations.reset();
+        let output = black_box(point_data_to_cell_data_validated(checked, "p", "mean").unwrap());
+        AllocationBudget::new("sparse-exact-mean", 16, 8192)
+            .assert_contains(allocations.sample("sparse-exact-mean"));
+        assert_eq!(
+            output
+                .field(Association::Cell, "mean")
+                .unwrap()
+                .as_scalar()
+                .unwrap(),
+            [1.0]
+        );
+    }
+    for point_count in [63usize, 4095] {
+        let values = (0..point_count)
+            .map(|i| [f64::MAX, -f64::MAX, 1e-300][i % 3])
+            .collect::<Vec<_>>();
+        let data = DataSet::new(
+            "wide-mean",
+            vec![[0.0; 3]; point_count],
+            Cells::from_cells(&[]),
+        )
+        .with_field(Field::scalar("p", values));
+        allocations.reset();
+        let stats = black_box(field_statistics(&data, "p", Association::Point).unwrap());
+        AllocationBudget::new("wide-exact-statistics", 1, 8 * point_count + 8192)
+            .assert_contains(allocations.sample("wide-exact-statistics"));
+        assert_eq!(stats.mean.to_bits(), (1e-300_f64 / 3.0).to_bits());
+    }
+    let point_count = 2560usize;
+    let nodes = (0..point_count as u32)
+        .map(|node| [node])
+        .collect::<Vec<_>>();
+    let cells = nodes
+        .iter()
+        .map(|node| (CellType::Vertex, node.as_slice()))
+        .collect::<Vec<_>>();
+    let values = (0..point_count)
+        .map(|i| [1e308, 1.0, 1e-300, -1e308, -1.0][i % 5])
+        .collect::<Vec<_>>();
+    let data = DataSet::new(
+        "wide-cancellation",
+        (0..point_count)
+            .map(|i| [(i / 5) as f64, 0.0, 0.0])
+            .collect::<Vec<_>>(),
+        Cells::from_cells(&cells),
+    )
+    .with_field(Field::scalar("s", values.clone()))
+    .with_field(Field::vector(
+        "v",
+        values.iter().map(|&v| [v; 3]).collect::<Vec<_>>(),
+    ))
+    .with_field(Field::tensor(
+        "t",
+        values.iter().map(|&v| [v; 6]).collect::<Vec<_>>(),
+    ))
+    .with_field(Field::complex(
+        "z",
+        values.iter().map(|&v| [v; 2]).collect::<Vec<_>>(),
+    ));
+    allocations.reset();
+    let output = black_box(decimate(&data, 1.0).unwrap());
+    AllocationBudget::new("wide-exact-clusters", 160, 576 * point_count + 65536)
+        .assert_contains(allocations.sample("wide-exact-clusters"));
+    output.validate().unwrap();
+    assert_eq!(output.point_count(), point_count / 5);
+    assert!(
+        output.point_data[0]
+            .as_scalar()
+            .unwrap()
+            .iter()
+            .all(|v| v.to_bits() == (1e-300_f64 / 5.0).to_bits())
+    );
 }

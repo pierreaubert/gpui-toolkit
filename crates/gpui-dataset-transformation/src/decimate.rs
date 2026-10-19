@@ -3,7 +3,9 @@
 // Rust guideline compliant 2026-02-21
 
 use crate::TransformError;
-use crate::mean::ExactMean;
+use crate::mean::{
+    certified_float_rows, component_sign, exact_average, has_mixed_rows, has_mixed_signs,
+};
 use gpui_mesh::{Cells, DataSet, Field, FieldData};
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 
@@ -42,9 +44,11 @@ pub fn decimate(dataset: &DataSet, cell_size: f64) -> Result<DataSet, TransformE
         assignment: &assignment,
         counts: vec![0; count],
         members: None,
+        max_members: 0,
     });
     let positions = match &mut groups {
-        Some(groups) => groups.rows(&dataset.positions, None).into(),
+        // Zero-origin clustering cannot mix coordinate signs within a cube.
+        Some(groups) => groups.rows(&dataset.positions, None, false).into(),
         None => dataset.positions.clone(),
     };
     // Fixed cells have at most eight nodes. Large polygons reuse one hash set
@@ -128,7 +132,14 @@ fn key(point: [f64; 3], size: f64) -> ([u64; 3], u8) {
     let mut bits = [0; 3];
     let mut exact = 0;
     for axis in 0..3 {
-        let coordinate = (point[axis] / size).floor();
+        let quotient = point[axis] / size;
+        // A negative nonzero ratio can underflow to -0; its floor is still -1.
+        // Keeping this sign boundary also certifies coordinate averaging.
+        let coordinate = if quotient == 0.0 && point[axis] < 0.0 {
+            -1.0
+        } else {
+            quotient.floor()
+        };
         // Beyond 2^53 cells, adjacent representable input coordinates are at
         // least one cell apart. Keep their bits rather than saturating an i64
         // cast or collapsing overflowing quotients to the same infinity.
@@ -175,6 +186,7 @@ struct Groups<'a> {
     assignment: &'a [u32],
     counts: Vec<usize>,
     members: Option<Members>,
+    max_members: usize,
 }
 
 impl Groups<'_> {
@@ -182,11 +194,31 @@ impl Groups<'_> {
         &mut self,
         values: &[[f64; N]],
         valid: Option<&[bool]>,
+        may_cancel: bool,
     ) -> Vec<[f64; N]> {
         self.counts.fill(0);
         let count = self.counts.len();
         let mut sums = vec![[0.0_f64; N]; count];
-        let mut corrections = vec![[0.0; N]; count];
+        let mixed = may_cancel
+            && has_mixed_rows(
+                values
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| valid.is_none_or(|mask| mask[*i]))
+                    .map(|(_, value)| value),
+            );
+        let exact_float = mixed
+            && self.max_members > 0
+            && certified_float_rows(
+                values
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| valid.is_none_or(|mask| mask[*i]))
+                    .map(|(_, row)| row),
+                self.max_members,
+            );
+        let mut corrections = (!exact_float).then(|| vec![[0.0; N]; count]);
+        let mut signs = (mixed && !exact_float).then(|| vec![0_u16; count]);
         for (index, (&group, value)) in self.assignment.iter().zip(values).enumerate() {
             if valid.is_some_and(|mask| !mask[index]) {
                 continue;
@@ -194,13 +226,18 @@ impl Groups<'_> {
             let group = group as usize;
             self.counts[group] += 1;
             for axis in 0..N {
+                if let Some(signs) = &mut signs {
+                    signs[group] |= component_sign(value[axis], axis);
+                }
                 let sum = &mut sums[group][axis];
                 let next = *sum + value[axis];
-                corrections[group][axis] += if sum.abs() >= value[axis].abs() {
-                    (*sum - next) + value[axis]
-                } else {
-                    (value[axis] - next) + *sum
-                };
+                if let Some(corrections) = &mut corrections {
+                    corrections[group][axis] += if sum.abs() >= value[axis].abs() {
+                        (*sum - next) + value[axis]
+                    } else {
+                        (value[axis] - next) + *sum
+                    };
+                }
                 *sum = next;
             }
         }
@@ -209,28 +246,38 @@ impl Groups<'_> {
                 *sum = [f64::NAN; N];
                 continue;
             }
-            let result = std::array::from_fn(|axis| {
-                (sum[axis] + corrections[group][axis]) / self.counts[group] as f64
+            let mut result = std::array::from_fn(|axis| {
+                (sum[axis]
+                    + corrections
+                        .as_ref()
+                        .map_or(0.0, |corrections| corrections[group][axis]))
+                    / self.counts[group] as f64
             });
-            if result.iter().all(|value| value.is_finite()) {
+            let sign_bits = signs.as_ref().map_or(0, |signs| signs[group]);
+            if !has_mixed_signs(sign_bits) && result.iter().all(|value| value.is_finite()) {
                 *sum = result;
                 continue;
             }
-            // Only an overflowing compensated sum needs exact arithmetic. A
-            // lazily built membership table is reused across all field shapes.
+            // Cancellation can lose low residuals even when compensated sums
+            // stay finite. Membership is shared across affected components/fields.
             let members = self
                 .members
                 .get_or_insert_with(|| Members::new(self.assignment, count));
-            let mut exact = std::array::from_fn::<_, N, _>(|_| ExactMean::default());
-            for &point in &members.points[members.offsets[group]..members.offsets[group + 1]] {
-                if valid.is_some_and(|mask| !mask[point]) {
+            for (axis, result) in result.iter_mut().enumerate() {
+                if result.is_finite() && ((sign_bits >> (2 * axis)) & 3) != 3 {
                     continue;
                 }
-                for (mean, &value) in exact.iter_mut().zip(&values[point]) {
-                    mean.add(value);
-                }
+                *result = exact_average(
+                    members.points[members.offsets[group]..members.offsets[group + 1]]
+                        .iter()
+                        .filter(|&&point| valid.is_none_or(|mask| mask[point]))
+                        .map(|&point| values[point][axis]),
+                );
             }
-            *sum = exact.map(ExactMean::finish);
+            *sum = result;
+        }
+        if !may_cancel {
+            self.max_members = self.counts.iter().copied().max().unwrap_or(0);
         }
         sums
     }
@@ -239,13 +286,13 @@ impl Groups<'_> {
         let mask = source.valid.as_deref();
         let data = match &source.data {
             FieldData::Scalar(v) => FieldData::Scalar(
-                self.rows(v.as_chunks::<1>().0, mask)
+                self.rows(v.as_chunks::<1>().0, mask, true)
                     .into_flattened()
                     .into(),
             ),
-            FieldData::Vector(v) => FieldData::Vector(self.rows(v, mask).into()),
-            FieldData::Tensor(v) => FieldData::Tensor(self.rows(v, mask).into()),
-            FieldData::Complex(v) => FieldData::Complex(self.rows(v, mask).into()),
+            FieldData::Vector(v) => FieldData::Vector(self.rows(v, mask, true).into()),
+            FieldData::Tensor(v) => FieldData::Tensor(self.rows(v, mask, true).into()),
+            FieldData::Complex(v) => FieldData::Complex(self.rows(v, mask, true).into()),
         };
         crate::validity::finish(
             Field {

@@ -27,66 +27,167 @@ fn point_means<'a, const N: usize>(
     field: &'a Field,
     values: &'a [[f64; N]],
 ) -> impl Iterator<Item = [f64; N]> + 'a {
-    // Public entry points validate the dataset first, so checking the mask is
-    // equivalent to Field::is_valid without rescanning finite components.
     let all_missing = field
         .valid
         .as_ref()
-        .is_some_and(|mask| mask.iter().all(|&valid| !valid));
-    let present = move |node: u32| field.valid.as_ref().is_none_or(|mask| mask[node as usize]);
+        .is_some_and(|mask| mask.iter().all(|v| !*v));
+    // A dense mesh reuses a field sign certificate; sparse selections inspect
+    // referenced values only. Within mixed fields, track actual cell signs so
+    // that a distant zero crossing cannot force every cell into exact arithmetic.
+    let mixed = (!all_missing
+        && !dataset.cells.is_empty()
+        && dataset.cells.connectivity.len() >= values.len())
+    .then(|| {
+        crate::mean::has_mixed_rows(
+            values
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| field.valid.as_ref().is_none_or(|mask| mask[*i]))
+                .map(|(_, value)| value),
+        )
+    });
+    // Quantized data (for example f32 promoted to f64) often has an exact
+    // floating sum even with both signs. Certify the bounded fixed cell sizes
+    // once rather than paying for exact accumulation in every crossing cell.
+    let exact_float = mixed == Some(true)
+        && !dataset.cells.types.contains(&CellType::Polygon)
+        && exact_field_sums(values, field.valid.as_deref(), 8);
+    let small_sum =
+        (mixed == Some(true) && !exact_float && !dataset.cells.types.contains(&CellType::Polygon))
+            .then(|| {
+                crate::mean::SmallFieldSum::certify(
+                    values
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| field.valid.as_ref().is_none_or(|mask| mask[*i]))
+                        .map(|(_, row)| row),
+                    8,
+                )
+            })
+            .flatten();
     (0..dataset.cell_count()).map(move |cell| {
         if all_missing {
             return [f64::NAN; N];
         }
-        let nodes = dataset.cells.cell(cell).unwrap_or(&[]);
-        let mut sum = [0.0; N];
-        let count = if let Some(mask) = &field.valid {
-            let mut count = 0;
-            for &node in nodes {
-                if !mask[node as usize] {
-                    continue;
-                }
-                count += 1;
-                for (sum, value) in sum.iter_mut().zip(values[node as usize]) {
-                    *sum += value;
-                }
-            }
-            count
+        let nodes = dataset.cells.cell(cell).unwrap();
+        if let Some(plan) = small_sum {
+            integer_point_mean(nodes, values, field.valid.as_deref(), plan)
+        } else if mixed == Some(false) || exact_float {
+            point_mean::<N, false>(nodes, values, field.valid.as_deref(), exact_float)
         } else {
-            for &node in nodes {
-                for (sum, value) in sum.iter_mut().zip(values[node as usize]) {
-                    *sum += value;
-                }
-            }
-            nodes.len()
-        };
-        if count == 0 {
-            return [f64::NAN; N];
+            point_mean::<N, true>(nodes, values, field.valid.as_deref(), false)
         }
-        if sum.iter().all(|value| value.is_finite()) {
-            return if N == 1 {
-                sum.map(|value| value / count as f64)
-            } else {
-                let inverse = 1.0 / count as f64;
-                sum.map(|value| value * inverse)
-            };
-        }
-        // The usual sum is faster; retry only an overflowing sum with bounded
-        // convex updates. This preserves finite averages of very large inputs.
-        let mut mean = [0.0; N];
-        let mut count = 0usize;
-        for &node in nodes {
-            if !present(node) {
-                continue;
-            }
-            count += 1;
-            let fraction = 1.0 / count as f64;
-            for (mean, value) in mean.iter_mut().zip(values[node as usize]) {
-                *mean = blend(*mean, value, fraction);
-            }
-        }
-        mean
     })
+}
+
+#[inline]
+fn integer_point_mean<const N: usize>(
+    nodes: &[u32],
+    values: &[[f64; N]],
+    valid: Option<&[bool]>,
+    plan: crate::mean::SmallFieldSum,
+) -> [f64; N] {
+    let mut sums = [0; N];
+    let mut count = 0;
+    for &node in nodes {
+        if valid.is_some_and(|mask| !mask[node as usize]) {
+            continue;
+        }
+        count += 1;
+        for (sum, &value) in sums.iter_mut().zip(&values[node as usize]) {
+            *sum += plan.integer(value);
+        }
+    }
+    if count == 0 {
+        [f64::NAN; N]
+    } else {
+        sums.map(|sum| plan.average(sum, count))
+    }
+}
+
+#[inline]
+fn point_mean<const N: usize, const TRACK_SIGNS: bool>(
+    nodes: &[u32],
+    values: &[[f64; N]],
+    valid: Option<&[bool]>,
+    exact_float: bool,
+) -> [f64; N] {
+    let (sum, count, signs) = sum_nodes::<N, TRACK_SIGNS>(nodes, values, valid);
+    if count == 0 {
+        return [f64::NAN; N];
+    }
+    let inverse = 1.0 / count as f64;
+    if !crate::mean::has_mixed_signs(signs) && sum.iter().all(|v| v.is_finite()) {
+        if N == 1 || (exact_float && !count.is_power_of_two()) {
+            sum.map(|v| v / count as f64)
+        } else {
+            sum.map(|v| v * inverse)
+        }
+    } else {
+        std::array::from_fn(|axis| {
+            if ((signs >> (2 * axis)) & 3) != 3 && sum[axis].is_finite() {
+                if N == 1 {
+                    sum[axis] / count as f64
+                } else {
+                    sum[axis] * inverse
+                }
+            } else {
+                let contributors = nodes
+                    .iter()
+                    .filter(|&&node| valid.is_none_or(|mask| mask[node as usize]))
+                    .map(|&node| values[node as usize][axis]);
+                crate::mean::exact_average(contributors)
+            }
+        })
+    }
+}
+
+fn exact_field_sums<const N: usize>(
+    values: &[[f64; N]],
+    valid: Option<&[bool]>,
+    max_nodes: usize,
+) -> bool {
+    crate::mean::certified_float_rows(
+        values
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| valid.is_none_or(|mask| mask[*index]))
+            .map(|(_, row)| row),
+        max_nodes,
+    )
+}
+
+#[inline]
+fn sum_nodes<const N: usize, const TRACK_SIGNS: bool>(
+    nodes: &[u32],
+    values: &[[f64; N]],
+    valid: Option<&[bool]>,
+) -> ([f64; N], usize, u16) {
+    let mut sum = [0.0; N];
+    let mut count = 0;
+    let mut signs = 0;
+    let mut include = |node: u32| {
+        count += 1;
+        for axis in 0..N {
+            let value = values[node as usize][axis];
+            sum[axis] += value;
+            if TRACK_SIGNS {
+                signs |= crate::mean::component_sign(value, axis);
+            }
+        }
+    };
+    if let Some(mask) = valid {
+        for &node in nodes {
+            if mask[node as usize] {
+                include(node);
+            }
+        }
+    } else {
+        for &node in nodes {
+            include(node);
+        }
+    }
+    (sum, count, signs)
 }
 
 #[derive(Clone, Copy, Default)]
@@ -351,6 +452,8 @@ fn append(
 /// Averages valid point values into cells, component by component.
 ///
 /// Scalar, vector, tensor and complex fields use equal valid-node weights.
+/// Mixed-sign components and overflowing sums use an exact bounded average;
+/// same-sign ordinary sums retain the vectorized floating-point path.
 /// Cells with no valid contributors receive masked NaNs. Labels/units survive;
 /// an existing output name in cell data is replaced.
 ///
