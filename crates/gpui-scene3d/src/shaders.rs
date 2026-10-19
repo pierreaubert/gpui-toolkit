@@ -12,8 +12,13 @@
 /// Maximum clipping planes in the shader uniform block.
 pub const MAX_CLIP_PLANES: usize = 6;
 
-/// Uniform ABI version: compact local plane equations replace origin/normal pairs.
-pub const SCENE_UNIFORM_VERSION: u32 = 2;
+/// Uniform ABI version: the fourth scalar-range slot controls wireframe depth ULPs.
+pub const SCENE_UNIFORM_VERSION: u32 = 3;
+/// Maximum forward f32 depth steps for black surface edge overlays.
+///
+/// Four representable steps cover surface/line interpolation rounding without a
+/// fixed normalized-depth offset. Overlay fragments never write depth.
+pub const WIREFRAME_DEPTH_ULPS: u32 = 4;
 /// Surface uniform block size, including 16-byte alignment padding.
 pub const SCENE_UNIFORM_SIZE: usize = 192;
 
@@ -22,7 +27,7 @@ pub const SCENE_UNIFORM_SIZE: usize = 192;
 ///
 /// Uniform layout (`SceneUniforms`):
 /// - `view_proj`: `mat4x4<f32>`, column-major, matching [`crate::Camera`].
-/// - `scalar_range`: `[min, max, opacity, wireframe_mix]`.
+/// - `scalar_range`: `[min, max, opacity, wireframe_depth_ulps]`.
 /// - `clip_equations[i]`: local `[normal.xyz, offset]` plane coefficients;
 ///   fragments with a negative distance to any active plane are discarded.
 /// - `clip_count`: number of active planes.
@@ -61,8 +66,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     return out;
 }
 
-@fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+fn material_color(input: VertexOutput) -> vec4<f32> {
     // Invalid point/cell samples are encoded as NaN during preparation.
     if (input.scalar != input.scalar) {
         discard;
@@ -81,7 +85,12 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             t = (input.scalar - scene.scalar_range.x) / range;
         }
     }
-    var colour = textureSample(lut_texture, lut_sampler, t);
+    return textureSample(lut_texture, lut_sampler, t);
+}
+
+@fragment
+fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    var colour = material_color(input);
     let light_dir = normalize(vec3<f32>(-0.4, 0.7, 0.6));
     // Opposing smooth normals can cancel. A zero normal has ambient light,
     // matching the software fallback without relying on normalize(0) behavior.
@@ -92,6 +101,22 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     }
     colour = vec4<f32>(colour.rgb * (0.35 + 0.65 * diffuse), colour.a * scene.scalar_range.z);
     return colour;
+}
+
+struct WireOutput {
+    @location(0) color: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+};
+
+@fragment
+fn fs_wire(input: VertexOutput) -> WireOutput {
+    let color = material_color(input);
+    var output: WireOutput;
+    output.color = vec4<f32>(0.0, 0.0, 0.0, color.a * scene.scalar_range.z);
+    let depth_bits = bitcast<u32>(input.clip_position.z) & 0x7fffffffu;
+    let steps = min(depth_bits, u32(scene.scalar_range.w));
+    output.depth = bitcast<f32>(depth_bits - steps);
+    return output;
 }
 ";
 
@@ -203,7 +228,12 @@ pub(crate) fn scene_uniform_block_with_equations(
     for value in view_projection {
         append(value.to_le_bytes());
     }
-    for value in [scalar_range[0], scalar_range[1], opacity, 0.0] {
+    for value in [
+        scalar_range[0],
+        scalar_range[1],
+        opacity,
+        WIREFRAME_DEPTH_ULPS as f32,
+    ] {
         append(value.to_le_bytes());
     }
     for index in 0..MAX_CLIP_PLANES {
@@ -233,6 +263,10 @@ mod tests {
         .unwrap();
         assert_eq!(bytes.len() % 16, 0);
         assert_eq!(bytes.len(), SCENE_UNIFORM_SIZE);
+        assert_eq!(
+            f32::from_le_bytes(bytes[76..80].try_into().unwrap()),
+            WIREFRAME_DEPTH_ULPS as f32
+        );
     }
 
     #[test]
@@ -278,7 +312,7 @@ mod tests {
             ),
             Err(crate::SceneError::InvalidClipPlane(_))
         ));
-        assert_eq!(SCENE_UNIFORM_VERSION, 2);
+        assert_eq!(SCENE_UNIFORM_VERSION, 3);
         assert_eq!(SCENE_UNIFORM_SIZE, 192);
     }
 }

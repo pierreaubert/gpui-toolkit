@@ -175,11 +175,11 @@ pub(crate) fn clip_frustum(poly: &mut Polygon) {
     }
 }
 
-fn segment<const N: usize>(
+fn segment_interval<const N: usize>(
     points: [[f64; N]; 2],
     count: usize,
     distance: impl Fn([f64; N], usize) -> f64,
-) -> Option<[[f64; N]; 2]> {
+) -> Option<[f64; 2]> {
     let [a, b] = points;
     let (mut enter, mut exit) = (0.0f64, 1.0f64);
     for plane in 0..count {
@@ -199,7 +199,52 @@ fn segment<const N: usize>(
     if enter > exit {
         return None;
     }
-    Some([enter, exit].map(|t| std::array::from_fn(|axis| a[axis] + (b[axis] - a[axis]) * t)))
+    Some([enter, exit])
+}
+
+fn segment<const N: usize>(
+    points: [[f64; N]; 2],
+    count: usize,
+    distance: impl Fn([f64; N], usize) -> f64,
+) -> Option<[[f64; N]; 2]> {
+    let [a, b] = points;
+    Some(
+        segment_interval(points, count, distance)?
+            .map(|t| std::array::from_fn(|axis| a[axis] + (b[axis] - a[axis]) * t)),
+    )
+}
+
+pub(crate) fn clip_line_vertices(
+    vertices: [Vertex; 2],
+    planes: &[PlaneEquation],
+) -> Option<[Vertex; 2]> {
+    let points = vertices.map(|v| {
+        [
+            f64::from(v.position[0]),
+            f64::from(v.position[1]),
+            f64::from(v.position[2]),
+        ]
+    });
+    Some(
+        segment_interval(points, planes.len(), |p, i| planes[i].distance(p))?
+            .map(|t| interpolate(vertices[0], vertices[1], t)),
+    )
+}
+
+pub(crate) fn clip_frustum_line_vertices(vertices: [Vertex; 2]) -> Option<[Vertex; 2]> {
+    let points = vertices.map(|v| v.position.map(f64::from));
+    let mut clipped = segment_interval(points, 6, frustum_distance)?
+        .map(|t| interpolate(vertices[0], vertices[1], t));
+    for v in &mut clipped {
+        let w = v.position[3];
+        if w <= 0.0 || v.position.iter().any(|v| !v.is_finite()) {
+            return None;
+        }
+        v.position[0] = v.position[0].clamp(-w, w);
+        v.position[1] = v.position[1].clamp(-w, w);
+        v.position[2] = v.position[2].clamp(0.0, w);
+    }
+    Some(clipped)
 }
 
 pub(crate) fn clip_line(points: [[f64; 3]; 2], planes: &[PlaneEquation]) -> Option<[[f64; 3]; 2]> {
@@ -233,6 +278,39 @@ pub(crate) fn clip_frustum_line(points: [[f32; 4]; 2]) -> Option<[[f32; 4]; 2]> 
 mod tests {
     use super::*;
     use crate::ClipPlane;
+
+    #[test]
+    fn clipped_line_vertices_interpolate_scalar_attributes() {
+        let vertices = [
+            Vertex {
+                position: [-1.0, 0.0, 0.0, 1.0],
+                scalar: 0.0,
+                normal: [0.0; 3],
+            },
+            Vertex {
+                position: [1.0, 0.0, 0.0, 1.0],
+                scalar: 1.0,
+                normal: [0.0; 3],
+            },
+        ];
+        let planes = crate::scene::local_planes(
+            &[ClipPlane {
+                origin: [0.0; 3],
+                normal: [1.0, 0.0, 0.0],
+            }],
+            [0.0; 3],
+        )
+        .unwrap();
+        let clipped = clip_line_vertices(vertices, &planes).unwrap();
+        assert_eq!(clipped[0].position, [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(clipped[0].scalar, 0.5);
+        let mut vertices = vertices;
+        vertices[0].position = [-0.5, 0.0, -0.5, 1.0];
+        vertices[1].position = [0.5, 0.0, 0.5, 1.0];
+        let clipped = clip_frustum_line_vertices(vertices).unwrap();
+        assert_eq!(clipped[0].position, [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(clipped[0].scalar, 0.5);
+    }
 
     #[test]
     fn bounds_classification_is_conservative_at_frustum_boundaries() {

@@ -47,7 +47,57 @@ struct GpuChunkBuffers {
     vertices: [wgpu::Buffer; 3],
     index: wgpu::Buffer,
     index_count: u32,
+    edges: Option<(wgpu::Buffer, u32)>,
     origin: [f64; 3],
+}
+
+fn buffer_bytes(elements: usize, limit: u64, resource: &'static str) -> Result<u64, SceneError> {
+    // Prepared attributes and indices are all 32-bit elements.
+    let bytes = (elements as u64)
+        .checked_mul(4)
+        .ok_or(SceneError::ResourceLimit {
+            resource,
+            requested: u64::MAX,
+            limit,
+        })?;
+    if bytes > limit {
+        return Err(SceneError::ResourceLimit {
+            resource,
+            requested: bytes,
+            limit,
+        });
+    }
+    Ok(bytes)
+}
+
+fn index_count(elements: usize, resource: &'static str) -> Result<u32, SceneError> {
+    u32::try_from(elements).map_err(|_| SceneError::ResourceLimit {
+        resource,
+        requested: elements as u64,
+        limit: u64::from(u32::MAX),
+    })
+}
+
+fn chunk_layout(chunk: &crate::GpuChunk, limit: u64) -> Result<(u32, u32, u64), SceneError> {
+    let count = index_count(chunk.indices.len(), "GPU triangle index count")?;
+    let edges = index_count(chunk.edges.len(), "GPU wireframe index count")?;
+    let mut bytes = 0u64;
+    for (elements, resource) in [
+        (chunk.positions.len(), "GPU position buffer bytes"),
+        (chunk.normals.len(), "GPU normal buffer bytes"),
+        (chunk.scalars.len(), "GPU scalar buffer bytes"),
+        (chunk.indices.len(), "GPU triangle buffer bytes"),
+        (chunk.edges.len(), "GPU wireframe buffer bytes"),
+    ] {
+        bytes = bytes
+            .checked_add(buffer_bytes(elements, limit, resource)?)
+            .ok_or(SceneError::ResourceLimit {
+                resource: "GPU chunk byte sum overflow",
+                requested: u64::MAX,
+                limit: u64::MAX,
+            })?;
+    }
+    Ok((count, edges, bytes))
 }
 
 struct GpuActor {
@@ -71,7 +121,7 @@ pub struct GpuScene {
     actors: Vec<GpuActor>,
     background: [f32; 4],
     /// Total bytes of uploaded geometry (positions, normals, scalars,
-    /// indices) — proof of residency for diagnostics.
+    /// triangle/edge indices) — proof of residency for diagnostics.
     pub geometry_bytes: u64,
     order: Vec<usize>,
     prepared: SceneRevision,
@@ -118,6 +168,7 @@ pub struct GpuRenderer {
     queue: Arc<wgpu::Queue>,
     pipeline_opaque: wgpu::RenderPipeline,
     pipeline_transparent: wgpu::RenderPipeline,
+    pipeline_wireframe: wgpu::RenderPipeline,
     bind_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     format: wgpu::TextureFormat,
@@ -264,43 +315,48 @@ impl GpuRenderer {
                 }],
             },
         ];
-        let make_pipeline = |depth_write: bool, blend: Option<wgpu::BlendState>| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("gpui-scene3d surface pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &vertex_layouts,
-                    compilation_options: Default::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format,
-                        blend,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: Default::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: None,
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: Some(depth_write),
-                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                    stencil: Default::default(),
-                    bias: Default::default(),
-                }),
-                multisample: Default::default(),
-                multiview_mask: None,
-                cache: None,
-            })
-        };
+        let make_pipeline =
+            |depth_write: bool, blend: Option<wgpu::BlendState>, wireframe: bool| {
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("gpui-scene3d surface pipeline"),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some("vs_main"),
+                        buffers: &vertex_layouts,
+                        compilation_options: Default::default(),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some(if wireframe { "fs_wire" } else { "fs_main" }),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format,
+                            blend,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: Default::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: if wireframe {
+                            wgpu::PrimitiveTopology::LineList
+                        } else {
+                            wgpu::PrimitiveTopology::TriangleList
+                        },
+                        cull_mode: None,
+                        ..Default::default()
+                    },
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: wgpu::TextureFormat::Depth32Float,
+                        depth_write_enabled: Some(depth_write),
+                        depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                        stencil: Default::default(),
+                        bias: Default::default(),
+                    }),
+                    multisample: Default::default(),
+                    multiview_mask: None,
+                    cache: None,
+                })
+            };
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("gpui-scene3d lut sampler"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -309,8 +365,13 @@ impl GpuRenderer {
             ..Default::default()
         });
         Self {
-            pipeline_opaque: make_pipeline(true, None),
-            pipeline_transparent: make_pipeline(false, Some(wgpu::BlendState::ALPHA_BLENDING)),
+            pipeline_opaque: make_pipeline(true, None, false),
+            pipeline_transparent: make_pipeline(
+                false,
+                Some(wgpu::BlendState::ALPHA_BLENDING),
+                false,
+            ),
+            pipeline_wireframe: make_pipeline(false, Some(wgpu::BlendState::ALPHA_BLENDING), true),
             device,
             queue,
             bind_layout,
@@ -330,15 +391,13 @@ impl GpuRenderer {
     /// # Errors
     ///
     /// Returns an error for invalid render settings, missing fields,
-    /// unsupported scalar/clip precision, or unsupported geometry features.
+    /// unsupported scalar/clip precision, unsupported geometry features, or
+    /// device buffer/index limits exceeded by a prepared chunk.
     pub fn upload(&self, scene: &Scene) -> Result<GpuScene, GpuRenderError> {
         scene.validate_render_state()?;
         for actor in scene.actors.iter().filter(|actor| actor.visible) {
             if let Some(transfer) = actor.active_transfer() {
                 transfer.gpu_range()?;
-            }
-            if actor.wireframe {
-                return Err(GpuRenderError::UnsupportedFeature("wireframe"));
             }
             if actor.clip_planes.len() > crate::shaders::MAX_CLIP_PLANES {
                 return Err(GpuRenderError::UnsupportedFeature(
@@ -374,7 +433,16 @@ impl GpuRenderer {
                 if chunk.indices.is_empty() {
                     continue;
                 }
-                geometry_bytes += chunk.byte_len();
+                let (index_count, edge_count, bytes) =
+                    chunk_layout(chunk, self.device.limits().max_buffer_size)?;
+                geometry_bytes =
+                    geometry_bytes
+                        .checked_add(bytes)
+                        .ok_or(SceneError::ResourceLimit {
+                            resource: "GPU scene byte sum overflow",
+                            requested: u64::MAX,
+                            limit: u64::MAX,
+                        })?;
                 let make = |data: &[f32], label: &str| {
                     self.device
                         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -396,7 +464,18 @@ impl GpuRenderer {
                             contents: bytemuck::cast_slice(&chunk.indices),
                             usage: wgpu::BufferUsages::INDEX,
                         }),
-                    index_count: chunk.indices.len() as u32,
+                    index_count,
+                    edges: (!chunk.edges.is_empty()).then(|| {
+                        (
+                            self.device
+                                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("wireframe edges"),
+                                    contents: bytemuck::cast_slice(&chunk.edges),
+                                    usage: wgpu::BufferUsages::INDEX,
+                                }),
+                            edge_count,
+                        )
+                    }),
                     origin: chunk.origin,
                 });
             }
@@ -816,6 +895,18 @@ impl GpuRenderer {
                     pass.set_index_buffer(chunk.index.slice(..), wgpu::IndexFormat::Uint32);
                     pass.draw_indexed(0..chunk.index_count, 0, 0..1);
                 }
+                if actor.chunks.iter().any(|chunk| chunk.edges.is_some()) {
+                    pass.set_pipeline(&self.pipeline_wireframe);
+                    for chunk in &actor.chunks {
+                        if let Some((edges, count)) = &chunk.edges {
+                            for (slot, buffer) in chunk.vertices.iter().enumerate() {
+                                pass.set_vertex_buffer(slot as u32, buffer.slice(..));
+                            }
+                            pass.set_index_buffer(edges.slice(..), wgpu::IndexFormat::Uint32);
+                            pass.draw_indexed(0..*count, 0, 0..1);
+                        }
+                    }
+                }
             }
         }
         Ok(())
@@ -1016,6 +1107,87 @@ mod tests {
     }
 
     #[test]
+    fn gpu_buffer_and_index_limits_are_checked_without_large_allocations() {
+        assert_eq!(buffer_bytes(16, 64, "test").unwrap(), 64);
+        assert!(matches!(
+            buffer_bytes(17, 64, "test"),
+            Err(SceneError::ResourceLimit {
+                requested: 68,
+                limit: 64,
+                ..
+            })
+        ));
+        assert_eq!(index_count(u32::MAX as usize, "test").unwrap(), u32::MAX);
+        #[cfg(target_pointer_width = "64")]
+        {
+            assert!(matches!(
+                index_count(u32::MAX as usize + 1, "test"),
+                Err(SceneError::ResourceLimit { .. })
+            ));
+            assert!(matches!(
+                buffer_bytes(usize::MAX, u64::MAX, "test"),
+                Err(SceneError::ResourceLimit { .. })
+            ));
+        }
+        let mut chunk = crate::GpuChunk {
+            origin: [0.0; 3],
+            positions: vec![0.0; 9],
+            normals: vec![0.0; 9],
+            scalars: vec![0.0; 3],
+            indices: vec![0, 1, 2],
+            edges: vec![0, 1, 1, 2, 0, 2],
+        };
+        assert_eq!(chunk_layout(&chunk, 36).unwrap(), (3, 6, 120));
+        chunk.edges = vec![0; 10];
+        assert!(matches!(
+            chunk_layout(&chunk, 36),
+            Err(SceneError::ResourceLimit {
+                resource: "GPU wireframe buffer bytes",
+                requested: 40,
+                limit: 36
+            })
+        ));
+    }
+
+    #[test]
+    fn wireframe_buffers_stay_resident_across_camera_and_material_updates() {
+        let Some(renderer) = renderer() else {
+            return;
+        };
+        let data = DataSet::surface(
+            "wire",
+            vec![
+                [-1.0, -1.0, 0.0],
+                [1.0, -1.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [-1.0, 1.0, 0.0],
+            ],
+            &[[0, 1, 2], [0, 2, 3]],
+        );
+        let mut scene = Scene::new().with_actor(Actor::new(data).wireframe(true));
+        let mut uploaded = renderer.upload(&scene).unwrap();
+        assert_eq!(uploaded.geometry_bytes, 176);
+        let buffer = &uploaded.actors[0].chunks[0].edges.as_ref().unwrap().0 as *const wgpu::Buffer;
+        let target = renderer.create_target(32, 32).unwrap();
+        let mut camera = Camera::fitted(scene.bounds().unwrap());
+        for _ in 0..12 {
+            scene.actors[0].opacity = 0.5;
+            scene.actors[0].color = [0.0, 1.0, 0.0, 1.0];
+            assert!(!renderer.sync(&mut uploaded, &scene).unwrap());
+            camera.orbit(0.01, 0.005);
+            renderer.render(&mut uploaded, &camera, &target).unwrap();
+            assert_eq!(
+                buffer,
+                &uploaded.actors[0].chunks[0].edges.as_ref().unwrap().0 as *const wgpu::Buffer
+            );
+        }
+        assert_eq!(scene.preparation_stats().geometry_builds, 1);
+        scene.actors[0].wireframe = false;
+        assert!(renderer.sync(&mut uploaded, &scene).unwrap());
+        assert!(uploaded.actors[0].chunks[0].edges.is_none());
+    }
+
+    #[test]
     fn gpu_render_matches_scene_and_updates_by_uniform_only() {
         let Some(renderer) = renderer() else {
             return;
@@ -1163,7 +1335,7 @@ mod tests {
     }
 
     #[test]
-    fn readback_exports_straight_rgba_and_rejects_silent_feature_loss() {
+    fn readback_exports_straight_rgba_and_uploads_wireframe() {
         let Some(renderer) = renderer() else {
             return;
         };
@@ -1219,10 +1391,8 @@ mod tests {
             &[[0, 1, 2]],
         ))
         .wireframe(true);
-        assert!(matches!(
-            renderer.upload(&Scene::new().with_actor(actor)),
-            Err(GpuRenderError::UnsupportedFeature("wireframe"))
-        ));
+        let uploaded = renderer.upload(&Scene::new().with_actor(actor)).unwrap();
+        assert_eq!(uploaded.actors[0].chunks[0].edges.as_ref().unwrap().1, 6);
     }
 
     #[test]

@@ -4,8 +4,8 @@
 
 use crate::camera::{Camera, transform};
 use crate::clipping::{
-    BoundsVisibility, Polygon, Vertex, classify_bounds, clip_frustum, clip_frustum_line, clip_line,
-    clip_planes, triangle_visibility,
+    BoundsVisibility, Polygon, Vertex, classify_bounds, clip_frustum, clip_frustum_line,
+    clip_frustum_line_vertices, clip_line, clip_line_vertices, clip_planes, triangle_visibility,
 };
 use crate::limits::frame_buffer;
 use crate::retained::PreparedGeometry;
@@ -402,9 +402,163 @@ fn draw_actor(
             blend,
         );
     }
+    if actor.wireframe {
+        draw_wireframe(
+            actor,
+            geometry,
+            camera,
+            &material,
+            LineTarget {
+                size: [width, height],
+                depth,
+                rgba,
+            },
+        )?;
+    }
     // Line cells (streamlines, glyphs) draw as 1px projected segments.
     if !geometry.lines.is_empty() {
         draw_lines(actor, &geometry.lines, camera, width, height, depth, rgba)?;
+    }
+    Ok(())
+}
+
+struct LineTarget<'a> {
+    size: [u32; 2],
+    depth: &'a mut [f32],
+    rgba: &'a mut [u8],
+}
+
+impl LineTarget<'_> {
+    fn draw(
+        &mut self,
+        points: [(f32, f32, f32); 2],
+        depth_ulps: u32,
+        write_depth: bool,
+        color: impl Fn(f32) -> [u8; 4],
+    ) {
+        let [a, b] = points;
+        let [width, height] = self.size;
+        // Homogeneous clipping bounds work by the physical viewport, even
+        // when the source segment is much longer than the visible region.
+        let steps = ((b.0 - a.0).abs().max((b.1 - a.1).abs()).ceil() as usize).max(1);
+        let mut previous = None;
+        for step in 0..=steps {
+            let t = step as f32 / steps as f32;
+            let x = a.0 + (b.0 - a.0) * t;
+            let y = a.1 + (b.1 - a.1) * t;
+            let z = (a.2 + (b.2 - a.2) * t).max(0.0);
+            let z = f32::from_bits((z.to_bits() & 0x7fff_ffff).saturating_sub(depth_ulps));
+            if x < 0.0 || y < 0.0 || x >= width as f32 || y >= height as f32 {
+                continue;
+            }
+            let index = y as usize * width as usize + x as usize;
+            if previous == Some(index) {
+                continue;
+            }
+            previous = Some(index);
+            if z <= self.depth[index] {
+                let color = color(t);
+                source_over(&mut self.rgba[index * 4..index * 4 + 4], color);
+                if write_depth && color[3] == 255 {
+                    self.depth[index] = z;
+                }
+            }
+        }
+    }
+}
+
+fn draw_wireframe(
+    actor: &crate::Actor,
+    geometry: &PreparedGeometry,
+    camera: &Camera,
+    material: &RasterMaterial<'_>,
+    mut target: LineTarget<'_>,
+) -> Result<(), SceneError> {
+    let constant_alpha = if material.transfer.is_none() {
+        Some(actor.color[3])
+    } else if actor
+        .active_transfer()
+        .is_some_and(crate::TransferFunction::is_opaque)
+    {
+        Some(1.0)
+    } else {
+        None
+    };
+    let black = |alpha: f32| {
+        [
+            0,
+            0,
+            0,
+            (alpha * actor.opacity * 255.0).clamp(0.0, 255.0) as u8,
+        ]
+    };
+    for chunk in &geometry.chunks {
+        if chunk.edges.is_empty() {
+            continue;
+        }
+        let matrix = camera.view_projection_relative_to(
+            chunk.origin,
+            target.size[0] as f32 / target.size[1] as f32,
+        );
+        let planes = crate::scene::local_planes(&actor.clip_planes, chunk.origin)?;
+        for edge in chunk.edges.as_chunks::<2>().0 {
+            let vertices = edge.map(|i| {
+                let i = i as usize;
+                Vertex {
+                    position: [
+                        chunk.positions[i * 3],
+                        chunk.positions[i * 3 + 1],
+                        chunk.positions[i * 3 + 2],
+                        1.0,
+                    ],
+                    scalar: chunk.scalars[i],
+                    normal: [0.0; 3],
+                }
+            });
+            let Some(mut vertices) = clip_line_vertices(vertices, &planes) else {
+                continue;
+            };
+            for vertex in &mut vertices {
+                vertex.position = transform(
+                    &matrix,
+                    [vertex.position[0], vertex.position[1], vertex.position[2]],
+                );
+            }
+            let Some(vertices) = clip_frustum_line_vertices(vertices) else {
+                continue;
+            };
+            let points = vertices.map(|v| {
+                (
+                    (v.position[0] / v.position[3] * 0.5 + 0.5) * target.size[0] as f32,
+                    (0.5 - v.position[1] / v.position[3] * 0.5) * target.size[1] as f32,
+                    v.position[2] / v.position[3],
+                )
+            });
+            if let Some(alpha) = constant_alpha {
+                let color = black(alpha);
+                target.draw(points, crate::shaders::WIREFRAME_DEPTH_ULPS, false, |_| {
+                    color
+                });
+            } else {
+                let inverse_w = vertices.map(|v| 1.0 / f64::from(v.position[3]));
+                target.draw(points, crate::shaders::WIREFRAME_DEPTH_ULPS, false, |t| {
+                    let weights = [
+                        (1.0 - f64::from(t)) * inverse_w[0],
+                        f64::from(t) * inverse_w[1],
+                    ];
+                    let scalar = (weights[0] * f64::from(vertices[0].scalar)
+                        + weights[1] * f64::from(vertices[1].scalar))
+                        / (weights[0] + weights[1]);
+                    black(
+                        material
+                            .transfer
+                            .as_ref()
+                            .expect("variable alpha uses transfer")
+                            .map(scalar)[3],
+                    )
+                });
+            }
+        }
     }
     Ok(())
 }
@@ -429,6 +583,11 @@ fn draw_lines(
         (actor.color[2].clamp(0.0, 1.0) * 255.0) as u8,
         (actor.color[3].clamp(0.0, 1.0) * actor.opacity * 255.0) as u8,
     ];
+    let mut target = LineTarget {
+        size: [width, height],
+        depth,
+        rgba,
+    };
     for nodes in lines {
         let points = nodes.map(|node| {
             std::array::from_fn(|axis| dataset.positions[node as usize][axis] - origin[axis])
@@ -447,30 +606,7 @@ fn draw_lines(
                 clip[2] / clip[3],
             )
         });
-        // Frustum clipping bounds this work by the viewport, including segments
-        // whose original endpoints are far outside it.
-        let steps = ((b.0 - a.0).abs().max((b.1 - a.1).abs()).ceil() as usize).max(1);
-        let mut previous = None;
-        for step in 0..=steps {
-            let t = step as f32 / steps as f32;
-            let x = a.0 + (b.0 - a.0) * t;
-            let y = a.1 + (b.1 - a.1) * t;
-            let z = a.2 + (b.2 - a.2) * t;
-            if x < 0.0 || y < 0.0 || x >= width as f32 || y >= height as f32 {
-                continue;
-            }
-            let idx = y as usize * width as usize + x as usize;
-            if previous == Some(idx) {
-                continue;
-            }
-            previous = Some(idx);
-            if z <= depth[idx] {
-                source_over(&mut rgba[idx * 4..idx * 4 + 4], colour);
-                if colour[3] == 255 {
-                    depth[idx] = z;
-                }
-            }
-        }
+        target.draw([a, b], 0, true, |_| colour);
     }
     Ok(())
 }

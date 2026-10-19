@@ -124,6 +124,8 @@ item requires implementation and verification evidence, not just a planned API.
 - `axis::clear_tick_label_cache` invalidates formatter state and handles pressure.
 - `CellToPointPlan` and `CellToPointLimits` expose bounded snapshot preparation;
   `TransformError::ResourceLimit` adds a preparation-budget rejection variant.
+- Surface uniform ABI **3** keeps the 192-byte block; the fourth scalar-range
+  float now carries wireframe depth ULPs. Stock builders fill four steps.
 
 ## Retained scene and host GPU checkpoint
 
@@ -1451,3 +1453,101 @@ and pressure/large-dataset integrations pass with Metal required.
   correctness/platform, aggregate memory, scheduling, text/FFI, Taffy, CUDA/MLX,
   device and final-acceptance requirements remain unchanged. The original audit
   is frozen; this checkpoint is implementation progress, not full completion.
+
+## Wireframe topology, clipping and resident GPU checkpoint
+
+- Requested wireframes now draw unique black mesh edges in software and the
+  shared GPU renderer. Edge width is one physical target pixel, and edge alpha
+  follows the selected scalar transfer/actor opacity. User/frustum clipping
+  preserves the original edge segments and interpolates scalar attributes;
+  display clipping does not invent a cut outline. Software uses perspective
+  interpolation for varying edge alpha. Ordinary line cells reuse the bounded
+  projected-line loop and retain their existing behavior.
+- Preparation canonicalizes/sorts/deduplicates edge pairs. Multi-chunk actors
+  additionally assign each global edge to one chunk, preventing double blending
+  on partition boundaries; single-chunk preparation avoids that ownership table.
+  Masked triangles cannot produce edges. A quad split into one-triangle chunks
+  still produces five total edges, under either winding; masking one triangle
+  leaves three. Compaction retains only the unique edge payload. Multi-chunk
+  ownership-table working memory and aggregate preparation bounds remain P1/C5
+  work; this is not a bounded extraction implementation.
+- The portable GPU path uses `LineList`, the resident position/normal/scalar
+  buffers and one extra edge index buffer per nonempty wire chunk. It does not
+  require the optional polygon-line feature, duplicate vertex buffers or CPU
+  pixel readback. Edge passes blend without writing depth. Camera/material
+  updates preserve the exact edge-buffer handle across 12 draws and one geometry
+  preparation. Changing the wireframe preparation option still rebuilds/uploads
+  the revision. GPUI now accepts wireframes on this GPU route; compatibility and
+  origin metadata survive 24 camera updates with one topology scan for both
+  plain and wire actors. Every new GPU attribute/index upload checks individual
+  device buffer limits, u32 index counts and byte sums before buffer creation.
+  Aggregate GPU residency/staging budgets remain open.
+- A fixed normalized-depth offset was rejected: it allowed hidden wires through
+  a foreground surface only `1e-5` world units away. Software and WGSL now move
+  overlay depth forward by at most four representable f32 values and leave the
+  depth buffer intact. Visibility uses that stated tolerance. The saved initial
+  compiled libraries fail the final thin-occluder oracle on both CPU and GPU
+  (321 / 317 differing bytes); current rendering matches the occluder-only image
+  exactly in both actor orders, opaque/translucent modes and both projections.
+  `qa/numeric/20261019-wireframe-depth-occlusion.json` preserves linked-library,
+  binary, source and fixture hashes, the exact fixture and raw rejected results.
+- Surface uniform ABI **3** retains size/alignment and clipping offsets. Slot
+  `scalar_range.w` (byte 76) is now the f32 representation of the ULP count,
+  filled by the standard builders. Custom hosts using `SURFACE_WGSL` must use
+  that matching layout. The wire fragment entry `fs_wire` uses the same material
+  bindings/vertex layout, a line-list index stream, alpha blending and no depth
+  writes. The version and slot are covered by the uniform test.
+- `tests/wireframe.rs` exercises both renderers against independently projected
+  edge locations, single-edge alpha composition and exact opaque occlusion.
+  It checks large origins, user clipping, missing-field masks, near-plane
+  crossings, every near-clipped segment at three interior locations, and varying
+  perspective-correct alpha after clipping. Edge coverage permits 1.5 pixels of
+  backend raster-rule difference; alpha checks away from joins allow three byte
+  levels for sample-position/LUT/unorm differences. The fixture does not claim
+  identical endpoint/junction coverage across backends. Unchanged `47299cd5`
+  fails with zero visible edge pixels; the exact old fixture/result is embedded
+  in the performance evidence. Required-GPU scene verification passes 97 library
+  tests and all public/pressure integrations, including both wireframe and
+  existing surface interpolation tests. Software-only verification passes 73
+  library tests and both render integrations; the native 2×-DPI viewer passes.
+- `qa/perf/20261019-wireframe-paired.json` preserves identical release probes and
+  exact dependency locks, separate targets, allocator-disabled ABBA twice,
+  separate allocation builds, all raw samples and source/test/binary hashes.
+  Cold preparation uses a fresh scene/cache. Warm software checks one retained
+  geometry build and exact within-version pixels. GPU submission measures the
+  public encode/submit API with resident buffers; GPU completion, readback and
+  validation are outside timing. Wire-disabled CPU/GPU image hashes must match
+  the baseline exactly. Initial fixed-offset prototype measurements remain in
+  `qa/perf/20261019-wireframe-initial.json` and are not acceptance evidence for
+  the corrected occlusion behavior. At 48 cubed points, 128 square pixels:
+
+  | Case | Baseline CPU | Current CPU | Current calls / allocated bytes | Baseline / current derived payload |
+  |---|---:|---:|---:|---:|
+  | Cold preparation, wire disabled | 26.522 ms | 26.370 ms | 87 / 45,092,649 | 689,264 / 689,264 |
+  | Cold preparation, wire enabled | 26.543 ms | 27.734 ms | 89 / 45,728,841 | 1,325,456 / 1,007,360 |
+  | Opaque software, wire disabled | 2.082 ms | 2.094 ms | 2 / 131,072 | 689,264 / 689,264 |
+  | Opaque software, wire requested | 2.097 ms | 5.191 ms | 2 / 131,072 | 1,325,456 / 1,007,360 |
+  | Translucent software, wire requested | 3.443 ms | 6.389 ms | 15 / 3,801,152 | 1,325,456 / 1,007,360 |
+
+  Baseline software never draws the requested edges, so enabled timings record
+  the cost of the added work, not an equivalent-output regression gate. Unique
+  edges halve the old edge-index payload, saving 318,096 bytes here; cold wire
+  preparation uses about 4.5% more CPU. Cumulative allocated bytes do not fall
+  during compaction, and its transient old/new storage overlap is not measured
+  as peak memory. Warm software wiring adds no allocation. The candidate's GPU
+  opaque submissions use 35.5 µs CPU without wires and 37.0 µs with them, with
+  60 / 9,258 versus 64 / 9,766 allocation calls/bytes. GPU wire submissions keep
+  those 64 calls / 9,766 bytes at 8³, 24³ and 48³ while uploaded geometry grows
+  from 22,400 to 1,007,360 bytes; the edge buffer is resident, not rebuilt per
+  frame. This is CPU submission cost, not GPU execution latency/throughput or
+  energy. Baseline GPU rejects wireframes, so its wire-disabled submissions are
+  only an overhead reference. Driver initialization/first use, cross-chunk
+  performance, total live/RSS/VRAM and real-device power remain unqualified.
+- Strict Clippy passes for production scene code and both independent render
+  integrations with `--no-deps`. Changed-file formatting, diff checks and the
+  GPU/GPUI wasm library closure pass. Previously recorded broad Clippy failures
+  remain open. C4 remains unchecked for standalone line/point behavior and
+  material validity, general intersecting transparency, nonlinear/banded
+  transfer parity and remaining f64-to-f32 limits. All other open platform,
+  aggregate-memory, scheduling, text/FFI, Taffy, CUDA/MLX, physical-device and
+  completion requirements remain in scope. The original audit is unchanged.

@@ -335,7 +335,9 @@ pub struct Actor {
     pub color: [f32; 4],
     /// Whether the actor is drawn.
     pub visible: bool,
-    /// Whether wireframe edges are drawn over the surface.
+    /// Whether unique black edges one physical pixel wide overlay the surface.
+    /// Edges use the surface's scalar alpha/opacity, clipping and depth test.
+    /// Clipping keeps original mesh edge segments without creating cut outlines.
     pub wireframe: bool,
     /// Overall opacity multiplier; below 1 the actor renders in the
     /// sorted transparent pass.
@@ -430,7 +432,7 @@ impl Actor {
         }
     }
 
-    /// Toggles the wireframe overlay.
+    /// Toggles black wireframe edges one physical pixel wide with surface alpha/opacity.
     #[must_use]
     pub fn wireframe(mut self, enabled: bool) -> Self {
         self.wireframe = enabled;

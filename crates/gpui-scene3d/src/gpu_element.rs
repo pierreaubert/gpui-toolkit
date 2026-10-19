@@ -17,12 +17,11 @@ fn supports_topology(scene: &Scene) -> bool {
         .iter()
         .filter(|actor| actor.visible)
         .all(|actor| {
-            !actor.wireframe
-                && !actor
-                    .dataset
-                    .cells
-                    .types
-                    .contains(&gpui_mesh::CellType::Line)
+            !actor
+                .dataset
+                .cells
+                .types
+                .contains(&gpui_mesh::CellType::Line)
         })
 }
 
@@ -563,30 +562,35 @@ mod tests {
 
     #[test]
     fn compatibility_and_origin_metadata_are_retained_across_camera_updates() {
-        let scene = crate::scene::translated_clipped_scene(1e12 + 0.125);
-        let draw = RegisteredSceneDraw::new();
-        let mut camera = Camera::fitted(scene.bounds().unwrap());
-        assert!(draw.update(&scene, camera, [96, 64]).unwrap());
-        let origins = draw
-            .draw
-            .state
-            .borrow()
-            .input
-            .as_ref()
-            .unwrap()
-            .origins
-            .clone()
-            .unwrap();
-        for _ in 0..24 {
-            camera.orbit(0.01, 0.0);
+        for wireframe in [false, true] {
+            let mut scene = crate::scene::translated_clipped_scene(1e12 + 0.125);
+            for actor in &mut scene.actors {
+                actor.wireframe = wireframe;
+            }
+            let draw = RegisteredSceneDraw::new();
+            let mut camera = Camera::fitted(scene.bounds().unwrap());
             assert!(draw.update(&scene, camera, [96, 64]).unwrap());
+            let origins = draw
+                .draw
+                .state
+                .borrow()
+                .input
+                .as_ref()
+                .unwrap()
+                .origins
+                .clone()
+                .unwrap();
+            for _ in 0..24 {
+                camera.orbit(0.01, 0.0);
+                assert!(draw.update(&scene, camera, [96, 64]).unwrap());
+            }
+            let state = draw.draw.state.borrow();
+            assert_eq!(state.compatibility_scans, 1);
+            assert!(Arc::ptr_eq(
+                &origins,
+                state.input.as_ref().unwrap().origins.as_ref().unwrap()
+            ));
         }
-        let state = draw.draw.state.borrow();
-        assert_eq!(state.compatibility_scans, 1);
-        assert!(Arc::ptr_eq(
-            &origins,
-            state.input.as_ref().unwrap().origins.as_ref().unwrap()
-        ));
     }
 
     #[test]

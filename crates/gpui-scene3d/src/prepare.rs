@@ -28,7 +28,7 @@ pub struct GpuChunk {
     pub scalars: Vec<f32>,
     /// Chunk-local triangle indices.
     pub indices: Vec<u32>,
-    /// Wireframe edge indices derived from `indices`, when requested.
+    /// Canonical unique wireframe edge pairs derived from `indices`, when requested.
     pub edges: Vec<u32>,
 }
 
@@ -123,6 +123,7 @@ pub(crate) fn prepare_chunks_with_bounds(
     };
 
     let chunks = gpui_mesh::surface_chunks(dataset, max_triangles.max(1));
+    let mut seen_edges = (actor.wireframe && chunks.len() > 1).then(std::collections::HashSet::new);
     let mut out = Vec::with_capacity(chunks.len());
     for chunk in chunks {
         let vertex_count = chunk.point_ids.len();
@@ -162,7 +163,7 @@ pub(crate) fn prepare_chunks_with_bounds(
         }
         let normals = smooth_normals(&positions, &indices);
         let edges = if actor.wireframe {
-            wireframe_edges(&indices)
+            wireframe_edges(&indices, &chunk.point_ids, seen_edges.as_mut())
         } else {
             Vec::new()
         };
@@ -221,18 +222,90 @@ fn smooth_normals(positions: &[f32], indices: &[u32]) -> Vec<f32> {
     normals
 }
 
-fn wireframe_edges(indices: &[u32]) -> Vec<u32> {
-    let mut edges = Vec::with_capacity(indices.len() * 2);
+fn wireframe_edges(
+    indices: &[u32],
+    point_ids: &[u32],
+    seen: Option<&mut std::collections::HashSet<u64>>,
+) -> Vec<u32> {
+    let mut edges = Vec::with_capacity(indices.len());
     for tri in indices.as_chunks::<3>().0 {
-        edges.extend_from_slice(&[tri[0], tri[1], tri[1], tri[2], tri[2], tri[0]]);
+        for [a, b] in [[tri[0], tri[1]], [tri[1], tri[2]], [tri[2], tri[0]]] {
+            if a != b {
+                edges.push([a.min(b), a.max(b)]);
+            }
+        }
     }
-    edges
+    edges.sort_unstable();
+    edges.dedup();
+    if let Some(seen) = seen {
+        edges.retain(|edge| {
+            let [a, b] = edge.map(|i| point_ids[i as usize]);
+            seen.insert((u64::from(a.min(b)) << 32) | u64::from(a.max(b)))
+        });
+    }
+    edges.shrink_to_fit();
+    edges.into_flattened()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use gpui_mesh::{DataSet, Field};
+
+    #[test]
+    fn wire_edges_are_unique_across_winding_and_chunk_boundaries() {
+        let dataset = DataSet::surface(
+            "quad",
+            vec![
+                [-1.0, -1.0, 0.0],
+                [1.0, -1.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [-1.0, 1.0, 0.0],
+            ],
+            &[[0, 1, 2], [0, 2, 3]],
+        );
+        for budget in [1, 2] {
+            for reversed in [false, true] {
+                let mut dataset = dataset.clone();
+                if reversed {
+                    dataset.cells = gpui_mesh::Cells::triangles(&[[2, 1, 0], [3, 2, 0]]);
+                }
+                let chunks = prepare_chunks(&Actor::new(dataset).wireframe(true), budget).unwrap();
+                assert_eq!(chunks.iter().map(|c| c.edges.len() / 2).sum::<usize>(), 5);
+                let mut pairs = std::collections::HashSet::new();
+                for chunk in chunks {
+                    for edge in chunk.edges.as_chunks::<2>().0 {
+                        let p = edge.map(|i| {
+                            [
+                                chunk.positions[i as usize * 3].to_bits(),
+                                chunk.positions[i as usize * 3 + 1].to_bits(),
+                                chunk.positions[i as usize * 3 + 2].to_bits(),
+                            ]
+                        });
+                        let key = if p[0] < p[1] {
+                            (p[0], p[1])
+                        } else {
+                            (p[1], p[0])
+                        };
+                        assert!(pairs.insert(key), "duplicate shared edge");
+                    }
+                }
+            }
+        }
+        let mut field = Field::scalar("p", vec![0.0; 4]);
+        field.valid = Some(vec![true, true, true, false].into());
+        let actor = Actor::new(dataset.with_field(field))
+            .coloured_by("p", crate::TransferFunction::viridis([0.0, 1.0]))
+            .wireframe(true);
+        assert_eq!(
+            prepare_chunks(&actor, 1)
+                .unwrap()
+                .iter()
+                .map(|c| c.edges.len() / 2)
+                .sum::<usize>(),
+            3
+        );
+    }
 
     #[test]
     fn prepares_rebased_chunks_with_scalars() {
