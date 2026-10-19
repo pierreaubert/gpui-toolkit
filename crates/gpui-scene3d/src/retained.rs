@@ -219,8 +219,7 @@ impl PreparationCache {
             let geometry = if let Some(geometry) = reusable.get(&identity) {
                 geometry.clone()
             } else {
-                // Validate once per geometry revision before any indexing.
-                actor.dataset.validate()?;
+                // Preparation validates once per geometry revision before indexing.
                 let (bounds, chunks) = prepare_chunks_with_bounds(actor, DEFAULT_MAX_TRIANGLES)?;
                 let primitives = crate::primitives::PrimitiveCells::prepare(
                     &actor.dataset,

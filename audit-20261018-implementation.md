@@ -124,6 +124,8 @@ item requires implementation and verification evidence, not just a planned API.
 - `axis::clear_tick_label_cache` invalidates formatter state and handles pressure.
 - `CellToPointPlan` and `CellToPointLimits` expose bounded snapshot preparation;
   `TransformError::ResourceLimit` adds a preparation-budget rejection variant.
+- `gpui_mesh::try_for_each_surface_chunk` visits source-owned chunks from a
+  `ValidatedDataSet`; public scene `prepare_chunks` validates storage before use.
 - Surface uniform ABI **4** keeps the 192-byte block and wireframe ULP slot.
   Physical viewport dimensions occupy bytes 184/188; point-cell hosts use
   `scene_uniform_block_for_target`. Older builders leave that viewport zero.
@@ -1676,3 +1678,110 @@ and pressure/large-dataset integrations pass with Metal required.
   limits. Aggregate memory, scheduling, FFI/text, other platform/device gates,
   Taffy, CUDA/MLX experiments and full acceptance remain in scope. The original
   audit is unchanged; this checkpoint does not complete the implementation goal.
+
+## Source-owned surface cell fields checkpoint
+
+- Previous goal turn: progress (`d4f651eb`). This turn fixes the remaining
+  surface cell-to-point averaging error: each emitted triangle retains its
+  source cell's converted scalar, and a masked cell's entire surface triangles
+  are omitted. Missing data does not change the input mesh's topology or create
+  new interior cut faces; callers selecting a different domain must filter the
+  dataset. Point-colored/uncolored semantics remain unchanged.
+- `gpui_mesh::try_for_each_surface_chunk` visits bounded chunks with borrowed
+  per-triangle usize source-cell IDs, using an immutable `ValidatedDataSet` view.
+  Callback errors stop traversal. Local index counts are capped to fit u32.
+  The cell renderer additionally caps chunks at the existing one-million-triangle
+  default. It consumes each chunk directly, avoiding the full boundary-triangle
+  array and three full-source-point f64 averaging arrays for cell fields.
+  **Volume face discovery still builds a dataset-wide map**; total extraction,
+  source-size and GPU residency budgets remain open P1/C5 work.
+- Volume face-map entries store a one-based source cell plus local face index,
+  then reconstruct only surviving boundary polygons. The optional owner keeps
+  its niche; an entry is no larger than the old polygon entry on this target.
+  Canonical face ordering, winding and shared-face culling are preserved. Tests
+  cover exact owner identities for adjacent hexes, direct triangle/quad/polygon
+  cells mixed with lines/vertices, tetrahedra/wedges/pyramids/hexahedra, chunk
+  sizes 1/3/7/unlimited, deterministic order and callback cancellation. Core
+  surface helpers retain their existing public signatures; the visitor is an
+  additive API.
+- Scene preparation preserves ordinary shared vertices for their first value.
+  Only disagreements in converted scalar bits append position/normal/scalar
+  attributes; identical cell values reuse geometry. Smooth geometric normals
+  are computed from the valid triangles before splitting, then copied unchanged
+  to duplicates. A two-hex test keeps 12 vertices for equal values and 16 for
+  different values, with exact corresponding normals. This does not resolve
+  existing normal changes across different chunk partitions or all f64 surface
+  precision limits. Public `prepare_chunks` now validates source geometry/field
+  storage before gathering; scene-owned preparation still validates once per
+  new geometry revision. Invalid cell-value/mask lengths return mesh errors.
+- Cell splits can produce multiple local representations of one global wire
+  edge. Cell-field preparation deduplicates those edges within and across chunks;
+  the first emitted valid owner supplies a shared edge's transfer alpha. Counts
+  remain five for a split two-triangle quad and three with one masked cell, at
+  chunk budgets 1/2/100. A translucent rendered seam composes once. That explicit
+  ownership rule does not solve general intersecting-transparency composition.
+- `tests/cell_fields.rs` compares against separately constructed flat-colored
+  cell actors: exact full images, shared red/blue nodes, half opacity, clipping,
+  origins 0 and 1e12+0.125, volume-front owner colors and unique wire alpha. Its
+  independent mask case removes a center cell whose every node also belongs to
+  valid neighbors; the expected hole remains empty. All three public tests fail
+  on isolated unchanged `d4f651eb`: 8,192 differing software bytes / 8,128 GPU
+  bytes for cell-color bleeding, and an opaque blue center instead of a hole.
+  The same fixture passes on the candidate. No screenshot tolerance masks those
+  failures; image comparisons are exact within each backend.
+- `qa/perf/20261019-cell-fields-paired.json` contains exact release source, lock,
+  runner, raw allocator-disabled ABBA-twice samples, separate allocation builds,
+  source/test/binary hashes and baseline/candidate oracle output. It covers
+  8/24/48-cubed grids, 128-square frames, point colors, uniform/varying/missing
+  cell colors, and a 24-cubed varying-cell wire case. Point and uniform-cell
+  CPU/GPU pixels must match the baseline exactly. Cache preparation is fresh for
+  cold cases; warm frames/uploads/submissions retain one preparation. Readback,
+  validation and GPU completion are outside submission timing. At 48 cubed:
+
+  | Operation | Baseline process CPU | Current process CPU | Baseline / current Rust allocated bytes | Baseline / current geometry payload |
+  |---|---:|---:|---:|---:|
+  | Cold point-color preparation | 26.340 ms | 25.931 ms | 45,092,721 / 45,092,721 | 689,264 / 689,264 |
+  | Cold uniform-cell preparation | 27.004 ms | 25.103 ms | 47,746,929 / 45,168,081 | 689,264 / 689,264 |
+  | Cold varying-cell preparation | 26.805 ms | 25.593 ms | 47,746,929 / 45,965,285 | 689,264 / 931,408 |
+  | Cold missing-cell preparation | 26.766 ms | 25.158 ms | 47,746,929 / 45,168,081 | 689,264 / 684,752 |
+  | Warm uniform-cell software | 1.926 ms | 1.931 ms | 131,072 / 131,072 | 689,264 / 689,264 |
+  | Warm varying-cell software | 2.099 ms | 1.928 ms | 131,072 / 131,072 | 689,264 / 931,408 |
+
+  Uniform-cell preparation saves about 7% CPU and 2,578,848 cumulative allocated
+  bytes with the same output/payload. Cold allocation calls increase 90 to 102
+  (121 with varying cells) because the streamed chunk arrays grow incrementally
+  and discontinuities need a split map. Varying cells reduce preparation CPU
+  about 4.5% here, but change output semantics and increase retained/uploaded
+  payload about 35%; this is a correctness/memory tradeoff. Their GPU upload CPU
+  rises 121.5 to 142 microseconds, while resident submissions use about 35
+  microseconds / 60 Rust allocations / 9,944 bytes in both versions. These are
+  CPU submission figures, not GPU latency/throughput or power measurements.
+- Costs stay explicit: at 8 cubed, cold point-color preparation uses about 5%
+  more CPU, uniform cells about 1.3% more and varying cells about 9.1% more.
+  At 24 cubed, varying-cell wires add about 2.3% cold CPU and 197,416 allocated
+  bytes (payload 241,280 to 297,952). The point/uniform unchanged-output controls
+  retain the same draw allocation counts/payload; small timing differences do
+  not establish a platform-wide improvement. Warm frames add no per-triangle
+  allocation. Counters include positive realloc growth and exclude peak/live
+  memory, GPU/native allocations, metadata and vector capacity overhead.
+- An extra specialization storing polygons for unowned callers, plus conditional
+  snapshot bookkeeping, did not improve the small point-color control in its
+  paired run. It was removed; raw results remain in
+  `qa/perf/20261019-cell-fields-unowned-experiment.json`, explicitly rejected as
+  final acceptance evidence. All 52 candidate image hashes agree between that
+  experiment and the retained simpler implementation. The small cold CPU cost
+  remains open, alongside the earlier large flat software-line regression.
+- Verification passes 18 mesh / 74 transformation / 106 required-GPU scene
+  library tests and their public integrations, including pressure and all four
+  render oracle targets. Software-only passes 78 scene library tests and all
+  four render integrations. The native viewer passes at 2x DPI; mesh doctests,
+  targeted strict production/integration Clippy, changed-file formatting/diff
+  checks and the GPU/GPUI wasm library closure pass. Broad all-target lint
+  failures previously recorded remain open. The final source/test hashes match
+  the retained paired measurements exactly.
+- C3/C4 remain unchecked for other validity consumers, finite f64 values outside
+  the surface f32 representation, nonlinear/banded GPU transfer parity and
+  arbitrary transparency. Full topology/aggregate budgets, scheduling/power,
+  text/FFI, other platforms/devices, Taffy, CUDA/MLX and acceptance remain in
+  scope. The original audit stays frozen; this is further implementation
+  progress, not completion of the full goal.

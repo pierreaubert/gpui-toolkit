@@ -17,7 +17,7 @@ mod decomposition;
 mod field;
 mod time_series;
 
-pub use chunk::{SurfaceChunk, boundary_triangles, surface_chunks};
+pub use chunk::{SurfaceChunk, boundary_triangles, surface_chunks, try_for_each_surface_chunk};
 pub use composite::{Block, CompositeDataSet};
 pub use dataset::{Bounds, CellType, Cells, DataSet, DataSetKind, MeshError, ValidatedDataSet};
 pub use decomposition::tetrahedra;

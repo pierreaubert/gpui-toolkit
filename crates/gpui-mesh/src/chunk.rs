@@ -2,9 +2,9 @@
 
 // Rust guideline compliant 2026-02-21
 
-use crate::dataset::{CellType, DataSet};
+use crate::dataset::{CellType, DataSet, ValidatedDataSet};
 use std::collections::HashMap;
-use std::num::NonZeroU8;
+use std::num::{NonZeroU8, NonZeroUsize};
 
 #[derive(Clone, Copy)]
 struct Face {
@@ -38,6 +38,13 @@ impl Face {
         key[1..=len].sort_unstable();
         key
     }
+}
+
+#[derive(Clone, Copy)]
+struct FaceOwner {
+    // One-based so Option<FaceOwner> needs no extra discriminant.
+    cell: NonZeroUsize,
+    face: u8,
 }
 
 /// One bounded chunk of extracted surface triangles.
@@ -98,9 +105,24 @@ fn volume_faces(kind: CellType) -> &'static [[usize; 4]] {
 /// Boundary faces are emitted in canonical node-set order for repeatability.
 #[must_use]
 pub fn boundary_triangles(dataset: &DataSet) -> Vec<[u32; 3]> {
-    let mut triangles: Vec<[u32; 3]> = Vec::new();
-    // Sorted-node face key -> owning polygon (None once a second owner appears).
-    let mut faces: HashMap<[u32; 5], Option<Face>> = HashMap::new();
+    let mut triangles = Vec::new();
+    let result: Result<(), std::convert::Infallible> = visit_boundary(dataset, |_, triangle| {
+        triangles.push(triangle);
+        Ok(())
+    });
+    match result {
+        Ok(()) => triangles,
+        Err(never) => match never {},
+    }
+}
+
+fn visit_boundary<E>(
+    dataset: &DataSet,
+    mut visit: impl FnMut(usize, [u32; 3]) -> Result<(), E>,
+) -> Result<(), E> {
+    // Keep the source owner rather than copying its polygon. Reconstruct only
+    // surviving boundary faces; the map entry is no larger than the old one.
+    let mut faces: HashMap<[u32; 5], Option<FaceOwner>> = HashMap::new();
     for cell in 0..dataset.cell_count() {
         let Some(nodes) = dataset.cells.cell(cell) else {
             continue;
@@ -108,27 +130,30 @@ pub fn boundary_triangles(dataset: &DataSet) -> Vec<[u32; 3]> {
         let kind = dataset.cells.types[cell];
         match kind {
             CellType::Triangle => {
-                triangles.push([nodes[0], nodes[1], nodes[2]]);
+                visit(cell, [nodes[0], nodes[1], nodes[2]])?;
             }
             CellType::Quad => {
-                triangles.push([nodes[0], nodes[1], nodes[2]]);
-                triangles.push([nodes[0], nodes[2], nodes[3]]);
+                visit(cell, [nodes[0], nodes[1], nodes[2]])?;
+                visit(cell, [nodes[0], nodes[2], nodes[3]])?;
             }
             CellType::Polygon => {
                 // Fan triangulation around the first node.
                 for i in 1..nodes.len() - 1 {
-                    triangles.push([nodes[0], nodes[i], nodes[i + 1]]);
+                    visit(cell, [nodes[0], nodes[i], nodes[i + 1]])?;
                 }
             }
             CellType::Tetra | CellType::Hexahedron | CellType::Wedge | CellType::Pyramid => {
-                for face in volume_faces(kind) {
+                for (face_index, face) in volume_faces(kind).iter().enumerate() {
                     // Triangular faces are stored with a repeated last node.
                     let Some(polygon) = Face::new(nodes, face) else {
                         continue;
                     };
                     match faces.entry(polygon.key()) {
                         std::collections::hash_map::Entry::Vacant(entry) => {
-                            entry.insert(Some(polygon));
+                            entry.insert(Some(FaceOwner {
+                                cell: NonZeroUsize::new(cell + 1).expect("one-based cell index"),
+                                face: face_index as u8,
+                            }));
                         }
                         std::collections::hash_map::Entry::Occupied(mut entry) => {
                             entry.insert(None);
@@ -141,17 +166,78 @@ pub fn boundary_triangles(dataset: &DataSet) -> Vec<[u32; 3]> {
     }
     let mut boundary: Vec<_> = faces
         .into_iter()
-        .filter_map(|(key, polygon)| polygon.map(|polygon| (key, polygon)))
+        .filter_map(|(key, owner)| owner.map(|owner| (key, owner)))
         .collect();
     boundary.sort_unstable_by_key(|(key, _)| *key);
-    for (_, polygon) in boundary {
+    for (_, owner) in boundary {
+        let cell = owner.cell.get() - 1;
+        let nodes = dataset.cells.cell(cell).expect("boundary owner cell");
+        let face = &volume_faces(dataset.cells.types[cell])[usize::from(owner.face)];
+        let polygon = Face::new(nodes, face).expect("surviving nondegenerate face");
         let nodes = polygon.nodes;
-        triangles.push([nodes[0], nodes[1], nodes[2]]);
+        visit(cell, [nodes[0], nodes[1], nodes[2]])?;
         if polygon.len.get() == 4 {
-            triangles.push([nodes[0], nodes[2], nodes[3]]);
+            visit(cell, [nodes[0], nodes[2], nodes[3]])?;
         }
     }
-    triangles
+    Ok(())
+}
+
+/// Visits bounded surface chunks with each triangle's source cell index.
+///
+/// `cell_ids[i]` owns the triangle at `chunk.indices[i * 3..i * 3 + 3]`.
+/// The cell IDs are borrowed only during the callback. Surface ordering and
+/// volume-face culling match [`boundary_triangles`]. No full triangle array is
+/// constructed, but volume-face discovery still uses a dataset-wide map.
+/// The triangle budget is capped to keep every chunk-local index representable.
+/// The validated view keeps source geometry immutable throughout traversal.
+///
+/// # Errors
+///
+/// Returns the first callback error and stops visiting immediately.
+///
+/// # Panics
+///
+/// Panics when `max_triangles` is zero.
+pub fn try_for_each_surface_chunk<E>(
+    dataset: ValidatedDataSet<'_>,
+    max_triangles: usize,
+    mut visit: impl FnMut(SurfaceChunk, &[usize]) -> Result<(), E>,
+) -> Result<(), E> {
+    assert!(max_triangles > 0, "max_triangles must be at least 1");
+    let dataset = dataset.as_dataset();
+    let max_triangles = max_triangles.min(u32::MAX as usize / 3);
+    let mut local = HashMap::<u32, u32>::new();
+    let mut point_ids = Vec::new();
+    let mut indices = Vec::new();
+    let mut cell_ids = Vec::new();
+    visit_boundary(dataset, |cell, triangle| {
+        for point in triangle {
+            let id = *local.entry(point).or_insert_with(|| {
+                let id = point_ids.len() as u32;
+                point_ids.push(point);
+                id
+            });
+            indices.push(id);
+        }
+        cell_ids.push(cell);
+        if cell_ids.len() == max_triangles {
+            visit(
+                SurfaceChunk {
+                    point_ids: std::mem::take(&mut point_ids),
+                    indices: std::mem::take(&mut indices),
+                },
+                &cell_ids,
+            )?;
+            cell_ids.clear();
+            local.clear();
+        }
+        Ok(())
+    })?;
+    if !cell_ids.is_empty() {
+        visit(SurfaceChunk { point_ids, indices }, &cell_ids)?;
+    }
+    Ok(())
 }
 
 /// Splits the boundary surface into chunks of at most `max_triangles` each.
@@ -187,6 +273,98 @@ pub fn surface_chunks(dataset: &DataSet, max_triangles: usize) -> Vec<SurfaceChu
 mod tests {
     use super::*;
     use crate::dataset::Cells;
+
+    #[test]
+    fn owned_chunks_keep_exact_surface_and_volume_cell_ids() {
+        let volume = DataSet::structured_grid("pair", [3, 2, 2], [0.0; 3], [1.0; 3]).unwrap();
+        for budget in [1, 3, usize::MAX] {
+            let mut got = Vec::new();
+            let mut counts = [0usize; 2];
+            try_for_each_surface_chunk(volume.validated().unwrap(), budget, |chunk, owners| {
+                assert_eq!(chunk.indices.len(), owners.len() * 3);
+                assert!(owners.len() <= budget);
+                for (tri, &cell) in chunk.indices.as_chunks::<3>().0.iter().zip(owners) {
+                    let global = tri.map(|i| chunk.point_ids[i as usize]);
+                    let xs = global.map(|i| volume.positions[i as usize][0]);
+                    assert!(!xs.iter().all(|&x| x == 1.0), "interior face leaked");
+                    let expected = usize::from(xs.iter().all(|&x| x >= 1.0));
+                    assert_eq!(cell, expected);
+                    counts[cell] += 1;
+                    got.push(global);
+                }
+                Ok::<(), ()>(())
+            })
+            .unwrap();
+            assert_eq!(got, boundary_triangles(&volume));
+            assert_eq!(counts, [10, 10]);
+        }
+        let surface = DataSet::new(
+            "mixed",
+            vec![[0.0; 3]; 5],
+            Cells::from_cells(&[
+                (CellType::Line, &[0, 1]),
+                (CellType::Vertex, &[0]),
+                (CellType::Triangle, &[0, 1, 2]),
+                (CellType::Quad, &[0, 1, 2, 3]),
+                (CellType::Polygon, &[0, 1, 2, 3, 4]),
+            ]),
+        );
+        let mut cells = Vec::new();
+        try_for_each_surface_chunk(surface.validated().unwrap(), 2, |_, owners| {
+            cells.extend_from_slice(owners);
+            Ok::<(), ()>(())
+        })
+        .unwrap();
+        assert_eq!(cells, [2, 3, 3, 4, 4, 4]);
+    }
+
+    #[test]
+    fn every_volume_face_retains_its_owner_without_larger_map_entries() {
+        let dataset = DataSet::new(
+            "types",
+            vec![[0.0; 3]; 23],
+            Cells::from_cells(&[
+                (CellType::Tetra, &[0, 1, 2, 3]),
+                (CellType::Wedge, &[4, 5, 6, 7, 8, 9]),
+                (CellType::Pyramid, &[10, 11, 12, 13, 14]),
+                (CellType::Hexahedron, &[15, 16, 17, 18, 19, 20, 21, 22]),
+            ]),
+        );
+        dataset.validate().unwrap();
+        let mut counts = [0usize; 4];
+        let mut got = Vec::new();
+        try_for_each_surface_chunk(dataset.validated().unwrap(), 7, |chunk, owners| {
+            for (tri, &cell) in chunk.indices.as_chunks::<3>().0.iter().zip(owners) {
+                let global = tri.map(|i| chunk.point_ids[i as usize]);
+                assert!(
+                    global
+                        .iter()
+                        .all(|id| dataset.cells.cell(cell).unwrap().contains(id))
+                );
+                counts[cell] += 1;
+                got.push(global);
+            }
+            Ok::<(), ()>(())
+        })
+        .unwrap();
+        assert_eq!(counts, [4, 8, 6, 12]);
+        assert_eq!(got, boundary_triangles(&dataset));
+        assert!(
+            size_of::<([u32; 5], Option<FaceOwner>)>() <= size_of::<([u32; 5], Option<Face>)>()
+        );
+    }
+
+    #[test]
+    fn owned_chunk_callback_error_stops_visiting() {
+        let dataset = DataSet::structured_grid("pair", [3, 2, 2], [0.0; 3], [1.0; 3]).unwrap();
+        let mut calls = 0;
+        let result = try_for_each_surface_chunk(dataset.validated().unwrap(), 1, |_, _| {
+            calls += 1;
+            Err("stop")
+        });
+        assert_eq!(result, Err("stop"));
+        assert_eq!(calls, 1);
+    }
 
     #[test]
     fn single_hexahedron_has_twelve_boundary_triangles() {
