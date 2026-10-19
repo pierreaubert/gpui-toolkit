@@ -4,7 +4,8 @@
 //! (Metal on Apple Silicon, Vulkan/Direct3D elsewhere, WebGPU in the
 //! browser). The `gpu` feature validates the shader with the real `wgpu`
 //! compiler. Local clipping equations are also used by the software paths;
-//! material interpolation differences are tracked separately.
+//! perspective-correct interpolation is shared with software. GPU LUT sampling
+//! remains quantized, while software evaluates the prepared transfer function.
 
 // Rust guideline compliant 2026-02-21
 
@@ -82,7 +83,13 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     }
     var colour = textureSample(lut_texture, lut_sampler, t);
     let light_dir = normalize(vec3<f32>(-0.4, 0.7, 0.6));
-    let diffuse = abs(dot(normalize(input.normal), light_dir));
+    // Opposing smooth normals can cancel. A zero normal has ambient light,
+    // matching the software fallback without relying on normalize(0) behavior.
+    let squared = dot(input.normal, input.normal);
+    var diffuse = 0.0;
+    if (squared > 0.0) {
+        diffuse = clamp(abs(dot(input.normal, light_dir)) / sqrt(squared), 0.0, 1.0);
+    }
     colour = vec4<f32>(colour.rgb * (0.35 + 0.65 * diffuse), colour.a * scene.scalar_range.z);
     return colour;
 }

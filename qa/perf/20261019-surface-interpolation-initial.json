@@ -1,0 +1,8019 @@
+{
+  "kind": "perspective-correct surface CPU and memory correctness cost diagnostic",
+  "baseline_commit": "b3d438c4",
+  "captured_utc": "2026-10-19T04:50:42.642101+00:00",
+  "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "methodology": "Identical release probes/locks and separate baseline/candidate target directories. Allocator-disabled ABBA twice, four fresh processes/version, one warmup and five samples/case; separate allocator-enabled builds. No agent-owned builds/checks ran during measurement. CLOCK_PROCESS_CPUTIME_ID is actual aggregate process CPU time. Warm scene render includes frame allocations, clipping, projection, shading and transparent sorting/scratch; excludes input/geometry construction, retained preparation, output validation and destruction. Geometry_builds must remain one. Within each version every frame must exactly match its own warm output, and a background-only image is rejected. Cross-version images are intentionally not equivalent: baseline uses incorrect triangle-average scalars and a single vertex normal; candidate uses per-fragment perspective interpolation. Independent f64 ray oracle establishes the new semantics, not these timing checks. Grids 8/24/48 cubed points at 128 square pixels; 24 cubed at 512 square, clipped 24 cubed at 128 square; two-triangle planes at 128/512 square. Flat color, viridis scalar gradients and half-opacity gradient variants. 21 cases total. Shared host without controlled affinity/thermal state. CPU is not energy. Cumulative allocations are not peak/live/RSS; transparent scratch has a checked frame-budget/growth-peak limit but aggregate geometry and scene-order metadata remain outside it. GPU tests qualify a narrow fragment corpus on Metal, not portable/device-wide or mobile acceptance.",
+  "probe_source": "// Rust guideline compliant 2026-02-21\n\nuse gpui_mesh::{DataSet,Field};\nuse gpui_scene3d::{Actor,Camera,ClipPlane,Projection,Scene,TransferFunction,render};\nuse gpui_profiler::AllocProbe;\nuse std::{hint::black_box,time::Instant};\n\nfn cpu_ns() -> u128 {\n    let mut stamp=libc::timespec {tv_sec:0,tv_nsec:0};\n    // SAFETY: stamp is valid writable storage for this synchronous clock call,\n    // which retains no pointer. The return status and timestamp are checked.\n    let result=unsafe {libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID,&mut stamp)};\n    assert_eq!(result,0);\n    assert!(stamp.tv_sec>=0 && (0..1_000_000_000).contains(&stamp.tv_nsec));\n    stamp.tv_sec as u128*1_000_000_000+stamp.tv_nsec as u128\n}\n\nfn dataset(n: usize) -> DataSet {\n    if n==0 {\n        DataSet::surface(\"plane\",vec![[-1.0,-1.0,0.0],[1.0,-1.0,0.0],[1.0,1.0,0.0],[-1.0,1.0,0.0]],&[[0,1,2],[0,2,3]])\n            .with_field(Field::scalar(\"p\",vec![0.0,1.0,0.75,0.25]))\n    } else {\n        let d=DataSet::structured_grid(\"grid\",[n;3],[-1.0;3],[2.0/(n-1) as f64;3]).unwrap();\n        let p=d.positions.iter().map(|p|(p[0]+1.0)*0.5).collect::<Vec<_>>();\n        d.with_field(Field::scalar(\"p\",p))\n    }\n}\n\nfn run(n: usize, size: u32, kind: &str, clipped: bool) {\n    let data=dataset(n);\n    let mut actor=if kind==\"flat\" {Actor::new(data).color([0.2,0.7,0.4,1.0])} else {\n        Actor::new(data).coloured_by(\"p\",TransferFunction::viridis([0.0,1.0]))\n    };\n    if kind==\"alpha\" {actor.opacity=0.5;}\n    if clipped {actor=actor.clip(ClipPlane {origin:[0.0;3],normal:[1.0,0.5,0.0]});}\n    let scene=Scene::new().with_actor(actor);\n    let camera=if n==0 {Camera {azimuth:0.0,elevation:0.0,distance:3.0,projection:Projection::Perspective {fov_y:std::f32::consts::FRAC_PI_2},..Camera::default()}} else {Camera::fitted(scene.bounds().unwrap())};\n    let warm=render(&scene,&camera,size,size).unwrap();\n    assert_eq!(warm.rgba.len(),size as usize*size as usize*4);\n    let background=scene.background.map(|v|(v.clamp(0.0,1.0)*255.0) as u8);\n    assert!(warm.rgba.chunks_exact(4).any(|p|p!=background));\n    let (mut times,mut cpus,mut calls,mut bytes)=(Vec::new(),Vec::new(),Vec::new(),Vec::new());\n    for _ in 0..5 {\n        let mut probe=AllocProbe::new(); let before=cpu_ns(); let start=Instant::now();\n        let out=black_box(render(&scene,&camera,size,size).unwrap());\n        let elapsed=start.elapsed().as_nanos(); let cpu=cpu_ns()-before;\n        let allocation=probe.sample(\"surface\");\n        times.push(elapsed);cpus.push(cpu);calls.push(allocation.count);bytes.push(allocation.bytes);\n        assert_eq!(out.rgba,warm.rgba);drop(out);\n    }\n    assert_eq!(scene.preparation_stats().geometry_builds,1);\n    println!(r#\"{{\"n\":{n},\"size\":{size},\"kind\":\"{kind}\",\"clipped\":{clipped},\"times_ns\":{times:?},\"cpu_times_ns\":{cpus:?},\"allocation_calls\":{calls:?},\"allocated_bytes\":{bytes:?},\"allocator_instrumentation\":{}}}\"#,cfg!(feature=\"allocations\"));\n}\n\nfn main() {\n    for n in [8,24,48] {for kind in [\"flat\",\"gradient\",\"alpha\"] {run(n,128,kind,false);}}\n    for kind in [\"flat\",\"gradient\",\"alpha\"] {run(24,512,kind,false);run(24,128,kind,true);}\n    for size in [128,512] {for kind in [\"flat\",\"gradient\",\"alpha\"] {run(0,size,kind,false);}}\n}\n",
+  "probe_manifests": {
+    "baseline": "[package]\nname=\"gpui-reduction-probe\"\nversion=\"0.0.0\"\nedition=\"2024\"\n[features]\nallocations=[\"gpui-profiler/global-allocator\"]\n[dependencies]\nlibc=\"0.2\"\ngpui-mesh={path=\"/Volumes/home_tmp/tmp/gpui-surface-baseline-b3d438c4/crates/gpui-mesh\"}\ngpui-scene3d={path=\"/Volumes/home_tmp/tmp/gpui-surface-baseline-b3d438c4/crates/gpui-scene3d\"}\ngpui-profiler={path=\"/Volumes/home_tmp/tmp/gpui-surface-baseline-b3d438c4/crates/gpui-profiler\"}\n[workspace]\n",
+    "candidate": "[package]\nname=\"gpui-reduction-probe\"\nversion=\"0.0.0\"\nedition=\"2024\"\n[features]\nallocations=[\"gpui-profiler/global-allocator\"]\n[dependencies]\nlibc=\"0.2\"\ngpui-mesh={path=\"/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-mesh\"}\ngpui-scene3d={path=\"/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-scene3d\"}\ngpui-profiler={path=\"/Users/pierre/.codex/worktrees/af04/gpui-toolkit/crates/gpui-profiler\"}\n[workspace]\n"
+  },
+  "probe_lock_sha256": "4fb0b0e29b693b15660dba796810cba522fd35dcdca7d72ccb641f37a6046704",
+  "source_sha256": {
+    "baseline": {
+      "crates/gpui-scene3d/src/raster.rs": "77421eea472e39b37bc1f3a168d506fb9113909812914db64b0c05553c5d6307",
+      "crates/gpui-scene3d/src/clipping.rs": "3a87276cb5e6c787c799f0c8ad72bcd88bb9118edab68f756c7a0a40c82339aa",
+      "crates/gpui-scene3d/src/camera.rs": "02dc5df7f5b3eb8e4a3cb2676de0101f335ad7bf06bee30a9adf8d126c7f8ac3",
+      "crates/gpui-scene3d/src/prepare.rs": "7a8d7787502fd57597c7b85bf21e8bd66ce3cfb88d0d4772355a35cdbd0ad722",
+      "crates/gpui-scene3d/src/retained.rs": "dfba06f9ef1a197d009afe3ee84da8c77fec546c4082c14103337791079a45dd",
+      "crates/gpui-scene3d/src/transfer.rs": "22f8384891aac36b470aa64576760c5451c3196d195fedb1fc77f9e6e0e0a4b3",
+      "crates/gpui-scene3d/src/scene.rs": "01bd5b20733d96c1c37990977f59ba6d39940a11654dd80022447815a6a88f95",
+      "crates/gpui-scene3d/src/limits.rs": "e49615a27a146e015c9d6a613994f10f881b499a1cc6e5f9d5ffd5103061345d",
+      "crates/gpui-scene3d/src/shaders.rs": "9a467946a43d91bcb755d3d4cb6aadd82bfb1cbcea0a91b26039381477089bf2",
+      "Cargo.lock": "381e80d27ce33e86079c74f9595dd7ebeaad86f5203538ec4338138785b4ac67"
+    },
+    "candidate": {
+      "crates/gpui-scene3d/src/raster.rs": "765142691cc34a24eb569ca5286f7cf2ccce6477892a3ae9743d0ac1abd8b2e7",
+      "crates/gpui-scene3d/src/clipping.rs": "042dd1094dfcfa2c25dd69e4059ed0972806a6c84194356affe661385542aed7",
+      "crates/gpui-scene3d/src/camera.rs": "02dc5df7f5b3eb8e4a3cb2676de0101f335ad7bf06bee30a9adf8d126c7f8ac3",
+      "crates/gpui-scene3d/src/prepare.rs": "7a8d7787502fd57597c7b85bf21e8bd66ce3cfb88d0d4772355a35cdbd0ad722",
+      "crates/gpui-scene3d/src/retained.rs": "dfba06f9ef1a197d009afe3ee84da8c77fec546c4082c14103337791079a45dd",
+      "crates/gpui-scene3d/src/transfer.rs": "22f8384891aac36b470aa64576760c5451c3196d195fedb1fc77f9e6e0e0a4b3",
+      "crates/gpui-scene3d/src/scene.rs": "01bd5b20733d96c1c37990977f59ba6d39940a11654dd80022447815a6a88f95",
+      "crates/gpui-scene3d/src/limits.rs": "2a4a777a7ae3418f39a7dce23144002183e89dd9566e3d3cfc8e16ad7dc84de6",
+      "crates/gpui-scene3d/src/shaders.rs": "c0918e17b09da2d5871c3b4a30dfee2cd75c62b1a160a46b26cd43bac2f36974",
+      "Cargo.lock": "381e80d27ce33e86079c74f9595dd7ebeaad86f5203538ec4338138785b4ac67"
+    }
+  },
+  "binary_sha256": {
+    "baseline": {
+      "timing": "6460255376537445d50115b63fad44018b16082085ea48e3b3469550582ef637",
+      "allocations": "7c5002edafb33bc5f9157653072e42061fe66f495af0553f6c0621b431ba7517"
+    },
+    "candidate": {
+      "timing": "1d468a1930336e4ebb3058ecb838cf6f942fbe5778e92a67a7d50b41d944a921",
+      "allocations": "44b565c15db2da058d30a37d220d26f20b78f0f4defe993a657c4e09ac1bda6c"
+    }
+  },
+  "verification_sha256": {
+    "crates/gpui-scene3d/tests/surface_interpolation.rs": "1d3c77e537589cf70a81fe9b4582bd370cab9d73c6897e334d9f6d87024caa5a"
+  },
+  "baseline_oracle": {
+    "baseline_commit": "b3d438c4",
+    "status": 101,
+    "stdout": "\nrunning 1 test\nsoftware_fragments_match_ray_reference_through_perspective_clipping_and_smooth_normals --- FAILED\n\nfailures:\n\n---- software_fragments_match_ray_reference_through_perspective_clipping_and_smooth_normals stdout ----\n\nthread 'software_fragments_match_ray_reference_through_perspective_clipping_and_smooth_normals' (315796554) panicked at src/lib.rs:236:17:\npixel 48,32 channel 0: [104, 104, 104, 255] expected [78, 78, 78, 255], scalar 0.3104693108208221, weights [0.050541506173449324, 0.09747291648557921, 0.8519855773409715]\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    software_fragments_match_ray_reference_through_perspective_clipping_and_smooth_normals\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+    "stderr": "warning: unused import: `render`\n --> src/lib.rs:6:90\n  |\n6 | use gpui_scene3d::{Actor, Camera, ClipPlane, Frame, Projection, Scene, TransferFunction, render};\n  |                                                                                          ^^^^^^\n  |\n  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default\n\nwarning: constant `WIDTH` is never used\n --> src/lib.rs:8:7\n  |\n8 | const WIDTH: u32 = 96;\n  |       ^^^^^\n  |\n  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default\n\nwarning: constant `HEIGHT` is never used\n --> src/lib.rs:9:7\n  |\n9 | const HEIGHT: u32 = 80;\n  |       ^^^^^^\n\nwarning: constant `BACKGROUND` is never used\n  --> src/lib.rs:10:7\n   |\n10 | const BACKGROUND: [f32; 4] = [0.125, 0.25, 0.375, 0.5];\n   |       ^^^^^^^^^^\n\nwarning: function `cross` is never used\n  --> src/lib.rs:12:4\n   |\n12 | fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {\n   |    ^^^^^\n\nwarning: function `dot` is never used\n  --> src/lib.rs:19:4\n   |\n19 | fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {\n   |    ^^^\n\nwarning: function `sub` is never used\n  --> src/lib.rs:22:4\n   |\n22 | fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {\n   |    ^^^\n\nwarning: function `normalized` is never used\n  --> src/lib.rs:25:4\n   |\n25 | fn normalized(v: [f64; 3]) -> [f64; 3] {\n   |    ^^^^^^^^^^\n\nwarning: struct `Fixture` is never constructed\n  --> src/lib.rs:30:8\n   |\n30 | struct Fixture {\n   |        ^^^^^^^\n\nwarning: function `fixture` is never used\n  --> src/lib.rs:40:4\n   |\n40 | fn fixture(case: usize) -> Fixture {\n   |    ^^^^^^^\n\nwarning: function `scene_and_camera` is never used\n  --> src/lib.rs:88:4\n   |\n88 | fn scene_and_camera(f: &Fixture, projection: Projection, origin: f64) -> (Scene, Camera) {\n   |    ^^^^^^^^^^^^^^^^\n\nwarning: function `intersection` is never used\n   --> src/lib.rs:132:4\n    |\n132 | fn intersection(\n    |    ^^^^^^^^^^^^\n\nwarning: function `verify` is never used\n   --> src/lib.rs:156:4\n    |\n156 | fn verify(frame: &Frame, f: &Fixture, projection: Projection, tolerance: u8) {\n    |    ^^^^^^\n\nerror: test failed, to rerun pass `--lib`\n"
+  },
+  "summary": [
+    {
+      "n": 8,
+      "size": 128,
+      "kind": "flat",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 94521.0,
+        "candidate": 142833.0
+      },
+      "cpu_median_ns": {
+        "baseline": 94500.0,
+        "candidate": 143000.0
+      },
+      "wall_ratio": 1.5111245120132035,
+      "cpu_ratio": 1.5132275132275133,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        },
+        "candidate": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        }
+      }
+    },
+    {
+      "n": 8,
+      "size": 128,
+      "kind": "gradient",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 91729.5,
+        "candidate": 255417.0
+      },
+      "cpu_median_ns": {
+        "baseline": 92500.0,
+        "candidate": 255500.0
+      },
+      "wall_ratio": 2.784458652887021,
+      "cpu_ratio": 2.7621621621621624,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        },
+        "candidate": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        }
+      }
+    },
+    {
+      "n": 8,
+      "size": 128,
+      "kind": "alpha",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 140020.5,
+        "candidate": 288041.5
+      },
+      "cpu_median_ns": {
+        "baseline": 140000.0,
+        "candidate": 288000.0
+      },
+      "wall_ratio": 2.0571380619266466,
+      "cpu_ratio": 2.057142857142857,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 13,
+          "allocated_bytes": 202064
+        },
+        "candidate": {
+          "allocation_calls": 10,
+          "allocated_bytes": 270400
+        }
+      }
+    },
+    {
+      "n": 24,
+      "size": 128,
+      "kind": "flat",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 489770.5,
+        "candidate": 572000.5
+      },
+      "cpu_median_ns": {
+        "baseline": 490500.0,
+        "candidate": 572500.0
+      },
+      "wall_ratio": 1.1678949630490199,
+      "cpu_ratio": 1.1671763506625892,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        },
+        "candidate": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        }
+      }
+    },
+    {
+      "n": 24,
+      "size": 128,
+      "kind": "gradient",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 482646.0,
+        "candidate": 722645.5
+      },
+      "cpu_median_ns": {
+        "baseline": 482500.0,
+        "candidate": 723000.0
+      },
+      "wall_ratio": 1.4972578245753616,
+      "cpu_ratio": 1.4984455958549223,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        },
+        "candidate": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        }
+      }
+    },
+    {
+      "n": 24,
+      "size": 128,
+      "kind": "alpha",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 733500.0,
+        "candidate": 955729.5
+      },
+      "cpu_median_ns": {
+        "baseline": 734000.0,
+        "candidate": 957000.0
+      },
+      "wall_ratio": 1.3029713701431493,
+      "cpu_ratio": 1.3038147138964578,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 16,
+          "allocated_bytes": 770896
+        },
+        "candidate": {
+          "allocation_calls": 13,
+          "allocated_bytes": 1245248
+        }
+      }
+    },
+    {
+      "n": 48,
+      "size": 128,
+      "kind": "flat",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 1603750.0,
+        "candidate": 1921896.0
+      },
+      "cpu_median_ns": {
+        "baseline": 1603500.0,
+        "candidate": 1922000.0
+      },
+      "wall_ratio": 1.198376305533905,
+      "cpu_ratio": 1.1986280012472716,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        },
+        "candidate": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        }
+      }
+    },
+    {
+      "n": 48,
+      "size": 128,
+      "kind": "gradient",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 1672041.0,
+        "candidate": 2258375.5
+      },
+      "cpu_median_ns": {
+        "baseline": 1672500.0,
+        "candidate": 2259500.0
+      },
+      "wall_ratio": 1.3506699297445457,
+      "cpu_ratio": 1.3509715994020928,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        },
+        "candidate": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        }
+      }
+    },
+    {
+      "n": 48,
+      "size": 128,
+      "kind": "alpha",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 3047354.0,
+        "candidate": 3840646.0
+      },
+      "cpu_median_ns": {
+        "baseline": 3047000.0,
+        "candidate": 3842000.0
+      },
+      "wall_ratio": 1.2603215773421794,
+      "cpu_ratio": 1.2609123728257303,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 18,
+          "allocated_bytes": 2739280
+        },
+        "candidate": {
+          "allocation_calls": 15,
+          "allocated_bytes": 4587584
+        }
+      }
+    },
+    {
+      "n": 24,
+      "size": 512,
+      "kind": "flat",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 1525229.0,
+        "candidate": 1801500.5
+      },
+      "cpu_median_ns": {
+        "baseline": 1527500.0,
+        "candidate": 1802000.0
+      },
+      "wall_ratio": 1.1811344394841692,
+      "cpu_ratio": 1.1797054009819967,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 2,
+          "allocated_bytes": 2097152
+        },
+        "candidate": {
+          "allocation_calls": 2,
+          "allocated_bytes": 2097152
+        }
+      }
+    },
+    {
+      "n": 24,
+      "size": 128,
+      "kind": "flat",
+      "clipped": true,
+      "wall_median_ns": {
+        "baseline": 597354.5,
+        "candidate": 706208.5
+      },
+      "cpu_median_ns": {
+        "baseline": 597500.0,
+        "candidate": 707000.0
+      },
+      "wall_ratio": 1.1822268016730435,
+      "cpu_ratio": 1.1832635983263597,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        },
+        "candidate": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        }
+      }
+    },
+    {
+      "n": 24,
+      "size": 512,
+      "kind": "gradient",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 1508646.0,
+        "candidate": 3377041.5
+      },
+      "cpu_median_ns": {
+        "baseline": 1508500.0,
+        "candidate": 3377500.0
+      },
+      "wall_ratio": 2.2384585250615454,
+      "cpu_ratio": 2.2389791183294663,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 2,
+          "allocated_bytes": 2097152
+        },
+        "candidate": {
+          "allocation_calls": 2,
+          "allocated_bytes": 2097152
+        }
+      }
+    },
+    {
+      "n": 24,
+      "size": 128,
+      "kind": "gradient",
+      "clipped": true,
+      "wall_median_ns": {
+        "baseline": 593958.5,
+        "candidate": 795312.5
+      },
+      "cpu_median_ns": {
+        "baseline": 595000.0,
+        "candidate": 796000.0
+      },
+      "wall_ratio": 1.339003482566543,
+      "cpu_ratio": 1.33781512605042,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        },
+        "candidate": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        }
+      }
+    },
+    {
+      "n": 24,
+      "size": 512,
+      "kind": "alpha",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 2023375.0,
+        "candidate": 4222917.0
+      },
+      "cpu_median_ns": {
+        "baseline": 2024000.0,
+        "candidate": 4223000.0
+      },
+      "wall_ratio": 2.0870659170939643,
+      "cpu_ratio": 2.0864624505928853,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 16,
+          "allocated_bytes": 2736976
+        },
+        "candidate": {
+          "allocation_calls": 13,
+          "allocated_bytes": 3211328
+        }
+      }
+    },
+    {
+      "n": 24,
+      "size": 128,
+      "kind": "alpha",
+      "clipped": true,
+      "wall_median_ns": {
+        "baseline": 677750.5,
+        "candidate": 826916.5
+      },
+      "cpu_median_ns": {
+        "baseline": 678500.0,
+        "candidate": 827500.0
+      },
+      "wall_ratio": 1.220089841320663,
+      "cpu_ratio": 1.2196020633750921,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 15,
+          "allocated_bytes": 461224
+        },
+        "candidate": {
+          "allocation_calls": 12,
+          "allocated_bytes": 688192
+        }
+      }
+    },
+    {
+      "n": 0,
+      "size": 128,
+      "kind": "flat",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 7145.5,
+        "candidate": 6979.0
+      },
+      "cpu_median_ns": {
+        "baseline": 7500.0,
+        "candidate": 8000.0
+      },
+      "wall_ratio": 0.9766986215100413,
+      "cpu_ratio": 1.0666666666666667,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        },
+        "candidate": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        }
+      }
+    },
+    {
+      "n": 0,
+      "size": 128,
+      "kind": "gradient",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 6500.0,
+        "candidate": 27604.0
+      },
+      "cpu_median_ns": {
+        "baseline": 7000.0,
+        "candidate": 28000.0
+      },
+      "wall_ratio": 4.246769230769231,
+      "cpu_ratio": 4.0,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        },
+        "candidate": {
+          "allocation_calls": 2,
+          "allocated_bytes": 131072
+        }
+      }
+    },
+    {
+      "n": 0,
+      "size": 128,
+      "kind": "alpha",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 8916.0,
+        "candidate": 30750.0
+      },
+      "cpu_median_ns": {
+        "baseline": 9000.0,
+        "candidate": 31000.0
+      },
+      "wall_ratio": 3.4488559892328396,
+      "cpu_ratio": 3.4444444444444446,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 4,
+          "allocated_bytes": 131312
+        },
+        "candidate": {
+          "allocation_calls": 4,
+          "allocated_bytes": 133312
+        }
+      }
+    },
+    {
+      "n": 0,
+      "size": 512,
+      "kind": "flat",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 82833.5,
+        "candidate": 83312.5
+      },
+      "cpu_median_ns": {
+        "baseline": 83000.0,
+        "candidate": 83500.0
+      },
+      "wall_ratio": 1.0057826845418822,
+      "cpu_ratio": 1.0060240963855422,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 2,
+          "allocated_bytes": 2097152
+        },
+        "candidate": {
+          "allocation_calls": 2,
+          "allocated_bytes": 2097152
+        }
+      }
+    },
+    {
+      "n": 0,
+      "size": 512,
+      "kind": "gradient",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 82396.0,
+        "candidate": 424167.0
+      },
+      "cpu_median_ns": {
+        "baseline": 83000.0,
+        "candidate": 425000.0
+      },
+      "wall_ratio": 5.147907665420652,
+      "cpu_ratio": 5.120481927710843,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 2,
+          "allocated_bytes": 2097152
+        },
+        "candidate": {
+          "allocation_calls": 2,
+          "allocated_bytes": 2097152
+        }
+      }
+    },
+    {
+      "n": 0,
+      "size": 512,
+      "kind": "alpha",
+      "clipped": false,
+      "wall_median_ns": {
+        "baseline": 114833.0,
+        "candidate": 475938.0
+      },
+      "cpu_median_ns": {
+        "baseline": 116000.0,
+        "candidate": 476000.0
+      },
+      "wall_ratio": 4.144609998867921,
+      "cpu_ratio": 4.103448275862069,
+      "allocations": {
+        "baseline": {
+          "allocation_calls": 4,
+          "allocated_bytes": 2097392
+        },
+        "candidate": {
+          "allocation_calls": 4,
+          "allocated_bytes": 2099392
+        }
+      }
+    }
+  ],
+  "runs": [
+    {
+      "build": "timing",
+      "variant": "baseline",
+      "records": [
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            249166,
+            225167,
+            232166,
+            266667,
+            240542
+          ],
+          "cpu_times_ns": [
+            254000,
+            226000,
+            233000,
+            261000,
+            241000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            242209,
+            233709,
+            236333,
+            256583,
+            238500
+          ],
+          "cpu_times_ns": [
+            246000,
+            234000,
+            236000,
+            254000,
+            240000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            354083,
+            203375,
+            156208,
+            129292,
+            121250
+          ],
+          "cpu_times_ns": [
+            347000,
+            204000,
+            158000,
+            129000,
+            120000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            515667,
+            491292,
+            480000,
+            473709,
+            461750
+          ],
+          "cpu_times_ns": [
+            516000,
+            491000,
+            480000,
+            474000,
+            462000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            505333,
+            513042,
+            477625,
+            473375,
+            479625
+          ],
+          "cpu_times_ns": [
+            505000,
+            512000,
+            478000,
+            475000,
+            480000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            813375,
+            762666,
+            729500,
+            703667,
+            692625
+          ],
+          "cpu_times_ns": [
+            816000,
+            763000,
+            729000,
+            705000,
+            693000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1619375,
+            1588583,
+            1586667,
+            1583833,
+            1576917
+          ],
+          "cpu_times_ns": [
+            1622000,
+            1589000,
+            1587000,
+            1584000,
+            1577000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            1669792,
+            1660958,
+            1655875,
+            1658833,
+            1657583
+          ],
+          "cpu_times_ns": [
+            1671000,
+            1662000,
+            1656000,
+            1659000,
+            1659000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            3125958,
+            3067208,
+            3004083,
+            2947875,
+            2960125
+          ],
+          "cpu_times_ns": [
+            3128000,
+            3069000,
+            3005000,
+            2949000,
+            2960000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1541917,
+            1516292,
+            1507417,
+            1499792,
+            1487584
+          ],
+          "cpu_times_ns": [
+            1543000,
+            1517000,
+            1508000,
+            1501000,
+            1488000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": true,
+          "times_ns": [
+            611209,
+            587875,
+            591041,
+            590791,
+            588792
+          ],
+          "cpu_times_ns": [
+            611000,
+            588000,
+            591000,
+            591000,
+            589000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            1527250,
+            1516125,
+            1510000,
+            1492833,
+            1485166
+          ],
+          "cpu_times_ns": [
+            1527000,
+            1516000,
+            1510000,
+            1493000,
+            1486000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": true,
+          "times_ns": [
+            598083,
+            592167,
+            645292,
+            617916,
+            597916
+          ],
+          "cpu_times_ns": [
+            599000,
+            594000,
+            638000,
+            618000,
+            598000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            2061917,
+            1964375,
+            1962500,
+            1934709,
+            1930333
+          ],
+          "cpu_times_ns": [
+            2063000,
+            1965000,
+            1963000,
+            1935000,
+            1930000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": true,
+          "times_ns": [
+            736459,
+            689417,
+            672459,
+            657125,
+            654375
+          ],
+          "cpu_times_ns": [
+            738000,
+            690000,
+            674000,
+            658000,
+            655000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            9292,
+            7666,
+            8166,
+            6625,
+            6666
+          ],
+          "cpu_times_ns": [
+            10000,
+            8000,
+            9000,
+            7000,
+            6000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            6750,
+            6583,
+            6625,
+            6583,
+            6541
+          ],
+          "cpu_times_ns": [
+            8000,
+            6000,
+            8000,
+            7000,
+            7000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            10708,
+            8833,
+            9042,
+            10459,
+            8416
+          ],
+          "cpu_times_ns": [
+            10000,
+            9000,
+            9000,
+            12000,
+            8000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            83333,
+            80750,
+            80250,
+            83250,
+            80000
+          ],
+          "cpu_times_ns": [
+            85000,
+            80000,
+            82000,
+            84000,
+            81000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            83208,
+            81125,
+            80167,
+            83167,
+            80292
+          ],
+          "cpu_times_ns": [
+            85000,
+            82000,
+            80000,
+            83000,
+            82000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            114708,
+            112750,
+            114167,
+            114334,
+            114291
+          ],
+          "cpu_times_ns": [
+            116000,
+            112000,
+            116000,
+            115000,
+            116000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "build": "timing",
+      "variant": "candidate",
+      "records": [
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            170959,
+            149583,
+            142666,
+            138500,
+            135458
+          ],
+          "cpu_times_ns": [
+            172000,
+            149000,
+            143000,
+            139000,
+            136000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            265708,
+            254417,
+            251666,
+            247417,
+            241791
+          ],
+          "cpu_times_ns": [
+            266000,
+            254000,
+            252000,
+            248000,
+            242000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            318583,
+            298834,
+            288541,
+            286792,
+            283791
+          ],
+          "cpu_times_ns": [
+            319000,
+            299000,
+            288000,
+            287000,
+            284000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            598042,
+            581042,
+            567791,
+            554167,
+            554500
+          ],
+          "cpu_times_ns": [
+            598000,
+            581000,
+            568000,
+            554000,
+            555000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            751375,
+            732166,
+            721958,
+            721041,
+            718041
+          ],
+          "cpu_times_ns": [
+            752000,
+            732000,
+            722000,
+            722000,
+            718000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            1030916,
+            973333,
+            945916,
+            934208,
+            924375
+          ],
+          "cpu_times_ns": [
+            1031000,
+            974000,
+            946000,
+            935000,
+            925000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1921750,
+            1910541,
+            1916125,
+            1889083,
+            1884250
+          ],
+          "cpu_times_ns": [
+            1923000,
+            1911000,
+            1917000,
+            1889000,
+            1884000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            2289125,
+            2267042,
+            2261291,
+            2260667,
+            2254000
+          ],
+          "cpu_times_ns": [
+            2292000,
+            2267000,
+            2262000,
+            2261000,
+            2254000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            3706875,
+            3883541,
+            3866625,
+            3856542,
+            3835209
+          ],
+          "cpu_times_ns": [
+            3711000,
+            3884000,
+            3867000,
+            3858000,
+            3836000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1825500,
+            1782708,
+            1771625,
+            1790458,
+            1775083
+          ],
+          "cpu_times_ns": [
+            1826000,
+            1783000,
+            1772000,
+            1790000,
+            1775000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": true,
+          "times_ns": [
+            726375,
+            722125,
+            707333,
+            710292,
+            694583
+          ],
+          "cpu_times_ns": [
+            728000,
+            723000,
+            708000,
+            711000,
+            695000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            3424708,
+            3400625,
+            3374875,
+            3367333,
+            3358792
+          ],
+          "cpu_times_ns": [
+            3432000,
+            3401000,
+            3375000,
+            3367000,
+            3360000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": true,
+          "times_ns": [
+            805333,
+            794958,
+            800208,
+            797375,
+            798541
+          ],
+          "cpu_times_ns": [
+            807000,
+            796000,
+            800000,
+            798000,
+            799000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            4338167,
+            4258375,
+            4212667,
+            4209084,
+            4176000
+          ],
+          "cpu_times_ns": [
+            4338000,
+            4258000,
+            4213000,
+            4210000,
+            4177000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": true,
+          "times_ns": [
+            905667,
+            843583,
+            831584,
+            809667,
+            810083
+          ],
+          "cpu_times_ns": [
+            906000,
+            844000,
+            832000,
+            809000,
+            811000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            8875,
+            6917,
+            6750,
+            6834,
+            8625
+          ],
+          "cpu_times_ns": [
+            9000,
+            8000,
+            7000,
+            6000,
+            9000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            27709,
+            27250,
+            27250,
+            30125,
+            27334
+          ],
+          "cpu_times_ns": [
+            28000,
+            29000,
+            27000,
+            30000,
+            27000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            30792,
+            30500,
+            33667,
+            30708,
+            30334
+          ],
+          "cpu_times_ns": [
+            32000,
+            31000,
+            35000,
+            31000,
+            30000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            83625,
+            80875,
+            83375,
+            80042,
+            82167
+          ],
+          "cpu_times_ns": [
+            84000,
+            81000,
+            83000,
+            81000,
+            82000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            422416,
+            425292,
+            422333,
+            423708,
+            419625
+          ],
+          "cpu_times_ns": [
+            422000,
+            425000,
+            423000,
+            424000,
+            419000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            479042,
+            477083,
+            473834,
+            487459,
+            477167
+          ],
+          "cpu_times_ns": [
+            479000,
+            477000,
+            474000,
+            488000,
+            477000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "build": "timing",
+      "variant": "candidate",
+      "records": [
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            176292,
+            152625,
+            143000,
+            137667,
+            134583
+          ],
+          "cpu_times_ns": [
+            180000,
+            154000,
+            143000,
+            138000,
+            136000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            260958,
+            254667,
+            253500,
+            247542,
+            246625
+          ],
+          "cpu_times_ns": [
+            262000,
+            255000,
+            254000,
+            248000,
+            246000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            319042,
+            297750,
+            287542,
+            283959,
+            282250
+          ],
+          "cpu_times_ns": [
+            322000,
+            297000,
+            288000,
+            284000,
+            282000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            595417,
+            580292,
+            572167,
+            572834,
+            561166
+          ],
+          "cpu_times_ns": [
+            596000,
+            581000,
+            572000,
+            573000,
+            562000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            749666,
+            737500,
+            726625,
+            731042,
+            718833
+          ],
+          "cpu_times_ns": [
+            750000,
+            738000,
+            726000,
+            731000,
+            719000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            1028875,
+            999333,
+            956959,
+            935583,
+            945750
+          ],
+          "cpu_times_ns": [
+            1033000,
+            1000000,
+            958000,
+            936000,
+            946000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1933791,
+            1928459,
+            1916666,
+            1899042,
+            1934167
+          ],
+          "cpu_times_ns": [
+            1935000,
+            1930000,
+            1917000,
+            1899000,
+            1934000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            2270667,
+            2260167,
+            2254542,
+            2244167,
+            2265625
+          ],
+          "cpu_times_ns": [
+            2273000,
+            2262000,
+            2255000,
+            2245000,
+            2266000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            3713833,
+            3917250,
+            3882750,
+            3823792,
+            3771208
+          ],
+          "cpu_times_ns": [
+            3715000,
+            3917000,
+            3883000,
+            3825000,
+            3772000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1856292,
+            1898500,
+            1819625,
+            1796333,
+            1788958
+          ],
+          "cpu_times_ns": [
+            1851000,
+            1900000,
+            1820000,
+            1797000,
+            1789000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": true,
+          "times_ns": [
+            718292,
+            717166,
+            701542,
+            703125,
+            704583
+          ],
+          "cpu_times_ns": [
+            719000,
+            717000,
+            701000,
+            703000,
+            704000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            3422291,
+            3411834,
+            3404333,
+            3414917,
+            3396375
+          ],
+          "cpu_times_ns": [
+            3423000,
+            3411000,
+            3405000,
+            3415000,
+            3396000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": true,
+          "times_ns": [
+            802166,
+            785042,
+            794208,
+            795125,
+            795542
+          ],
+          "cpu_times_ns": [
+            803000,
+            785000,
+            794000,
+            796000,
+            797000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            4330209,
+            4260833,
+            4232792,
+            4224042,
+            4200667
+          ],
+          "cpu_times_ns": [
+            4331000,
+            4260000,
+            4233000,
+            4224000,
+            4200000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": true,
+          "times_ns": [
+            903125,
+            849458,
+            828000,
+            823459,
+            805500
+          ],
+          "cpu_times_ns": [
+            904000,
+            849000,
+            829000,
+            824000,
+            807000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            8667,
+            6750,
+            6625,
+            6583,
+            6583
+          ],
+          "cpu_times_ns": [
+            9000,
+            8000,
+            7000,
+            7000,
+            8000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            27708,
+            28042,
+            27000,
+            27125,
+            29667
+          ],
+          "cpu_times_ns": [
+            29000,
+            28000,
+            28000,
+            27000,
+            30000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            31125,
+            30583,
+            30291,
+            33000,
+            31541
+          ],
+          "cpu_times_ns": [
+            32000,
+            31000,
+            31000,
+            33000,
+            32000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            81625,
+            84667,
+            82166,
+            85375,
+            84708
+          ],
+          "cpu_times_ns": [
+            83000,
+            85000,
+            84000,
+            86000,
+            85000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            423833,
+            424625,
+            424375,
+            422125,
+            423834
+          ],
+          "cpu_times_ns": [
+            425000,
+            425000,
+            426000,
+            422000,
+            425000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            477666,
+            479791,
+            476083,
+            478750,
+            485750
+          ],
+          "cpu_times_ns": [
+            478000,
+            480000,
+            477000,
+            479000,
+            486000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "build": "timing",
+      "variant": "baseline",
+      "records": [
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            147334,
+            104833,
+            95667,
+            92083,
+            88209
+          ],
+          "cpu_times_ns": [
+            144000,
+            105000,
+            95000,
+            92000,
+            88000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            102375,
+            94792,
+            91917,
+            87167,
+            86833
+          ],
+          "cpu_times_ns": [
+            104000,
+            95000,
+            93000,
+            87000,
+            87000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            162250,
+            134458,
+            124083,
+            120833,
+            116958
+          ],
+          "cpu_times_ns": [
+            163000,
+            134000,
+            124000,
+            121000,
+            117000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            502541,
+            486250,
+            476459,
+            499834,
+            532583
+          ],
+          "cpu_times_ns": [
+            503000,
+            486000,
+            477000,
+            495000,
+            533000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            521917,
+            490584,
+            481000,
+            477291,
+            471750
+          ],
+          "cpu_times_ns": [
+            523000,
+            491000,
+            481000,
+            479000,
+            472000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            831417,
+            768917,
+            720084,
+            704417,
+            686833
+          ],
+          "cpu_times_ns": [
+            833000,
+            769000,
+            722000,
+            704000,
+            687000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1625417,
+            1607167,
+            1596083,
+            1594833,
+            1591833
+          ],
+          "cpu_times_ns": [
+            1626000,
+            1607000,
+            1595000,
+            1595000,
+            1593000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            1688458,
+            1673041,
+            1679500,
+            1664125,
+            1672583
+          ],
+          "cpu_times_ns": [
+            1691000,
+            1673000,
+            1679000,
+            1664000,
+            1673000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            3141000,
+            3106292,
+            3017250,
+            3004167,
+            2932583
+          ],
+          "cpu_times_ns": [
+            3143000,
+            3106000,
+            3017000,
+            3005000,
+            2933000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1532375,
+            1519875,
+            1506084,
+            1522083,
+            1504416
+          ],
+          "cpu_times_ns": [
+            1533000,
+            1521000,
+            1506000,
+            1521000,
+            1504000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": true,
+          "times_ns": [
+            611666,
+            593708,
+            617250,
+            597833,
+            598875
+          ],
+          "cpu_times_ns": [
+            613000,
+            593000,
+            617000,
+            599000,
+            599000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            1555125,
+            1517834,
+            1507292,
+            1500250,
+            1504250
+          ],
+          "cpu_times_ns": [
+            1556000,
+            1519000,
+            1507000,
+            1501000,
+            1506000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": true,
+          "times_ns": [
+            603833,
+            594459,
+            589834,
+            589792,
+            588542
+          ],
+          "cpu_times_ns": [
+            604000,
+            595000,
+            589000,
+            591000,
+            588000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            2042667,
+            1978333,
+            1935834,
+            1963459,
+            1912500
+          ],
+          "cpu_times_ns": [
+            2043000,
+            1979000,
+            1936000,
+            1964000,
+            1912000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": true,
+          "times_ns": [
+            738625,
+            701084,
+            683042,
+            675000,
+            673375
+          ],
+          "cpu_times_ns": [
+            738000,
+            701000,
+            683000,
+            675000,
+            673000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            7792,
+            7208,
+            6958,
+            6917,
+            6792
+          ],
+          "cpu_times_ns": [
+            8000,
+            8000,
+            7000,
+            7000,
+            7000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            6792,
+            6667,
+            6292,
+            6250,
+            6291
+          ],
+          "cpu_times_ns": [
+            7000,
+            7000,
+            7000,
+            6000,
+            7000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            9667,
+            9750,
+            8791,
+            8459,
+            8458
+          ],
+          "cpu_times_ns": [
+            10000,
+            10000,
+            9000,
+            10000,
+            9000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            83375,
+            82542,
+            81250,
+            82709,
+            82167
+          ],
+          "cpu_times_ns": [
+            84000,
+            83000,
+            82000,
+            83000,
+            82000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            82167,
+            82292,
+            81250,
+            82250,
+            82333
+          ],
+          "cpu_times_ns": [
+            84000,
+            83000,
+            83000,
+            82000,
+            83000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            113875,
+            113250,
+            114041,
+            114708,
+            113750
+          ],
+          "cpu_times_ns": [
+            114000,
+            113000,
+            114000,
+            115000,
+            113000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "build": "timing",
+      "variant": "baseline",
+      "records": [
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            125833,
+            104042,
+            93375,
+            89041,
+            86417
+          ],
+          "cpu_times_ns": [
+            127000,
+            105000,
+            94000,
+            90000,
+            87000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            98250,
+            93708,
+            89042,
+            88000,
+            86916
+          ],
+          "cpu_times_ns": [
+            98000,
+            94000,
+            90000,
+            89000,
+            87000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            167292,
+            147917,
+            140000,
+            131250,
+            123833
+          ],
+          "cpu_times_ns": [
+            168000,
+            148000,
+            140000,
+            131000,
+            124000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            506958,
+            486250,
+            472042,
+            466333,
+            550750
+          ],
+          "cpu_times_ns": [
+            509000,
+            487000,
+            472000,
+            466000,
+            546000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            528875,
+            494584,
+            484292,
+            477042,
+            474625
+          ],
+          "cpu_times_ns": [
+            530000,
+            495000,
+            484000,
+            478000,
+            474000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            943417,
+            803041,
+            753875,
+            730167,
+            711583
+          ],
+          "cpu_times_ns": [
+            908000,
+            804000,
+            754000,
+            730000,
+            713000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1632333,
+            1614917,
+            1611417,
+            1597791,
+            1588209
+          ],
+          "cpu_times_ns": [
+            1635000,
+            1615000,
+            1612000,
+            1598000,
+            1588000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            1687375,
+            1671041,
+            1658125,
+            1674333,
+            1665375
+          ],
+          "cpu_times_ns": [
+            1690000,
+            1672000,
+            1658000,
+            1674000,
+            1666000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            3232209,
+            3118708,
+            3077458,
+            2989833,
+            2983208
+          ],
+          "cpu_times_ns": [
+            3235000,
+            3119000,
+            3077000,
+            2990000,
+            2983000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1530583,
+            1534292,
+            1504916,
+            1515625,
+            1534041
+          ],
+          "cpu_times_ns": [
+            1535000,
+            1534000,
+            1505000,
+            1516000,
+            1535000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": true,
+          "times_ns": [
+            601708,
+            599667,
+            586750,
+            589833,
+            595834
+          ],
+          "cpu_times_ns": [
+            605000,
+            600000,
+            587000,
+            589000,
+            596000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            1545625,
+            1520625,
+            1499541,
+            1498292,
+            1493375
+          ],
+          "cpu_times_ns": [
+            1547000,
+            1521000,
+            1500000,
+            1498000,
+            1493000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": true,
+          "times_ns": [
+            592458,
+            591292,
+            582542,
+            585000,
+            580208
+          ],
+          "cpu_times_ns": [
+            593000,
+            591000,
+            582000,
+            586000,
+            581000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            2142083,
+            2090416,
+            2083291,
+            2054250,
+            2053292
+          ],
+          "cpu_times_ns": [
+            2145000,
+            2091000,
+            2084000,
+            2055000,
+            2053000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": true,
+          "times_ns": [
+            754167,
+            692416,
+            670541,
+            660666,
+            652542
+          ],
+          "cpu_times_ns": [
+            754000,
+            692000,
+            671000,
+            661000,
+            653000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            7375,
+            6917,
+            6750,
+            6708,
+            6583
+          ],
+          "cpu_times_ns": [
+            8000,
+            7000,
+            7000,
+            7000,
+            6000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            8667,
+            6500,
+            6833,
+            6625,
+            6542
+          ],
+          "cpu_times_ns": [
+            10000,
+            7000,
+            7000,
+            6000,
+            6000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            12166,
+            11209,
+            8625,
+            8542,
+            8375
+          ],
+          "cpu_times_ns": [
+            12000,
+            12000,
+            9000,
+            8000,
+            8000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            80334,
+            83958,
+            80000,
+            85584,
+            83125
+          ],
+          "cpu_times_ns": [
+            80000,
+            84000,
+            80000,
+            86000,
+            83000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            79875,
+            83250,
+            82542,
+            79917,
+            83042
+          ],
+          "cpu_times_ns": [
+            80000,
+            84000,
+            83000,
+            80000,
+            83000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            115375,
+            122250,
+            113792,
+            112583,
+            117500
+          ],
+          "cpu_times_ns": [
+            116000,
+            123000,
+            114000,
+            112000,
+            118000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "build": "timing",
+      "variant": "candidate",
+      "records": [
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            173667,
+            150834,
+            143333,
+            140042,
+            137250
+          ],
+          "cpu_times_ns": [
+            174000,
+            152000,
+            143000,
+            141000,
+            138000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            263833,
+            261500,
+            263583,
+            246041,
+            241584
+          ],
+          "cpu_times_ns": [
+            267000,
+            261000,
+            264000,
+            246000,
+            242000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            333500,
+            297667,
+            296041,
+            282417,
+            282708
+          ],
+          "cpu_times_ns": [
+            336000,
+            298000,
+            296000,
+            283000,
+            283000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            607916,
+            589291,
+            571167,
+            565541,
+            556375
+          ],
+          "cpu_times_ns": [
+            609000,
+            590000,
+            572000,
+            566000,
+            556000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            755416,
+            734708,
+            723333,
+            721500,
+            714500
+          ],
+          "cpu_times_ns": [
+            758000,
+            735000,
+            724000,
+            722000,
+            715000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            1040834,
+            993042,
+            968250,
+            948041,
+            937625
+          ],
+          "cpu_times_ns": [
+            1041000,
+            994000,
+            969000,
+            948000,
+            937000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1941792,
+            1924083,
+            1924125,
+            1924917,
+            1930000
+          ],
+          "cpu_times_ns": [
+            1944000,
+            1924000,
+            1924000,
+            1925000,
+            1930000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            2278333,
+            2253292,
+            2259625,
+            2244333,
+            2248583
+          ],
+          "cpu_times_ns": [
+            2281000,
+            2254000,
+            2260000,
+            2244000,
+            2249000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            3695125,
+            3955833,
+            3894500,
+            3808209,
+            4093625
+          ],
+          "cpu_times_ns": [
+            3697000,
+            3956000,
+            3894000,
+            3809000,
+            4086000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1828250,
+            1794917,
+            1777292,
+            1778000,
+            1790917
+          ],
+          "cpu_times_ns": [
+            1829000,
+            1796000,
+            1778000,
+            1778000,
+            1792000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": true,
+          "times_ns": [
+            709542,
+            707541,
+            694084,
+            695333,
+            705708
+          ],
+          "cpu_times_ns": [
+            709000,
+            708000,
+            695000,
+            695000,
+            706000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            3390625,
+            3383250,
+            3360667,
+            3374125,
+            3354167
+          ],
+          "cpu_times_ns": [
+            3391000,
+            3384000,
+            3362000,
+            3374000,
+            3354000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": true,
+          "times_ns": [
+            793500,
+            783500,
+            780500,
+            773167,
+            775708
+          ],
+          "cpu_times_ns": [
+            795000,
+            785000,
+            781000,
+            773000,
+            776000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            4332042,
+            4246125,
+            4213042,
+            4186167,
+            4176666
+          ],
+          "cpu_times_ns": [
+            4332000,
+            4247000,
+            4213000,
+            4185000,
+            4177000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": true,
+          "times_ns": [
+            918666,
+            843334,
+            819666,
+            816708,
+            809291
+          ],
+          "cpu_times_ns": [
+            919000,
+            844000,
+            820000,
+            817000,
+            809000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            8792,
+            8291,
+            7041,
+            6583,
+            6667
+          ],
+          "cpu_times_ns": [
+            10000,
+            8000,
+            7000,
+            6000,
+            8000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            27417,
+            27166,
+            29458,
+            27500,
+            28125
+          ],
+          "cpu_times_ns": [
+            27000,
+            27000,
+            29000,
+            28000,
+            28000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            30792,
+            33583,
+            31458,
+            30334,
+            30250
+          ],
+          "cpu_times_ns": [
+            32000,
+            34000,
+            31000,
+            31000,
+            31000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            83208,
+            81333,
+            84750,
+            84625,
+            81000
+          ],
+          "cpu_times_ns": [
+            84000,
+            82000,
+            85000,
+            86000,
+            81000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            425500,
+            425250,
+            427791,
+            424334,
+            434208
+          ],
+          "cpu_times_ns": [
+            425000,
+            426000,
+            428000,
+            426000,
+            434000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            477667,
+            478542,
+            473250,
+            472875,
+            471875
+          ],
+          "cpu_times_ns": [
+            477000,
+            478000,
+            473000,
+            474000,
+            471000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "build": "timing",
+      "variant": "candidate",
+      "records": [
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            168625,
+            146916,
+            141958,
+            136500,
+            133834
+          ],
+          "cpu_times_ns": [
+            170000,
+            147000,
+            143000,
+            136000,
+            135000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            265625,
+            259333,
+            257334,
+            248791,
+            243083
+          ],
+          "cpu_times_ns": [
+            267000,
+            259000,
+            257000,
+            249000,
+            243000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            321458,
+            294875,
+            284458,
+            283416,
+            282042
+          ],
+          "cpu_times_ns": [
+            322000,
+            295000,
+            286000,
+            284000,
+            283000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            614667,
+            582667,
+            565458,
+            568583,
+            574375
+          ],
+          "cpu_times_ns": [
+            616000,
+            583000,
+            567000,
+            569000,
+            575000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            743792,
+            732708,
+            721250,
+            721208,
+            719000
+          ],
+          "cpu_times_ns": [
+            744000,
+            733000,
+            721000,
+            721000,
+            720000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            1032167,
+            988417,
+            954500,
+            944917,
+            933833
+          ],
+          "cpu_times_ns": [
+            1033000,
+            989000,
+            956000,
+            945000,
+            933000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1931084,
+            1918958,
+            1917375,
+            1918875,
+            1895792
+          ],
+          "cpu_times_ns": [
+            1932000,
+            1919000,
+            1918000,
+            1919000,
+            1896000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            2299459,
+            2256584,
+            2248625,
+            2244917,
+            2282084
+          ],
+          "cpu_times_ns": [
+            2301000,
+            2257000,
+            2249000,
+            2245000,
+            2281000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            3710458,
+            3884042,
+            3888416,
+            3824750,
+            3801209
+          ],
+          "cpu_times_ns": [
+            3713000,
+            3885000,
+            3889000,
+            3826000,
+            3801000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1826000,
+            1823625,
+            1812084,
+            1782375,
+            1778792
+          ],
+          "cpu_times_ns": [
+            1827000,
+            1824000,
+            1812000,
+            1783000,
+            1779000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": true,
+          "times_ns": [
+            716417,
+            706709,
+            708250,
+            701541,
+            705083
+          ],
+          "cpu_times_ns": [
+            717000,
+            708000,
+            709000,
+            702000,
+            705000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            3407167,
+            3394250,
+            3379208,
+            3351916,
+            3349834
+          ],
+          "cpu_times_ns": [
+            3408000,
+            3395000,
+            3380000,
+            3352000,
+            3350000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": true,
+          "times_ns": [
+            804083,
+            783125,
+            797917,
+            794750,
+            795500
+          ],
+          "cpu_times_ns": [
+            805000,
+            783000,
+            798000,
+            795000,
+            796000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            4338542,
+            4264792,
+            4286250,
+            4513833,
+            4307583
+          ],
+          "cpu_times_ns": [
+            4340000,
+            4265000,
+            4244000,
+            4513000,
+            4307000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": true,
+          "times_ns": [
+            885833,
+            863708,
+            825084,
+            825833,
+            811334
+          ],
+          "cpu_times_ns": [
+            887000,
+            863000,
+            826000,
+            826000,
+            813000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            8833,
+            6792,
+            8167,
+            7459,
+            6708
+          ],
+          "cpu_times_ns": [
+            9000,
+            6000,
+            8000,
+            8000,
+            7000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            27750,
+            27125,
+            28667,
+            28375,
+            27291
+          ],
+          "cpu_times_ns": [
+            29000,
+            27000,
+            29000,
+            29000,
+            27000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            30791,
+            33625,
+            30625,
+            30291,
+            30416
+          ],
+          "cpu_times_ns": [
+            32000,
+            33000,
+            30000,
+            30000,
+            30000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            83417,
+            80541,
+            84000,
+            83500,
+            80833
+          ],
+          "cpu_times_ns": [
+            83000,
+            82000,
+            84000,
+            84000,
+            81000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            424042,
+            423625,
+            425750,
+            424500,
+            425209
+          ],
+          "cpu_times_ns": [
+            425000,
+            424000,
+            425000,
+            426000,
+            425000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            475292,
+            474584,
+            474709,
+            477292,
+            473792
+          ],
+          "cpu_times_ns": [
+            475000,
+            475000,
+            476000,
+            478000,
+            474000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "build": "timing",
+      "variant": "baseline",
+      "records": [
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            126916,
+            104166,
+            92292,
+            89417,
+            83125
+          ],
+          "cpu_times_ns": [
+            128000,
+            104000,
+            92000,
+            90000,
+            84000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            100292,
+            91542,
+            92000,
+            87625,
+            85916
+          ],
+          "cpu_times_ns": [
+            100000,
+            92000,
+            92000,
+            89000,
+            86000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            168083,
+            147041,
+            140041,
+            133791,
+            126916
+          ],
+          "cpu_times_ns": [
+            168000,
+            148000,
+            140000,
+            134000,
+            127000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            509042,
+            505542,
+            493291,
+            487750,
+            478375
+          ],
+          "cpu_times_ns": [
+            509000,
+            506000,
+            494000,
+            488000,
+            478000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            520375,
+            511042,
+            492791,
+            493709,
+            482166
+          ],
+          "cpu_times_ns": [
+            520000,
+            513000,
+            493000,
+            494000,
+            482000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            827542,
+            767583,
+            737500,
+            732291,
+            710750
+          ],
+          "cpu_times_ns": [
+            827000,
+            768000,
+            739000,
+            733000,
+            711000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1652833,
+            1651125,
+            1624000,
+            1634709,
+            1634916
+          ],
+          "cpu_times_ns": [
+            1655000,
+            1651000,
+            1625000,
+            1634000,
+            1636000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            1721208,
+            1724708,
+            1706250,
+            1699750,
+            1721583
+          ],
+          "cpu_times_ns": [
+            1723000,
+            1725000,
+            1708000,
+            1701000,
+            1722000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            3241209,
+            3148542,
+            3088541,
+            2978209,
+            2942250
+          ],
+          "cpu_times_ns": [
+            3242000,
+            3148000,
+            3089000,
+            2978000,
+            2944000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1568708,
+            1550416,
+            1539958,
+            1523875,
+            1528625
+          ],
+          "cpu_times_ns": [
+            1570000,
+            1550000,
+            1540000,
+            1525000,
+            1530000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": true,
+          "times_ns": [
+            627083,
+            605375,
+            603083,
+            603166,
+            599792
+          ],
+          "cpu_times_ns": [
+            629000,
+            606000,
+            604000,
+            603000,
+            600000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            1531792,
+            1512042,
+            1509875,
+            1485375,
+            1607792
+          ],
+          "cpu_times_ns": [
+            1532000,
+            1513000,
+            1510000,
+            1485000,
+            1599000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": true,
+          "times_ns": [
+            616500,
+            606917,
+            603791,
+            602417,
+            598958
+          ],
+          "cpu_times_ns": [
+            617000,
+            607000,
+            604000,
+            603000,
+            600000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            2202542,
+            2144208,
+            2120542,
+            2127917,
+            2067750
+          ],
+          "cpu_times_ns": [
+            2203000,
+            2144000,
+            2121000,
+            2129000,
+            2068000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": true,
+          "times_ns": [
+            756292,
+            709000,
+            684167,
+            687125,
+            682666
+          ],
+          "cpu_times_ns": [
+            760000,
+            710000,
+            684000,
+            688000,
+            684000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            7833,
+            7542,
+            7333,
+            7000,
+            6834
+          ],
+          "cpu_times_ns": [
+            8000,
+            7000,
+            8000,
+            7000,
+            8000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            8541,
+            6417,
+            6334,
+            6375,
+            6458
+          ],
+          "cpu_times_ns": [
+            9000,
+            7000,
+            8000,
+            7000,
+            7000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            10209,
+            9250,
+            9041,
+            8791,
+            8791
+          ],
+          "cpu_times_ns": [
+            11000,
+            9000,
+            9000,
+            9000,
+            9000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            84000,
+            83917,
+            83958,
+            83583,
+            83666
+          ],
+          "cpu_times_ns": [
+            84000,
+            85000,
+            84000,
+            85000,
+            83000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            83417,
+            83708,
+            83708,
+            83500,
+            83667
+          ],
+          "cpu_times_ns": [
+            84000,
+            84000,
+            85000,
+            84000,
+            85000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            117667,
+            117750,
+            117666,
+            117458,
+            117542
+          ],
+          "cpu_times_ns": [
+            117000,
+            118000,
+            118000,
+            118000,
+            118000
+          ],
+          "allocation_calls": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocated_bytes": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "allocator_instrumentation": false
+        }
+      ]
+    },
+    {
+      "build": "allocations",
+      "variant": "baseline",
+      "records": [
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            122250,
+            107250,
+            101209,
+            94125,
+            93000
+          ],
+          "cpu_times_ns": [
+            123000,
+            107000,
+            102000,
+            94000,
+            93000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            100667,
+            95750,
+            90875,
+            86042,
+            86833
+          ],
+          "cpu_times_ns": [
+            101000,
+            97000,
+            91000,
+            87000,
+            87000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            173041,
+            144584,
+            132000,
+            127292,
+            122625
+          ],
+          "cpu_times_ns": [
+            173000,
+            144000,
+            132000,
+            127000,
+            123000
+          ],
+          "allocation_calls": [
+            13,
+            13,
+            13,
+            13,
+            13
+          ],
+          "allocated_bytes": [
+            202064,
+            202064,
+            202064,
+            202064,
+            202064
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            501834,
+            480459,
+            468792,
+            465625,
+            452792
+          ],
+          "cpu_times_ns": [
+            503000,
+            481000,
+            469000,
+            465000,
+            453000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            505250,
+            485125,
+            478250,
+            471292,
+            465333
+          ],
+          "cpu_times_ns": [
+            506000,
+            487000,
+            478000,
+            472000,
+            466000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            808000,
+            747292,
+            714916,
+            697166,
+            684417
+          ],
+          "cpu_times_ns": [
+            808000,
+            748000,
+            715000,
+            698000,
+            686000
+          ],
+          "allocation_calls": [
+            16,
+            16,
+            16,
+            16,
+            16
+          ],
+          "allocated_bytes": [
+            770896,
+            770896,
+            770896,
+            770896,
+            770896
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1679958,
+            1620875,
+            1618416,
+            1620459,
+            1605000
+          ],
+          "cpu_times_ns": [
+            1681000,
+            1621000,
+            1620000,
+            1621000,
+            1605000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            1662792,
+            1647042,
+            1642667,
+            1636166,
+            1688083
+          ],
+          "cpu_times_ns": [
+            1664000,
+            1648000,
+            1643000,
+            1637000,
+            1688000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            3198708,
+            3052500,
+            3038167,
+            2970417,
+            2925291
+          ],
+          "cpu_times_ns": [
+            3200000,
+            3053000,
+            3039000,
+            2971000,
+            2926000
+          ],
+          "allocation_calls": [
+            18,
+            18,
+            18,
+            18,
+            18
+          ],
+          "allocated_bytes": [
+            2739280,
+            2739280,
+            2739280,
+            2739280,
+            2739280
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1533292,
+            1516750,
+            1513250,
+            1496167,
+            1493833
+          ],
+          "cpu_times_ns": [
+            1534000,
+            1518000,
+            1513000,
+            1496000,
+            1495000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            2097152,
+            2097152,
+            2097152,
+            2097152,
+            2097152
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": true,
+          "times_ns": [
+            611459,
+            614084,
+            605667,
+            599750,
+            602334
+          ],
+          "cpu_times_ns": [
+            612000,
+            615000,
+            606000,
+            600000,
+            602000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            1521625,
+            1525792,
+            1549334,
+            1542917,
+            1500333
+          ],
+          "cpu_times_ns": [
+            1521000,
+            1527000,
+            1550000,
+            1543000,
+            1500000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            2097152,
+            2097152,
+            2097152,
+            2097152,
+            2097152
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": true,
+          "times_ns": [
+            594292,
+            601167,
+            584959,
+            582417,
+            586459
+          ],
+          "cpu_times_ns": [
+            596000,
+            601000,
+            585000,
+            582000,
+            586000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            2171958,
+            2089083,
+            2047041,
+            2023792,
+            2017125
+          ],
+          "cpu_times_ns": [
+            2173000,
+            2091000,
+            2047000,
+            2023000,
+            2018000
+          ],
+          "allocation_calls": [
+            16,
+            16,
+            16,
+            16,
+            16
+          ],
+          "allocated_bytes": [
+            2736976,
+            2736976,
+            2736976,
+            2736976,
+            2736976
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": true,
+          "times_ns": [
+            757375,
+            717625,
+            676708,
+            674708,
+            661167
+          ],
+          "cpu_times_ns": [
+            758000,
+            717000,
+            677000,
+            675000,
+            661000
+          ],
+          "allocation_calls": [
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "allocated_bytes": [
+            461224,
+            461224,
+            461224,
+            461224,
+            461224
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            7583,
+            7583,
+            7250,
+            6917,
+            6958
+          ],
+          "cpu_times_ns": [
+            8000,
+            7000,
+            7000,
+            7000,
+            7000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            8458,
+            6916,
+            7000,
+            6958,
+            6917
+          ],
+          "cpu_times_ns": [
+            10000,
+            7000,
+            7000,
+            7000,
+            7000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            10167,
+            9500,
+            9125,
+            9125,
+            8875
+          ],
+          "cpu_times_ns": [
+            11000,
+            11000,
+            10000,
+            9000,
+            9000
+          ],
+          "allocation_calls": [
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "allocated_bytes": [
+            131312,
+            131312,
+            131312,
+            131312,
+            131312
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            83875,
+            84167,
+            84042,
+            84042,
+            84041
+          ],
+          "cpu_times_ns": [
+            84000,
+            84000,
+            84000,
+            84000,
+            84000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            2097152,
+            2097152,
+            2097152,
+            2097152,
+            2097152
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            83916,
+            84250,
+            85667,
+            82625,
+            83375
+          ],
+          "cpu_times_ns": [
+            84000,
+            85000,
+            86000,
+            83000,
+            84000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            2097152,
+            2097152,
+            2097152,
+            2097152,
+            2097152
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            115750,
+            115000,
+            112917,
+            114917,
+            117125
+          ],
+          "cpu_times_ns": [
+            116000,
+            115000,
+            113000,
+            115000,
+            117000
+          ],
+          "allocation_calls": [
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "allocated_bytes": [
+            2097392,
+            2097392,
+            2097392,
+            2097392,
+            2097392
+          ],
+          "allocator_instrumentation": true
+        }
+      ]
+    },
+    {
+      "build": "allocations",
+      "variant": "candidate",
+      "records": [
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            175916,
+            152083,
+            144417,
+            140792,
+            138125
+          ],
+          "cpu_times_ns": [
+            178000,
+            152000,
+            144000,
+            141000,
+            139000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            280875,
+            262292,
+            255334,
+            251375,
+            248542
+          ],
+          "cpu_times_ns": [
+            281000,
+            264000,
+            256000,
+            253000,
+            249000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 8,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            321417,
+            294083,
+            287375,
+            284709,
+            286958
+          ],
+          "cpu_times_ns": [
+            321000,
+            294000,
+            287000,
+            285000,
+            287000
+          ],
+          "allocation_calls": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "allocated_bytes": [
+            270400,
+            270400,
+            270400,
+            270400,
+            270400
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            613875,
+            596625,
+            577291,
+            579708,
+            573125
+          ],
+          "cpu_times_ns": [
+            615000,
+            596000,
+            577000,
+            580000,
+            573000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            766208,
+            747583,
+            745000,
+            732958,
+            732458
+          ],
+          "cpu_times_ns": [
+            767000,
+            747000,
+            746000,
+            733000,
+            732000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            1045458,
+            982500,
+            947125,
+            914000,
+            899542
+          ],
+          "cpu_times_ns": [
+            1045000,
+            983000,
+            949000,
+            914000,
+            900000
+          ],
+          "allocation_calls": [
+            13,
+            13,
+            13,
+            13,
+            13
+          ],
+          "allocated_bytes": [
+            1245248,
+            1245248,
+            1245248,
+            1245248,
+            1245248
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1957708,
+            1956458,
+            1962208,
+            1961542,
+            1967875
+          ],
+          "cpu_times_ns": [
+            1960000,
+            1957000,
+            1963000,
+            1962000,
+            1968000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            2338625,
+            2352084,
+            2243791,
+            2249708,
+            2270375
+          ],
+          "cpu_times_ns": [
+            2341000,
+            2352000,
+            2244000,
+            2250000,
+            2271000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 48,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            3849292,
+            4022708,
+            3997125,
+            3994916,
+            3968709
+          ],
+          "cpu_times_ns": [
+            3850000,
+            4022000,
+            3997000,
+            3995000,
+            3970000
+          ],
+          "allocation_calls": [
+            15,
+            15,
+            15,
+            15,
+            15
+          ],
+          "allocated_bytes": [
+            4587584,
+            4587584,
+            4587584,
+            4587584,
+            4587584
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            1875917,
+            1868833,
+            1846917,
+            1817334,
+            1832208
+          ],
+          "cpu_times_ns": [
+            1877000,
+            1869000,
+            1848000,
+            1818000,
+            1833000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            2097152,
+            2097152,
+            2097152,
+            2097152,
+            2097152
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "flat",
+          "clipped": true,
+          "times_ns": [
+            735292,
+            733583,
+            723125,
+            720250,
+            714916
+          ],
+          "cpu_times_ns": [
+            736000,
+            735000,
+            724000,
+            720000,
+            715000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            3418583,
+            3389583,
+            3385917,
+            3378959,
+            3449916
+          ],
+          "cpu_times_ns": [
+            3420000,
+            3391000,
+            3387000,
+            3379000,
+            3451000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            2097152,
+            2097152,
+            2097152,
+            2097152,
+            2097152
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": true,
+          "times_ns": [
+            798417,
+            776334,
+            774084,
+            779208,
+            781208
+          ],
+          "cpu_times_ns": [
+            799000,
+            776000,
+            774000,
+            779000,
+            782000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            4352250,
+            4214292,
+            4171541,
+            4153000,
+            4126875
+          ],
+          "cpu_times_ns": [
+            4353000,
+            4214000,
+            4173000,
+            4153000,
+            4126000
+          ],
+          "allocation_calls": [
+            13,
+            13,
+            13,
+            13,
+            13
+          ],
+          "allocated_bytes": [
+            3211328,
+            3211328,
+            3211328,
+            3211328,
+            3211328
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 24,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": true,
+          "times_ns": [
+            898333,
+            864000,
+            820375,
+            823166,
+            818917
+          ],
+          "cpu_times_ns": [
+            899000,
+            865000,
+            821000,
+            823000,
+            820000
+          ],
+          "allocation_calls": [
+            12,
+            12,
+            12,
+            12,
+            12
+          ],
+          "allocated_bytes": [
+            688192,
+            688192,
+            688192,
+            688192,
+            688192
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            9083,
+            6875,
+            6917,
+            6750,
+            6792
+          ],
+          "cpu_times_ns": [
+            11000,
+            7000,
+            7000,
+            6000,
+            7000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            28791,
+            28458,
+            28333,
+            28666,
+            28375
+          ],
+          "cpu_times_ns": [
+            29000,
+            29000,
+            29000,
+            29000,
+            28000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            131072,
+            131072,
+            131072,
+            131072,
+            131072
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 0,
+          "size": 128,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            32125,
+            32000,
+            32000,
+            31875,
+            31792
+          ],
+          "cpu_times_ns": [
+            33000,
+            32000,
+            32000,
+            32000,
+            32000
+          ],
+          "allocation_calls": [
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "allocated_bytes": [
+            133312,
+            133312,
+            133312,
+            133312,
+            133312
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "flat",
+          "clipped": false,
+          "times_ns": [
+            84167,
+            84208,
+            84500,
+            81625,
+            83791
+          ],
+          "cpu_times_ns": [
+            86000,
+            85000,
+            85000,
+            81000,
+            84000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            2097152,
+            2097152,
+            2097152,
+            2097152,
+            2097152
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "gradient",
+          "clipped": false,
+          "times_ns": [
+            423208,
+            424708,
+            421542,
+            422375,
+            421417
+          ],
+          "cpu_times_ns": [
+            424000,
+            425000,
+            421000,
+            423000,
+            422000
+          ],
+          "allocation_calls": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "allocated_bytes": [
+            2097152,
+            2097152,
+            2097152,
+            2097152,
+            2097152
+          ],
+          "allocator_instrumentation": true
+        },
+        {
+          "n": 0,
+          "size": 512,
+          "kind": "alpha",
+          "clipped": false,
+          "times_ns": [
+            474500,
+            475542,
+            472834,
+            485125,
+            499917
+          ],
+          "cpu_times_ns": [
+            475000,
+            475000,
+            472000,
+            485000,
+            500000
+          ],
+          "allocation_calls": [
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "allocated_bytes": [
+            2099392,
+            2099392,
+            2099392,
+            2099392,
+            2099392
+          ],
+          "allocator_instrumentation": true
+        }
+      ]
+    }
+  ]
+}

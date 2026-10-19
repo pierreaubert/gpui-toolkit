@@ -9,6 +9,7 @@ use smallvec::SmallVec;
 pub(crate) struct Vertex {
     pub(crate) position: [f32; 4],
     pub(crate) scalar: f32,
+    pub(crate) normal: [f32; 3],
 }
 
 pub(crate) type Polygon = SmallVec<[Vertex; 16]>;
@@ -70,6 +71,10 @@ fn interpolate(a: Vertex, b: Vertex, t: f64) -> Vertex {
                 as f32
         }),
         scalar: (f64::from(a.scalar) + (f64::from(b.scalar) - f64::from(a.scalar)) * t) as f32,
+        normal: std::array::from_fn(|axis| {
+            (f64::from(a.normal[axis])
+                + (f64::from(b.normal[axis]) - f64::from(a.normal[axis])) * t) as f32
+        }),
     }
 }
 
@@ -280,6 +285,11 @@ mod tests {
         .map(|(i, position)| Vertex {
             position,
             scalar: if i == 0 { 0.0 } else { 1.0 },
+            normal: if i == 0 {
+                [1.0, 0.0, 0.0]
+            } else {
+                [0.0, 1.0, 0.0]
+            },
         })
         .collect();
         clip_frustum(&mut poly);
@@ -290,6 +300,13 @@ mod tests {
             2
         );
         assert!(clipped.iter().all(|vertex| outcode(vertex.position) == 0));
+        assert_eq!(
+            clipped
+                .iter()
+                .filter(|vertex| vertex.normal == [0.5, 0.5, 0.0])
+                .count(),
+            2
+        );
         let mut far: Polygon = clipped
             .iter()
             .map(|vertex| Vertex {

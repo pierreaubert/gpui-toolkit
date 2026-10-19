@@ -66,6 +66,12 @@ impl Frame {
 /// scene and camera, which makes it suitable for visual-regression
 /// baselines and movie frames.
 ///
+/// Scalars and smooth normals use perspective-correct fragment interpolation;
+/// clipping interpolates both attributes before projection. Transfer sampling
+/// uses the prepared function rather than the GPU's quantized RGBA8 LUT, so
+/// byte-identical backend colors are not guaranteed. Sorted transparency remains
+/// an approximation for intersecting surfaces.
+///
 /// # Errors
 ///
 /// Returns an error for invalid dimensions, exceeded default memory limits,
@@ -83,8 +89,8 @@ pub fn render(
 ///
 /// # Errors
 ///
-/// Returns an error for invalid dimensions, exhausted memory, exceeded limits,
-/// or an actor with a missing field.
+/// Returns an error for invalid dimensions, exhausted memory, exceeded frame
+/// or transparent-triangle working-storage limits, or a missing field.
 pub fn render_with_limits(
     scene: &Scene,
     camera: &Camera,
@@ -105,6 +111,7 @@ pub fn render_with_limits(
         px[3] = (bg[3].clamp(0.0, 1.0) * 255.0) as u8;
     }
     let mut depth = frame_buffer(pixels, f32::INFINITY)?;
+    let scratch_bytes = limits.max_frame_bytes - pixels as u64 * 8;
     let light = normalize3([-0.4, 0.7, 0.6]);
     let eye = camera.eye();
 
@@ -125,6 +132,7 @@ pub fn render_with_limits(
             height,
             light,
             false,
+            scratch_bytes,
             &mut depth,
             &mut rgba,
         )?;
@@ -158,6 +166,7 @@ pub fn render_with_limits(
             height,
             light,
             true,
+            scratch_bytes,
             &mut depth,
             &mut rgba,
         )?;
@@ -169,14 +178,56 @@ pub fn render_with_limits(
     })
 }
 
-/// Projected triangle: three screen points, shaded colour, mean depth.
-type ScreenTriangle = (
-    (f32, f32, f32),
-    (f32, f32, f32),
-    (f32, f32, f32),
-    [u8; 4],
-    f32,
-);
+#[derive(Clone, Copy)]
+struct ScreenVertex {
+    point: (f32, f32, f32),
+    clip_w: f32,
+    scalar: f32,
+    normal: [f32; 3],
+}
+
+struct ScreenTriangle {
+    vertices: [ScreenVertex; 3],
+    depth: f32,
+    order: usize,
+}
+
+struct RasterMaterial<'a> {
+    transfer: Option<crate::PreparedTransfer<'a>>,
+    color: [f32; 4],
+    opacity: f32,
+    light: [f32; 3],
+}
+
+fn retain_triangle(
+    triangles: &mut Vec<ScreenTriangle>,
+    triangle: ScreenTriangle,
+    budget: u64,
+) -> Result<(), SceneError> {
+    if triangles.len() == triangles.capacity() {
+        let stride = size_of::<ScreenTriangle>() as u64;
+        let old = triangles.capacity() as u64;
+        let maximum = (budget / stride).saturating_sub(old);
+        let minimum = triangles.len() as u64 + 1;
+        if minimum > maximum {
+            return Err(SceneError::ResourceLimit {
+                resource: "transparent raster scratch bytes",
+                requested: old.saturating_add(minimum).saturating_mul(stride),
+                limit: budget,
+            });
+        }
+        // Include old and new allocations during growth. Start small and grow
+        // geometrically so ordinary transparency does not reallocate per face.
+        let capacity = old.saturating_mul(2).max(16).min(maximum) as usize;
+        triangles
+            .try_reserve_exact(capacity - triangles.len())
+            .map_err(|_| SceneError::Allocation {
+                bytes: capacity as u64 * stride,
+            })?;
+    }
+    triangles.push(triangle);
+    Ok(())
+}
 
 fn actor_distance(bounds: Option<gpui_mesh::Bounds>, eye: [f64; 3]) -> f64 {
     let Some(bounds) = bounds else {
@@ -199,6 +250,7 @@ fn draw_actor(
     height: u32,
     light: [f32; 3],
     blend: bool,
+    scratch_bytes: u64,
     depth: &mut [f32],
     rgba: &mut [u8],
 ) -> Result<(), SceneError> {
@@ -206,6 +258,12 @@ fn draw_actor(
         .active_transfer()
         .map(crate::TransferFunction::prepare)
         .transpose()?;
+    let material = RasterMaterial {
+        transfer,
+        color: actor.color,
+        opacity: actor.opacity,
+        light,
+    };
     // Screen triangles with their mean depth, for transparent sorting.
     let mut triangles: Vec<ScreenTriangle> = Vec::new();
     for chunk in &geometry.chunks {
@@ -237,35 +295,46 @@ fn draw_actor(
                         1.0,
                     ],
                     scalar: chunk.scalars[i],
+                    normal: [
+                        chunk.normals[i * 3],
+                        chunk.normals[i * 3 + 1],
+                        chunk.normals[i * 3 + 2],
+                    ],
                 }
             });
-            let normal_index = tri[0] as usize * 3;
-            let normal = [
-                chunk.normals[normal_index],
-                chunk.normals[normal_index + 1],
-                chunk.normals[normal_index + 2],
-            ];
-            let project = |clip: [f32; 4]| {
+            let project = |vertex: Vertex| {
+                let clip = vertex.position;
                 if clip[3] <= 0.0 {
                     return None;
                 }
-                Some((
-                    (clip[0] / clip[3] * 0.5 + 0.5) * width as f32,
-                    (0.5 - clip[1] / clip[3] * 0.5) * height as f32,
-                    clip[2] / clip[3],
-                ))
+                Some(ScreenVertex {
+                    point: (
+                        (clip[0] / clip[3] * 0.5 + 0.5) * width as f32,
+                        (0.5 - clip[1] / clip[3] * 0.5) * height as f32,
+                        clip[2] / clip[3],
+                    ),
+                    clip_w: clip[3],
+                    scalar: vertex.scalar,
+                    normal: vertex.normal,
+                })
             };
-            let mut emit = |[a, b, c]: [(f32, f32, f32); 3], mean_scalar: f32| {
-                let mut colour = transfer
-                    .as_ref()
-                    .map_or(actor.color, |tf| tf.map(f64::from(mean_scalar)));
-                colour[3] *= actor.opacity;
-                let shaded = shade_with_normal(colour, normal, light);
+            let mut emit = |vertices: [ScreenVertex; 3]| -> Result<(), SceneError> {
                 if blend {
-                    triangles.push((a, b, c, shaded, (a.2 + b.2 + c.2) / 3.0));
+                    let mean = vertices.iter().map(|v| v.point.2).sum::<f32>() / 3.0;
+                    let order = triangles.len();
+                    retain_triangle(
+                        &mut triangles,
+                        ScreenTriangle {
+                            vertices,
+                            depth: mean,
+                            order,
+                        },
+                        scratch_bytes,
+                    )?;
                 } else {
-                    rasterize(a, b, c, shaded, width, height, depth, rgba, false);
+                    rasterize(vertices, &material, width, height, depth, rgba, false);
                 }
+                Ok(())
             };
             let mut poly = if planes.is_empty() {
                 let clip_tri = local_tri.map(|vertex| Vertex {
@@ -283,14 +352,10 @@ fn draw_actor(
                 match tri_visibility {
                     BoundsVisibility::Outside => continue,
                     BoundsVisibility::Inside => {
-                        let [Some(a), Some(b), Some(c)] = clip_tri.map(|v| project(v.position))
-                        else {
+                        let [Some(a), Some(b), Some(c)] = clip_tri.map(project) else {
                             continue;
                         };
-                        emit(
-                            [a, b, c],
-                            (clip_tri[0].scalar + clip_tri[1].scalar + clip_tri[2].scalar) / 3.0,
-                        );
+                        emit([a, b, c])?;
                         continue;
                     }
                     BoundsVisibility::Intersecting => clip_tri.into_iter().collect::<Polygon>(),
@@ -312,25 +377,30 @@ fn draw_actor(
             if poly.len() < 3 {
                 continue;
             }
-            let projected: SmallVec<[Option<(f32, f32, f32)>; 16]> =
-                poly.iter().map(|vertex| project(vertex.position)).collect();
+            let projected: SmallVec<[Option<ScreenVertex>; 16]> =
+                poly.iter().copied().map(project).collect();
             for i in 1..poly.len() - 1 {
                 let (Some(a), Some(b), Some(c)) = (projected[0], projected[i], projected[i + 1])
                 else {
                     continue;
                 };
-                emit(
-                    [a, b, c],
-                    (poly[0].scalar + poly[i].scalar + poly[i + 1].scalar) / 3.0,
-                );
+                emit([a, b, c])?;
             }
         }
     }
     if blend {
-        triangles.sort_by(|a, b| b.4.partial_cmp(&a.4).unwrap_or(std::cmp::Ordering::Equal));
+        triangles.sort_unstable_by(|a, b| b.depth.total_cmp(&a.depth).then(a.order.cmp(&b.order)));
     }
-    for (a, b, c, colour, _) in triangles {
-        rasterize(a, b, c, colour, width, height, depth, rgba, blend);
+    for triangle in triangles {
+        rasterize(
+            triangle.vertices,
+            &material,
+            width,
+            height,
+            depth,
+            rgba,
+            blend,
+        );
     }
     // Line cells (streamlines, glyphs) draw as 1px projected segments.
     if !geometry.lines.is_empty() {
@@ -405,11 +475,23 @@ fn draw_lines(
     Ok(())
 }
 
-fn shade_with_normal(colour: [f32; 4], n: [f32; 3], light: [f32; 3]) -> [u8; 4] {
-    let diffuse = (n[0] * light[0] + n[1] * light[1] + n[2] * light[2])
-        .abs()
-        .clamp(0.0, 1.0);
-    let intensity = 0.35 + 0.65 * diffuse;
+fn light_intensity(n: [f32; 3], light: [f32; 3]) -> f32 {
+    let squared = n[0] * n[0] + n[1] * n[1] + n[2] * n[2];
+    let diffuse = if squared == 1.0 {
+        (n[0] * light[0] + n[1] * light[1] + n[2] * light[2])
+            .abs()
+            .clamp(0.0, 1.0)
+    } else if squared > 0.0 {
+        ((n[0] * light[0] + n[1] * light[1] + n[2] * light[2]) / squared.sqrt())
+            .abs()
+            .clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    0.35 + 0.65 * diffuse
+}
+
+fn shaded_color(colour: [f32; 4], intensity: f32) -> [u8; 4] {
     [
         (colour[0].clamp(0.0, 1.0) * intensity * 255.0) as u8,
         (colour[1].clamp(0.0, 1.0) * intensity * 255.0) as u8,
@@ -473,21 +555,114 @@ fn source_over(destination: &mut [u8], source: [u8; 4]) {
     }
 }
 
-#[allow(
-    clippy::too_many_arguments,
-    reason = "raster kernel over frame buffers"
-)]
 fn rasterize(
-    a: (f32, f32, f32),
-    b: (f32, f32, f32),
-    c: (f32, f32, f32),
-    colour: [u8; 4],
+    vertices: [ScreenVertex; 3],
+    material: &RasterMaterial<'_>,
     width: u32,
     height: u32,
     depth: &mut [f32],
     rgba: &mut [u8],
     blend: bool,
 ) {
+    let constant_normal = vertices.iter().all(|v| v.normal == vertices[0].normal);
+    let constant_scalar =
+        material.transfer.is_none() || vertices.iter().all(|v| v.scalar == vertices[0].scalar);
+    if constant_normal && constant_scalar {
+        let mut color = material
+            .transfer
+            .as_ref()
+            .map_or(material.color, |tf| tf.map(f64::from(vertices[0].scalar)));
+        color[3] *= material.opacity;
+        let colour = shaded_color(color, light_intensity(vertices[0].normal, material.light));
+        if colour[3] != 0 {
+            rasterize_pixels(vertices, width, height, depth, rgba, blend, |_| {
+                move |_| colour
+            });
+        }
+    } else {
+        rasterize_pixels(vertices, width, height, depth, rgba, blend, |vertices| {
+            let shader = FragmentShader::new(material, vertices, constant_normal, constant_scalar);
+            move |weights| shader.color(weights)
+        });
+    }
+}
+
+struct FragmentShader<'a, 'b> {
+    material: &'a RasterMaterial<'b>,
+    vertices: [ScreenVertex; 3],
+    inverse_w: Option<[f64; 3]>,
+    intensity: Option<f32>,
+    color: Option<[f32; 4]>,
+}
+
+impl<'a, 'b> FragmentShader<'a, 'b> {
+    fn new(
+        material: &'a RasterMaterial<'b>,
+        vertices: [ScreenVertex; 3],
+        constant_normal: bool,
+        constant_scalar: bool,
+    ) -> Self {
+        Self {
+            material,
+            inverse_w: if vertices.iter().all(|v| v.clip_w == vertices[0].clip_w) {
+                None
+            } else {
+                Some(vertices.map(|v| 1.0 / f64::from(v.clip_w)))
+            },
+            intensity: constant_normal.then(|| light_intensity(vertices[0].normal, material.light)),
+            color: constant_scalar.then(|| {
+                material
+                    .transfer
+                    .as_ref()
+                    .map_or(material.color, |tf| tf.map(f64::from(vertices[0].scalar)))
+            }),
+            vertices,
+        }
+    }
+
+    fn color(&self, weights: [f64; 3]) -> [u8; 4] {
+        // f64 normalization keeps finite f32 attributes finite even when 1/w
+        // exceeds f32 range. Equal clip w needs only affine interpolation.
+        let weights = if let Some(inverse_w) = self.inverse_w {
+            let corrected = std::array::from_fn::<_, 3, _>(|i| weights[i] * inverse_w[i]);
+            let inverse = 1.0 / corrected.iter().sum::<f64>();
+            corrected.map(|w| w * inverse)
+        } else {
+            weights
+        };
+        let intensity = self.intensity.unwrap_or_else(|| {
+            let normal = std::array::from_fn(|axis| {
+                (0..3)
+                    .map(|i| weights[i] * f64::from(self.vertices[i].normal[axis]))
+                    .sum::<f64>() as f32
+            });
+            light_intensity(normal, self.material.light)
+        });
+        let mut color = self.color.unwrap_or_else(|| {
+            let scalar = (0..3)
+                .map(|i| weights[i] * f64::from(self.vertices[i].scalar))
+                .sum();
+            self.material
+                .transfer
+                .as_ref()
+                .expect("variable scalar has transfer")
+                .map(scalar)
+        });
+        color[3] *= self.material.opacity;
+        shaded_color(color, intensity)
+    }
+}
+
+fn rasterize_pixels<S: Fn([f64; 3]) -> [u8; 4]>(
+    mut vertices: [ScreenVertex; 3],
+    width: u32,
+    height: u32,
+    depth: &mut [f32],
+    rgba: &mut [u8],
+    blend: bool,
+    make_shader: impl FnOnce([ScreenVertex; 3]) -> S,
+) {
+    let [a, b, c] = vertices.map(|v| v.point);
     let min_x = a.0.min(b.0).min(c.0).floor().max(0.0) as u32;
     let max_x =
         a.0.max(b.0)
@@ -513,13 +688,16 @@ fn rasterize(
         )
     });
     let area = CoverageEdge::new(points[0].0, points[1].0).at(points[2].0);
-    if area == 0.0 || colour[3] == 0 {
+    if area == 0.0 {
         return;
     }
     if area < 0.0 {
         points.swap(1, 2);
+        vertices.swap(1, 2);
     }
-    let inverse_area = (1.0 / area.abs()) as f32;
+    let inverse_area_f64 = 1.0 / area.abs();
+    let inverse_area = inverse_area_f64 as f32;
+    let shade = make_shader(vertices);
     let edges = [
         CoverageEdge::new(points[1].0, points[2].0),
         CoverageEdge::new(points[2].0, points[0].0),
@@ -551,6 +729,7 @@ fn rasterize(
             if z >= depth[idx] {
                 continue;
             }
+            let colour = shade([e0, e1, e2].map(|e| e * inverse_area_f64));
             if blend {
                 // Transparent passes preserve the destination's alpha contract.
                 source_over(&mut rgba[idx * 4..idx * 4 + 4], colour);
@@ -572,6 +751,117 @@ mod tests {
     use super::*;
     use crate::{Actor, TransferFunction};
     use gpui_mesh::{DataSet, Field};
+
+    #[test]
+    fn perspective_varyings_keep_finite_values_and_cancelling_normals_at_extreme_clip_w() {
+        let transfer = TransferFunction::from_stops(
+            [0.0, 1.0],
+            &[(0.0, [0.0, 0.0, 0.0, 1.0]), (1.0, [1.0; 4])],
+        );
+        let material = RasterMaterial {
+            transfer: Some(transfer.prepare().unwrap()),
+            color: [1.0; 4],
+            opacity: 1.0,
+            light: normalize3([-0.4, 0.7, 0.6]),
+        };
+        for scale in [1.0, f32::from_bits(1), f32::MAX / 4.0] {
+            let vertices = [
+                ScreenVertex {
+                    point: (0.0, 0.0, 0.5),
+                    clip_w: scale,
+                    scalar: 0.0,
+                    normal: [1.0, 0.0, 0.0],
+                },
+                ScreenVertex {
+                    point: (1.0, 0.0, 0.5),
+                    clip_w: scale * 2.0,
+                    scalar: 1.0,
+                    normal: [-1.0, 0.0, 0.0],
+                },
+                ScreenVertex {
+                    point: (0.0, 1.0, 0.5),
+                    clip_w: scale * 4.0,
+                    scalar: 0.5,
+                    normal: [0.0; 3],
+                },
+            ];
+            // Perspective weights become [4/9,4/9,1/9]: scalar 1/2 and
+            // exactly cancelling normals. Zero normals receive ambient light.
+            assert_eq!(
+                FragmentShader::new(&material, vertices, false, false).color([0.25, 0.5, 0.25]),
+                [44, 44, 44, 255]
+            );
+        }
+        let maximum = f64::from(f32::MAX);
+        let transfer = TransferFunction::from_stops(
+            [-maximum, maximum],
+            &[(0.0, [0.0, 0.0, 0.0, 1.0]), (1.0, [1.0; 4])],
+        );
+        let material = RasterMaterial {
+            transfer: Some(transfer.prepare().unwrap()),
+            ..material
+        };
+        let vertices = [f32::MAX; 3].map(|scalar| ScreenVertex {
+            point: (0.0, 0.0, 0.5),
+            clip_w: 1.0,
+            scalar,
+            normal: [0.0, 0.0, 1.0],
+        });
+        let color = FragmentShader::new(&material, vertices, true, false).color([0.25, 0.5, 0.25]);
+        assert_eq!(color[3], 255);
+        assert!(
+            color[0] > 150,
+            "finite convex scalar interpolation overflowed: {color:?}"
+        );
+    }
+
+    #[test]
+    fn transparent_scratch_limits_cover_growth_peak_and_leave_opaque_work_available() {
+        let vertex = ScreenVertex {
+            point: (0.0, 0.0, 0.5),
+            clip_w: 1.0,
+            scalar: 0.0,
+            normal: [0.0, 0.0, 1.0],
+        };
+        let triangle = || ScreenTriangle {
+            vertices: [vertex; 3],
+            depth: 0.5,
+            order: 0,
+        };
+        let stride = size_of::<ScreenTriangle>() as u64;
+        let mut storage = Vec::new();
+        retain_triangle(&mut storage, triangle(), stride).unwrap();
+        assert_eq!(storage.capacity(), 1);
+        assert!(
+            matches!(retain_triangle(&mut storage, triangle(), stride * 3 - 1), Err(SceneError::ResourceLimit { requested, .. }) if requested == stride * 3)
+        );
+        assert_eq!((storage.len(), storage.capacity()), (1, 1));
+        retain_triangle(&mut storage, triangle(), stride * 3).unwrap();
+        assert_eq!((storage.len(), storage.capacity()), (2, 2));
+
+        let data = DataSet::surface(
+            "scratch",
+            vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 1.0, 0.0]],
+            &[[0, 1, 2]],
+        );
+        let mut scene = Scene::new().with_actor(Actor::new(data));
+        let camera = Camera::fitted(scene.bounds().unwrap());
+        let mut limits = RenderLimits {
+            max_dimension: 32,
+            max_frame_bytes: 32 * 32 * 8,
+        };
+        render_with_limits(&scene, &camera, 32, 32, limits).unwrap();
+        scene.actors[0].opacity = 0.5;
+        assert!(matches!(
+            render_with_limits(&scene, &camera, 32, 32, limits),
+            Err(SceneError::ResourceLimit {
+                resource: "transparent raster scratch bytes",
+                ..
+            })
+        ));
+        limits.max_frame_bytes += stride;
+        render_with_limits(&scene, &camera, 32, 32, limits).unwrap();
+    }
 
     #[test]
     fn renders_a_coloured_triangle() {

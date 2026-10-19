@@ -7,7 +7,9 @@ use crate::SceneError;
 /// Limits applied before allocating render targets or CPU frame buffers.
 ///
 /// The frame budget covers simultaneously live color/depth/staging storage
-/// requested by the operation, excluding retained scene geometry. Hosts should
+/// requested by the operation and software transparent-triangle storage,
+/// including old/new triangle allocations during growth. It excludes retained
+/// scene geometry and scene-order metadata. Hosts should
 /// divide their total memory allowance among these separate working sets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RenderLimits {

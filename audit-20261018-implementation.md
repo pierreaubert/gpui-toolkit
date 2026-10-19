@@ -1364,3 +1364,90 @@ and pressure/large-dataset integrations pass with Metal required.
   C3/C4/C5, retained scene/GPU work, all remaining platform, memory-pressure,
   scheduling, text/FFI, Taffy, CUDA/MLX and physical-device requirements remain
   open. This checkpoint does not complete the audit implementation.
+
+## Perspective-correct surface interpolation checkpoint
+
+- Software triangles now carry scalar and smooth normal attributes through user
+  and homogeneous frustum clipping. Raster coverage/depth keeps the existing
+  subpixel/top-left contract; fragment attributes use perspective-correct
+  barycentric weights before transfer sampling and two-sided lighting. Winding
+  reversal reorders the attributes with the projected vertices. Constant scalar
+  and normal triangles retain a pre-shaded pixel loop. Variable triangles
+  precompute constant colors/lighting and reciprocal clip weights once, and
+  equal clip weights use affine interpolation without a per-fragment reciprocal.
+  f64 attribute sums prevent finite f32 scalar averages from overflowing.
+- Software and WGSL define a zero interpolated normal as ambient light, avoiding
+  dependence on `normalize(0)`. Private regressions cover cancelling normals,
+  reciprocal clip weights beyond f32 range, equivalent clip-w ratios from
+  subnormal through very large finite floats, and finite maximum f32 scalars.
+  These kernel checks do not qualify every extreme camera/geometry on a device.
+- `tests/surface_interpolation.rs` independently intersects f64 pixel rays with
+  world triangles and derives scalar values, area-weighted smooth normals,
+  lighting and straight-alpha composition. It exercises perspective/orthographic
+  projections, varying triangle depth, near/user clipping, flat color with smooth
+  normals, point-field/alpha gradients, and origins `0` / `1e12 + 0.125`.
+  Sixteen software fixture renders stay within 1 byte level for opaque content
+  and 2 for transparency; eight Metal renders use a 3-level bound for GPU
+  interpolation/LUT/unorm rounding. Each fixture requires more than 100 interior
+  samples and a nonconstant color range. Coverage boundaries are deliberately
+  excluded from this attribute oracle and retain the separate coverage tests.
+  Unchanged `b3d438c4` fails the new oracle: one pixel returns 104 instead of the
+  independent expected 78. The raw failure is preserved with the paired evidence.
+- Transparent triangle storage now shares `RenderLimits.max_frame_bytes` with
+  RGBA/depth buffers. Growth preflights simultaneous old/new payloads before
+  fallible reservation, and stable tie order uses an in-place sort without a
+  second sort buffer. Tests check exact growth-peak boundaries, rejection without
+  changing capacity, an opaque frame with no remaining scratch allowance, and
+  admission of the corresponding transparent triangle with a fitting allowance.
+  A frame whose pixels fit can now return a resource-limit error when its
+  transparent scratch does not fit; hosts can choose a larger explicit budget.
+  Retained geometry, scene-order metadata and allocator overhead remain outside
+  this bound. It is not a total process-memory or physical mobile-RSS guarantee.
+- `qa/perf/20261019-surface-interpolation-initial.json` retains the first correct
+  prototype's costs. `qa/perf/20261019-surface-interpolation-paired.json` records
+  the final implementation against unchanged `b3d438c4`: identical release source
+  and locks, separate targets, allocator-disabled ABBA twice, separate allocation
+  builds, 21 cases, source/test/binary hashes, raw samples and actual aggregate
+  process CPU. Geometry is prepared once outside timing; warm frames include
+  clipping/projection, shading, frame allocation and transparent sorting/scratch.
+  Baseline images have incorrect constant triangle shading, so these are
+  correctness-cost measurements, not equivalent-output speedup claims.
+
+  | Warm frame | Inexact baseline CPU | Corrected CPU | Baseline / corrected allocated bytes |
+  |---|---:|---:|---:|
+  | Constant-normal flat plane, 512² | 84.0 µs | 83.5 µs | 2,097,152 / 2,097,152 |
+  | Scalar-gradient plane, 512² | 84.5 µs | 276.0 µs | 2,097,152 / 2,097,152 |
+  | 48³ grid, flat color / smooth normals, 128² | 1,596.0 µs | 1,734.5 µs | 131,072 / 131,072 |
+  | 48³ grid, scalar gradient, 128² | 1,675.0 µs | 2,081.0 µs | 131,072 / 131,072 |
+  | 48³ grid, translucent gradient, 128² | 3,029.5 µs | 3,421.5 µs | 2,739,280 / 3,801,152 |
+  | 24³ grid, scalar gradient, 512² | 1,503.0 µs | 2,820.0 µs | 2,097,152 / 2,097,152 |
+
+  Constant shading retains its small pixel loop and ordinary opaque frames
+  allocate only RGBA/depth. The first prototype's 48³ flat-color CPU ratio was
+  1.199; specialization reduced it to 1.087 in the final paired run. Compact
+  projected vertices reduce that prototype's translucent allocation from
+  4,587,584 to 3,801,152 bytes. Costs remain: actual smooth lighting/transfer
+  evaluation is more expensive, and corrected translucent attributes still use
+  about 39% more newly allocated bytes than the old path (15 versus 18 calls).
+  Compact transparent commands, retained preparation and faster exact transfer
+  evaluation remain optimization work. Allocation bytes include positive
+  reallocation growth; they are not full resized-buffer traffic, peak/live/RSS
+  or energy. Shared-host affinity/thermal state was uncontrolled. No physical
+  phone or whole-application power claim follows from these timings.
+- Required-Metal scene verification passes: 93 library tests, the new two-test
+  fragment integration, existing public/pressure integrations, and the actual
+  native viewer interaction test at 2× DPI. Software-only verification passes
+  71 library tests plus the independent interpolation test. That configuration
+  exposed a pre-existing missing test-only `effective_color` helper; its cfg now
+  matches the presentation tests, and an unused GPU-only fixture is gated to its
+  consumers. Strict Clippy passes for production scene code and the new
+  integration target with `--no-deps`; the broader all-target gate still fails
+  on existing example/unit-test and UI-kit dependency lints. These are not
+  suppressed or reported as a broad pass. Changed-file formatting, diff checks
+  and the final GPU/GPUI wasm library closure pass.
+- C4 remains open: wireframe rendering, GPU line/point parity, arbitrary
+  intersecting-transparency composition, nonlinear/banded transfer parity and
+  remaining f64-to-f32 geometry/scalar limits still require work. Other open
+  correctness/platform, aggregate memory, scheduling, text/FFI, Taffy, CUDA/MLX,
+  device and final-acceptance requirements remain unchanged. The original audit
+  is frozen; this checkpoint is implementation progress, not full completion.

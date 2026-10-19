@@ -421,7 +421,7 @@ impl Actor {
         self.field.as_ref().and(self.transfer.as_ref())
     }
 
-    #[cfg(any(feature = "gpu", feature = "gpui"))]
+    #[cfg(any(test, feature = "gpu", feature = "gpui"))]
     pub(crate) fn effective_color(&self) -> [f32; 4] {
         if self.active_transfer().is_some() {
             [0.0; 4]
@@ -515,7 +515,7 @@ pub(crate) fn translated_clipped_scene(offset: f64) -> Scene {
     scene
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "gpu", feature = "gpui")))]
 pub(crate) fn coefficient_sensitive_scene() -> Scene {
     let dataset = DataSet::surface(
         "precision",
