@@ -41,7 +41,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.10.44"
+version = "0.10.47"
 authors = ["Pierre F. Aubert pierre@spinorama.org"]
 edition = "2024"
 license = "ISC"

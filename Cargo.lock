@@ -2835,7 +2835,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-python-runtime"
-version = "0.10.44"
+version = "0.10.47"
 dependencies = [
  "arrow-array",
  "arrow-cast",
@@ -2999,7 +2999,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit"
-version = "0.10.44"
+version = "0.10.47"
 dependencies = [
  "gpui-au",
  "gpui-audio-kit",
