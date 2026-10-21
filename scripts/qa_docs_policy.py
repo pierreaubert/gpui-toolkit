@@ -4,11 +4,67 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 import pathlib
 import re
 import tomllib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+THIRD_PARTIES_GIT_URL = "https://github.com/pierreaubert/sotf-3rdparties"
+THIRD_PARTIES_PROBE = "gpui/crates/gpui/VENDORED.md"
+
+
+def _cargo_lock_third_parties_rev() -> str | None:
+    lock = ROOT / "Cargo.lock"
+    if not lock.is_file():
+        return None
+    prefix = f'source = "git+{THIRD_PARTIES_GIT_URL}'
+    for line in lock.read_text().splitlines():
+        stripped = line.strip()
+        if stripped.startswith(prefix):
+            rev = stripped.rsplit("#", 1)[-1].rstrip('"')
+            if rev:
+                return rev
+    return None
+
+
+def _third_parties_dir() -> tuple[pathlib.Path, bool] | None:
+    """Locate the sotf-3rdparties tree; the flag marks cargo snapshots.
+
+    Mirrors ``sotf_third_parties_dir()`` in gpui-release-gates: the
+    ``SOTF_3RDPARTIES_DIR`` override wins, then a sibling consolidated
+    checkout (monorepo layout), then the cargo git checkout at the
+    Cargo.lock-pinned revision. Cargo checkouts are immutable snapshots of
+    another repository, so their embedded ``Last reviewed`` dates cannot be
+    refreshed from here; the vendored-patch manifest in this repository
+    owns the review cadence for them.
+    """
+    override = os.environ.get("SOTF_3RDPARTIES_DIR")
+    if override:
+        return pathlib.Path(override), False
+    sibling = ROOT / "../sotf-3rdparties"
+    if (sibling / THIRD_PARTIES_PROBE).is_file():
+        return sibling, False
+    rev = _cargo_lock_third_parties_rev()
+    if rev is None:
+        return None
+    homes: list[pathlib.Path] = []
+    if cargo_home := os.environ.get("CARGO_HOME"):
+        homes.append(pathlib.Path(cargo_home))
+    if home := os.environ.get("HOME"):
+        homes.append(pathlib.Path(home) / ".cargo")
+    for home in homes:
+        checkouts = home / "git/checkouts"
+        if not checkouts.is_dir():
+            continue
+        for checkout in sorted(checkouts.glob("sotf-3rdparties-*")):
+            for revision in sorted(checkout.iterdir()):
+                if rev.startswith(revision.name) and (
+                    revision / THIRD_PARTIES_PROBE
+                ).is_file():
+                    return revision, True
+    return None
 
 
 def check() -> list[str]:
@@ -79,16 +135,16 @@ def check() -> list[str]:
     if missing:
         errors.append("README workspace inventory missing: " + ", ".join(missing))
 
+    third_parties = _third_parties_dir()
     gpui_dependency = cargo["workspace"]["dependencies"]["gpui"]
     gpui_revision = gpui_dependency.get("tag")
     snapshot_dir: pathlib.Path | None = None
     if gpui_path := gpui_dependency.get("path"):
         snapshot_dir = ROOT / gpui_path
-    elif "git" in gpui_dependency:
-        # Git-sourced snapshot: the consolidated checkout mirrors the same
-        # tree at the sibling location, which carries the VENDORED.md
-        # provenance record with the upstream base ref.
-        snapshot_dir = ROOT / "../sotf-3rdparties/gpui/crates/gpui"
+    elif "git" in gpui_dependency and third_parties is not None:
+        # Git-sourced snapshot: the resolved sotf-3rdparties tree carries
+        # the VENDORED.md provenance record with the upstream base ref.
+        snapshot_dir = third_parties[0] / "gpui/crates/gpui"
     if gpui_revision is None and snapshot_dir is not None:
         vendored = snapshot_dir / "VENDORED.md"
         if vendored.is_file():
@@ -123,32 +179,43 @@ def check() -> list[str]:
                 f"vendored patch review overdue: {name.group(1)} "
                 f"({(today - reviewed_on).days} days > {cadence_days} days)"
             )
-    for path in paths:
-        directory = ROOT / path
-        if not directory.is_dir():
-            errors.append(f"vendored path does not exist: {path}")
-            continue
-        vendoring = directory / "VENDORING.md"
-        vendored = directory / "VENDORED.md"
-        if vendoring.is_file():
-            # Hand-written governance doc: full review-date and heading checks.
-            text = vendoring.read_text()
-            match = re.search(r"Last reviewed:\s*(\d{4}-\d{2}-\d{2})", text)
-            if not match:
-                errors.append(f"vendoring review date missing: {path}")
-            elif (today - dt.date.fromisoformat(match.group(1))).days > 90:
-                errors.append(f"vendoring review overdue (>90 days): {path}")
-            for heading in ("## Upstream", "## Why Vendored", "## Verification"):
-                if heading not in text:
-                    errors.append(f"{path}/VENDORING.md lacks {heading}")
-        elif vendored.is_file():
-            # Script-generated provenance record (import_gpui_upstream.py).
-            text = vendored.read_text()
-            for marker in ("- Upstream:", "- Base ref:"):
-                if marker not in text:
-                    errors.append(f"{path}/VENDORED.md lacks '{marker}' provenance")
-        else:
-            errors.append(f"vendored path lacks provenance doc (VENDORING.md or VENDORED.md): {path}")
+    if third_parties is None:
+        errors.append(
+            "sotf-3rdparties checkout not found (set SOTF_3RDPARTIES_DIR "
+            "or build the workspace once so cargo materializes it)"
+        )
+    else:
+        base, is_snapshot = third_parties
+        for path in paths:
+            directory = base / path
+            if not directory.is_dir():
+                errors.append(f"vendored path does not exist: {path}")
+                continue
+            vendoring = directory / "VENDORING.md"
+            vendored = directory / "VENDORED.md"
+            if vendoring.is_file():
+                # Hand-written governance doc: review-date and heading checks.
+                # The overdue clock only applies to writable checkouts; for
+                # cargo snapshots the manifest cadence above is authoritative.
+                text = vendoring.read_text()
+                match = re.search(r"Last reviewed:\s*(\d{4}-\d{2}-\d{2})", text)
+                if not match:
+                    errors.append(f"vendoring review date missing: {path}")
+                elif not is_snapshot and (
+                    today - dt.date.fromisoformat(match.group(1))
+                ).days > 90:
+                    errors.append(f"vendoring review overdue (>90 days): {path}")
+                for heading in ("## Upstream", "## Why Vendored", "## Verification"):
+                    if heading not in text:
+                        errors.append(f"{path}/VENDORING.md lacks {heading}")
+            elif vendored.is_file():
+                # Script-generated provenance record (import_gpui_upstream.py).
+                text = vendored.read_text()
+                for marker in ("- Upstream:", "- Base ref:"):
+                    if marker not in text:
+                        errors.append(f"{path}/VENDORED.md lacks '{marker}' provenance")
+            else:
+                errors.append(f"vendored path lacks provenance doc (VENDORING.md or VENDORED.md): {path}")
 
     return errors
 

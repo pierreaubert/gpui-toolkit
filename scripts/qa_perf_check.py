@@ -100,6 +100,40 @@ def comparable_environment(data: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _cpu_models_comparable(
+    baseline_environment: dict[str, str], current_environment: dict[str, str]
+) -> bool:
+    if baseline_environment["cpu_model"] == current_environment["cpu_model"]:
+        return True
+    # qa_perf_baseline.cpu_model() falls back to the platform machine string
+    # when the detailed CPU identity is unavailable (for example when sysctl
+    # is blocked). A fallback label carries no hardware detail, so it stays
+    # comparable with a detailed identity on the same system+machine; two
+    # detailed identities must still match exactly.
+    return (
+        baseline_environment["cpu_model"] == baseline_environment["machine"]
+        or current_environment["cpu_model"] == current_environment["machine"]
+    )
+
+
+def _rustc_releases_comparable(baseline: str, current: str) -> bool:
+    if baseline == current:
+        return True
+
+    # The workspace floats on the stable channel. A patch release within one
+    # stable series does not change code-generation policy, so requiring an
+    # exact patch match would force a re-baseline on every toolchain point
+    # release without adding regression signal.
+    def series(release: str) -> tuple[str, str] | None:
+        parts = release.split(".")
+        if len(parts) >= 2 and all(part.isdigit() for part in parts[:2]):
+            return parts[0], parts[1]
+        return None
+
+    baseline_series = series(baseline)
+    return baseline_series is not None and baseline_series == series(current)
+
+
 def require_comparable_environments(
     baseline_data: dict[str, Any],
     current_data: dict[str, Any],
@@ -108,7 +142,17 @@ def require_comparable_environments(
 ) -> None:
     baseline_environment = comparable_environment(baseline_data)
     current_environment = comparable_environment(current_data)
-    if baseline_environment != current_environment:
+    comparable = (
+        baseline_environment["system"] == current_environment["system"]
+        and baseline_environment["machine"] == current_environment["machine"]
+        and baseline_environment["rustc_host"] == current_environment["rustc_host"]
+        and _cpu_models_comparable(baseline_environment, current_environment)
+        and _rustc_releases_comparable(
+            baseline_environment["rustc_release"],
+            current_environment["rustc_release"],
+        )
+    )
+    if not comparable:
         raise InputError(
             "benchmark environments are not comparable; re-baseline intentionally "
             f"instead of interpreting host drift as a code regression: {baseline_path} "

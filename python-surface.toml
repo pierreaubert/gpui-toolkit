@@ -18150,6 +18150,30 @@ path = "crates/gpui-ui-kit"
 [[inventory.crate]]
 id = "gpui-ui-kit-macros"
 path = "crates/gpui-ui-kit-macros"
+[[inventory.crate]]
+id = "gpui-dataset-transformation"
+path = "crates/gpui-dataset-transformation"
+[[inventory.crate]]
+id = "gpui-foreign-parent"
+path = "crates/gpui-foreign-parent"
+[[inventory.crate]]
+id = "gpui-linux-foreign"
+path = "crates/gpui-linux-foreign"
+[[inventory.crate]]
+id = "gpui-mesh"
+path = "crates/gpui-mesh"
+[[inventory.crate]]
+id = "gpui-scene3d"
+path = "crates/gpui-scene3d"
+[[inventory.crate]]
+id = "gpui-spinorama"
+path = "crates/gpui-spinorama"
+[[inventory.crate]]
+id = "gpui-web-foreign"
+path = "crates/gpui-web-foreign"
+[[inventory.crate]]
+id = "gpui-win-foreign"
+path = "crates/gpui-win-foreign"
 
 # The initial conformance entries are the already-shipped simulation surface.
 # New public Python APIs must add their disposition and test in the same change.

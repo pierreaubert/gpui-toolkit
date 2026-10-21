@@ -123,14 +123,14 @@ mod tests {
             max_frame_bytes: 1024,
         };
         assert_eq!(limits.pixel_count(8, 16, 8).unwrap(), 128);
-        assert!(limits.pixel_count(8, 17, 8).is_err());
-        assert!(limits.pixel_count(65_536, 65_536, 8).is_err());
-        assert!(limits.pixel_count(0, 1, 4).is_err());
-        assert!(limits.pixel_count(1, 100_001, 4).is_err());
+        limits.pixel_count(8, 17, 8).unwrap_err();
+        limits.pixel_count(65_536, 65_536, 8).unwrap_err();
+        limits.pixel_count(0, 1, 4).unwrap_err();
+        limits.pixel_count(1, 100_001, 4).unwrap_err();
         let unlimited = RenderLimits {
             max_dimension: u32::MAX,
             max_frame_bytes: u64::MAX,
         };
-        assert!(unlimited.pixel_count(u32::MAX, u32::MAX, 8).is_err());
+        unlimited.pixel_count(u32::MAX, u32::MAX, 8).unwrap_err();
     }
 }

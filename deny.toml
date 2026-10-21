@@ -24,6 +24,13 @@ ignore = [
     # Unmaintained async-std via vendored http_client -> async-tar (entered the lock with
     # the Phase-1 vendored closure); no safe upgrade until upstream Zed moves off it.
     "RUSTSEC-2025-0052",
+    # Unmaintained zbus support crates via vendored gpui_linux -> accesskit_unix/atspi
+    # (Linux accessibility path in the sotf-3rdparties pin); no safe upgrade until the
+    # vendored Linux backend moves to a maintained zbus stack. Tracked in
+    # dependency_hygiene.rs.
+    "RUSTSEC-2026-0370",
+    "RUSTSEC-2026-0371",
+    "RUSTSEC-2026-0372",
 ]
 
 [licenses]

@@ -323,6 +323,112 @@ mod tests {
     }
 
     #[test]
+    fn decodes_header_defaults_and_splits_meter_planes() {
+        let frame: AudioFrame = serde_json::from_str(
+            r#"{"resource_id":"m","generation":1,"sequence":1,"frame_kind":"meter","byte_length":16,"shape":[2,2],"sample_rate":48000.0}"#,
+        )
+        .unwrap();
+        assert_eq!(frame.dtype, "f32");
+        assert_eq!(frame.byte_order, "little");
+        assert_eq!(frame.finite_policy, "drop_frame");
+        assert_eq!(frame.coalesce, "latest");
+        assert!(frame.payload.is_empty());
+
+        let mut store = AudioFrameStore::new();
+        let mut dual_plane = meter(1, &[-12.0, -6.0, -3.0, -1.0]);
+        dual_plane.shape = vec![2, 2];
+        assert_eq!(store.ingest(dual_plane).unwrap(), AudioFrameOutcome::Stored);
+        let retained = store.get("main-meter").unwrap();
+        assert_eq!(retained.meter_levels().unwrap(), &[-12.0, -6.0]);
+        assert_eq!(retained.meter_peaks().unwrap(), &[-3.0, -1.0]);
+    }
+
+    #[test]
+    fn validates_spectrum_frames_and_rejects_bad_headers() {
+        let mut store = AudioFrameStore::new();
+        let mut spectrum = meter(1, &[0.25, 0.5, 0.75]);
+        spectrum.resource_id = "analyser".into();
+        spectrum.frame_kind = AudioFrameKind::Spectrum;
+        spectrum.shape = vec![3];
+        spectrum.minimum_frequency = Some(20.0);
+        spectrum.maximum_frequency = Some(20_000.0);
+        assert_eq!(
+            store.ingest(spectrum.clone()).unwrap(),
+            AudioFrameOutcome::Stored
+        );
+        assert!(store.get("analyser").unwrap().meter_levels().is_none());
+        assert!(store.get("analyser").unwrap().meter_peaks().is_none());
+
+        let mut missing_band = spectrum.clone();
+        missing_band.sequence = 2;
+        missing_band.minimum_frequency = None;
+        assert_eq!(
+            store.ingest(missing_band),
+            Err(AudioFrameError::InvalidMetadata)
+        );
+
+        let mut bad_planes = meter(1, &[1.0, 2.0]);
+        bad_planes.shape = vec![1, 3];
+        assert_eq!(
+            store.ingest(bad_planes),
+            Err(AudioFrameError::InvalidMetadata)
+        );
+
+        let mut blank_id = meter(1, &[1.0]);
+        blank_id.resource_id = "  ".into();
+        assert_eq!(store.ingest(blank_id), Err(AudioFrameError::InvalidId));
+
+        let mut oversized = meter(1, &[1.0]);
+        oversized.byte_length = MAX_AUDIO_FRAME_BYTES + 4;
+        assert_eq!(
+            store.ingest(oversized),
+            Err(AudioFrameError::TooLarge {
+                limit: MAX_AUDIO_FRAME_BYTES
+            })
+        );
+
+        let mut zero_generation = meter(1, &[1.0]);
+        zero_generation.generation = 0;
+        assert_eq!(
+            store.ingest(zero_generation),
+            Err(AudioFrameError::InvalidMetadata)
+        );
+
+        let mut truncated = meter(1, &[1.0, 2.0]);
+        truncated.payload.truncate(4);
+        assert_eq!(
+            store.ingest(truncated),
+            Err(AudioFrameError::InvalidPayload {
+                received: 4,
+                expected: 8
+            })
+        );
+    }
+
+    #[test]
+    fn enforces_stream_limit_and_clears_retained_frames() {
+        let mut store = AudioFrameStore::new();
+        for index in 0..MAX_AUDIO_STREAMS {
+            let mut frame = meter(1, &[-1.0]);
+            frame.resource_id = format!("stream-{index}");
+            assert_eq!(store.ingest(frame).unwrap(), AudioFrameOutcome::Stored);
+        }
+        let mut overflow = meter(1, &[-1.0]);
+        overflow.resource_id = "one-too-many".into();
+        assert_eq!(
+            store.ingest(overflow),
+            Err(AudioFrameError::StreamLimit {
+                limit: MAX_AUDIO_STREAMS
+            })
+        );
+        assert_eq!(store.stats().streams, MAX_AUDIO_STREAMS);
+        store.clear();
+        assert_eq!(store.stats().streams, 0);
+        assert_eq!(store.stats().bytes_used, 0);
+        assert!(store.get("stream-0").is_none());
+    }
+
+    #[test]
     fn drops_non_finite_frames_and_releases_generation_safely() {
         let mut store = AudioFrameStore::new();
         assert_eq!(

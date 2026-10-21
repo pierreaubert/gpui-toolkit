@@ -378,7 +378,7 @@ impl RadioGroup {
                         .when(!self.wrap_labels, |label| {
                             label.overflow_hidden().text_ellipsis().whitespace_nowrap()
                         })
-                        .when(self.wrap_labels, |label| label.whitespace_normal())
+                        .when(self.wrap_labels, gpui::Styled::whitespace_normal)
                         .text_color(if option_disabled {
                             theme.disabled_label
                         } else {

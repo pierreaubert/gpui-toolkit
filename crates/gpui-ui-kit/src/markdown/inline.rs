@@ -62,7 +62,7 @@ impl Inline {
                     style = stack.pop().unwrap_or_default();
                 }
                 Event::Text(text) | Event::Html(text) | Event::InlineHtml(text) => {
-                    result.append(&text, &style)
+                    result.append(&text, &style);
                 }
                 Event::Code(text) => {
                     let mut code = style.clone();
@@ -174,7 +174,7 @@ impl RenderOnce for InlineMarkdown {
         container =
             apply_native_accessibility(container, label, &AriaProps::with_role(AriaRole::Link))
                 .on_a11y_action(gpui::AccessibleAction::Click, move |_, _, cx| {
-                    cx.open_url(&accessible_url)
+                    cx.open_url(&accessible_url);
                 });
         let text = StyledText::new(parsed.text)
             .with_highlights(highlights)
@@ -193,7 +193,7 @@ impl RenderOnce for InlineMarkdown {
                     }
                     "left" | "up" => {
                         state.update(cx, |state, _| {
-                            state.1 = (state.1 + keyboard_urls.len() - 1) % keyboard_urls.len()
+                            state.1 = (state.1 + keyboard_urls.len() - 1) % keyboard_urls.len();
                         });
                     }
                     "right" | "down" => {

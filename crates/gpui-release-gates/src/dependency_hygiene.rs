@@ -295,6 +295,15 @@ const DEPENDENCY_ADVISORY_TRIAGE: &[DependencyAdvisoryTriage] = &[
         current_decision: "Tracked as unmaintained-warning debt flagged by a freshly published advisory; no safe upgrade available.",
         required_action: "Keep the cargo-deny ignore visible in release notes and review replacements during dependency upgrade work.",
     },
+    DependencyAdvisoryTriage {
+        advisory_id: "RUSTSEC-2026-0370 / RUSTSEC-2026-0371 / RUSTSEC-2026-0372",
+        crate_name: "zvariant, zbus_names, zvariant_derive",
+        affected_versions: "zvariant 5.15.0, zbus_names 4.3.4, zvariant_derive 5.15.0",
+        status: DependencyAdvisoryTriageStatus::WarningTracked,
+        affected_path: "vendored gpui_linux -> accesskit_unix/atspi/ashpd Linux accessibility path (sotf-3rdparties pin)",
+        current_decision: "Tracked as unmaintained-warning debt flagged by freshly published advisories; no safe upgrade until the vendored Linux backend moves to a maintained zbus stack.",
+        required_action: "Keep the cargo-deny ignores visible in release notes and drop them once the vendored gpui_linux dependency closure leaves the unmaintained zbus support crates.",
+    },
 ];
 
 /// Return the current dependency hygiene report.

@@ -140,6 +140,62 @@ class PerformanceEnvironmentTests(unittest.TestCase):
                 fixture(common), fixture(current), "baseline", "current"
             )
 
+    def test_fallback_cpu_label_matches_detailed_identity(self) -> None:
+        baseline = fixture(
+            {
+                "system": "Darwin",
+                "machine": "arm64",
+                "cpu_model": "arm64",
+                "rustc": {"release": "1.99.0", "host": "aarch64-apple-darwin"},
+            }
+        )
+        current = fixture(
+            {
+                "system": "Darwin",
+                "machine": "arm64",
+                "cpu_model": "Apple M4 Pro | Mac16,11",
+                "rustc": {"release": "1.99.0", "host": "aarch64-apple-darwin"},
+            }
+        )
+        qa_perf_check.require_comparable_environments(
+            baseline, current, Path("baseline"), Path("current")
+        )
+
+    def test_rustc_patch_release_stays_comparable(self) -> None:
+        common = {
+            "system": "Darwin",
+            "machine": "arm64",
+            "cpu_model": "Apple M4 Pro | Mac16,11",
+        }
+        baseline = fixture(
+            {**common, "rustc": {"release": "1.99.0", "host": "aarch64-apple-darwin"}}
+        )
+        current = fixture(
+            {**common, "rustc": {"release": "1.99.1", "host": "aarch64-apple-darwin"}}
+        )
+        qa_perf_check.require_comparable_environments(
+            baseline, current, Path("baseline"), Path("current")
+        )
+
+    def test_rustc_minor_release_is_rejected(self) -> None:
+        common = {
+            "system": "Darwin",
+            "machine": "arm64",
+            "cpu_model": "Apple M4 Pro | Mac16,11",
+        }
+        baseline = fixture(
+            {**common, "rustc": {"release": "1.99.0", "host": "aarch64-apple-darwin"}}
+        )
+        current = fixture(
+            {**common, "rustc": {"release": "1.100.0", "host": "aarch64-apple-darwin"}}
+        )
+        with self.assertRaisesRegex(
+            qa_perf_check.InputError, "environments are not comparable"
+        ):
+            qa_perf_check.require_comparable_environments(
+                baseline, current, Path("baseline"), Path("current")
+            )
+
     def test_source_revision_does_not_make_hosts_incomparable(self) -> None:
         environment = {
             "system": "TestOS",

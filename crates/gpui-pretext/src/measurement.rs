@@ -850,6 +850,9 @@ mod tests {
     }
 
     #[test]
+    // The bare block scopes the first session borrow; `semicolon_outside_block`
+    // and `semicolon_if_nothing_returned` cannot both be satisfied there.
+    #[allow(clippy::semicolon_outside_block)]
     fn unkeyed_sessions_cache_within_one_borrow_and_start_fresh_afterwards() {
         struct Counting {
             width: f64,

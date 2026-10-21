@@ -11,14 +11,18 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # These crates translate between Rust and native platform ABIs. Their
 # callbacks, raw handles, and Objective-C/JNI state share one FFI ownership
-# contract, so the policy treats each backend crate as a boundary.
+# contract, so the policy treats each backend crate as a boundary. The
+# foreign-parent bindings are the same shape: they own GPUI editors inside
+# plugin-host windows (HWND, X11, Wayland) behind C ABI exports.
 FFI_BOUNDARY_DIRS = (
     "crates/gpui-android/",
     "crates/gpui-au/",
     "crates/gpui-ios/",
+    "crates/gpui-linux-foreign/",
     "crates/gpui-showcase/android/",
     "crates/gpui-showcase/ios/",
     "crates/gpui-showcase/tvos/",
+    "crates/gpui-win-foreign/",
 )
 
 # The retained Metal mesh backend writes shared Metal buffers through native
@@ -32,8 +36,15 @@ FFI_BOUNDARY_DIRS = (
 # session-private 0600, opened `O_NOFOLLOW | O_CLOEXEC` after the publisher
 # closed it, unlinked on Unix at map time, and the crate root denies
 # `unsafe_code` with one targeted `#[allow]` on the mapping function.
+# gpui-foreign-parent is the platform-neutral core shared by the
+# foreign-parent bindings. Only its FFI surface is a boundary: `ffi.rs`
+# provides the C ABI helpers and `registry.rs` stores opaque host instance
+# pointers (`unsafe impl Send/Sync`, raw-pointer registration). The rest of
+# the crate (throttle, debounce, slots) remains safe Rust.
 FFI_BOUNDARY_FILES = {
     "crates/gpui-d3rs/src/mesh/gpu/metal_backend.rs",
+    "crates/gpui-foreign-parent/src/ffi.rs",
+    "crates/gpui-foreign-parent/src/registry.rs",
     "crates/gpui-python-runtime/src/dataset_frames.rs",
 }
 

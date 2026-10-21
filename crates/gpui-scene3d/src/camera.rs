@@ -856,17 +856,15 @@ mod tests {
                 );
             }
         }
-        assert!(Camera::fitted_for_aspect(bounds, 0.0).is_err());
-        assert!(
-            Camera::fitted_for_aspect(
-                gpui_mesh::Bounds {
-                    min: [1.0; 3],
-                    max: [-1.0; 3]
-                },
-                1.0
-            )
-            .is_err()
-        );
+        Camera::fitted_for_aspect(bounds, 0.0).unwrap_err();
+        Camera::fitted_for_aspect(
+            gpui_mesh::Bounds {
+                min: [1.0; 3],
+                max: [-1.0; 3],
+            },
+            1.0,
+        )
+        .unwrap_err();
     }
 
     #[test]
@@ -913,9 +911,9 @@ mod tests {
             shifted.pan(1.0, -0.5);
             let mut reference = base;
             reference.pan(1.0, -0.5);
-            for axis in 0..3 {
+            for (axis, before_axis) in before.into_iter().enumerate() {
                 assert!(
-                    ((shifted.target[axis] - before[axis])
+                    ((shifted.target[axis] - before_axis)
                         - (reference.target[axis] - base.target[axis]))
                         .abs()
                         < 0.0002

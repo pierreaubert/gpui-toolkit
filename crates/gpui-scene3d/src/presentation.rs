@@ -129,8 +129,10 @@ mod tests {
 
     #[test]
     fn invalid_cameras_fail_before_presentation_retention() {
-        let mut camera = Camera::default();
-        camera.projection = crate::Projection::Perspective { fov_y: 0.0 };
+        let camera = Camera {
+            projection: crate::Projection::Perspective { fov_y: 0.0 },
+            ..Camera::default()
+        };
         let scene = Scene::new();
         assert!(matches!(
             RenderKey::new(&scene, camera, [32, 32]),

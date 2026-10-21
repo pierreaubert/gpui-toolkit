@@ -1652,7 +1652,7 @@ impl Render for InputEntity {
                 .child(
                     gpui::canvas(
                         |_, _, _| {},
-                        move |_, _, window, _| {
+                        move |_, (), window, _| {
                             if editing
                                 && start == end
                                 && let Some(position) = layout.position_for_index(cursor_byte)
