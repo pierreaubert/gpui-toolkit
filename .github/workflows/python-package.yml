@@ -12,8 +12,6 @@ permissions:
 env:
   # Match the native minimum in .cargo/config.toml and the wheel tags below.
   MACOSX_DEPLOYMENT_TARGET: "15.0"
-  # Release wheels must not inherit the local mold linker or host CPU flags.
-  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C symbol-mangling-version=v0"
 
 jobs:
   build:
@@ -81,6 +79,10 @@ jobs:
       - name: Verify package version parity
         run: python scripts/sync_versions.py --check
       - name: Build native host
+        env:
+          # RUSTFLAGS replaces target config flags; target-specific env flags
+          # merge with them and would retain the local mold requirement.
+          RUSTFLAGS: ${{ runner.os == 'Linux' && '-C symbol-mangling-version=v0' || '' }}
         run: cargo build -p gpui-python-runtime --features showcase --bin gpui-python-host --release
       - name: Build wheel with bundled host
         run: python scripts/build_python_package.py --host "${{ matrix.host }}" --platform-tag "${{ matrix.platform_tag }}"

@@ -827,10 +827,10 @@ class RuntimeShowcaseSessionTests(unittest.TestCase):
             env=environment,
         )
 
-        def read_message():
+        def read_message(timeout=5.0):
             line = bytearray()
             while True:
-                chunk = read_process_stdout(process, 1)
+                chunk = read_process_stdout(process, 1, timeout=timeout)
                 if not chunk:
                     stderr = process.stderr.read()
                     self.fail(f"recovery session exited without output: {stderr!r}")
@@ -850,7 +850,8 @@ class RuntimeShowcaseSessionTests(unittest.TestCase):
                 ).encode("utf-8")
             )
             process.stdin.flush()
-            ready = read_message()
+            # Cold Python imports can exceed five seconds on hosted Intel runners.
+            ready = read_message(timeout=30.0)
             snapshot = read_message()
             self.assertEqual(ready["type"], "ready")
             self.assertEqual(snapshot["type"], "snapshot")
