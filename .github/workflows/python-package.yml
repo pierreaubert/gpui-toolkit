@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+env:
+  # Match the native minimum in .cargo/config.toml and the wheel tags below.
+  MACOSX_DEPLOYMENT_TARGET: "15.0"
+  # Release wheels must not inherit the local mold linker or host CPU flags.
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C symbol-mangling-version=v0"
+
 jobs:
   build:
     name: Build wheel (${{ matrix.platform }})
@@ -25,14 +31,14 @@ jobs:
             platform_tag: manylinux_2_39_x86_64
             host: target/release/gpui-python-host
             build_fallback: true
-          - os: macos-14
+          - os: macos-15
             platform: macos-arm64
-            platform_tag: macosx_14_0_arm64
+            platform_tag: macosx_15_0_arm64
             host: target/release/gpui-python-host
             build_fallback: false
           - os: macos-15-intel
             platform: macos-x86_64
-            platform_tag: macosx_10_13_x86_64
+            platform_tag: macosx_15_0_x86_64
             host: target/release/gpui-python-host
             build_fallback: false
           - os: windows-latest
@@ -73,9 +79,7 @@ jobs:
           PYTHONPATH: crates/gpui-python-runtime/python
         run: python -m unittest discover -s crates/gpui-python-runtime/python/tests -p 'test_*.py'
       - name: Verify package version parity
-        shell: bash
-        run: >-
-          python -c "import pathlib, re, tomllib; cargo = pathlib.Path('Cargo.toml').read_text(); rust = re.search(r'(?ms)^\\[workspace\\.package\\].*?^version\\s*=\\s*\"([^\"]+)\"', cargo).group(1); versions = [tomllib.loads(pathlib.Path(p).read_text())['project']['version'] for p in ('pyproject.toml', 'crates/gpui-python-runtime/pyproject.toml')]; module = re.search(r'^__version__\\s*=\\s*\"([^\"]+)\"', pathlib.Path('crates/gpui-python-runtime/python/gpui_toolkit/__init__.py').read_text(), re.M).group(1); assert [rust, *versions, module] == [rust] * 4, (rust, versions, module)"
+        run: python scripts/sync_versions.py --check
       - name: Build native host
         run: cargo build -p gpui-python-runtime --features showcase --bin gpui-python-host --release
       - name: Build wheel with bundled host
