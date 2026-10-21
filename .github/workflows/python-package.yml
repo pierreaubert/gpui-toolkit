@@ -88,7 +88,14 @@ jobs:
         run: python scripts/build_python_package.py --host "${{ matrix.host }}" --platform-tag "${{ matrix.platform_tag }}"
       - name: Build declarations-only fallback wheel
         if: matrix.build_fallback
-        run: python -m pip wheel --no-deps --no-build-isolation --wheel-dir dist .
+        run: |
+          python -c "from pathlib import Path; package = Path('crates/gpui-python-runtime/python/gpui_toolkit/bin'); [(package / name).unlink(missing_ok=True) for name in ('gpui-python-host', 'gpui-python-host.exe')]"
+          python -c "import shutil; shutil.rmtree('build', ignore_errors=True)"
+          python -m pip wheel --no-deps --no-build-isolation --wheel-dir dist .
+      - name: Verify declarations-only fallback wheel
+        if: matrix.build_fallback
+        run: >-
+          python -c "import glob, zipfile; wheel = glob.glob('dist/*-any.whl')[0]; names = zipfile.ZipFile(wheel).namelist(); assert not any(name.startswith('gpui_toolkit/bin/') for name in names), names"
       - name: Verify bundled wheel
         run: >-
           python -c "import glob, subprocess, sys; wheel = glob.glob('dist/*-${{ matrix.platform_tag }}.whl')[0]; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--no-deps', '--target', 'wheel-check', wheel]); sys.path.insert(0, 'wheel-check'); from gpui_toolkit.app import _host_binary; host = _host_binary(); assert host and host.endswith(('gpui-python-host', 'gpui-python-host.exe')); print(host)"
