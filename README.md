@@ -7,6 +7,22 @@ and WASM.
 
 [![License](https://img.shields.io/crates/l/gpui-ui-kit)](LICENSE)
 
+## Build your first app
+
+**[Start here: generate, run, and build a small interactive app →](TUTORIAL.md)**
+
+| Choose a path | What you will build |
+| --- | --- |
+| [Rust: scaffold a native app](TUTORIAL.md#1-scaffold-an-app) | Create a project, add a working counter, run a desktop window, and build a release executable. Continue to the generated iOS and Android hosts. |
+| [Python: write a native app](TUTORIAL.md#12-python-runtime-demo) | Set up the Python package, write the same counter, and run it through the native GPUI host. |
+| [Build with an agent](TUTORIAL.md#agent-workflow) | Discover the CLI contract, scaffold a project, look up real APIs, and verify the result. |
+
+The tutorial explains prerequisites, the difference between `gpui-toolkit`
+(the catalog and development CLI) and `gpui-scaffolder` (the project generator),
+and [what to distribute](TUTORIAL.md#build-and-distribute). Start with desktop;
+[mobile builds](TUTORIAL.md#13-mobile-extension) use the Rust app and platform
+SDKs. Python currently targets the desktop host.
+
 The same UI from Rust, the compact `layout!` macro, or Python:
 
 ```rust

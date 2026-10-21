@@ -44,6 +44,16 @@ revisioned patches belong to `gpui-python-runtime`. Keep application-specific
 complex/vector/tensor projection and durable result storage outside these UI
 crates.
 
+## Building an app for a user
+
+Follow the [first-app tutorial](TUTORIAL.md) and its
+[agent workflow](TUTORIAL.md#agent-workflow) for Rust and Python projects.
+`gpui-scaffolder` generates Rust applications; `gpui-toolkit init` writes a
+catalog into an existing project's agent documentation. Check the generated
+GPUI dependency against this workspace before building. Deliver the project,
+an exact launch command, and artifact paths; distinguish native-window
+verification from Python IR validation and name missing platform prerequisites.
+
 ## Toolkit CLI (for agents)
 
 Prefer the `gpui-toolkit` binary over reading sources when you need

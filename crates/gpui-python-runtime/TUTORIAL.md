@@ -1,5 +1,11 @@
 # gpui-python-runtime Tutorial
 
+For a first Python desktop app, start with the
+[root tutorial's counter](../../TUTORIAL.md#12-python-runtime-demo), including
+installation, launch, state updates, and distribution. Continue with the
+[Python dashboard](python/tutorial/README.md) for charts and theme controls.
+The sections below describe embedding and working on the Rust runtime.
+
 `gpui-python-runtime` stores retained scene specifications for a Python-facing
 GPUI wrapper.
 
