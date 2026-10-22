@@ -408,6 +408,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ref", default="v1.9.0")
     parser.add_argument("--cache", default="target/zed-upstream")
+    parser.add_argument("--dest", default=None, metavar="DIR",
+                        help="vendor root (default: <repo>/../sotf-3rdparties/gpui/crates); "
+                             "pass an explicit worktree path when the sibling layout differs")
     parser.add_argument("--root", action="append", default=[])
     parser.add_argument("--skip", action="append", default=[], metavar="NAME",
                         help="do not vendor NAME (kept in closure and [patch] block); repeatable")
@@ -429,8 +432,9 @@ def main(argv: list[str] | None = None) -> int:
         print("closure:", " ".join(closure))
         for name in closure:
             print(f"  {name} {ctx['versions'][name]}")
+    dest_root = Path(args.dest) if args.dest else VENDOR_DIR
     if args.check:
-        diffs = check(VENDOR_DIR, zdir, ctx, selection, skip=set(args.skip))
+        diffs = check(dest_root, zdir, ctx, selection, skip=set(args.skip))
         if diffs:
             print("drift / local patch surface:")
             print("\n".join(diffs))
@@ -438,7 +442,7 @@ def main(argv: list[str] | None = None) -> int:
         print("ok: vendored tree matches regeneration")
         return 0
     if not args.print_closure:
-        vendor_closure(selection, zdir, ctx, VENDOR_DIR, skip=set(args.skip))
+        vendor_closure(selection, zdir, ctx, dest_root, skip=set(args.skip))
         print("\n[patch.\"https://github.com/zed-industries/zed.git\"]")
         for name in closure:
             print(f"{name} = {{ path = \"../sotf-3rdparties/gpui/crates/{name}\" }}")
