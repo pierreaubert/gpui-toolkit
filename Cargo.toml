@@ -132,7 +132,7 @@ gpui_wgpu = { package = "sotf-gpui-toolkit-gpui-wgpu", git = "https://github.com
 gpui_web = { package = "sotf-gpui-toolkit-gpui-web", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.1.1" }
 wgpu = { package = "sotf-wgpu",  git = "https://github.com/pierreaubert/sotf-3rdparties", version = "29.0.0" }
 vello = { package = "sotf-vello", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.10.0", default-features = false, features = ["wgpu"] }
-vello_cpu = { version = "0.2.0" }
+vello_cpu = { version = "0.3.0" }
 peniko = { version = "0.6.1" }
 kurbo = { version = "0.13.1" }
 # GPU-text shaping (reviews/20260906-gpu-text.md Phase 0 spike): bundled
