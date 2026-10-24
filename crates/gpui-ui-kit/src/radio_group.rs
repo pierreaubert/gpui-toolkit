@@ -145,6 +145,7 @@ impl RadioOption {
 ///
 /// The parent owns `selected`; arrow keys move selection to the nearest
 /// enabled option in that direction.
+#[derive(gpui::IntoElement)]
 pub struct RadioGroup {
     id: ElementId,
     options: Vec<RadioOption>,
@@ -507,14 +508,6 @@ impl RenderOnce for RadioGroup {
         let radio_theme = RadioGroupTheme::from(global_theme);
         let design = crate::design::resolve_design(this.design.clone(), cx);
         this.build_with_theme_and_design(&radio_theme, &design)
-    }
-}
-
-impl IntoElement for RadioGroup {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

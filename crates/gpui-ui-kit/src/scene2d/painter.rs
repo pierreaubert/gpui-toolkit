@@ -29,6 +29,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::rc::Rc;
 
 /// A retained native drawing surface with focused keyboard and pointer input.
+#[derive(gpui::IntoElement)]
 pub struct GameSurface {
     id: ElementId,
     state: Scene2DState,
@@ -417,14 +418,6 @@ impl RenderOnce for GameSurface {
             });
         }
         root
-    }
-}
-
-impl IntoElement for GameSurface {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

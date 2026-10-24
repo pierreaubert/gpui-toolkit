@@ -98,6 +98,7 @@ impl From<crate::ComponentSize> for SpinnerSize {
 ///
 /// The indicator continuously repaints a moving arc through GPUI's native
 /// animation-frame support.
+#[derive(gpui::IntoElement)]
 pub struct Spinner {
     size: SpinnerSize,
     color: Option<Rgba>,
@@ -204,15 +205,8 @@ impl RenderOnce for Spinner {
     }
 }
 
-impl IntoElement for Spinner {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
-    }
-}
-
 /// A dots loading indicator
+#[derive(gpui::IntoElement)]
 pub struct LoadingDots {
     size: SpinnerSize,
     color: Option<Rgba>,
@@ -284,13 +278,5 @@ impl RenderOnce for LoadingDots {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = cx.theme();
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for LoadingDots {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

@@ -88,6 +88,7 @@ enum SettingsEntry {
 }
 
 /// A settings form layout component
+#[derive(gpui::IntoElement)]
 pub struct SettingsForm {
     id: ElementId,
     entries: Vec<SettingsEntry>,
@@ -201,13 +202,5 @@ impl RenderOnce for SettingsForm {
         let global_theme = cx.theme();
         let theme = SettingsFormTheme::from(global_theme);
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for SettingsForm {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

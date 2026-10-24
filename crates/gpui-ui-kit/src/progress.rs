@@ -84,6 +84,7 @@ fn progress_percentage(value: f32, max: f32) -> f32 {
 }
 
 /// A progress bar component
+#[derive(gpui::IntoElement)]
 pub struct Progress {
     value: f32,
     max: f32,
@@ -239,15 +240,8 @@ impl RenderOnce for Progress {
     }
 }
 
-impl IntoElement for Progress {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
-    }
-}
-
 /// A circular progress indicator
+#[derive(gpui::IntoElement)]
 pub struct CircularProgress {
     value: f32,
     max: f32,
@@ -377,13 +371,5 @@ impl RenderOnce for CircularProgress {
         let design = crate::design::resolve_design(self.design.clone(), cx);
         let theme = cx.theme();
         self.build_with_theme_and_design(&theme, &design)
-    }
-}
-
-impl IntoElement for CircularProgress {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

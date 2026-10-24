@@ -179,7 +179,7 @@ impl Element for MeshSceneElement {
             let width = f32::from(bounds.size.width).max(1.0) as u32;
             let height = f32::from(bounds.size.height).max(1.0) as u32;
             let image = cached_offscreen_image(&self.state, width, height);
-            let _ = window.paint_image(bounds, Corners::default(), image, 0, false);
+            let _ = window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
         }
     }
 }

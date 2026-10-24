@@ -165,7 +165,7 @@ impl SceneElement {
         };
         match state.prepare(&self.scene, camera, size, gpu_available) {
             Ok(PaintSource::Image(image)) => {
-                let _ = window.paint_image(bounds, Corners::default(), image, 0, false);
+                let _ = window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
             }
             #[cfg(feature = "gpui-gpu")]
             Ok(PaintSource::Custom(id)) => window.paint_custom(id, bounds),

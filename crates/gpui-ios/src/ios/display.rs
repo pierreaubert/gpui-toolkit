@@ -4,6 +4,7 @@ use core_graphics::geometry::CGRect;
 use gpui::{Bounds, DisplayId, Pixels, PlatformDisplay, px, size};
 use objc::{class, msg_send, runtime::Object, sel, sel_impl};
 use std::cell::Cell;
+use std::time::Duration;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -76,6 +77,19 @@ impl Drop for IosDisplay {
 }
 
 impl PlatformDisplay for IosDisplay {
+    fn refresh_interval(&self) -> Option<Duration> {
+        if self.screen.is_null() {
+            return None;
+        }
+        // UIScreen.maximumFramesPerSecond (iOS 10.3+); 0 means unknown.
+        let max_fps: i64 = unsafe { msg_send![self.screen, maximumFramesPerSecond] };
+        if max_fps > 0 {
+            Some(Duration::from_secs(1) / max_fps as u32)
+        } else {
+            None
+        }
+    }
+
     fn id(&self) -> DisplayId {
         DisplayId::new(self.screen as u64)
     }

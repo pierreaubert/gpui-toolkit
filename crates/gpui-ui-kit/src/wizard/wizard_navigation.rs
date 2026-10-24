@@ -7,6 +7,7 @@ use gpui::{App, Div, SharedString, Window, div};
 
 /// Navigation buttons component for wizard screens
 /// Use this when you want to place navigation separately from the header
+#[derive(gpui::IntoElement)]
 pub struct WizardNavigation {
     pub(super) current_step: usize,
     pub(super) total_steps: usize,
@@ -253,13 +254,5 @@ impl RenderOnce for WizardNavigation {
         let global_theme = cx.theme();
         let wizard_theme = WizardTheme::from(global_theme);
         self.build_with_theme(&wizard_theme)
-    }
-}
-
-impl IntoElement for WizardNavigation {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

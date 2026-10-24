@@ -6,8 +6,7 @@ use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaLive, AriaPr
 use crate::theme::{Theme, ThemeExt};
 use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
 use gpui::{
-    App, Component, Div, ElementId, FontWeight, MouseButton, Rgba, SharedString, Stateful, Window,
-    div, px,
+    App, Div, ElementId, FontWeight, MouseButton, Rgba, SharedString, Stateful, Window, div, px,
 };
 use gpui_design::DesignSystem;
 use std::sync::Arc;
@@ -66,6 +65,7 @@ pub enum ToastPosition {
 }
 
 /// A single toast notification
+#[derive(gpui::IntoElement)]
 pub struct Toast {
     id: ElementId,
     title: Option<SharedString>,
@@ -256,14 +256,6 @@ impl Toast {
         }
 
         toast
-    }
-}
-
-impl IntoElement for Toast {
-    type Element = Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        Component::new(self)
     }
 }
 

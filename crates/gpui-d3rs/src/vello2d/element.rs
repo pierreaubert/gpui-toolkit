@@ -403,8 +403,14 @@ impl VelloScenePainter {
             let scale_bits = scale_factor.to_bits();
             if state.rendered == Some((scene.as_scene().revision(), w, h, scale_bits)) {
                 if let Some(image) = state.image.as_ref() {
-                    let _ =
-                        window.paint_image(bounds, Corners::default(), Arc::clone(image), 0, false);
+                    let _ = window.paint_image(
+                        bounds,
+                        bounds,
+                        Corners::default(),
+                        Arc::clone(image),
+                        0,
+                        false,
+                    );
                 }
                 return;
             }
@@ -425,8 +431,14 @@ impl VelloScenePainter {
             if let Some(rgba) = RgbaImage::from_raw(u32::from(w), u32::from(h), pixels) {
                 Self::clear_cpu_image(state, window);
                 let image = Arc::new(RenderImage::new(vec![Frame::new(rgba)]));
-                let _ =
-                    window.paint_image(bounds, Corners::default(), Arc::clone(&image), 0, false);
+                let _ = window.paint_image(
+                    bounds,
+                    bounds,
+                    Corners::default(),
+                    Arc::clone(&image),
+                    0,
+                    false,
+                );
                 state.image = Some(image);
                 state.rendered = Some((scene.as_scene().revision(), w, h, scale_bits));
             }
@@ -491,7 +503,14 @@ fn paint_metal_snapshot(
     let scale_bits = scale_factor.to_bits();
     if *rendered == Some((scene.revision(), w, h, scale_bits)) {
         if let Some(img) = image.as_ref() {
-            let _ = window.paint_image(bounds, Corners::default(), Arc::clone(img), 0, false);
+            let _ = window.paint_image(
+                bounds,
+                bounds,
+                Corners::default(),
+                Arc::clone(img),
+                0,
+                false,
+            );
         }
         return true;
     }
@@ -514,7 +533,14 @@ fn paint_metal_snapshot(
             let _ = window.drop_image(old);
         }
         let img = Arc::new(RenderImage::new(vec![Frame::new(rgba)]));
-        let _ = window.paint_image(bounds, Corners::default(), Arc::clone(&img), 0, false);
+        let _ = window.paint_image(
+            bounds,
+            bounds,
+            Corners::default(),
+            Arc::clone(&img),
+            0,
+            false,
+        );
         *image = Some(img);
         *rendered = Some((scene.revision(), w, h, scale_bits));
     }
@@ -1069,6 +1095,7 @@ impl Element for VelloChartElement {
                     if let Some(image) = state.image.as_ref() {
                         let _ = window.paint_image(
                             bounds,
+                            bounds,
                             Corners::default(),
                             Arc::clone(image),
                             0,
@@ -1095,6 +1122,7 @@ impl Element for VelloChartElement {
                     VelloScenePainter::clear_cpu_image(state, window);
                     let image = Arc::new(RenderImage::new(vec![Frame::new(rgba)]));
                     let _ = window.paint_image(
+                        bounds,
                         bounds,
                         Corners::default(),
                         Arc::clone(&image),

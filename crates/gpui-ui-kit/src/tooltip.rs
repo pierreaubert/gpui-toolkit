@@ -30,6 +30,7 @@ pub enum TooltipPlacement {
 ///
 /// `Tooltip` is the presentational popup. Use [`WithTooltip`] when the target
 /// should own hover tracking and delayed show/hide behavior.
+#[derive(gpui::IntoElement)]
 pub struct Tooltip {
     content: SharedString,
     placement: TooltipPlacement,
@@ -126,20 +127,13 @@ impl RenderOnce for Tooltip {
     }
 }
 
-impl IntoElement for Tooltip {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
-    }
-}
-
 /// A wrapper that shows a tooltip on hover.
 ///
 /// By default the wrapper uses GPUI's native hoverable-tooltip handling, so
 /// hover state and the configured delay are self-contained. [`Self::show`]
 /// remains available for callers that intentionally control visibility (for
 /// example, click-to-toggle help in a component showcase).
+#[derive(gpui::IntoElement)]
 pub struct WithTooltip {
     child: AnyElement,
     id: ElementId,
@@ -253,14 +247,6 @@ impl RenderOnce for WithTooltip {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = cx.theme();
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for WithTooltip {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

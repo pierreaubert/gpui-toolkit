@@ -197,7 +197,8 @@ impl Render for AnimatedQrCode {
                 move |_bounds, _window, _cx| image,
                 move |bounds, image, window, _cx| {
                     if let Some(image) = image {
-                        let _ = window.paint_image(bounds, Corners::default(), image, 0, false);
+                        let _ =
+                            window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
                     }
                 },
             )
@@ -242,14 +243,16 @@ impl Render for AnimatedQrCode {
                 // the moving viewport without rebuilding module primitives.
                 let pixel_offset = offset_modules * zoomed_module_px;
                 let full_size = size_f32 * zoom;
+                let image_bounds = Bounds {
+                    origin: point(
+                        bounds.origin.x - px(pixel_offset),
+                        bounds.origin.y - px(pixel_offset),
+                    ),
+                    size: size(px(full_size), px(full_size)),
+                };
                 let _ = window.paint_image(
-                    Bounds {
-                        origin: point(
-                            bounds.origin.x - px(pixel_offset),
-                            bounds.origin.y - px(pixel_offset),
-                        ),
-                        size: size(px(full_size), px(full_size)),
-                    },
+                    image_bounds,
+                    image_bounds,
                     Corners::default(),
                     image,
                     0,

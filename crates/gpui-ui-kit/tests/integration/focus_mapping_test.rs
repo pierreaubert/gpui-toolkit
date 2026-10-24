@@ -57,7 +57,7 @@ impl Render for FocusMappingView {
 }
 
 fn draw(cx: &mut TestAppContext, window: AnyWindowHandle) {
-    cx.update_window(window, |_, window, cx| window.draw(cx).clear())
+    cx.update_window(window, |_, window, cx| window.draw(cx).clear(cx))
         .unwrap();
 }
 

@@ -344,7 +344,7 @@ fn native_metal_mesh_plot_click_dispatches_selection_and_keyboard_preserves_it()
     }
     let text_system = native_text_system();
     let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-        Some(Box::new(MetalHeadlessRenderer::new()))
+        Ok(Some(Box::new(MetalHeadlessRenderer::new())))
     });
 
     let (mesh, field) = fixture();
@@ -384,7 +384,7 @@ fn native_metal_mesh_plot_click_dispatches_selection_and_keyboard_preserves_it()
     // can press a key; reproduce the same boundary in this headless test.
     cx.run_until_parked();
     cx.update_window(any_window, |_, window, app| {
-        window.draw(app).clear();
+        window.draw(app).clear(app);
     })
     .expect("commit focused MeshPlot frame");
     let picked = selection
@@ -447,7 +447,7 @@ fn native_metal_equal_aspect_selection_stays_aligned_after_resize() {
     }
     let text_system = native_text_system();
     let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-        Some(Box::new(MetalHeadlessRenderer::new()))
+        Ok(Some(Box::new(MetalHeadlessRenderer::new())))
     });
     let (mesh, field) = fixture();
     let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
@@ -507,7 +507,7 @@ fn native_metal_equal_aspect_selection_stays_aligned_after_resize() {
     cx.update_entity(&view, |_view, cx| cx.notify());
     cx.update_window(any_window, |_, window, app| {
         window.resize(size(px(800.0), px(400.0)));
-        window.draw(app).clear();
+        window.draw(app).clear(app);
     })
     .expect("resize and draw equal-aspect MeshPlot");
     let screenshot = cx
@@ -545,7 +545,7 @@ fn native_metal_surface3d_builds_the_dedicated_depth_and_triad_path() {
     }
     let text_system = native_text_system();
     let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-        Some(Box::new(MetalHeadlessRenderer::new()))
+        Ok(Some(Box::new(MetalHeadlessRenderer::new())))
     });
 
     let (mesh, field) = fixture();
@@ -609,7 +609,7 @@ fn native_metal_surface3d_wireframe_changes_the_composited_frame() {
     let render = |wireframe: Wireframe| {
         let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-            Some(Box::new(MetalHeadlessRenderer::new()))
+            Ok(Some(Box::new(MetalHeadlessRenderer::new())))
         });
         let (mesh, field) = fixture();
         let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
@@ -668,7 +668,7 @@ fn native_metal_surface3d_keeps_a_partially_near_clipped_triangle() {
     }
     let text_system = native_text_system();
     let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-        Some(Box::new(MetalHeadlessRenderer::new()))
+        Ok(Some(Box::new(MetalHeadlessRenderer::new())))
     });
     let (mesh, field) = near_clipped_fixture();
     let mut initial_state = MeshPlotState::new(0.0, 1.0, 0.0, 1.0);
@@ -743,7 +743,7 @@ fn native_metal_large_revolve_shows_preparing_frame_then_completed_surface() {
     }
     let text_system = native_text_system();
     let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-        Some(Box::new(MetalHeadlessRenderer::new()))
+        Ok(Some(Box::new(MetalHeadlessRenderer::new())))
     });
     let (mesh, field) = large_revolve_fixture();
     let state = Rc::new(RefCell::new(MeshPlotState::new(0.25, 1.0, 0.0, 1.0)));
@@ -798,7 +798,7 @@ fn native_metal_large_revolve_shows_preparing_frame_then_completed_surface() {
     // accepted prepared geometry rather than synchronously deriving it.
     cx.run_until_parked();
     cx.update_window(window, |_, window, app| {
-        window.draw(app).clear();
+        window.draw(app).clear(app);
     })
     .expect("draw completed native large-revolve frame");
     let completed = cx
@@ -876,7 +876,7 @@ fn native_metal_full_and_partial_revolves_build_depth_tested_frames() {
     for (index, (view, field, mode)) in views.into_iter().enumerate() {
         let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-            Some(Box::new(MetalHeadlessRenderer::new()))
+            Ok(Some(Box::new(MetalHeadlessRenderer::new())))
         });
         let state = Rc::new(RefCell::new(MeshPlotState::new(0.25, 1.0, 0.0, 1.0)));
         let selection = Rc::new(RefCell::new(None));
@@ -966,7 +966,7 @@ fn native_metal_live_3d_state_exports_deterministic_surface_and_revolve_artifact
     for (index, (mesh, field, view, mode)) in cases.into_iter().enumerate() {
         let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-            Some(Box::new(MetalHeadlessRenderer::new()))
+            Ok(Some(Box::new(MetalHeadlessRenderer::new())))
         });
         let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
         let selection = Rc::new(RefCell::new(None));
@@ -1005,7 +1005,7 @@ fn native_metal_live_3d_state_exports_deterministic_surface_and_revolve_artifact
         state.borrow_mut().orbit_rotate(13.0, -7.0);
         cx.update_entity(&entity, |_view, cx| cx.notify());
         cx.update_window(any_window, |_, window, app| {
-            window.draw(app).clear();
+            window.draw(app).clear(app);
         })
         .expect("redraw rotated native 3D export-parity MeshPlot");
         let live = cx
@@ -1058,7 +1058,7 @@ fn native_metal_live_3d_state_exports_deterministic_surface_and_revolve_artifact
         state.borrow_mut().orbit_rotate(-5.0, 3.0);
         cx.update_entity(&entity, |_view, cx| cx.notify());
         cx.update_window(any_window, |_, window, app| {
-            window.draw(app).clear();
+            window.draw(app).clear(app);
         })
         .expect("redraw camera-only native 3D MeshPlot");
         let _camera_frame = cx
@@ -1099,7 +1099,7 @@ fn native_metal_live_3d_state_exports_deterministic_surface_and_revolve_artifact
             cx.notify();
         });
         cx.update_window(any_window, |_, window, app| {
-            window.draw(app).clear();
+            window.draw(app).clear(app);
         })
         .expect("redraw field-patched native 3D MeshPlot");
         let _patched = cx

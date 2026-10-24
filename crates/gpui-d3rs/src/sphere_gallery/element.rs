@@ -283,7 +283,7 @@ impl SphereGalleryElement {
                 .filter(|cache| cache.key == key)
                 .map(|cache| Arc::clone(&cache.image))
             {
-                let _ = window.paint_image(bounds, Corners::default(), image, 0, false);
+                let _ = window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
                 return;
             }
 
@@ -303,6 +303,7 @@ impl SphereGalleryElement {
                 {
                     let image = Arc::new(RenderImage::new(vec![Frame::new(rgba_image)]));
                     let _ = window.paint_image(
+                        bounds,
                         bounds,
                         Corners::default(),
                         Arc::clone(&image),

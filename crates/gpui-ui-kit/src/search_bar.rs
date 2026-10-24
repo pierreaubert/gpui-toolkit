@@ -64,6 +64,7 @@ pub enum SearchBarSize {
 }
 
 /// A search bar component that wraps an Input with search-specific UX
+#[derive(gpui::IntoElement)]
 pub struct SearchBar {
     id: ElementId,
     value: SharedString,
@@ -269,13 +270,5 @@ impl RenderOnce for SearchBar {
         let global_theme = cx.theme();
         let theme = SearchBarTheme::from(global_theme);
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for SearchBar {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

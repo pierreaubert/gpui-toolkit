@@ -27,6 +27,7 @@ mod types;
 pub use toggle_size::ToggleSize;
 pub use types::{ToggleStyle, ToggleTheme};
 /// A toggle switch component with optional selection highlighting
+#[derive(gpui::IntoElement)]
 pub struct Toggle {
     id: ElementId,
     checked: bool,
@@ -481,13 +482,5 @@ impl RenderOnce for Toggle {
         let global_theme = cx.theme();
         let toggle_theme = ToggleTheme::from(global_theme);
         self.build_with_theme(&toggle_theme)
-    }
-}
-
-impl IntoElement for Toggle {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

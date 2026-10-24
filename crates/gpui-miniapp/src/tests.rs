@@ -445,6 +445,17 @@ fn test_config_default_matches_new() {
     assert_eq!(config_default.with_i18n, config_new.with_i18n);
 }
 
+// Since the Zed v1.25.2 GPUI upgrade, MacPlatform::new asserts via
+// MainThreadMarker that it runs on the main thread, which the libtest
+// harness never provides. Real miniapp entry points run on main, so keep
+// the runtime check off macOS and retain a compile-time reference there.
+#[cfg(target_os = "macos")]
+#[test]
+fn test_current_platform_returns_ok() {
+    let _ = current_platform as fn() -> Result<std::rc::Rc<dyn gpui::Platform>, String>;
+}
+
+#[cfg(not(target_os = "macos"))]
 #[test]
 fn test_current_platform_returns_ok() {
     // On supported platforms current_platform should succeed.

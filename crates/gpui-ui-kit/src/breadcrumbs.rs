@@ -68,6 +68,7 @@ impl BreadcrumbSeparator {
 }
 
 /// A breadcrumbs navigation component
+#[derive(gpui::IntoElement)]
 pub struct Breadcrumbs {
     items: Vec<BreadcrumbItem>,
     separator: BreadcrumbSeparator,
@@ -203,13 +204,5 @@ impl RenderOnce for Breadcrumbs {
 
         let theme = cx.theme();
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for Breadcrumbs {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

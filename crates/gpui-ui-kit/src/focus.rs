@@ -228,6 +228,7 @@ pub const fn focus_integration_entries() -> &'static [FocusIntegrationEntry] {
 /// `FocusGroup` handles arrow key navigation, Tab key movement, and Home/End
 /// keys for quick navigation to first/last elements. Register child handles
 /// with [`FocusGroup::focus_target`] or [`FocusGroup::focus_targets`].
+#[derive(gpui::IntoElement)]
 pub struct FocusGroup {
     id: ElementId,
     children: Vec<AnyElement>,
@@ -470,14 +471,6 @@ impl RenderOnce for FocusGroup {
     }
 }
 
-impl IntoElement for FocusGroup {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
-    }
-}
-
 /// A container that traps Tab cycling inside dialog/modal surfaces.
 ///
 /// Unlike [`FocusGroup`] (roving arrow-key navigation with optional
@@ -491,6 +484,7 @@ impl IntoElement for FocusGroup {
 /// Focus entry and restore remain the caller's job (focus the first target
 /// when opening the surface, restore on close, as `Dialog` does with
 /// `restore_focus_to`).
+#[derive(gpui::IntoElement)]
 pub struct FocusTrap {
     id: ElementId,
     children: Vec<AnyElement>,
@@ -597,14 +591,6 @@ impl RenderOnce for FocusTrap {
         }
 
         container
-    }
-}
-
-impl IntoElement for FocusTrap {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

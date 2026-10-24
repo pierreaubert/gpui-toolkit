@@ -120,7 +120,7 @@ impl PythonIrShowcase {
                             .update(|window, app| {
                                 window.refresh();
                                 let arena = window.draw(app);
-                                arena.clear();
+                                arena.clear(app);
                             })
                             .is_err()
                         {

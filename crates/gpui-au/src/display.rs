@@ -3,6 +3,7 @@
 use core_graphics::geometry::CGRect;
 use gpui::{Bounds, DisplayId, Pixels, PlatformDisplay, px, size};
 use objc::{class, msg_send, sel, sel_impl};
+use std::time::Duration;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -45,6 +46,11 @@ impl AuDisplay {
 }
 
 impl PlatformDisplay for AuDisplay {
+    fn refresh_interval(&self) -> Option<Duration> {
+        // Frame pacing comes from the host's display link, not the screen.
+        None
+    }
+
     fn id(&self) -> DisplayId {
         DisplayId::new(AuDisplay::ID)
     }

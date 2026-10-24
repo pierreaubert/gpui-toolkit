@@ -31,6 +31,7 @@ use wizard_step_indicator_density::WizardStepIndicatorDensity;
 static NEXT_WIZARD_ID: AtomicU64 = AtomicU64::new(0);
 
 /// A wizard component for multi-step workflows
+#[derive(gpui::IntoElement)]
 pub struct Wizard {
     id: ElementId,
     steps: Vec<WizardStep>,
@@ -582,14 +583,6 @@ impl RenderOnce for Wizard {
             &wizard_theme,
             WizardStepIndicatorDensity::from_window(window),
         )
-    }
-}
-
-impl IntoElement for Wizard {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

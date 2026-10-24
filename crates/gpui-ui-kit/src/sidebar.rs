@@ -50,6 +50,7 @@ pub struct SidebarTheme {
 }
 
 /// A collapsible sidebar component
+#[derive(gpui::IntoElement)]
 pub struct Sidebar {
     id: ElementId,
     side: SidebarSide,
@@ -238,13 +239,5 @@ impl RenderOnce for Sidebar {
         let theme = SidebarTheme::from(global_theme);
         let design = crate::design::resolve_design(self.design.clone(), cx);
         self.build_with_theme_and_design(&theme, &design)
-    }
-}
-
-impl IntoElement for Sidebar {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

@@ -49,6 +49,7 @@ use types::AccordionChangeHandler;
 pub use types::{AccordionMode, AccordionOrientation, AccordionTheme};
 
 /// An accordion component
+#[derive(gpui::IntoElement)]
 pub struct Accordion {
     items: Vec<AccordionItem>,
     expanded: Vec<SharedString>,
@@ -748,13 +749,5 @@ impl RenderOnce for Accordion {
         let global_theme = cx.theme();
         let accordion_theme = AccordionTheme::from(global_theme);
         this.build_with_theme(&accordion_theme)
-    }
-}
-
-impl IntoElement for Accordion {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

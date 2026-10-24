@@ -78,6 +78,7 @@ impl From<crate::ComponentSize> for CheckboxSize {
 }
 
 /// A checkbox component
+#[derive(gpui::IntoElement)]
 pub struct Checkbox {
     id: ElementId,
     checked: bool,
@@ -365,13 +366,5 @@ impl RenderOnce for Checkbox {
         let checkbox_theme = CheckboxTheme::from(global_theme);
         let design = crate::design::resolve_design(self.design.clone(), cx);
         self.build_with_theme_and_design(&checkbox_theme, &design)
-    }
-}
-
-impl IntoElement for Checkbox {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

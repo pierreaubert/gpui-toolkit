@@ -135,6 +135,7 @@ impl StepItem {
 }
 
 /// A step indicator component
+#[derive(gpui::IntoElement)]
 pub struct StepIndicator {
     id: ElementId,
     steps: Vec<StepItem>,
@@ -285,13 +286,5 @@ impl RenderOnce for StepIndicator {
         let global_theme = cx.theme();
         let theme = StepIndicatorTheme::from(global_theme);
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for StepIndicator {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

@@ -16,7 +16,7 @@ use qrcode::QrCode as QrMatrix;
 /// QrCode::new("https://example.com")
 ///     .size(px(200.0))
 /// ```
-#[derive(Debug)]
+#[derive(Debug, IntoElement)]
 pub struct QrCode {
     /// Pre-computed module colors (empty on encode failure).
     pub(super) colors: Vec<qrcode::types::Color>,
@@ -116,7 +116,7 @@ impl QrCode {
             move |_bounds, _window, _cx| image,
             move |bounds, image, window, _cx| {
                 if let Some(image) = image {
-                    let _ = window.paint_image(bounds, Corners::default(), image, 0, false);
+                    let _ = window.paint_image(bounds, bounds, Corners::default(), image, 0, false);
                 }
             },
         )
@@ -131,14 +131,6 @@ impl RenderOnce for QrCode {
         let fg_color = self.fg.unwrap_or(theme.text_primary);
         let bg_color = self.bg.unwrap_or(theme.transparent);
         self.build(fg_color, bg_color)
-    }
-}
-
-impl IntoElement for QrCode {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

@@ -64,6 +64,7 @@ pub enum AvatarShape {
 }
 
 /// An avatar component
+#[derive(gpui::IntoElement)]
 pub struct Avatar {
     name: Option<SharedString>,
     src: Option<SharedString>,
@@ -276,15 +277,8 @@ impl RenderOnce for Avatar {
     }
 }
 
-impl IntoElement for Avatar {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
-    }
-}
-
 /// A group of avatars displayed overlapping
+#[derive(gpui::IntoElement)]
 pub struct AvatarGroup {
     avatars: Vec<Avatar>,
     max_display: usize,
@@ -374,13 +368,5 @@ impl RenderOnce for AvatarGroup {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = cx.theme();
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for AvatarGroup {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

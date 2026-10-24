@@ -199,10 +199,10 @@ fn capture_showcase_cases_macos(
     text_system.add_fonts(gpui_miniapp::bundled_ui_fonts())?;
     let text_system: Arc<dyn gpui::PlatformTextSystem> = text_system;
     let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-        MetalHeadlessRenderer::try_new().map(|renderer| {
+        Ok(MetalHeadlessRenderer::try_new().map(|renderer| {
             let renderer: Box<dyn gpui::PlatformHeadlessRenderer> = Box::new(renderer);
             renderer
-        })
+        }))
     });
     cx.update(|app| {
         app.set_global(ThemeState::with_variant(theme));

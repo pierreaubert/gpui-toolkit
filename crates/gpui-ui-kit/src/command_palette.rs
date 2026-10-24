@@ -163,6 +163,7 @@ thread_local! {
 }
 
 /// A command palette component
+#[derive(gpui::IntoElement)]
 pub struct CommandPalette {
     id: ElementId,
     items: Vec<CommandItem>,
@@ -519,14 +520,6 @@ impl RenderOnce for CommandPalette {
         let global_theme = cx.theme();
         let theme = CommandPaletteTheme::from(global_theme);
         self.build_with_theme(&theme, cx)
-    }
-}
-
-impl IntoElement for CommandPalette {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

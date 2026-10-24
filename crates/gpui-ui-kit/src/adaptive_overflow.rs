@@ -25,6 +25,7 @@ pub enum AdaptiveOverflowPresentation {
 type OpenChangeHandler = Rc<dyn Fn(bool, &mut Window, &mut App)>;
 
 /// Controlled responsive overflow for arbitrary trigger and panel content.
+#[derive(gpui::IntoElement)]
 pub struct AdaptiveOverflow {
     id: ElementId,
     open: bool,
@@ -160,14 +161,6 @@ impl RenderOnce for AdaptiveOverflow {
             }
         }
         root
-    }
-}
-
-impl IntoElement for AdaptiveOverflow {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

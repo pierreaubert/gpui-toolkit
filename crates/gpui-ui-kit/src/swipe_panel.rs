@@ -63,6 +63,7 @@ pub enum SwipePanelState {
 }
 
 /// Builder for a swipe panel.
+#[derive(gpui::IntoElement)]
 pub struct SwipePanel {
     id: ElementId,
     anchor: SwipePanelAnchor,
@@ -661,14 +662,6 @@ impl RenderOnce for SwipePanel {
             }
         });
         entity.clone().into_any_element()
-    }
-}
-
-impl IntoElement for SwipePanel {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

@@ -152,6 +152,7 @@ pub fn default_combobox_filter(query: &str, option: &ComboboxOption) -> bool {
 ///
 /// Parent-owned state; see the module docs. The query box is an embedded
 /// [`Input`] whose element id is scoped as `(group_id, "query")`.
+#[derive(gpui::IntoElement)]
 pub struct Combobox {
     id: ElementId,
     options: Vec<ComboboxOption>,
@@ -651,14 +652,6 @@ impl RenderOnce for Combobox {
         let combo_theme = ComboboxTheme::from(global_theme);
         let design = crate::design::resolve_design(self.design.clone(), cx);
         self.build_with_theme_and_design(&combo_theme, &design)
-    }
-}
-
-impl IntoElement for Combobox {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

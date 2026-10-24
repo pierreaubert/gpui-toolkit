@@ -21,6 +21,7 @@ fn next_vstack_id() -> ElementId {
 /// A vertical stack (column) layout
 ///
 /// Behaves like CSS `display: flex; flex-direction: column` with responsive sizing support.
+#[derive(gpui::IntoElement)]
 pub struct VStack {
     pub(super) children: Vec<AnyElement>,
     pub(super) spacing: StackSpacing,
@@ -340,14 +341,6 @@ impl RenderOnce for VStack {
         } else {
             stack.into_any_element()
         }
-    }
-}
-
-impl IntoElement for VStack {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 
