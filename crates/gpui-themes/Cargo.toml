@@ -39,7 +39,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-gpui = { version = "0.2.3",  package = "sotf-gpui-toolkit-gpui", git = "https://github.com/pierreaubert/sotf-3rdparties", features = ["test-support"] }
+gpui = { workspace = true, features = ["test-support"] }
 
 [lib]
 name = "gpui_themes"
