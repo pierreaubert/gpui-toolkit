@@ -177,6 +177,7 @@ enum IconContent {
 ///     .rounded_full()
 ///     .theme(my_theme)
 /// ```
+#[derive(gpui::IntoElement)]
 pub struct IconButton {
     id: ElementId,
     content: IconContent,
@@ -495,13 +496,5 @@ impl RenderOnce for IconButton {
         }
 
         el
-    }
-}
-
-impl IntoElement for IconButton {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

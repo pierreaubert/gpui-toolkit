@@ -118,7 +118,7 @@ fn grid_upload(side: usize, phase: f32) -> d3rs::mesh::MeshUpload {
 
 fn draw(window: gpui::AnyWindowHandle, cx: &mut HeadlessAppContext) {
     cx.update_window(window, |_, window, app| {
-        window.draw(app).clear();
+        window.draw(app).clear(app);
     })
     .expect("draw Metal memory evidence frame");
     cx.run_until_parked();
@@ -139,7 +139,7 @@ fn metal_long_run_memory_release_evidence_covers_churn_and_teardown() {
 
     let text_system = Arc::new(gpui::NoopTextSystem::new());
     let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-        Some(Box::new(MetalHeadlessRenderer::new()))
+        Ok(Some(Box::new(MetalHeadlessRenderer::new())))
     });
     let state = Rc::new(RefCell::new(MeshSceneState {
         color: MeshColorConfig {

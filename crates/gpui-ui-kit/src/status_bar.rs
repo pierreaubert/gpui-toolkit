@@ -46,6 +46,7 @@ pub struct StatusBarTheme {
 }
 
 /// A status bar component with left, center, and right sections
+#[derive(gpui::IntoElement)]
 pub struct StatusBar {
     id: ElementId,
     position: StatusBarPosition,
@@ -150,13 +151,5 @@ impl RenderOnce for StatusBar {
         let global_theme = cx.theme();
         let theme = StatusBarTheme::from(global_theme);
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for StatusBar {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

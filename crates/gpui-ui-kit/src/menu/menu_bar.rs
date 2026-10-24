@@ -5,6 +5,7 @@ use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, 
 use gpui::{App, Div, FontWeight, MouseButton, SharedString, Window, div, px};
 
 /// A horizontal menu bar
+#[derive(gpui::IntoElement)]
 pub struct MenuBar {
     pub(super) items: Vec<MenuBarItem>,
     pub(super) active_menu: Option<SharedString>,
@@ -116,13 +117,5 @@ impl RenderOnce for MenuBar {
         let global_theme = cx.theme();
         let menu_theme = MenuTheme::from(global_theme);
         self.build_with_theme(&menu_theme)
-    }
-}
-
-impl IntoElement for MenuBar {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

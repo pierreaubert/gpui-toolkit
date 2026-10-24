@@ -2,6 +2,7 @@ use gpui::prelude::{InteractiveElement, IntoElement, RenderOnce, Styled};
 use gpui::{App, Div, Pixels, Rgba, SharedString, Stateful, Window, div, px, rgb};
 
 /// A divider line
+#[derive(gpui::IntoElement)]
 pub struct Divider {
     pub(super) id: Option<SharedString>,
     pub(super) vertical: bool,
@@ -144,14 +145,6 @@ impl Divider {
 impl Default for Divider {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl IntoElement for Divider {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

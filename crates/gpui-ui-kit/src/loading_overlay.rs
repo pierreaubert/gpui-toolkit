@@ -39,6 +39,7 @@ pub struct LoadingOverlayTheme {
 }
 
 /// A loading overlay component
+#[derive(gpui::IntoElement)]
 pub struct LoadingOverlay {
     id: ElementId,
     message: Option<SharedString>,
@@ -158,13 +159,5 @@ impl RenderOnce for LoadingOverlay {
         let global_theme = cx.theme();
         let theme = LoadingOverlayTheme::from(global_theme);
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for LoadingOverlay {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

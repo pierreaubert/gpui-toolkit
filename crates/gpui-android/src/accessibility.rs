@@ -147,7 +147,7 @@ pub(crate) fn perform_action(node_id: u64, action_code: i32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use accesskit::{Node, Rect, Role, Tree};
+    use accesskit::{Node, Rect, Role, TreeInfo};
 
     #[test]
     fn snapshot_contains_gpui_nodes_actions_and_bounds() {
@@ -163,7 +163,7 @@ mod tests {
         let mut tree = AccessibilityTree::default();
         tree.apply(TreeUpdate {
             nodes: vec![(root_id, root), (button_id, button)],
-            tree: Some(Tree::new(root_id)),
+            tree: Some(TreeInfo::new(root_id)),
             tree_id: TreeId::ROOT,
             focus: button_id,
         });
@@ -193,7 +193,7 @@ mod tests {
         let mut tree = AccessibilityTree::default();
         tree.apply(TreeUpdate {
             nodes: vec![(root_id, root), (removed_id, Node::new(Role::Button))],
-            tree: Some(Tree::new(root_id)),
+            tree: Some(TreeInfo::new(root_id)),
             tree_id: TreeId::ROOT,
             focus: removed_id,
         });
@@ -237,7 +237,7 @@ mod tests {
         let mut tree = AccessibilityTree::default();
         tree.apply(TreeUpdate {
             nodes: vec![(root_id, root), (cell_id, cell)],
-            tree: Some(Tree::new(root_id)),
+            tree: Some(TreeInfo::new(root_id)),
             tree_id: TreeId::ROOT,
             focus: cell_id,
         });

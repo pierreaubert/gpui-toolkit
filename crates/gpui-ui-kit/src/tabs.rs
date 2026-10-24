@@ -27,6 +27,7 @@ use tab_render::{
 pub use types::{IconFactory, TabVariant, TabsTheme};
 
 /// A tabs component with theming support
+#[derive(gpui::IntoElement)]
 pub struct Tabs {
     id: ElementId,
     items: Vec<TabItem>,
@@ -321,13 +322,5 @@ impl RenderOnce for Tabs {
             model.props = self;
         });
         entity
-    }
-}
-
-impl IntoElement for Tabs {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

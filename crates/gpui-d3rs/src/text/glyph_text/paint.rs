@@ -264,7 +264,7 @@ pub fn paint_glyph_text_at(
             px(raster.height.max(1) as f32),
         ),
     };
-    let _ = window.paint_image(bounds, Corners::default(), raster.image, 0, false);
+    let _ = window.paint_image(bounds, bounds, Corners::default(), raster.image, 0, false);
 }
 
 #[cfg(test)]

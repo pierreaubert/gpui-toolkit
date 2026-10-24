@@ -91,6 +91,7 @@ pub struct TagTheme {
 }
 
 /// A tag/chip component
+#[derive(gpui::IntoElement)]
 pub struct Tag {
     id: ElementId,
     label: SharedString,
@@ -234,13 +235,5 @@ impl RenderOnce for Tag {
         let global_theme = cx.theme();
         let theme = TagTheme::from(global_theme);
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for Tag {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

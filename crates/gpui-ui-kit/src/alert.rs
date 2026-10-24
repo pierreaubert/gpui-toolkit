@@ -6,8 +6,7 @@ use crate::accessibility::{AccessibilityExt, AccessibilityNode, AriaProps, AriaR
 use crate::theme::{Theme, ThemeExt};
 use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
 use gpui::{
-    App, Component, Div, ElementId, FontWeight, MouseButton, Rgba, SharedString, Stateful, Window,
-    div, px,
+    App, Div, ElementId, FontWeight, MouseButton, Rgba, SharedString, Stateful, Window, div, px,
 };
 use gpui_design::DesignSystem;
 use std::sync::Arc;
@@ -48,6 +47,7 @@ impl AlertVariant {
 }
 
 /// An alert component
+#[derive(gpui::IntoElement)]
 pub struct Alert {
     id: ElementId,
     title: Option<SharedString>,
@@ -215,14 +215,6 @@ impl Alert {
         }
 
         alert
-    }
-}
-
-impl IntoElement for Alert {
-    type Element = Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        Component::new(self)
     }
 }
 

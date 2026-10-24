@@ -120,6 +120,7 @@ impl ToolbarItem {
 }
 
 /// A toolbar component
+#[derive(gpui::IntoElement)]
 pub struct Toolbar {
     id: ElementId,
     items: Vec<ToolbarItem>,
@@ -283,13 +284,5 @@ impl RenderOnce for Toolbar {
         let theme = ToolbarTheme::from(global_theme);
         let design = crate::design::resolve_design(self.design.clone(), cx);
         self.build_with_theme_and_design(&theme, &design)
-    }
-}
-
-impl IntoElement for Toolbar {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

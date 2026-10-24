@@ -4,14 +4,15 @@ use super::{IosDispatcher, IosDisplay, IosWindow};
 use anyhow::anyhow;
 use futures::channel::oneshot;
 use gpui::{
-    Action, AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle, DummyKeyboardMapper,
-    ForegroundExecutor, Keymap, Menu, MenuItem, PathPromptOptions, Platform, PlatformDisplay,
-    PlatformKeyboardLayout, PlatformKeyboardMapper, PlatformTextSystem, PlatformWindow, Result,
-    Task, ThermalState, WindowAppearance, WindowParams,
+    Action, ActivityGuard, AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle,
+    DummyKeyboardMapper, ForegroundExecutor, Keymap, Menu, MenuItem, PathPromptOptions, Platform,
+    PlatformDisplay, PlatformKeyboardLayout, PlatformKeyboardMapper, PlatformTextSystem,
+    PlatformWindow, Result, Task, ThermalState, WindowAppearance, WindowParams,
 };
 use objc::{class, msg_send, runtime::Object, sel, sel_impl};
 use parking_lot::Mutex;
 use std::{
+    ffi::OsString,
     path::{Path, PathBuf},
     rc::Rc,
     sync::Arc,
@@ -31,7 +32,7 @@ pub struct IosPlatform {
 
 pub(crate) struct IosPlatformState {
     finish_launching: Option<Box<dyn FnOnce()>>,
-    quit_callback: Option<Box<dyn FnMut()>>,
+    quit_callback: Option<Box<dyn FnMut() -> bool>>,
     open_urls_callback: Option<Box<dyn FnMut(Vec<String>)>>,
     thermal_state_callback: Option<Box<dyn FnMut()>>,
 }
@@ -117,7 +118,7 @@ impl Platform for IosPlatform {
         log::warn!("iOS apps cannot programmatically quit");
     }
 
-    fn restart(&self, _binary_path: Option<PathBuf>) {
+    fn restart(&self, _binary_path: Option<PathBuf>, _arguments: Vec<OsString>) {
         log::warn!("iOS apps cannot restart themselves");
     }
 
@@ -243,11 +244,23 @@ impl Platform for IosPlatform {
 
     fn open_with_system(&self, _path: &Path) {}
 
-    fn on_quit(&self, callback: Box<dyn FnMut()>) {
+    fn on_quit(&self, callback: Box<dyn FnMut() -> bool>) {
         self.state.lock().quit_callback = Some(callback);
     }
 
     fn on_reopen(&self, _callback: Box<dyn FnMut()>) {}
+
+    fn on_displays_changed(&self, _callback: Box<dyn FnMut()>) {}
+
+    fn on_system_sleep(&self, _callback: Box<dyn FnMut()>) {}
+
+    fn on_system_wake(&self, _callback: Box<dyn FnMut()>) {}
+
+    fn prevent_idle_sleep(&self, reason: &str) -> Task<Result<ActivityGuard>> {
+        Task::ready(Err(anyhow!(
+            "Idle sleep prevention for {reason:?} is not supported on iOS"
+        )))
+    }
 
     fn set_menus(&self, _menus: Vec<Menu>, _keymap: &Keymap) {}
 

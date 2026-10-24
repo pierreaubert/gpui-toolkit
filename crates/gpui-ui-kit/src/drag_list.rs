@@ -81,6 +81,7 @@ thread_local! {
 }
 
 /// A reorderable drag list component
+#[derive(gpui::IntoElement)]
 pub struct DragList {
     id: ElementId,
     items: Vec<DragItem>,
@@ -296,14 +297,6 @@ impl RenderOnce for DragList {
         let global_theme = cx.theme();
         let theme = DragListTheme::from(global_theme);
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for DragList {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

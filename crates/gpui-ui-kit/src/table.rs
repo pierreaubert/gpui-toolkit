@@ -417,6 +417,16 @@ impl<T: 'static> Table<T> {
     }
 }
 
+// Manual impl (not the derive) so the 'static bound stays on the impl
+// instead of moving onto the struct definition.
+impl<T: 'static> IntoElement for Table<T> {
+    type Element = gpui::ViewElement<Self>;
+
+    fn into_element(self) -> Self::Element {
+        gpui::ViewElement::new(self)
+    }
+}
+
 impl<T: 'static> RenderOnce for Table<T> {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         // Register in accessibility tree
@@ -433,14 +443,6 @@ impl<T: 'static> RenderOnce for Table<T> {
             .unwrap_or_else(|| TableTheme::from(global_theme));
         let design = crate::design::resolve_design(self.design.clone(), cx);
         self.build(theme, design, window, cx)
-    }
-}
-
-impl<T: 'static> IntoElement for Table<T> {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

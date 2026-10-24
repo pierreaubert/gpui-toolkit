@@ -62,6 +62,7 @@ pub struct PopoverTheme {
 }
 
 /// A popover component that floats relative to its parent container
+#[derive(gpui::IntoElement)]
 pub struct Popover {
     id: ElementId,
     placement: PopoverPlacement,
@@ -246,14 +247,6 @@ impl RenderOnce for Popover {
         let global_theme = cx.theme();
         let theme = PopoverTheme::from(global_theme);
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for Popover {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

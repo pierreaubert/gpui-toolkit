@@ -104,6 +104,7 @@ impl DialogSize {
 }
 
 /// A modal dialog component
+#[derive(gpui::IntoElement)]
 pub struct Dialog {
     id: ElementId,
     title: Option<SharedString>,
@@ -514,14 +515,6 @@ impl RenderOnce for Dialog {
         let global_theme = cx.theme();
         let dialog_theme = DialogTheme::from(global_theme);
         self.build_with_theme(&dialog_theme)
-    }
-}
-
-impl IntoElement for Dialog {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

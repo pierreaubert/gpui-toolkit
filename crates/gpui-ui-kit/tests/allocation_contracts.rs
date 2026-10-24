@@ -184,7 +184,7 @@ fn table_redraw_100_stays_within_budget() {
         .add_fonts(gpui_miniapp::bundled_ui_fonts())
         .unwrap();
     let text_system: Arc<dyn gpui::PlatformTextSystem> = text_system;
-    let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || None);
+    let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || Ok(None));
     cx.update(|app| {
         app.set_global(ThemeState::with_variant(ThemeVariant::Dark));
         app.set_global(DesignSystemState::with_system(DesignSystem::neutral()));

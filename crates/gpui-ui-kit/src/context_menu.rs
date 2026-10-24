@@ -77,6 +77,7 @@ impl ContextMenuTheme {
 
 /// A context menu component that renders a Menu at a specific position
 /// with a transparent backdrop for click-outside dismiss.
+#[derive(gpui::IntoElement)]
 pub struct ContextMenu {
     id: ElementId,
     items: Vec<MenuItem>,
@@ -224,13 +225,5 @@ impl RenderOnce for ContextMenu {
         let global_theme = cx.theme();
         let theme = ContextMenuTheme::from(global_theme);
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for ContextMenu {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

@@ -73,6 +73,7 @@ pub struct NotificationTheme {
 }
 
 /// A persistent notification/banner component
+#[derive(gpui::IntoElement)]
 pub struct Notification {
     id: ElementId,
     title: SharedString,
@@ -251,13 +252,5 @@ impl RenderOnce for Notification {
         let global_theme = cx.theme();
         let theme = NotificationTheme::from(global_theme);
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for Notification {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

@@ -21,6 +21,7 @@ fn next_hstack_id() -> ElementId {
 /// A horizontal stack (row) layout
 ///
 /// Behaves like CSS `display: flex; flex-direction: row` with responsive sizing support.
+#[derive(gpui::IntoElement)]
 pub struct HStack {
     pub(super) children: Vec<AnyElement>,
     pub(super) spacing: StackSpacing,
@@ -349,14 +350,6 @@ impl RenderOnce for HStack {
         } else {
             stack.into_any_element()
         }
-    }
-}
-
-impl IntoElement for HStack {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

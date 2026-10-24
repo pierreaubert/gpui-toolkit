@@ -60,6 +60,7 @@ pub struct ImageViewTheme {
 }
 
 /// An image display component
+#[derive(gpui::IntoElement)]
 pub struct ImageView {
     id: ElementId,
     src: Option<SharedString>,
@@ -232,14 +233,6 @@ impl RenderOnce for ImageView {
         let global_theme = cx.theme();
         let theme = ImageViewTheme::from(global_theme);
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for ImageView {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

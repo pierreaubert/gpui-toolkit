@@ -72,6 +72,7 @@ thread_local! {
 }
 
 /// A split pane component with a draggable divider
+#[derive(gpui::IntoElement)]
 pub struct SplitPane {
     id: ElementId,
     direction: SplitDirection,
@@ -361,14 +362,6 @@ impl RenderOnce for SplitPane {
         let theme = SplitPaneTheme::from(global_theme);
         let design = crate::design::resolve_design(self.design.clone(), cx);
         self.build_with_theme_and_design(&theme, &design)
-    }
-}
-
-impl IntoElement for SplitPane {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

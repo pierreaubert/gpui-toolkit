@@ -319,7 +319,7 @@ fn ios_role(role: Role) -> IosAccessibilityRole {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use accesskit::{Rect, Tree};
+    use accesskit::{Rect, TreeInfo};
     use std::sync::{Arc, Mutex};
 
     fn sample_tree() -> AccessibilityTree {
@@ -336,7 +336,7 @@ mod tests {
         let mut tree = AccessibilityTree::default();
         tree.apply(TreeUpdate {
             nodes: vec![(root_id, root), (button_id, button)],
-            tree: Some(Tree::new(root_id)),
+            tree: Some(TreeInfo::new(root_id)),
             tree_id: TreeId::ROOT,
             focus: button_id,
         });

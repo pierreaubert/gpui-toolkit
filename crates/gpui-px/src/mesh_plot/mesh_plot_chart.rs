@@ -232,6 +232,7 @@ const fn mesh_custom_draw_supported(target_os: &str) -> bool {
     !matches!(target_os.as_bytes(), b"windows")
 }
 
+#[derive(gpui::IntoElement)]
 struct AccessibleMeshPlotElement {
     element: Stateful<Div>,
     node: AccessibilityNode,
@@ -244,18 +245,11 @@ impl RenderOnce for AccessibleMeshPlotElement {
     }
 }
 
-impl IntoElement for AccessibleMeshPlotElement {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
-    }
-}
-
 /// A one-shot builder wrapper that promotes a `MeshPlot` to a retained GPUI
 /// view at layout time.  The builder API stays ergonomic while the live view
 /// gains a stable owner for toolbar/menu state, completion notifications, and
 /// future background preparation results.
+#[derive(gpui::IntoElement)]
 struct MeshPlotElement {
     plot: MeshPlot,
 }
@@ -428,14 +422,6 @@ impl RenderOnce for MeshPlotElement {
             cx.notify();
         });
         entity
-    }
-}
-
-impl IntoElement for MeshPlotElement {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

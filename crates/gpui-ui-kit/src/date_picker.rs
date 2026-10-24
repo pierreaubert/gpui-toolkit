@@ -152,6 +152,7 @@ const MONTH_NAMES: [&str; 12] = [
 const WEEKDAY_HEADERS: [&str; 7] = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 /// A calendar date picker with parent-owned state.
+#[derive(gpui::IntoElement)]
 pub struct DatePicker {
     id: ElementId,
     selected: Option<CalendarDate>,
@@ -393,14 +394,6 @@ impl RenderOnce for DatePicker {
         });
         let global_theme = cx.theme();
         self.build_with_theme(&global_theme)
-    }
-}
-
-impl IntoElement for DatePicker {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

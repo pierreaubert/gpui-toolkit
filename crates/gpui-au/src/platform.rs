@@ -12,15 +12,16 @@ use super::{AuDispatcher, AuTextSystem};
 use anyhow::anyhow;
 use futures::channel::oneshot;
 use gpui::{
-    Action, AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle, DummyKeyboardMapper,
-    ForegroundExecutor, Keymap, Menu, MenuItem, PathPromptOptions, Platform, PlatformDisplay,
-    PlatformKeyboardLayout, PlatformKeyboardMapper, PlatformTextSystem, PlatformWindow, Result,
-    Task, ThermalState, WindowAppearance, WindowParams,
+    Action, ActivityGuard, AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle,
+    DummyKeyboardMapper, ForegroundExecutor, Keymap, Menu, MenuItem, PathPromptOptions, Platform,
+    PlatformDisplay, PlatformKeyboardLayout, PlatformKeyboardMapper, PlatformTextSystem,
+    PlatformWindow, Result, Task, ThermalState, WindowAppearance, WindowParams,
 };
 use objc::runtime::{Object, Sel};
 use objc::{class, msg_send, sel, sel_impl};
 use parking_lot::Mutex;
 use std::{
+    ffi::OsString,
     path::{Path, PathBuf},
     rc::Rc,
     sync::Arc,
@@ -106,7 +107,7 @@ impl Platform for AuPlatform {
         log::warn!("AU extensions cannot quit the host application");
     }
 
-    fn restart(&self, _binary_path: Option<PathBuf>) {
+    fn restart(&self, _binary_path: Option<PathBuf>, _arguments: Vec<OsString>) {
         log::warn!("AU extensions cannot restart");
     }
 
@@ -199,8 +200,17 @@ impl Platform for AuPlatform {
 
     fn reveal_path(&self, _path: &Path) {}
     fn open_with_system(&self, _path: &Path) {}
-    fn on_quit(&self, _callback: Box<dyn FnMut()>) {}
+    fn on_quit(&self, _callback: Box<dyn FnMut() -> bool>) {}
     fn on_reopen(&self, _callback: Box<dyn FnMut()>) {}
+    fn on_displays_changed(&self, _callback: Box<dyn FnMut()>) {}
+    fn on_system_sleep(&self, _callback: Box<dyn FnMut()>) {}
+    fn on_system_wake(&self, _callback: Box<dyn FnMut()>) {}
+
+    fn prevent_idle_sleep(&self, reason: &str) -> Task<Result<ActivityGuard>> {
+        Task::ready(Err(anyhow!(
+            "Idle sleep prevention for {reason:?} is not supported in an AU extension; the host owns power management"
+        )))
+    }
     fn set_menus(&self, _menus: Vec<Menu>, _keymap: &Keymap) {}
     fn set_dock_menu(&self, _menu: Vec<MenuItem>, _keymap: &Keymap) {}
     fn on_app_menu_action(&self, _callback: Box<dyn FnMut(&dyn Action)>) {}

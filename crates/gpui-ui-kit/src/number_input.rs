@@ -315,13 +315,13 @@ impl NumberInputEntity {
     }
 
     fn handle_dec_click(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        window.blur();
+        window.blur(cx);
         let new_value = (self.props.value - self.props.step).clamp(self.props.min, self.props.max);
         self.emit_change(new_value, window, cx);
     }
 
     fn handle_inc_click(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        window.blur();
+        window.blur(cx);
         let new_value = (self.props.value + self.props.step).clamp(self.props.min, self.props.max);
         self.emit_change(new_value, window, cx);
     }
@@ -519,7 +519,7 @@ impl NumberInputEntity {
                     state.text_selected = false;
                     drop(state);
 
-                    window.blur();
+                    window.blur(cx);
 
                     if let Some(value) = parsed {
                         self.emit_change(value, window, cx);
@@ -530,7 +530,7 @@ impl NumberInputEntity {
                     state.text.clear();
                     state.text_selected = false;
                     drop(state);
-                    window.blur();
+                    window.blur(cx);
                     window.refresh();
                 }
                 "backspace" => {

@@ -61,7 +61,7 @@ async fn multiline_grows_and_blur_never_submits(cx: &mut TestAppContext) {
             .height
             > initial_height
     );
-    cx.update(|window, _| window.blur());
+    cx.update(gpui::Window::blur);
     cx.run_until_parked();
     assert!(
         submissions.borrow().is_empty(),

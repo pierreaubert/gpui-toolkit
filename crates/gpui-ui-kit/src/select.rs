@@ -50,6 +50,7 @@ pub use select_option::SelectOption;
 pub use select_size::SelectSize;
 pub use types::SelectTheme;
 /// A select dropdown component with theming support
+#[derive(gpui::IntoElement)]
 pub struct Select {
     id: ElementId,
     focus_handle: Option<FocusHandle>,
@@ -670,13 +671,5 @@ impl RenderOnce for Select {
             .unwrap_or_else(|| SelectTheme::from(cx.theme()));
 
         self.build(&theme, window, cx)
-    }
-}
-
-impl IntoElement for Select {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

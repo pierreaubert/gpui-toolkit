@@ -1,8 +1,9 @@
 use crate::theme::{Theme, ThemeExt};
 use gpui::prelude::{InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled};
-use gpui::{App, Component, Div, ElementId, MouseButton, SharedString, Stateful, Window, div};
+use gpui::{App, Div, ElementId, MouseButton, SharedString, Stateful, Window, div};
 
 /// A link component
+#[derive(gpui::IntoElement)]
 pub struct Link {
     pub(super) id: ElementId,
     pub(super) content: SharedString,
@@ -81,14 +82,6 @@ impl Link {
         let mut this = self;
         let theme = this.theme.take().unwrap_or_else(Theme::dark);
         this.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for Link {
-    type Element = Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        Component::new(self)
     }
 }
 

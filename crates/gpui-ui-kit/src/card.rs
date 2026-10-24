@@ -44,6 +44,7 @@ fn next_card_id() -> ElementId {
 }
 
 /// A card container with optional sections
+#[derive(gpui::IntoElement)]
 pub struct Card {
     id: ElementId,
     header: Option<AnyElement>,
@@ -314,14 +315,6 @@ impl RenderOnce for Card {
         let theme = cx.theme();
         self.build_with_theme_design_and_scroll(&theme, &design, scroll_content)
             .into_any_element()
-    }
-}
-
-impl IntoElement for Card {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

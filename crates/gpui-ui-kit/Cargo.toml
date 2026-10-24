@@ -69,7 +69,7 @@ tokio = []
 urlencoding = []
 
 [dev-dependencies]
-gpui = { version = "0.2.3",  package = "sotf-gpui-toolkit-gpui", git = "https://github.com/pierreaubert/sotf-3rdparties", features = ["test-support"] }
+gpui = { workspace = true, features = ["test-support"] }
 gpui_wgpu = { workspace = true }
 rqrr = { workspace = true }
 criterion = { workspace = true }

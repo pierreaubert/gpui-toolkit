@@ -8,7 +8,8 @@ use gpui::{
     AnyWindowHandle, Bounds, Capslock, DevicePixels, DispatchEventResult, GpuSpecs, Modifiers,
     Pixels, PlatformAtlas, PlatformDisplay, PlatformInput, PlatformInputHandler, PlatformWindow,
     Point, PromptButton, PromptLevel, RequestFrameOptions, Scene, Size, WindowAppearance,
-    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowParams, px, size,
+    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowParams, WindowVisibility,
+    px, size,
 };
 use gpui_foreign_parent::{CallbackSlot, FrameThrottle, ResizeDebounce, TransitionCell};
 use gpui_wgpu::{GpuContext, WgpuRenderer, WgpuSurfaceConfig};
@@ -483,6 +484,16 @@ impl HasDisplayHandle for AuWindow {
 }
 
 impl PlatformWindow for AuWindow {
+    fn visibility(&self) -> WindowVisibility {
+        // The host drives presentation; the embedded view is treated as
+        // presented whenever it requests frames.
+        WindowVisibility::Visible
+    }
+
+    fn on_visibility_change(&self, _callback: Box<dyn FnMut(WindowVisibility)>) {}
+
+    fn on_display_changed(&self, _callback: Box<dyn FnMut()>) {}
+
     fn bounds(&self) -> Bounds<Pixels> {
         self.bounds.get()
     }

@@ -20,7 +20,8 @@ use gpui::{
     AnyWindowHandle, Bounds, Capslock, DevicePixels, DispatchEventResult, GpuSpecs, Modifiers,
     Pixels, PlatformAtlas, PlatformDisplay, PlatformInput, PlatformInputHandler, PlatformWindow,
     Point, PromptButton, PromptLevel, RequestFrameOptions, Scene, Size, WindowAppearance,
-    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowParams, px, size,
+    WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowParams, WindowVisibility,
+    px, size,
 };
 use gpui_wgpu::WgpuRenderer;
 #[cfg(target_os = "ios")]
@@ -1013,6 +1014,14 @@ impl HasDisplayHandle for IosWindow {
 }
 
 impl PlatformWindow for IosWindow {
+    fn visibility(&self) -> WindowVisibility {
+        WindowVisibility::Visible
+    }
+
+    fn on_visibility_change(&self, _callback: Box<dyn FnMut(WindowVisibility)>) {}
+
+    fn on_display_changed(&self, _callback: Box<dyn FnMut()>) {}
+
     fn bounds(&self) -> Bounds<Pixels> {
         self.bounds.get()
     }

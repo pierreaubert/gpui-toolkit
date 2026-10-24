@@ -6,8 +6,8 @@ use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
-const GPUI_VERSION: &str = "0.2.2";
-const GPUI_ZED_TAG: &str = "v1.9.0";
+const GPUI_VERSION: &str = "0.2.3";
+const GPUI_ZED_TAG: &str = "v1.25.2";
 const SCAFFOLD_TEMPLATE_VERSION: &str = "2";
 /// Name of the only scaffold template shipped today. Custom templates are a
 /// future extension; [`ScaffoldFlags`] reserves the selection slot already.
@@ -720,11 +720,10 @@ gpui-ui-kit = {{ path = "{ui_kit_path}" }}
 # compile without zune-core's optional log feature. Keep fresh scaffolds on the
 # compatible release until the upstream decoder constrains or fixes the pair.
 zune-core = "=0.5.1"
-# backtrace 0.3.x calls libc's _dyld_* symbols on every Apple target, but libc
-# 0.2.190 gated them to macOS only, breaking iOS/tvOS simulator builds. Keep
-# fresh scaffolds on the last compatible release until backtrace handles
-# Apple-mobile targets without those symbols.
-libc = "=0.2.189"
+# The vendored scheduler no longer compiles backtrace on Apple-mobile
+# targets, so libc no longer needs the pre-0.2.190 pin for its _dyld_*
+# symbols; the new GPUI graph (parking_lot_core 0.10) requires >= 0.2.191.
+libc = "=0.2.191"
 "#,
         package_name = toml_string(&names.package_name),
         library_name = toml_string(&names.library_name),
@@ -1595,7 +1594,7 @@ mod tests {
         let _: toml::Value = toml::from_str(&manifest)?;
         assert!(manifest.contains("[workspace]"));
         assert!(manifest.contains("crate-type = [\"rlib\", \"staticlib\", \"cdylib\"]"));
-        assert!(manifest.contains(r#"tag = "v1.9.0""#));
+        assert!(manifest.contains(r#"tag = "v1.25.2""#));
         assert!(manifest.contains("gpui-miniapp"));
         assert!(manifest.contains("gpui-ui-kit"));
         assert!(manifest.contains("gpui-ios"));
@@ -1603,7 +1602,7 @@ mod tests {
         assert!(manifest.contains("android-activity"));
         assert!(manifest.contains("android_logger"));
         assert!(manifest.contains("zune-core = \"=0.5.1\""));
-        assert!(manifest.contains("libc = \"=0.2.189\""));
+        assert!(manifest.contains("libc = \"=0.2.191\""));
         // Renamed sotf-* crates cannot patch upstream names, so the template
         // carries no [patch] tables; scaffolded apps resolve block/font-kit
         // from crates.io.

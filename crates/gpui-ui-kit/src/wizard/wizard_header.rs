@@ -8,6 +8,7 @@ use gpui::{App, Div, ElementId, FontWeight, InteractiveElement, SharedString, Wi
 
 /// Header component for wizard screens - renders just the step indicators
 /// Use this when you want to place the wizard header and navigation separately
+#[derive(gpui::IntoElement)]
 pub struct WizardHeader {
     id: Option<ElementId>,
     pub(super) steps: Vec<WizardStep>,
@@ -257,13 +258,5 @@ impl RenderOnce for WizardHeader {
             &wizard_theme,
             WizardStepIndicatorDensity::from_window(window),
         )
-    }
-}
-
-impl IntoElement for WizardHeader {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

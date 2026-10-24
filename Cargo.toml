@@ -122,14 +122,18 @@ gpui-ui-kit-macros = { path = "crates/gpui-ui-kit-macros", version = "0.10" }
 # M6: every sotf-3rdparties dep tracks the fork's default branch (main).
 # The pins must move together: fork crates reference each other, so a split
 # rev would compile two copies of gpui.
-gpui = { package = "sotf-gpui-toolkit-gpui", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.2.3", default-features = false }
-gpui_macos = { package = "sotf-gpui-toolkit-gpui-macos", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.1.1", default-features = false, features = ["font-kit"] }
-gpui_linux = { package = "sotf-gpui-toolkit-gpui-linux", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.1.0", default-features = false }
-gpui_windows = { package = "sotf-gpui-toolkit-gpui-windows", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.1.2", default-features = false }
-gpui_wgpu = { package = "sotf-gpui-toolkit-gpui-wgpu", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.1.2" }
-gpui_web = { package = "sotf-gpui-toolkit-gpui-web", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.1.1" }
-wgpu = { package = "sotf-wgpu",  git = "https://github.com/pierreaubert/sotf-3rdparties", version = "29.0.0" }
-vello = { package = "sotf-vello", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.10.0", default-features = false, features = ["wgpu"] }
+# TEMPORARY (sotf-3rdparties#6 consumer bump): the GPUI family is pinned to
+# branch feat/gpui-zero-warnings (tip of the A+B+C stack for the Zed
+# v1.25.2 upgrade). Drop the branch pins once sotf-3rdparties PRs #7/#8/#9
+# merge to main, then cargo update the sotf-* packages.
+gpui = { package = "sotf-gpui-toolkit-gpui", git = "https://github.com/pierreaubert/sotf-3rdparties", branch = "feat/gpui-zero-warnings", version = "0.2.3", default-features = false }
+gpui_macos = { package = "sotf-gpui-toolkit-gpui-macos", git = "https://github.com/pierreaubert/sotf-3rdparties", branch = "feat/gpui-zero-warnings", version = "0.1.2", default-features = false, features = ["font-kit"] }
+gpui_linux = { package = "sotf-gpui-toolkit-gpui-linux", git = "https://github.com/pierreaubert/sotf-3rdparties", branch = "feat/gpui-zero-warnings", version = "0.1.0", default-features = false }
+gpui_windows = { package = "sotf-gpui-toolkit-gpui-windows", git = "https://github.com/pierreaubert/sotf-3rdparties", branch = "feat/gpui-zero-warnings", version = "0.1.2", default-features = false }
+gpui_wgpu = { package = "sotf-gpui-toolkit-gpui-wgpu", git = "https://github.com/pierreaubert/sotf-3rdparties", branch = "feat/gpui-zero-warnings", version = "0.1.3" }
+gpui_web = { package = "sotf-gpui-toolkit-gpui-web", git = "https://github.com/pierreaubert/sotf-3rdparties", branch = "feat/gpui-zero-warnings", version = "0.1.1" }
+wgpu = { package = "sotf-wgpu",  git = "https://github.com/pierreaubert/sotf-3rdparties", branch = "feat/gpui-zero-warnings", version = "29.0.0" }
+vello = { package = "sotf-vello", git = "https://github.com/pierreaubert/sotf-3rdparties", branch = "feat/gpui-zero-warnings", version = "0.10.0", default-features = false, features = ["wgpu"] }
 vello_cpu = { version = "0.2.0" }
 peniko = { version = "0.6.1" }
 kurbo = { version = "0.13.1" }
@@ -169,9 +173,9 @@ rqrr = "0.11.0"
 # Apple platform bindings
 block2 = "0.6"
 core-foundation = "0.10"
-core-graphics = "0.24"
-core-text = "=21.0.0"
-font-kit = { package = "sotf-zed-font-kit", version = "0.14.1-zed", git = "https://github.com/pierreaubert/sotf-3rdparties", default-features = false, features = ["source"] }
+core-graphics = "0.25"
+core-text = "22"
+font-kit = { package = "sotf-zed-font-kit", version = "0.14.1-zed", git = "https://github.com/pierreaubert/sotf-3rdparties", branch = "feat/gpui-zero-warnings", default-features = false, features = ["source"] }
 objc = { version = "0.2", package = "sotf-objc", git = "https://github.com/pierreaubert/sotf-3rdparties" }
 oslog = "0.2"
 security-framework = "3.7"

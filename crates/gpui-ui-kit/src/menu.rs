@@ -47,6 +47,7 @@ fn menu_item_accessibility(item: &menu_item::MenuItem) -> (SharedString, AriaPro
 /// - **Home/End**: Jump to first/last selectable item
 /// - **Enter/Space**: Select the focused item
 /// - **Escape**: Close the menu (triggers `on_close` callback)
+#[derive(gpui::IntoElement)]
 pub struct Menu {
     id: ElementId,
     items: Vec<menu_item::MenuItem>,
@@ -462,13 +463,5 @@ impl RenderOnce for Menu {
         } else {
             menu.into_any_element()
         }
-    }
-}
-
-impl IntoElement for Menu {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }

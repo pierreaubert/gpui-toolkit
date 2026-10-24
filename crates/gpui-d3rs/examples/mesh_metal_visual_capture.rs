@@ -284,7 +284,7 @@ fn capture_case(id: &str) -> Result<RgbaImage, String> {
     let text_system = platform.text_system();
     drop(platform);
     let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-        Some(Box::new(MetalHeadlessRenderer::new()))
+        Ok(Some(Box::new(MetalHeadlessRenderer::new())))
     });
     let window = cx
         .open_window(size(px(CSS_WIDTH), px(CSS_HEIGHT)), {

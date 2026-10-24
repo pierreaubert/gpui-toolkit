@@ -676,7 +676,7 @@ mod native_mesh_plot_tests {
         showcase.scene2d_event_sink = Some(event_sink.clone());
         let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-            Some(Box::new(MetalHeadlessRenderer::new()))
+            Ok(Some(Box::new(MetalHeadlessRenderer::new())))
         });
         let window = cx
             .open_window(size(px(80.0), px(100.0)), move |_window, app| {
@@ -932,7 +932,7 @@ mod native_mesh_plot_tests {
         showcase.app = Some(first_ir);
         let text_system = native_mac_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-            Some(Box::new(MetalHeadlessRenderer::new()))
+            Ok(Some(Box::new(MetalHeadlessRenderer::new())))
         });
         let initial_size = size(px(390.0), px(844.0));
         let window = cx
@@ -1406,7 +1406,7 @@ mod native_mesh_plot_tests {
         }
         let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-            Some(Box::new(MetalHeadlessRenderer::new()))
+            Ok(Some(Box::new(MetalHeadlessRenderer::new())))
         });
         let (spec, frames) = fixture();
         let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
@@ -1505,7 +1505,7 @@ mod native_mesh_plot_tests {
         }
         let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-            Some(Box::new(MetalHeadlessRenderer::new()))
+            Ok(Some(Box::new(MetalHeadlessRenderer::new())))
         });
         let (spec, frames) = fixture();
         let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
@@ -1582,7 +1582,7 @@ mod native_mesh_plot_tests {
         }
         let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-            Some(Box::new(MetalHeadlessRenderer::new()))
+            Ok(Some(Box::new(MetalHeadlessRenderer::new())))
         });
         let (spec, frames) = fixture();
         let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
@@ -1639,7 +1639,7 @@ mod native_mesh_plot_tests {
             cx.notify();
         });
         cx.update_window(any_window, |_, window, app| {
-            window.draw(app).clear();
+            window.draw(app).clear(app);
         })
         .expect("draw invalid field resource-backed patch fallback");
         let invalid_field_frame = cx
@@ -1666,7 +1666,7 @@ mod native_mesh_plot_tests {
             cx.notify();
         });
         cx.update_window(any_window, |_, window, app| {
-            window.draw(app).clear();
+            window.draw(app).clear(app);
         })
         .expect("draw invalid mask resource-backed patch fallback");
         let invalid_mask_frame = cx
@@ -1690,7 +1690,7 @@ mod native_mesh_plot_tests {
             cx.notify();
         });
         cx.update_window(any_window, |_, window, app| {
-            window.draw(app).clear();
+            window.draw(app).clear(app);
         })
         .expect("draw invalid resource-backed patch fallback");
         let after = cx
@@ -1719,7 +1719,7 @@ mod native_mesh_plot_tests {
         }
         let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-            Some(Box::new(MetalHeadlessRenderer::new()))
+            Ok(Some(Box::new(MetalHeadlessRenderer::new())))
         });
         let (spec, frames) = fixture();
         let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
@@ -1775,7 +1775,7 @@ mod native_mesh_plot_tests {
         });
         cx.update_entity(&view, |_view, cx| cx.notify());
         cx.update_window(any_window, |_, window, app| {
-            window.draw(app).clear();
+            window.draw(app).clear(app);
         })
         .expect("draw valid resource-backed field patch");
         let updated = cx
@@ -1814,7 +1814,7 @@ mod native_mesh_plot_tests {
             cx.notify();
         });
         cx.update_window(any_window, |_, window, app| {
-            window.draw(app).clear();
+            window.draw(app).clear(app);
         })
         .expect("draw invalid resource-backed patch after valid update");
         let fallback = cx
@@ -1843,7 +1843,7 @@ mod native_mesh_plot_tests {
         }
         let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-            Some(Box::new(MetalHeadlessRenderer::new()))
+            Ok(Some(Box::new(MetalHeadlessRenderer::new())))
         });
         let (spec, frames) = fixture();
         let state = Rc::new(RefCell::new(MeshPlotState::new(0.0, 1.0, 0.0, 1.0)));
@@ -1898,7 +1898,7 @@ mod native_mesh_plot_tests {
         });
         cx.update_entity(&view, |_view, cx| cx.notify());
         cx.update_window(any_window, |_, window, app| {
-            window.draw(app).clear();
+            window.draw(app).clear(app);
         })
         .expect("redraw after malformed resource frame");
         let fallback = cx
@@ -1943,7 +1943,7 @@ mod native_mesh_plot_tests {
         });
         cx.update_entity(&view, |_view, cx| cx.notify());
         cx.update_window(any_window, |_, window, app| {
-            window.draw(app).clear();
+            window.draw(app).clear(app);
         })
         .expect("draw corrected resource-backed MeshPlot frame");
         let recovered = cx
@@ -1981,7 +1981,7 @@ mod native_mesh_plot_tests {
         }
         let text_system = native_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-            Some(Box::new(MetalHeadlessRenderer::new()))
+            Ok(Some(Box::new(MetalHeadlessRenderer::new())))
         });
         let (mut spec, frames) = fixture();
         spec.view = "surface3d".into();
@@ -2028,7 +2028,7 @@ mod native_mesh_plot_tests {
         // buffers. It must still retain the existing scene and GPU upload.
         cx.update_entity(&view, |_view, cx| cx.notify());
         cx.update_window(any_window, |_, window, app| {
-            window.draw(app).clear();
+            window.draw(app).clear(app);
         })
         .expect("redraw unchanged resource-backed Surface3d MeshPlot");
         assert_eq!(
@@ -2062,7 +2062,7 @@ mod native_mesh_plot_tests {
         });
         cx.update_entity(&view, |_view, cx| cx.notify());
         cx.update_window(any_window, |_, window, app| {
-            window.draw(app).clear();
+            window.draw(app).clear(app);
         })
         .expect("draw resource-backed Surface3d geometry patch");
         let patched_frame = cx
@@ -19460,7 +19460,7 @@ mod native_content_scroll_tests {
         }
         let text_system = Arc::new(gpui::NoopTextSystem::new());
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
-            Some(Box::new(MetalHeadlessRenderer::new()))
+            Ok(Some(Box::new(MetalHeadlessRenderer::new())))
         });
 
         let scroll = ScrollHandle::new();

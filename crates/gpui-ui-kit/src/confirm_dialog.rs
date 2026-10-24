@@ -66,6 +66,7 @@ pub struct ConfirmDialogTheme {
 }
 
 /// A confirmation dialog component
+#[derive(gpui::IntoElement)]
 pub struct ConfirmDialog {
     id: ElementId,
     title: Option<SharedString>,
@@ -389,14 +390,6 @@ impl RenderOnce for ConfirmDialog {
         let global_theme = cx.theme();
         let theme = ConfirmDialogTheme::from(global_theme);
         self.build_with_theme(&theme)
-    }
-}
-
-impl IntoElement for ConfirmDialog {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

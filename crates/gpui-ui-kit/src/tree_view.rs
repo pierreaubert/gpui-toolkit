@@ -95,6 +95,7 @@ impl TreeNode {
 }
 
 /// A tree view component
+#[derive(gpui::IntoElement)]
 pub struct TreeView {
     id: ElementId,
     nodes: Vec<TreeNode>,
@@ -663,14 +664,6 @@ impl RenderOnce for TreeView {
         let global_theme = cx.theme();
         let theme = TreeViewTheme::from(global_theme);
         self.build_with_theme(&theme, cx)
-    }
-}
-
-impl IntoElement for TreeView {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

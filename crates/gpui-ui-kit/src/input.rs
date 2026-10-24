@@ -134,6 +134,7 @@ pub type InputValidator = Rc<dyn Fn(&str) -> Option<SharedString> + 'static>;
 ///
 /// The Input handles all focus and keyboard events internally.
 /// Parent components only need to provide callbacks for value changes.
+#[derive(gpui::IntoElement)]
 pub struct Input {
     multiline: bool,
     id: ElementId,
@@ -1028,12 +1029,12 @@ impl InputEntity {
             "enter" => {
                 drop(state);
                 self.commit_edit(window, cx);
-                window.blur();
+                window.blur(cx);
             }
             "escape" => {
                 state.abandon_edit();
                 drop(state);
-                window.blur();
+                window.blur(cx);
                 if let Some(ref handler) = self.props.on_edit_end {
                     handler(None, window, cx);
                 }
@@ -1834,14 +1835,6 @@ impl RenderOnce for Input {
             focus_handle,
             entity,
         }
-    }
-}
-
-impl IntoElement for Input {
-    type Element = gpui::Component<Self>;
-
-    fn into_element(self) -> Self::Element {
-        gpui::Component::new(self)
     }
 }
 

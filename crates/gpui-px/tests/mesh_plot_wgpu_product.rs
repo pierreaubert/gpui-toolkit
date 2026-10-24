@@ -145,12 +145,12 @@ fn capture(backend: Backend, selected: bool) -> Option<RgbaImage> {
     let (mesh, field) = fixture();
     let mut cx = match backend {
         Backend::Metal => HeadlessAppContext::with_platform(text_system(), Arc::new(()), || {
-            Some(Box::new(
+            Ok(Some(Box::new(
                 gpui_macos::metal_renderer::MetalHeadlessRenderer::new(),
-            ))
+            )))
         }),
         Backend::Wgpu => HeadlessAppContext::with_platform(text_system(), Arc::new(()), || {
-            WgpuHeadlessRenderer::new(
+            Ok(WgpuHeadlessRenderer::new(
                 gpui::Size {
                     width: gpui::DevicePixels(WIDTH as i32),
                     height: gpui::DevicePixels(HEIGHT as i32),
@@ -158,7 +158,7 @@ fn capture(backend: Backend, selected: bool) -> Option<RgbaImage> {
                 false,
             )
             .ok()
-            .map(|renderer| Box::new(renderer) as Box<dyn gpui::PlatformHeadlessRenderer>)
+            .map(|renderer| Box::new(renderer) as Box<dyn gpui::PlatformHeadlessRenderer>))
         }),
     };
     let window = cx
