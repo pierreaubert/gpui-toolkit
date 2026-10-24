@@ -80,7 +80,7 @@ memmap2 = "0.9.11"
 thiserror = "2.0.17"
 arrow-array = "57.0.0"
 arrow-cast = "57.0.0"
-arrow-ipc = "57.0.0"
+arrow-ipc = "60.0.0"
 unicode-segmentation = "1"
 stats_alloc = "0.1.10"
 
