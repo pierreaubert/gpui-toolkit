@@ -3079,7 +3079,7 @@ dependencies = [
 name = "gpui-spinorama"
 version = "0.10.44"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "gpui-builder",
  "gpui-d3rs",
  "gpui-design",
