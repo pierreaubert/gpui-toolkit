@@ -79,7 +79,8 @@ alias tests := ntest
 
 [group('test')]
 ntest:
-	{{cargo}} nextest run --profile ci --release --no-fail-fast --workspace {{features}}
+	# GPUI's test selectors require debug assertions; use Cargo's test profile.
+	{{cargo}} nextest run --profile ci --no-fail-fast --workspace {{features}}
 
 [group('qa')]
 qa-miri:
