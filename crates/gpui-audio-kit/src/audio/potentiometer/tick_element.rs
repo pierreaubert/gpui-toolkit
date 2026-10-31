@@ -389,6 +389,9 @@ impl Element for PotentiometerTickLinesElement {
         window: &mut Window,
         _cx: &mut App,
     ) {
+        #[cfg(not(feature = "vello"))]
+        let _ = id;
+
         let origin_x: f32 = bounds.origin.x.into();
         let origin_y: f32 = bounds.origin.y.into();
 

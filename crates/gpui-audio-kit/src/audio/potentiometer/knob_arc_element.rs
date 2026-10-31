@@ -104,6 +104,9 @@ impl Element for KnobArcElement {
         window: &mut Window,
         _cx: &mut App,
     ) {
+        #[cfg(not(feature = "vello"))]
+        let _ = id;
+
         let origin_x = bounds.origin.x;
         let origin_y = bounds.origin.y;
 

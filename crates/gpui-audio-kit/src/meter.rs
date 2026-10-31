@@ -297,6 +297,9 @@ impl Element for GradientMeterFillElement {
         window: &mut Window,
         _cx: &mut App,
     ) {
+        #[cfg(not(feature = "vello"))]
+        let _ = id;
+
         let width: f32 = bounds.size.width.into();
         let height: f32 = bounds.size.height.into();
 
@@ -698,6 +701,9 @@ impl Element for LevelMeterElement {
         window: &mut Window,
         _cx: &mut App,
     ) {
+        #[cfg(not(feature = "vello"))]
+        let _ = id;
+
         let fill_ratio = self.fill_ratio();
         let yellow_threshold = self.yellow_threshold();
         let red_threshold = self.red_threshold();

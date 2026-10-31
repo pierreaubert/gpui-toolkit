@@ -121,6 +121,9 @@ impl Element for VolumeKnobFillElement {
         window: &mut Window,
         _cx: &mut App,
     ) {
+        #[cfg(not(feature = "vello"))]
+        let _ = id;
+
         // Extract bounds into f32 for calculations
         let size_f32 = self.size.to_f64() as f32;
         let origin_x = bounds.origin.x;
