@@ -20,9 +20,9 @@ const COMPUTE_TIMESTAMP_QUERY_BYTES: u64 =
     COMPUTE_TIMESTAMP_QUERY_COUNT as u64 * std::mem::size_of::<u64>() as u64;
 
 /// Optional adapter timestamp instrumentation for one synchronous compute
-/// operation. Compute methods already wait for their readback buffer, so the
-/// timestamp readback can be resolved in the same submission without adding a
-/// second asynchronous state machine. The normal path remains unchanged until
+/// operation. Compute methods already wait for their readback buffer; timestamp
+/// resolution follows sampling completion to avoid incomplete Metal counters.
+/// The normal path remains unchanged until
 /// `SOTF_GPU_TIMESTAMPS=1` is explicitly requested.
 struct AdapterComputeTiming {
     query_set: Option<wgpu::QuerySet>,
@@ -79,6 +79,9 @@ impl AdapterComputeTiming {
         beginning: Option<u32>,
         end: Option<u32>,
     ) -> Option<wgpu::ComputePassTimestampWrites<'_>> {
+        if beginning.is_none() && end.is_none() {
+            return None;
+        }
         self.query_set
             .as_ref()
             .map(|query_set| wgpu::ComputePassTimestampWrites {
@@ -88,10 +91,7 @@ impl AdapterComputeTiming {
             })
     }
 
-    fn finish(&self, encoder: &mut wgpu::CommandEncoder, active: bool) {
-        if !active {
-            return;
-        }
+    fn finish(&self, encoder: &mut wgpu::CommandEncoder) {
         let (Some(query_set), Some(resolve_buffer), Some(readback_buffer)) = (
             self.query_set.as_ref(),
             self.resolve_buffer.as_ref(),
@@ -114,10 +114,27 @@ impl AdapterComputeTiming {
         );
     }
 
-    fn readback(&self, device: &wgpu::Device) {
+    fn readback(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        self.last_gpu_time_ns.set(0);
         let Some(readback_buffer) = self.readback_buffer.as_ref() else {
             return;
         };
+        // Metal can return incomplete counters if resolve is submitted before
+        // sampling completes. This opt-in path already waits for kernel output.
+        if device
+            .poll(wgpu::PollType::Wait {
+                submission_index: Default::default(),
+                timeout: Some(std::time::Duration::from_secs(5)),
+            })
+            .is_err()
+        {
+            return;
+        }
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("mesh_compute_timestamp_resolve_encoder"),
+        });
+        self.finish(&mut encoder);
+        queue.submit(std::iter::once(encoder.finish()));
         let slice = readback_buffer.slice(..);
         let (sender, receiver) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |result| {
@@ -144,10 +161,13 @@ impl AdapterComputeTiming {
             readback_buffer.unmap();
             return;
         };
-        let ticks = end.wrapping_sub(start);
-        let nanos = (ticks as f64 * f64::from(self.timestamp_period_ns)).round();
+        let ticks = end.checked_sub(start);
         drop(data);
         readback_buffer.unmap();
+        let Some(ticks) = ticks.filter(|_| start != 0 && end != u64::MAX) else {
+            return;
+        };
+        let nanos = (ticks as f64 * f64::from(self.timestamp_period_ns)).round();
         if nanos.is_finite() && nanos > 0.0 {
             self.last_gpu_time_ns.set(nanos.min(u64::MAX as f64) as u64);
             self.gpu_time_count
@@ -265,10 +285,10 @@ impl AdapterCompute {
         let timestamp_features = adapter.features();
         let timing_enabled = std::env::var_os("SOTF_GPU_TIMESTAMPS").as_deref()
             == Some(std::ffi::OsStr::new("1"))
-            && timestamp_features.contains(wgpu::Features::TIMESTAMP_QUERY)
-            && timestamp_features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES);
+            && timestamp_features.contains(wgpu::Features::TIMESTAMP_QUERY);
+        // Pass-boundary timestamp writes do not need arbitrary in-pass queries.
         let required_features = if timing_enabled {
-            wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES
+            wgpu::Features::TIMESTAMP_QUERY
         } else {
             wgpu::Features::empty()
         };
@@ -409,7 +429,6 @@ impl AdapterCompute {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("mesh_compute_field_encoder"),
             });
-        let timing_active = self.timing.enabled();
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("mesh_compute_field_pass"),
@@ -420,7 +439,6 @@ impl AdapterCompute {
             pass.dispatch_workgroups(workgroups as u32, 1, 1);
         };
         encoder.copy_buffer_to_buffer(&partials, 0, &staging, 0, (workgroups * 16) as u64);
-        self.timing.finish(&mut encoder, timing_active);
         self.queue.submit(std::iter::once(encoder.finish()));
 
         let slice = staging.slice(..);
@@ -453,7 +471,7 @@ impl AdapterCompute {
         }
         drop(data);
         staging.unmap();
-        self.timing.readback(&self.device);
+        self.timing.readback(&self.device, &self.queue);
         Ok(valid.then_some(range))
     }
 
@@ -700,7 +718,6 @@ impl AdapterCompute {
             ],
         });
 
-        let timing_active = self.timing.enabled();
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -734,7 +751,6 @@ impl AdapterCompute {
                 .ok_or(())?;
             encoder.copy_buffer_to_buffer(&segments, 0, &staging, output_offset, segments_size);
         }
-        self.timing.finish(&mut encoder, timing_active);
         self.queue.submit(std::iter::once(encoder.finish()));
 
         let slice = staging.slice(..);
@@ -801,7 +817,7 @@ impl AdapterCompute {
         })();
         drop(data);
         staging.unmap();
-        self.timing.readback(&self.device);
+        self.timing.readback(&self.device, &self.queue);
         decoded
     }
 
@@ -1047,7 +1063,6 @@ impl AdapterCompute {
             ],
         });
 
-        let timing_active = self.timing.enabled();
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -1073,7 +1088,6 @@ impl AdapterCompute {
                 .ok_or(())?;
             encoder.copy_buffer_to_buffer(&output, 0, &staging, output_offset, output_size);
         }
-        self.timing.finish(&mut encoder, timing_active);
         self.queue.submit(std::iter::once(encoder.finish()));
 
         let slice = staging.slice(..);
@@ -1140,7 +1154,7 @@ impl AdapterCompute {
         })();
         drop(data);
         staging.unmap();
-        self.timing.readback(&self.device);
+        self.timing.readback(&self.device, &self.queue);
         decoded
     }
 }
