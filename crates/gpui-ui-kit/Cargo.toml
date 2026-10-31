@@ -73,10 +73,10 @@ gpui = { workspace = true, features = ["test-support"] }
 gpui_wgpu = { workspace = true }
 rqrr = { workspace = true }
 criterion = { workspace = true }
-gpui-profiler = { path = "../gpui-profiler", features = ["global-allocator"] }
+gpui-profiler = { path = "../gpui-profiler", version = "0.10", features = ["global-allocator"] }
 # Examples in `examples/` use the MiniApp shell, which lives in a workspace-
 # only crate (it transitively pulls in non-publishable platform backends).
-gpui-miniapp = { path = "../gpui-miniapp" }
+gpui-miniapp = { path = "../gpui-miniapp", version = "0.10" }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 block2 = { workspace = true }

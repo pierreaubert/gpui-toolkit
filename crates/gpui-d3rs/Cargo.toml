@@ -106,7 +106,7 @@ wasm-bindgen-futures = { workspace = true }
 # vello demos instead. A direct path dep is used because Cargo rejects
 # `default-features = false` on a `workspace = true` dep whose package
 # depends back on this crate (the ui-kit → d3rs vello2d edge above).
-gpui-ui-kit = { path = "../gpui-ui-kit", default-features = false }
+gpui-ui-kit = { path = "../gpui-ui-kit", version = "0.10", default-features = false }
 gpui-miniapp = { workspace = true }
 gpui-builder = { workspace = true }
 approx = { workspace = true }
@@ -300,6 +300,11 @@ required-features = ["gpu-compute"]
 name = "vello2d_scene_tests"
 path = "tests/vello2d_scene_tests.rs"
 required-features = ["vello"]
+
+[[test]]
+name = "vello_scene_builders"
+path = "tests/vello_scene_builders.rs"
+required-features = ["vello-gpui"]
 
 [[test]]
 name = "vello2d_cpu_tests"

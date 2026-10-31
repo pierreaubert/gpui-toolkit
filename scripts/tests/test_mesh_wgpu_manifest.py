@@ -87,13 +87,13 @@ class WgpuManifestTests(unittest.TestCase):
         outside = self.root.parent / "wgpu-manifest-outside.png"
         outside.write_bytes(b"outside")
         self.addCleanup(lambda: outside.unlink(missing_ok=True))
-        link = self.manifest_path.parent / "mesh.png"
+        link = self.manifest_path.parent / "escaped-image.png"
         try:
             link.symlink_to(outside)
         except OSError as error:
             self.skipTest(f"cannot create symlink in test environment: {error}")
         value = captured_manifest()
-        value["cases"][0]["path"] = "mesh.png"
+        value["cases"][0]["path"] = "escaped-image.png"
         self.write_manifest(value)
         with self.assertRaisesRegex(WgpuManifestError, "escapes the repository"):
             validate_manifest(

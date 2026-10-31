@@ -19,12 +19,12 @@ path = "src/main.rs"
 gpui = { workspace = true }
 gpui-miniapp = { workspace = true }
 gpui-ui-kit = { workspace = true }
-d3rs = { package = "gpui-d3rs", path = "../gpui-d3rs", default-features = false, features = ["gpui", "gpu-2d", "gpu-3d", "vello-gpui"] }
+d3rs = { package = "gpui-d3rs", path = "../gpui-d3rs", version = "0.10", default-features = false, features = ["gpui", "gpu-2d", "gpu-3d", "vello-gpui"] }
 gpui-builder = { workspace = true }
 gpui-design = { workspace = true }
 ndarray = { version = "0.17", default-features = false }
 serde_json = { workspace = true }
-base64 = "0.22"
+base64 = "0.23.1"
 urlencoding = { workspace = true }
 reqwest = { version = "0.13", default-features = false, features = ["json"] }
 

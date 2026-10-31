@@ -33,8 +33,8 @@ web-time = "1.1"
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
-gpui-miniapp = { path = "../gpui-miniapp" }
-gpui-profiler = { path = "../gpui-profiler", features = ["global-allocator"] }
+gpui-miniapp = { path = "../gpui-miniapp", version = "0.10" }
+gpui-profiler = { path = "../gpui-profiler", version = "0.10", features = ["global-allocator"] }
 
 [lib]
 name = "gpui_audio_kit"

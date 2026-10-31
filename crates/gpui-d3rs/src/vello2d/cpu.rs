@@ -78,7 +78,8 @@ impl CpuRasterizer {
                         // rotation moves glyph offsets exactly like the GPU
                         // replay's `global × anchor`.
                         self.ctx.set_transform(scene_scale * run.transform);
-                        self.ctx
+                        if let Err(error) = self
+                            .ctx
                             .glyph_run(&mut self.resources, &run.font)
                             .font_size(run.size)
                             .hint(is_axis_aligned(run.transform))
@@ -86,7 +87,10 @@ impl CpuRasterizer {
                                 id: glyph.id,
                                 x: glyph.x,
                                 y: glyph.y,
-                            }));
+                            }))
+                        {
+                            log::warn!("vello2d: CPU glyph rendering failed: {error:?}");
+                        }
                         self.ctx.set_transform(scene_scale);
                     }
                 }

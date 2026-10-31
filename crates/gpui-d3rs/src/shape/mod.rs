@@ -95,7 +95,7 @@ pub use line::{
 pub use line::{render_line, render_line_selected, render_line_selected_with_id, try_render_line};
 #[cfg(feature = "vello-gpui")]
 pub use scatter::render_scatter_vello;
-#[cfg(feature = "vello-gpui")]
+#[cfg(feature = "vello")]
 pub use scatter::scatter_chart_scene;
 pub use scatter::{ScatterConfig, ScatterPoint, ScatterRenderError, validate_scatter_inputs};
 #[cfg(feature = "gpui")]

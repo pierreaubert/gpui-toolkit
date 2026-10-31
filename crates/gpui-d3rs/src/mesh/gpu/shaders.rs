@@ -32,54 +32,60 @@ fn vertex(@location(0) point: vec3<f32>, @builtin(vertex_index) index: u32) -> V
 }
 
 fn viridis(t: f32) -> vec3<f32> {
-    let t2 = t * t;
-    let t3 = t2 * t;
-    let t4 = t3 * t;
-    let t5 = t4 * t;
-    let t6 = t5 * t;
-    return clamp(
-        vec3<f32>(0.2777, 0.0054, 0.3340)
-            + vec3<f32>(0.1050, 0.6387, 0.2383) * t
-            + vec3<f32>(-0.3308, 0.3143, 0.5287) * t2
-            + vec3<f32>(-4.6342, -5.7991, -19.3324) * t3
-            + vec3<f32>(6.2282, 14.1799, 56.6905) * t4
-            + vec3<f32>(4.7763, -13.7451, -65.3530) * t5
-            + vec3<f32>(-5.4354, 4.6456, 26.3124) * t6,
-        vec3<f32>(0.0), vec3<f32>(1.0));
+    // Match the CPU ColorScale palette and its piecewise RGB interpolation.
+    let colors = array<vec3<f32>, 10>(
+        vec3<f32>(68.0, 1.0, 84.0) / 255.0,
+        vec3<f32>(72.0, 40.0, 120.0) / 255.0,
+        vec3<f32>(62.0, 74.0, 137.0) / 255.0,
+        vec3<f32>(49.0, 104.0, 142.0) / 255.0,
+        vec3<f32>(38.0, 131.0, 143.0) / 255.0,
+        vec3<f32>(31.0, 158.0, 137.0) / 255.0,
+        vec3<f32>(53.0, 183.0, 121.0) / 255.0,
+        vec3<f32>(110.0, 206.0, 88.0) / 255.0,
+        vec3<f32>(181.0, 222.0, 43.0) / 255.0,
+        vec3<f32>(253.0, 231.0, 37.0) / 255.0
+    );
+    let position = clamp(t, 0.0, 1.0) * 9.0;
+    let index = min(u32(position), 8u);
+    return mix(colors[index], colors[index + 1u], position - f32(index));
 }
 
 fn plasma(t: f32) -> vec3<f32> {
-    let t2 = t * t;
-    let t3 = t2 * t;
-    let t4 = t3 * t;
-    let t5 = t4 * t;
-    let t6 = t5 * t;
-    return clamp(
-        vec3<f32>(0.0504, 0.0298, 0.5280)
-            + vec3<f32>(2.0280, -0.3996, -0.1361) * t
-            + vec3<f32>(-2.1285, 1.3971, -1.8103) * t2
-            + vec3<f32>(-10.2107, 6.8536, 18.8406) * t3
-            + vec3<f32>(33.6908, -21.2851, -41.8887) * t4
-            + vec3<f32>(-38.8641, 25.8915, 35.6632) * t5
-            + vec3<f32>(12.8861, -7.9772, -11.5408) * t6,
-        vec3<f32>(0.0), vec3<f32>(1.0));
+    // Match the CPU ColorScale palette and its piecewise RGB interpolation.
+    let colors = array<vec3<f32>, 10>(
+        vec3<f32>(13.0, 8.0, 135.0) / 255.0,
+        vec3<f32>(70.0, 3.0, 159.0) / 255.0,
+        vec3<f32>(114.0, 1.0, 168.0) / 255.0,
+        vec3<f32>(156.0, 23.0, 158.0) / 255.0,
+        vec3<f32>(189.0, 55.0, 134.0) / 255.0,
+        vec3<f32>(216.0, 87.0, 107.0) / 255.0,
+        vec3<f32>(237.0, 121.0, 83.0) / 255.0,
+        vec3<f32>(251.0, 159.0, 58.0) / 255.0,
+        vec3<f32>(253.0, 202.0, 38.0) / 255.0,
+        vec3<f32>(240.0, 249.0, 33.0) / 255.0
+    );
+    let position = clamp(t, 0.0, 1.0) * 9.0;
+    let index = min(u32(position), 8u);
+    return mix(colors[index], colors[index + 1u], position - f32(index));
 }
 
 fn inferno(t: f32) -> vec3<f32> {
-    let t2 = t * t;
-    let t3 = t2 * t;
-    let t4 = t3 * t;
-    let t5 = t4 * t;
-    let t6 = t5 * t;
-    return clamp(
-        vec3<f32>(0.0002, 0.0016, 0.0139)
-            + vec3<f32>(0.1260, 0.4023, 1.3241) * t
-            + vec3<f32>(1.1661, 0.0868, -2.1073) * t2
-            + vec3<f32>(-1.0127, 2.0841, 2.4048) * t3
-            + vec3<f32>(-8.8174, 0.1567, -2.5439) * t4
-            + vec3<f32>(17.5174, -4.5424, 0.8282) * t5
-            + vec3<f32>(-9.5028, 3.3025, 0.0987) * t6,
-        vec3<f32>(0.0), vec3<f32>(1.0));
+    // Match the CPU ColorScale palette and its piecewise RGB interpolation.
+    let colors = array<vec3<f32>, 10>(
+        vec3<f32>(0.0, 0.0, 4.0) / 255.0,
+        vec3<f32>(27.0, 12.0, 65.0) / 255.0,
+        vec3<f32>(74.0, 12.0, 107.0) / 255.0,
+        vec3<f32>(120.0, 28.0, 109.0) / 255.0,
+        vec3<f32>(165.0, 44.0, 96.0) / 255.0,
+        vec3<f32>(207.0, 68.0, 70.0) / 255.0,
+        vec3<f32>(237.0, 105.0, 37.0) / 255.0,
+        vec3<f32>(251.0, 155.0, 6.0) / 255.0,
+        vec3<f32>(247.0, 209.0, 61.0) / 255.0,
+        vec3<f32>(252.0, 255.0, 164.0) / 255.0
+    );
+    let position = clamp(t, 0.0, 1.0) * 9.0;
+    let index = min(u32(position), 8u);
+    return mix(colors[index], colors[index + 1u], position - f32(index));
 }
 
 fn turbo(t: f32) -> vec3<f32> {

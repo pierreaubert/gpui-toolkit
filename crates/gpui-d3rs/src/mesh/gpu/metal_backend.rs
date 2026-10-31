@@ -696,7 +696,6 @@ impl MetalCustomDraw for MetalMeshDraw {
         depth_attachment.set_load_action(MTLLoadAction::Clear);
         depth_attachment.set_clear_depth(1.0);
         depth_attachment.set_store_action(MTLStoreAction::DontCare);
-        let encoder = command_buffer.new_render_command_encoder(descriptor);
         let scale = if scale_factor.is_finite() && scale_factor > 0.0 {
             scale_factor
         } else {
@@ -704,35 +703,35 @@ impl MetalCustomDraw for MetalMeshDraw {
         };
         let target_width = drawable_texture.width() as f32;
         let target_height = drawable_texture.height() as f32;
-        let left = (f32::from(bounds.origin.x) * scale)
-            .floor()
-            .clamp(0.0, target_width);
-        let top = (f32::from(bounds.origin.y) * scale)
-            .floor()
-            .clamp(0.0, target_height);
-        let right = ((f32::from(bounds.origin.x) + f32::from(bounds.size.width)) * scale)
-            .ceil()
-            .clamp(left, target_width);
-        let bottom = ((f32::from(bounds.origin.y) + f32::from(bounds.size.height)) * scale)
-            .ceil()
-            .clamp(top, target_height);
-        let viewport_width = (right - left).max(1.0);
-        let viewport_height = (bottom - top).max(1.0);
+        let viewport_left = (f32::from(bounds.origin.x) * scale).floor();
+        let viewport_top = (f32::from(bounds.origin.y) * scale).floor();
+        let viewport_right =
+            ((f32::from(bounds.origin.x) + f32::from(bounds.size.width)) * scale).ceil();
+        let viewport_bottom =
+            ((f32::from(bounds.origin.y) + f32::from(bounds.size.height)) * scale).ceil();
+        let left = viewport_left.clamp(0.0, target_width);
+        let top = viewport_top.clamp(0.0, target_height);
+        let right = viewport_right.clamp(left, target_width);
+        let bottom = viewport_bottom.clamp(top, target_height);
+        if right <= left || bottom <= top {
+            return;
+        }
+        let encoder = command_buffer.new_render_command_encoder(descriptor);
+        // Clip the draw without rescaling partially offscreen mesh geometry.
         encoder.set_viewport(MTLViewport {
-            originX: f64::from(left),
-            originY: f64::from(top),
-            width: f64::from(viewport_width),
-            height: f64::from(viewport_height),
+            originX: f64::from(viewport_left),
+            originY: f64::from(viewport_top),
+            width: f64::from(viewport_right - viewport_left),
+            height: f64::from(viewport_bottom - viewport_top),
             znear: 0.0,
             zfar: 1.0,
         });
-        let rect = MTLScissorRect {
+        encoder.set_scissor_rect(MTLScissorRect {
             x: left as u64,
             y: top as u64,
-            width: viewport_width as u64,
-            height: viewport_height as u64,
-        };
-        encoder.set_scissor_rect(rect);
+            width: (right - left) as u64,
+            height: (bottom - top) as u64,
+        });
         encoder.set_depth_stencil_state(&resources.depth_state);
         encoder.set_render_pipeline_state(&resources.pipeline);
         encoder.set_vertex_buffer(0, Some(&resources.vertices), 0);

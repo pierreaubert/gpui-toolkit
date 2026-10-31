@@ -1,4 +1,4 @@
-//! Product-level GPUI MeshPlot capture through the adapter-backed WGPU
+//! Product-level GPUI `MeshPlot` capture through the adapter-backed WGPU
 //! headless renderer. The paired Metal test uses the same component tree so
 //! axes, labels, custom mesh draws, and selected-cell overlays are not tested
 //! only through low-level `gpui-d3rs` scenes.
@@ -8,9 +8,9 @@
 use d3rs::mesh::{ScalarField, TriangleMesh};
 use gpui::{
     AnyWindowHandle, AppContext, Context, HeadlessAppContext, InteractiveElement, IntoElement,
-    ParentElement, Platform, PlatformTextSystem, Render, Styled, Window, div, px, size,
+    ParentElement, PlatformTextSystem, Render, Styled, Window, div, px, size,
 };
-use gpui_macos::MacPlatform;
+use gpui_apple::AppleTextSystem;
 use gpui_px::{
     Axes2d, Colorbar, FieldInterpolation, MeshPlot, MeshPlotBackend, MeshPlotPick, MeshPlotView,
     MeshRenderMode, Wireframe, mesh_plot,
@@ -47,6 +47,14 @@ fn product_plot(
     selected: bool,
     backend: MeshPlotBackend,
 ) -> MeshPlot {
+    let (interpolation, color_scale) = match field.association {
+        d3rs::mesh::ScalarAssociation::Vertex => {
+            (FieldInterpolation::Smooth, gpui_px::ColorScale::Viridis)
+        }
+        d3rs::mesh::ScalarAssociation::Cell => {
+            (FieldInterpolation::Flat, gpui_px::ColorScale::Plasma)
+        }
+    };
     let mut plot = mesh_plot(mesh.clone())
         .plot_id("product-paired-capture")
         .renderer_backend(backend)
@@ -57,9 +65,8 @@ fn product_plot(
             horizontal: d3rs::mesh::CoordinateAxis::X,
             vertical: d3rs::mesh::CoordinateAxis::Y,
         })
-        .mode(MeshRenderMode::ScalarFill {
-            interpolation: FieldInterpolation::Smooth,
-        })
+        .mode(MeshRenderMode::ScalarFill { interpolation })
+        .color_scale(color_scale)
         .wireframe(Wireframe::Overlay)
         .axes(Axes2d::equal_aspect().labels("x", "y").unit("m"))
         .colorbar(Colorbar::new("Pressure").unit("Pa"));
@@ -120,14 +127,30 @@ fn fixture() -> (TriangleMesh, ScalarField) {
 }
 
 fn text_system() -> Arc<dyn PlatformTextSystem> {
-    let platform = MacPlatform::new(true);
-    let text_system = platform.text_system();
-    drop(platform);
-    text_system
+    // Use the native text backend without creating an AppKit platform on a
+    // test worker. MacPlatform itself must be constructed on the main thread.
+    Arc::new(AppleTextSystem::new())
 }
 
 fn capture(backend: Backend, selected: bool) -> Option<RgbaImage> {
-    let size = size(px(WIDTH), px(HEIGHT));
+    capture_with_field(backend, selected, None)
+}
+
+fn capture_with_field(
+    backend: Backend,
+    selected: bool,
+    field_override: Option<ScalarField>,
+) -> Option<RgbaImage> {
+    capture_with_viewport(backend, selected, field_override, WIDTH)
+}
+
+fn capture_with_viewport(
+    backend: Backend,
+    selected: bool,
+    field_override: Option<ScalarField>,
+    viewport_width: f32,
+) -> Option<RgbaImage> {
+    let size = size(px(viewport_width), px(HEIGHT));
     let renderer_available = match backend {
         Backend::Metal => gpui_macos::metal_renderer::MetalHeadlessRenderer::try_new().is_some(),
         Backend::Wgpu => WgpuHeadlessRenderer::try_new(
@@ -143,6 +166,7 @@ fn capture(backend: Backend, selected: bool) -> Option<RgbaImage> {
         return None;
     }
     let (mesh, field) = fixture();
+    let field = field_override.unwrap_or(field);
     let mut cx = match backend {
         Backend::Metal => HeadlessAppContext::with_platform(text_system(), Arc::new(()), || {
             Ok(Some(Box::new(
@@ -205,7 +229,9 @@ fn changed_pixels(left: &RgbaImage, right: &RgbaImage) -> usize {
 }
 
 fn changed_fraction(left: &RgbaImage, right: &RgbaImage) -> f64 {
-    changed_pixels(left, right) as f64 / left.width().max(1) as f64 / left.height().max(1) as f64
+    changed_pixels(left, right) as f64
+        / f64::from(left.width().max(1))
+        / f64::from(left.height().max(1))
 }
 
 fn json_string(value: &str) -> String {
@@ -220,9 +246,9 @@ fn source_provenance_json() -> String {
     let Some(revision) = env::var(PRODUCT_SOURCE_REVISION_ENV).ok() else {
         return String::new();
     };
-    let dirty = env::var(PRODUCT_SOURCE_DIRTY_ENV)
-        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE"))
-        .unwrap_or(true);
+    let dirty = env::var(PRODUCT_SOURCE_DIRTY_ENV).map_or(true, |value| {
+        matches!(value.as_str(), "1" | "true" | "TRUE")
+    });
     format!(
         ",\n  \"source_revision\": \"{}\",\n  \"source_dirty\": {}",
         json_string(&revision),
@@ -401,6 +427,11 @@ fn product_mesh_plot_axes_and_selection_render_through_metal_and_wgpu() {
     // must nevertheless contain the same high-level product composition.
     assert!(changed_pixels(&metal_selected, &wgpu_selected) > 0);
 
+    // Backend agreement alone cannot detect a shared colormap defect.
+    mesh_gpu_colormaps_match_cpu_palettes();
+    flat_cell_fill_preserves_palette_colors();
+    partially_offscreen_metal_mesh_preserves_projection();
+
     if let Some(output_dir) = output_dir.as_deref() {
         write_product_capture(
             output_dir,
@@ -411,4 +442,116 @@ fn product_mesh_plot_axes_and_selection_render_through_metal_and_wgpu() {
         )
         .expect("write product MeshPlot capture artifacts");
     }
+}
+
+/// Compare actual GPU pixels with the CPU palette, independently of image baselines.
+#[test]
+fn mesh_gpu_colormaps_match_cpu_palettes() {
+    use d3rs::mesh::gpu::{
+        GeometryRevision, MeshColorConfig, MeshSceneState, render_offscreen_wgpu,
+    };
+    use d3rs::mesh::{MeshTopology, prepare_upload};
+    use gpui_px::ColorScale;
+
+    let (mut mesh, _) = fixture();
+    mesh.positions = Arc::from([
+        [-1.0, -1.0, 0.0],
+        [1.0, -1.0, 0.0],
+        [1.0, 1.0, 0.0],
+        [-1.0, 1.0, 0.0],
+    ]);
+    let topology = MeshTopology::build(&mesh.triangles);
+    for scale in [ColorScale::Viridis, ColorScale::Plasma, ColorScale::Inferno] {
+        for value in [1.0_f32, 0.0, 0.25, 0.5, 0.75] {
+            let mut upload = prepare_upload(&mesh, &topology);
+            upload.values_f32 = Some(vec![value; mesh.positions.len()]);
+            let scene = MeshSceneState {
+                geometry_rev: GeometryRevision(1),
+                upload: Some(upload),
+                color: MeshColorConfig {
+                    colormap: scale.to_colormap_index(),
+                    range: [0.0, 1.0],
+                    wireframe: false,
+                    unlit: true,
+                    ..MeshColorConfig::default()
+                },
+                ..MeshSceneState::default()
+            };
+            let image = render_offscreen_wgpu(&scene, 64, 64)
+                .expect("native QA requires an adapter and a valid mesh shader");
+            let pixel = image.get_pixel(32, 32).0;
+            assert_eq!(pixel[3], 255, "palette probe must hit the opaque mesh");
+            let expected = scale.map(f64::from(value));
+            for (channel, reference) in [expected.r, expected.g, expected.b].into_iter().enumerate()
+            {
+                // RGBA8 conversion and raster interpolation can round by one level.
+                let error = (f32::from(pixel[channel]) - reference * 255.0).abs();
+                assert!(
+                    error <= 1.0,
+                    "palette {} at {value}, channel {channel}: pixel {pixel:?}, expected {expected:?}",
+                    scale.to_colormap_index(),
+                );
+            }
+        }
+    }
+}
+
+/// Flat cells retain their palette colors when isolines are disabled.
+#[test]
+fn flat_cell_fill_preserves_palette_colors() {
+    for backend in [Backend::Metal, Backend::Wgpu] {
+        let (_, mut field) = fixture();
+        field.association = d3rs::mesh::ScalarAssociation::Cell;
+        field.values = Arc::from([0.25, 1.25]);
+        let image = capture_with_field(backend, false, Some(field))
+            .expect("native QA requires the Metal and WGPU adapters");
+        // Each triangle occupies far more than 2% of the frame. Requiring
+        // this area avoids mistaking a few colorbar pixels for a filled cell.
+        let minimum = (u64::from(image.width()) * u64::from(image.height())) / 50;
+        for value in [0.0, 1.0] {
+            let color = gpui_px::ColorScale::Plasma.map(value);
+            let reference = [color.r, color.g, color.b];
+            let matching = image
+                .pixels()
+                .filter(|pixel| {
+                    pixel.0[3] == 255
+                        && reference.iter().enumerate().all(|(channel, expected)| {
+                            (f32::from(pixel.0[channel]) - expected * 255.0).abs() <= 1.0
+                        })
+                })
+                .count();
+            assert!(
+                u64::try_from(matching).expect("pixel count fits u64") > minimum,
+                "flat-cell endpoint {value} has only {matching} palette pixels; expected more than {minimum}"
+            );
+        }
+    }
+}
+
+#[test]
+fn partially_offscreen_metal_mesh_preserves_projection() {
+    let full =
+        capture(Backend::Metal, true).expect("Metal adapter required for clipping regression");
+    let clipped = capture_with_viewport(Backend::Metal, true, None, WIDTH * 0.5)
+        .expect("Metal adapter required for clipping regression");
+    assert_eq!(full.height(), clipped.height());
+    assert_eq!(full.width(), clipped.width() * 2);
+    // The fixed-size chart must be cropped, including its selection overlay,
+    // without changing the projection of the visible portion of the mesh.
+    let differing = clipped
+        .enumerate_pixels()
+        .filter(|(x, y, pixel)| {
+            let reference = full.get_pixel(*x, *y);
+            pixel
+                .0
+                .iter()
+                .zip(reference.0)
+                .any(|(actual, expected)| actual.abs_diff(expected) > 1)
+        })
+        .count();
+    let pixel_count = (clipped.width() * clipped.height()) as usize;
+    assert!(
+        differing < pixel_count / 1000,
+        "clipping changed {differing} of {pixel_count} visible pixels"
+    );
 }

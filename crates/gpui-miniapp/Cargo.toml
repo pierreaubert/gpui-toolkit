@@ -46,7 +46,7 @@ gpui-design = { workspace = true, features = ["gpui"] }
 # enable ui-kit's `vello` through their own direct ui-kit dependency.
 # A direct path dep is used because Cargo rejects `default-features = false`
 # on a `workspace = true` dep inside the d3rs ↔ ui-kit dev-dependency cycle.
-gpui-ui-kit = { path = "../gpui-ui-kit", default-features = false }
+gpui-ui-kit = { path = "../gpui-ui-kit", version = "0.10", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 gpui_macos = { workspace = true }
@@ -58,7 +58,7 @@ gpui_linux = { workspace = true, features = ["wayland", "x11"] }
 gpui_windows = { workspace = true }
 # gpui pulls in rusqlite/libsqlite3-sys, but a system sqlite3 is not available
 # when cross-compiling for Windows from Linux. Build sqlite3 from source instead.
-libsqlite3-sys = { version = "0.36", features = ["bundled"] }
+libsqlite3-sys = { version = "0.39", features = ["bundled"] }
 
 [target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 gpui-ios = { workspace = true }

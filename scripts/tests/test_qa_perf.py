@@ -349,7 +349,7 @@ class PerformanceEvidenceTests(unittest.TestCase):
     def test_cargo_metadata_resolves_separate_base_and_candidate_targets(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "Cargo.toml").write_text('[package]\nname="perf-evidence-test"\nversion="0.0.0"\nedition="2024"\n')
+            (root / "Cargo.toml").write_text('[package]\nname="perf-evidence-test"\nversion="0.0.0"\nedition="2024"\n\n[workspace]\n')
             (root / "src").mkdir()
             (root / "src/lib.rs").write_text("")
             for name in ("base-target", "candidate-target"):

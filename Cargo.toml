@@ -72,15 +72,15 @@ log = "0.4.28"
 # No deadlock_detection: nothing calls parking_lot::deadlock::*, and the
 # feature pulls in backtrace, which does not compile on iOS/tvOS with
 # libc >= 0.2.190 (dyld symbols became macOS-only).
-parking_lot = { version = "0.12" }
+parking_lot = { version = "0.13.0" }
 raw-window-handle = "0.6"
 regex = "1.12"
 tempfile = "3.23"
 memmap2 = "0.9.11"
 thiserror = "2.0.17"
-arrow-array = "57.0.0"
-arrow-cast = "57.0.0"
-arrow-ipc = "57.0.0"
+arrow-array = "60.1.0"
+arrow-cast = "60.1.0"
+arrow-ipc = "60.1.0"
 unicode-segmentation = "1"
 stats_alloc = "0.1.10"
 
@@ -125,6 +125,7 @@ gpui-ui-kit-macros = { path = "crates/gpui-ui-kit-macros", version = "0.10" }
 # Zed v1.25.2 stack landed on sotf-3rdparties main via PR #10 (sotf#243);
 # the GPUI family tracks the default branch like every other fork dep.
 gpui = { package = "sotf-gpui-toolkit-gpui", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.2.3", default-features = false }
+gpui_apple = { package = "sotf-gpui-toolkit-gpui-apple", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.1.0", default-features = false, features = ["font-kit"] }
 gpui_macos = { package = "sotf-gpui-toolkit-gpui-macos", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.1.2", default-features = false, features = ["font-kit"] }
 gpui_linux = { package = "sotf-gpui-toolkit-gpui-linux", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.1.0", default-features = false }
 gpui_windows = { package = "sotf-gpui-toolkit-gpui-windows", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.1.2", default-features = false }
@@ -132,14 +133,14 @@ gpui_wgpu = { package = "sotf-gpui-toolkit-gpui-wgpu", git = "https://github.com
 gpui_web = { package = "sotf-gpui-toolkit-gpui-web", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.1.1" }
 wgpu = { package = "sotf-wgpu",  git = "https://github.com/pierreaubert/sotf-3rdparties", version = "29.0.0" }
 vello = { package = "sotf-vello", git = "https://github.com/pierreaubert/sotf-3rdparties", version = "0.10.0", default-features = false, features = ["wgpu"] }
-vello_cpu = { version = "0.2.0" }
+vello_cpu = { version = "0.3.0" }
 peniko = { version = "0.6.1" }
 kurbo = { version = "0.13.1" }
 # GPU-text shaping (reviews/20260906-gpu-text.md Phase 0 spike): bundled
 # fonts only — default `system` font enumeration stays off so wasm and
 # deterministic screenshots never touch OS font APIs.
-parley = { version = "0.11.1", default-features = false, features = ["std"] }
-fontique = { version = "0.11.1", default-features = false, features = ["std"] }
+parley = { version = "0.12.0", default-features = false, features = ["std"] }
+fontique = { version = "0.12.0", default-features = false, features = ["std"] }
 
 
 # Utilities
@@ -156,7 +157,7 @@ syn = { version = "3", features = ["full", "parsing", "extra-traits"] }
 
 # Graphics and visualization
 bytemuck = { version = "1.14", features = ["derive"] }
-glam = "0.33"
+glam = "0.34.1"
 pollster = "1"
 wasm-bindgen-futures = "0.4"
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"] }

@@ -84,22 +84,16 @@ else
     if [[ -z "${CLANG_MODULE_CACHE_PATH:-}" ]]; then
         export CLANG_MODULE_CACHE_PATH="${MESH_PLOT_CLANG_MODULE_CACHE_PATH:-${TMPDIR:-/tmp}/gpui-toolkit-clang-cache}"
     fi
+    # Cargo reports the exact executable, including relocated target directories.
+    # Never pick a stale default-target binary by filename or modification time.
+    artifacts="$actual_dir/cargo-artifacts.json"
     "$cargo_bin" test -p gpui-px --test mesh_plot_wgpu_product \
-        --features native-qa,headless-qa --no-run
-    test_binary="$($python_bin - <<'PY'
-from pathlib import Path
-
-candidates = [
-    path
-    for path in Path("target/debug/deps").glob("mesh_plot_wgpu_product-*")
-    if path.is_file() and path.stat().st_mode & 0o111
-]
-if candidates:
-    print(max(candidates, key=lambda path: path.stat().st_mtime_ns))
-PY
-)"
-    if [[ -z "$test_binary" ]]; then
-        echo "could not locate the built MeshPlot product test binary" >&2
+        --features native-qa,headless-qa --no-run \
+        --message-format=json-render-diagnostics > "$artifacts"
+    test_binary="$("$python_bin" scripts/cargo_bin_path.py \
+        --bin mesh_plot_wgpu_product "$artifacts")"
+    if [[ ! -x "$test_binary" ]]; then
+        echo "built MeshPlot product test binary is not executable: $test_binary" >&2
         exit 1
     fi
     GPUI_MESH_PLOT_PRODUCT_CAPTURE_DIR="$actual_dir" \

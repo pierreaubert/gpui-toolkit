@@ -76,22 +76,15 @@ else
     if [[ -z "${CLANG_MODULE_CACHE_PATH:-}" ]]; then
         export CLANG_MODULE_CACHE_PATH="${MESH_PLOT_CLANG_MODULE_CACHE_PATH:-${TMPDIR:-/tmp}/gpui-toolkit-clang-cache}"
     fi
+    # Resolve the exact artifact from this build, including relocated targets.
+    artifacts="$output_dir/mesh_metal_memory_evidence-cargo-artifacts.json"
     "$cargo_bin" test -p gpui-d3rs --test mesh_metal_memory_evidence \
-        --features metal-qa --no-run
-    test_binary="$($python_bin - <<'PY'
-from pathlib import Path
-
-candidates = [
-    path
-    for path in Path("target/debug/deps").glob("mesh_metal_memory_evidence-*")
-    if path.is_file() and path.stat().st_mode & 0o111
-]
-if candidates:
-    print(max(candidates, key=lambda path: path.stat().st_mtime_ns))
-PY
-)"
-    if [[ -z "$test_binary" ]]; then
-        echo "could not locate the built Metal memory evidence test binary" >&2
+        --features metal-qa --no-run \
+        --message-format=json-render-diagnostics > "$artifacts"
+    test_binary="$("$python_bin" scripts/cargo_bin_path.py \
+        --bin mesh_metal_memory_evidence "$artifacts")"
+    if [[ ! -x "$test_binary" ]]; then
+        echo "built evidence test binary is not executable: $test_binary" >&2
         exit 1
     fi
     SOTF_MESH_METAL_MEMORY_EVIDENCE_DIR="$output_dir" \

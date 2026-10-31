@@ -3167,9 +3167,6 @@ impl MeshPlot {
         #[cfg(all(feature = "gpu-3d", not(test)))]
         let revolve_preparing = self.prepare_frame_revolve(cx, &prep);
 
-        #[cfg(not(feature = "gpu-3d"))]
-        let _revolve_preparing = false;
-
         #[cfg(all(feature = "gpu-3d", test))]
         let revolve_preparing = false;
 

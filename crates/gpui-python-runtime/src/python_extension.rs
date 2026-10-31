@@ -309,10 +309,10 @@ type CubehelixTuple = (f64, f64, f64, f64);
 
 fn color_tuple(color: D3Color) -> ColorTuple {
     (
-        color.r as f64,
-        color.g as f64,
-        color.b as f64,
-        color.a as f64,
+        f64::from(color.r),
+        f64::from(color.g),
+        f64::from(color.b),
+        f64::from(color.a),
     )
 }
 
@@ -551,7 +551,7 @@ fn d3_color_to_hex(color: ColorTuple, alpha: bool) -> PyResult<String> {
 
 #[pyfunction]
 fn d3_color_luminance(color: ColorTuple) -> PyResult<f64> {
-    Ok(color_from_tuple(color)?.luminance() as f64)
+    Ok(f64::from(color_from_tuple(color)?.luminance()))
 }
 
 #[pyfunction]
@@ -1221,7 +1221,7 @@ fn decode_native_float_buffer(
         .map(|index| {
             let offset = index * width;
             if width == 4 {
-                f32::from_ne_bytes(native_buffer_word::<4>(values, offset)) as f64
+                f64::from(f32::from_ne_bytes(native_buffer_word::<4>(values, offset)))
             } else {
                 f64::from_ne_bytes(native_buffer_word::<8>(values, offset))
             }
@@ -1257,9 +1257,9 @@ fn decode_native_unsigned_buffer(
         .map(|index| {
             let offset = index * width;
             match width {
-                1 => values[offset] as u64,
-                2 => u16::from_ne_bytes(native_buffer_word::<2>(values, offset)) as u64,
-                4 => u32::from_ne_bytes(native_buffer_word::<4>(values, offset)) as u64,
+                1 => u64::from(values[offset]),
+                2 => u64::from(u16::from_ne_bytes(native_buffer_word::<2>(values, offset))),
+                4 => u64::from(u32::from_ne_bytes(native_buffer_word::<4>(values, offset))),
                 8 => u64::from_ne_bytes(native_buffer_word::<8>(values, offset)),
                 _ => unreachable!("validated unsigned width"),
             }
@@ -1290,7 +1290,7 @@ type NativeMeshPick = (
     Option<String>,
 );
 
-/// Retained gpui-px mesh and spatial index built once per ArrayData generation.
+/// Retained gpui-px mesh and spatial index built once per `ArrayData` generation.
 #[pyclass(name = "_PxMeshPickIndex")]
 struct NativePxMeshPickIndex {
     mesh: Option<NativeTriangleMesh>,
@@ -4115,13 +4115,12 @@ fn force_simulate(
                     "fixed simulation node coordinates must be finite",
                 ));
             }
-            {
-                let mut node_mut = node.borrow_mut();
-                node_mut.vx = vx;
-                node_mut.vy = vy;
-                node_mut.fx = fx;
-                node_mut.fy = fy;
-            }
+            let mut node_mut = node.borrow_mut();
+            node_mut.vx = vx;
+            node_mut.vy = vy;
+            node_mut.fx = fx;
+            node_mut.fy = fy;
+            drop(node_mut);
             simulation_nodes.push(node);
         }
 
@@ -5269,7 +5268,7 @@ fn timer_callback(
                 Err(callback_error) => {
                     *error
                         .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) =
                         Some(callback_error.to_string());
                     false
                 }
@@ -5329,7 +5328,7 @@ impl NativeTimerHandle {
                             if let Err(error) = callback.bind(py).call1((elapsed,)) {
                                 *callback_error_for_callback
                                     .lock()
-                                    .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner) =
                                     Some(error.to_string());
                             }
                         });
@@ -5378,7 +5377,7 @@ impl NativeTimerHandle {
         *self
             .callback_error
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         timer.restart(
             timer_callback(callback, self.callback_error.clone()),
             delay,
@@ -5435,7 +5434,7 @@ impl NativeTimerHandle {
     fn take_callback_error(&self) -> Option<String> {
         self.callback_error
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take()
     }
 }
@@ -5833,13 +5832,13 @@ struct PyRandomInt {
 impl PyRandomInt {
     #[new]
     #[pyo3(signature = (min, max, seed=None))]
-    fn new(min: i64, max: i64, seed: Option<u64>) -> PyResult<Self> {
-        Ok(Self {
+    fn new(min: i64, max: i64, seed: Option<u64>) -> Self {
+        Self {
             inner: seed.map_or_else(
                 || RandomInt::new(min, max),
                 |seed| RandomInt::with_seed(min, max, seed),
             ),
-        })
+        }
     }
 
     fn sample(&self) -> i64 {
@@ -6417,25 +6416,25 @@ fn build_geo_projection(
     }
     match &mut projection {
         NativeProjection::Mercator(value) => {
-            configure_geo_projection(value, scale, translate, center, rotate)
+            configure_geo_projection(value, scale, translate, center, rotate);
         }
         NativeProjection::Equirectangular(value) => {
-            configure_geo_projection(value, scale, translate, center, rotate)
+            configure_geo_projection(value, scale, translate, center, rotate);
         }
         NativeProjection::Orthographic(value) => {
-            configure_geo_projection(value, scale, translate, center, rotate)
+            configure_geo_projection(value, scale, translate, center, rotate);
         }
         NativeProjection::Stereographic(value) => {
-            configure_geo_projection(value, scale, translate, center, rotate)
+            configure_geo_projection(value, scale, translate, center, rotate);
         }
         NativeProjection::TransverseMercator(value) => {
-            configure_geo_projection(value, scale, translate, center, rotate)
+            configure_geo_projection(value, scale, translate, center, rotate);
         }
         NativeProjection::ConicEqualArea(value) => {
-            configure_geo_projection(value, scale, translate, center, rotate)
+            configure_geo_projection(value, scale, translate, center, rotate);
         }
         NativeProjection::Albers(value) => {
-            configure_geo_projection(value, scale, translate, center, rotate)
+            configure_geo_projection(value, scale, translate, center, rotate);
         }
     }
     Ok(projection)
@@ -6616,8 +6615,8 @@ struct GeoStreamCollector {
 }
 
 impl D3GeoStream for GeoStreamCollector {
-    fn point(&mut self, x: f64, y: f64, marker: i32) {
-        self.events.push((0, x, y, marker));
+    fn point(&mut self, x: f64, y: f64, m: i32) {
+        self.events.push((0, x, y, m));
     }
 
     fn line_start(&mut self) {
@@ -6748,7 +6747,7 @@ fn configured_dsv_parser(
         .budget(dsv_budget(budget)))
 }
 
-#[pyclass(name = "_DsvCancellationToken", skip_from_py_object)]
+#[pyclass(name = "_DsvCancellationToken")]
 #[derive(Clone, Default)]
 struct NativeDsvCancellationToken {
     cancelled: Arc<AtomicBool>,
@@ -7720,6 +7719,10 @@ fn native_grid_error(error: D3GridLayoutError) -> NativeGridError {
 #[pyfunction]
 #[pyo3(signature = (x_kind, x_domain, x_range, x_parameter, x_clamp, x_nice_count, y_kind, y_domain, y_range, y_parameter, y_clamp, y_nice_count, show_vertical_lines, show_horizontal_lines, show_dots, line_width, dot_radius, line_opacity, dot_opacity, vertical_values, horizontal_values, width, height))]
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::fn_params_excessive_bools,
+    reason = "Boolean parameters preserve the existing Python grid_layout signature"
+)]
 fn grid_layout(
     py: Python<'_>,
     x_kind: &str,
@@ -8094,7 +8097,7 @@ fn validate_quad_point(path: &str, x: f64, y: f64) -> PyResult<()> {
     finite(&format!("{path}.y"), y)
 }
 
-#[pyclass(name = "_QuadTreeIndex", skip_from_py_object)]
+#[pyclass(name = "_QuadTreeIndex")]
 #[derive(Clone, Default)]
 struct NativeQuadTreeIndex {
     tree: D3QuadTree<usize>,
@@ -9012,12 +9015,11 @@ fn dataset_arrow_ipc(
             )
             .map_err(|error| error.to_string())?;
             let mut bytes = Vec::new();
-            {
-                let mut writer = StreamWriter::try_new(&mut bytes, &batch.schema())
-                    .map_err(|error| error.to_string())?;
-                writer.write(&batch).map_err(|error| error.to_string())?;
-                writer.finish().map_err(|error| error.to_string())?;
-            }
+            let mut writer = StreamWriter::try_new(&mut bytes, &batch.schema())
+                .map_err(|error| error.to_string())?;
+            writer.write(&batch).map_err(|error| error.to_string())?;
+            writer.finish().map_err(|error| error.to_string())?;
+            drop(writer);
             Ok(bytes)
         })
         .map_err(PyValueError::new_err)?;

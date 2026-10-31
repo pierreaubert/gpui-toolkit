@@ -60,7 +60,7 @@ def chess_content_errors(image) -> list[str]:
             x = top[column][0]
             y = top[column][1] + row * (second[column][1] - top[column][1])
             patch = rgb.crop((round(x-radius), round(y-radius), round(x+radius), round(y+radius)))
-            samples = list(patch.convert("L").resize((12, 12), Image.Resampling.BOX).getdata())
+            samples = patch.convert("L").resize((12, 12), Image.Resampling.BOX).tobytes()
             mask = [value < 160 if row < 2 else value > 90 for value in samples]
             if sum(mask) < 3:
                 errors.append(f"no piece ink at rank {8-row}, file {column+1}")

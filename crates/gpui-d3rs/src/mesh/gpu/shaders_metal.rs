@@ -36,25 +36,58 @@ vertex Out mesh_vertex(
 }
 
 float3 viridis(float t) {
-    float t2=t*t, t3=t2*t, t4=t3*t, t5=t4*t, t6=t5*t;
-    return clamp(float3(0.2777,0.0054,0.3340) + float3(0.1050,0.6387,0.2383)*t
-        + float3(-0.3308,0.3143,0.5287)*t2 + float3(-4.6342,-5.7991,-19.3324)*t3
-        + float3(6.2282,14.1799,56.6905)*t4 + float3(4.7763,-13.7451,-65.3530)*t5
-        + float3(-5.4354,4.6456,26.3124)*t6, 0.0, 1.0);
+    // Match the CPU ColorScale palette and its piecewise RGB interpolation.
+    const float3 colors[10] = {
+        float3(68.0, 1.0, 84.0) / 255.0,
+        float3(72.0, 40.0, 120.0) / 255.0,
+        float3(62.0, 74.0, 137.0) / 255.0,
+        float3(49.0, 104.0, 142.0) / 255.0,
+        float3(38.0, 131.0, 143.0) / 255.0,
+        float3(31.0, 158.0, 137.0) / 255.0,
+        float3(53.0, 183.0, 121.0) / 255.0,
+        float3(110.0, 206.0, 88.0) / 255.0,
+        float3(181.0, 222.0, 43.0) / 255.0,
+        float3(253.0, 231.0, 37.0) / 255.0
+    };
+    float position = clamp(t, 0.0, 1.0) * 9.0;
+    uint index = min(uint(position), 8u);
+    return mix(colors[index], colors[index + 1], position - float(index));
 }
 float3 plasma(float t) {
-    float t2=t*t, t3=t2*t, t4=t3*t, t5=t4*t, t6=t5*t;
-    return clamp(float3(0.0504,0.0298,0.5280) + float3(2.0280,-0.3996,-0.1361)*t
-        + float3(-2.1285,1.3971,-1.8103)*t2 + float3(-10.2107,6.8536,18.8406)*t3
-        + float3(33.6908,-21.2851,-41.8887)*t4 + float3(-38.8641,25.8915,35.6632)*t5
-        + float3(12.8861,-7.9772,-11.5408)*t6, 0.0, 1.0);
+    // Match the CPU ColorScale palette and its piecewise RGB interpolation.
+    const float3 colors[10] = {
+        float3(13.0, 8.0, 135.0) / 255.0,
+        float3(70.0, 3.0, 159.0) / 255.0,
+        float3(114.0, 1.0, 168.0) / 255.0,
+        float3(156.0, 23.0, 158.0) / 255.0,
+        float3(189.0, 55.0, 134.0) / 255.0,
+        float3(216.0, 87.0, 107.0) / 255.0,
+        float3(237.0, 121.0, 83.0) / 255.0,
+        float3(251.0, 159.0, 58.0) / 255.0,
+        float3(253.0, 202.0, 38.0) / 255.0,
+        float3(240.0, 249.0, 33.0) / 255.0
+    };
+    float position = clamp(t, 0.0, 1.0) * 9.0;
+    uint index = min(uint(position), 8u);
+    return mix(colors[index], colors[index + 1], position - float(index));
 }
 float3 inferno(float t) {
-    float t2=t*t, t3=t2*t, t4=t3*t, t5=t4*t, t6=t5*t;
-    return clamp(float3(0.0002,0.0016,0.0139) + float3(0.1260,0.4023,1.3241)*t
-        + float3(1.1661,0.0868,-2.1073)*t2 + float3(-1.0127,2.0841,2.4048)*t3
-        + float3(-8.8174,0.1567,-2.5439)*t4 + float3(17.5174,-4.5424,0.8282)*t5
-        + float3(-9.5028,3.3025,0.0987)*t6, 0.0, 1.0);
+    // Match the CPU ColorScale palette and its piecewise RGB interpolation.
+    const float3 colors[10] = {
+        float3(0.0, 0.0, 4.0) / 255.0,
+        float3(27.0, 12.0, 65.0) / 255.0,
+        float3(74.0, 12.0, 107.0) / 255.0,
+        float3(120.0, 28.0, 109.0) / 255.0,
+        float3(165.0, 44.0, 96.0) / 255.0,
+        float3(207.0, 68.0, 70.0) / 255.0,
+        float3(237.0, 105.0, 37.0) / 255.0,
+        float3(251.0, 155.0, 6.0) / 255.0,
+        float3(247.0, 209.0, 61.0) / 255.0,
+        float3(252.0, 255.0, 164.0) / 255.0
+    };
+    float position = clamp(t, 0.0, 1.0) * 9.0;
+    uint index = min(uint(position), 8u);
+    return mix(colors[index], colors[index + 1], position - float(index));
 }
 float3 turbo(float t) {
     return float3(clamp(0.13572+t*(4.6153+t*(-42.6592+t*(138.5676+t*(-152.3494+t*59.2859)))),0.0,1.0),
@@ -85,7 +118,7 @@ float isoline_alpha(float value, float step, float width) {
 fragment float4 mesh_fragment(Out input [[stage_in]], constant Uniforms& uniforms [[buffer(1)]]) {
     if (isnan(input.value) || isinf(input.value)) discard_fragment();
     float t = clamp((input.value - uniforms.range.x) / max(uniforms.range.y - uniforms.range.x, 1e-6), 0.0, 1.0);
-    float line = isoline_alpha(t, uniforms.style.x, uniforms.style.y);
+    float line = isoline_alpha(t, uniforms.range.w, uniforms.style.x);
     return float4(mix(colormap(t, uniforms.range.z), float3(0.08,0.10,0.14), line), 1.0);
 }
 

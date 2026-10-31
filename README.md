@@ -160,7 +160,7 @@ Two open source examples:
 ## GPUI Version
 
 This workspace is currently on the `0.10.x` GPUI toolkit line and vendors GPUI
-from Zed `v1.9.0`, as recorded in the GPUI snapshot provenance.
+from Zed `v1.25.2`, as recorded in the GPUI snapshot provenance.
 
 The workspace uses local path dependencies for toolkit crates and git
 dependencies on the consolidated `sotf-3rdparties` snapshot repository for

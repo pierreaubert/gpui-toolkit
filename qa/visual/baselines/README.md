@@ -2,19 +2,17 @@
 
 Visual baselines are stored as versioned compressed archives instead of
 hundreds of loose PNG files. Each archive expands beneath the visual output
-root and contains a renderer namespace, validated PNGs, and `index.json` /
-`index.md` checksum evidence.
+root and contains a renderer namespace and baseline PNGs.
 
-`component-lab-metal-pr-v1.tar.zst` contains the deterministic 200-case PR
-profile for the Metal renderer at a 2x device-pixel scale. The selection keeps
-at least one rendered case for every registered component story and rotates
-through viewport and design presets.
+`component-lab-metal-pr-v1.tar.zst` contains the 108 MeshPlot cases selected by
+`scripts/qa_visual_capture.sh` for the Metal renderer at a 2x device-pixel scale,
+across viewport and design presets.
 
 The normal QA script extracts the archive automatically. Intentional baseline
 changes require an explicit local approval run:
 
 ```bash
-QA_VISUAL_UPDATE_BASELINES=1 QA_VISUAL_CAPTURE_LIMIT=200 \
+QA_VISUAL_UPDATE_BASELINES=1 \
   scripts/qa_visual_capture.sh
 ```
 

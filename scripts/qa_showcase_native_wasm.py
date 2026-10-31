@@ -74,7 +74,7 @@ def px_diff_ratio(a, b) -> float:
     from PIL import ImageChops
 
     diff = ImageChops.difference(a.convert("RGB"), b.convert("RGB"))
-    channels = [list(ch.getdata()) for ch in diff.split()]
+    channels = [ch.tobytes() for ch in diff.split()]
     total = len(channels[0])
     bad = sum(
         1 for i in range(total) if channels[0][i] + channels[1][i] + channels[2][i] > PX_CHANNEL_SUM_TOL

@@ -34,7 +34,7 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-gpui-profiler = { path = "../gpui-profiler", features = ["global-allocator"] }
+gpui-profiler = { path = "../gpui-profiler", version = "0.10", features = ["global-allocator"] }
 
 [[bench]]
 name = "discovery"
