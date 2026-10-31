@@ -324,11 +324,8 @@ qa-mesh-expanded-visual:
 [group('qa')]
 qa-cov:
 	mkdir -p target/qa/cov
-	# gpui_macos clipboard tests require a live pasteboard service and are not
-	# part of the measured source set; keep them out of the portable coverage
-	# lane while retaining their separate host QA gate.
-	{{cargo}} llvm-cov --workspace --exclude gpui-scaffolder --exclude gpui_macos --all-targets --html --output-dir target/qa/cov/html {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
-	{{cargo}} llvm-cov --workspace --exclude gpui-scaffolder --exclude gpui_macos --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	{{cargo}} llvm-cov --workspace --exclude gpui-scaffolder --all-targets --html --output-dir target/qa/cov/html {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	{{cargo}} llvm-cov --workspace --exclude gpui-scaffolder --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
 	@echo "Coverage report: target/qa/cov/html/index.html"
 
 # Open the HTML coverage report (macOS).
@@ -341,7 +338,7 @@ qa-cov-html: qa-cov
 qa-cov-check:
 	@echo "Running coverage gate (threshold {{cov_threshold}}%)..."
 	mkdir -p target/qa/cov
-	{{cargo}} llvm-cov --workspace --exclude gpui-scaffolder --exclude gpui_macos --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	{{cargo}} llvm-cov --workspace --exclude gpui-scaffolder --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
 	python3 scripts/qa_cov_check.py --summary {{cov_summary}} --threshold {{cov_threshold}} --output {{cov_report}} --ignore-regex '{{cov_ignore_regex}}'
 
 # Update the committed performance baseline. Run intentionally after benchmarking.
