@@ -337,6 +337,11 @@ fn contour(plot: &Value) -> Result<ContourPlotData, String> {
     })
 }
 
+/// Parse contour data from an already-fetched Plotly measurement payload.
+pub fn contour_plot_data(plot: &Value) -> Result<ContourPlotData, String> {
+    contour(plot)
+}
+
 pub async fn fetch_contour_data(
     speaker: &str,
     version: &str,

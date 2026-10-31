@@ -7,6 +7,11 @@ license.workspace = true
 repository.workspace = true
 description = "Full D3rs Spinorama viewer with live speaker measurements, polar, contour, and 3D views"
 publish = false
+autobins = false
+
+[features]
+# Headless Metal capture benchmark (`--capture-bench`, macOS only).
+capture-bench = ["dep:gpui_macos", "dep:image", "gpui_macos/test-support", "gpui/test-support"]
 
 [lints]
 workspace = true
@@ -14,6 +19,11 @@ workspace = true
 [[bin]]
 name = "spinorama-showcase"
 path = "src/main.rs"
+
+[[bin]]
+name = "spinorama-render-images"
+path = "src/main.rs"
+required-features = ["capture-bench"]
 
 [dependencies]
 gpui = { workspace = true }
@@ -27,6 +37,10 @@ serde_json = { workspace = true }
 base64 = "0.23.1"
 urlencoding = { workspace = true }
 reqwest = { version = "0.13", default-features = false, features = ["json"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui_macos = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { workspace = true }

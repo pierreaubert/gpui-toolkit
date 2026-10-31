@@ -133,7 +133,11 @@ impl SpinoramaApp {
         }
 
         let chart_width = self.content_width;
-        let chart_height = (chart_width * 0.375).min(self.content_height * 0.5);
+        let chart_height = if self.chart_only {
+            (chart_width * 0.5).min(self.content_height * 0.72)
+        } else {
+            (chart_width * 0.375).min(self.content_height * 0.5)
+        };
         let font_scale = (chart_width / 800.0).clamp(0.7, 1.2);
         let label_sz = (10.0 * font_scale).round();
         let title_sz = (12.0 * font_scale).round();

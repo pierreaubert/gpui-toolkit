@@ -8,6 +8,12 @@ use gpui_miniapp::{MiniApp, MiniAppConfig};
 
 mod api;
 mod app;
+#[cfg(all(target_os = "macos", feature = "capture-bench"))]
+mod capture_bench;
+#[cfg(all(target_os = "macos", feature = "capture-bench"))]
+mod headless;
+#[cfg(all(target_os = "macos", feature = "capture-bench"))]
+mod render_images;
 mod render;
 mod spinorama_section;
 mod types;
@@ -28,7 +34,39 @@ fn run_app() {
 }
 
 #[cfg(not(target_family = "wasm"))]
+fn run_render_images(args: &[String]) {
+    #[cfg(all(target_os = "macos", feature = "capture-bench"))]
+    {
+        if let Err(error) = render_images::run(args) {
+            eprintln!("render-images failed: {error}");
+            std::process::exit(1);
+        }
+    }
+    #[cfg(not(all(target_os = "macos", feature = "capture-bench")))]
+    {
+        let _ = args;
+        eprintln!("--render-images requires macOS and `--features capture-bench`");
+        std::process::exit(1);
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
 fn main() {
+    // The `spinorama-render-images` binary shares this entry point and
+    // defaults to the batch renderer without an explicit mode flag.
+    let invoked_as_renderer = std::env::args()
+        .next()
+        .is_some_and(|arg0| arg0.contains("spinorama-render-images"));
+    if invoked_as_renderer {
+        let rest: Vec<String> = std::env::args().skip(1).collect();
+        let rest = if rest.first().map(String::as_str) == Some("--render-images") {
+            rest[1..].to_vec()
+        } else {
+            rest
+        };
+        run_render_images(&rest);
+        return;
+    }
     let mut args = std::env::args().skip(1);
     if let Some(arg) = args.next() {
         match arg.as_str() {
@@ -43,8 +81,31 @@ fn main() {
                 }
                 return;
             }
+            "--capture-bench" => {
+                #[cfg(all(target_os = "macos", feature = "capture-bench"))]
+                {
+                    let rest: Vec<String> = args.collect();
+                    if let Err(error) = capture_bench::run(&rest) {
+                        eprintln!("capture-bench failed: {error}");
+                        std::process::exit(1);
+                    }
+                }
+                #[cfg(not(all(target_os = "macos", feature = "capture-bench")))]
+                {
+                    eprintln!("--capture-bench requires macOS and `--features capture-bench`");
+                    std::process::exit(1);
+                }
+                return;
+            }
+            "--render-images" => {
+                let rest: Vec<String> = args.collect();
+                run_render_images(&rest);
+                return;
+            }
             "--help" | "-h" => {
-                println!("Usage: spinorama-showcase [--visual-manifest [--json]]");
+                println!(
+                    "Usage: spinorama-showcase [--visual-manifest [--json]] [--capture-bench <cea2034|contour> <fixture.json> <out.png> [iterations]] [--render-images <private_root> <out_root> [--limit N] [--filter SUBSTR]]"
+                );
                 return;
             }
             _ => {}

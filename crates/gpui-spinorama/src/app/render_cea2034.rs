@@ -3,10 +3,18 @@ fn render_cea2034_plot(&mut self, cx: &mut Context<Self>) -> Div {
     let theme = cx.theme();
     let ds = cx.design();
     let s = self.font_scale();
-    let colors = cea2034_colors();
+    let mut colors = cea2034_colors();
+    // Static rendering: prefer the trace colors from the source payload
+    // so generated images match the site palette (lines and legend).
+    for (name, color) in &self.trace_colors {
+        if let Some(key) = colors.keys().find(|key| **key == name.as_str()).copied() {
+            colors.insert(key, *color);
+        }
+    }
 
     let chart_width = self.content_width;
-    let chart_height = (chart_width * 0.5).min(self.content_height * 0.6);
+    let height_fraction = if self.chart_only { 0.78 } else { 0.6 };
+    let chart_height = (chart_width * 0.5).min(self.content_height * height_fraction);
 
     // Separate DI curves from SPL curves
     let spl_curve_names = [
@@ -69,7 +77,7 @@ fn render_cea2034_plot(&mut self, cx: &mut Context<Self>) -> Div {
     // Configure secondary axis for DI curves
     // Note: Only include tick values up to 20 for labels (full domain is -5 to 45)
     let secondary_axis = Some(SecondaryAxisConfig {
-        domain: (-5.0, 45.0),
+        domain: self.di_domain,
         title: "DI (dB)",
         tick_values: vec![-5.0, 0.0, 5.0, 10.0, 15.0, 20.0], // Only show labels up to 20
     });
@@ -106,10 +114,12 @@ fn render_cea2034_plot(&mut self, cx: &mut Context<Self>) -> Div {
                 .text_size(px(ds.typography.large_size * s))
                 .font_weight(FontWeight::BOLD)
                 .text_color(theme.text_primary)
-                .child(format!(
-                    "CEA2034 - {}",
-                    self.selected_speaker.as_deref().unwrap_or("Unknown")
-                )),
+                .child(self.title_override.clone().unwrap_or_else(|| {
+                    format!(
+                        "CEA2034 - {}",
+                        self.selected_speaker.as_deref().unwrap_or("Unknown")
+                    )
+                })),
         )
         .child(interactive_chart)
     // Zoom status indicator

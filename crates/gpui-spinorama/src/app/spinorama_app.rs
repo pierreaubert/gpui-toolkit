@@ -9,6 +9,7 @@ use crate::api::{
 };
 use crate::api::{Curve, DirectivityData};
 use d3rs::brush::{BrushSelection, BrushState};
+use d3rs::color::D3Color;
 use d3rs::gpu3d::{Surface3DState, SurfacePlotType};
 use d3rs::scale::{LinearScale, LogScale};
 use d3rs::zoom::ZoomState;
@@ -114,6 +115,15 @@ pub struct SpinoramaApp {
     // Layout: available content dimensions (updated each render)
     pub content_width: f32,
     pub content_height: f32,
+
+    // Static image generation (headless capture): render only the chart
+    // content, optionally with external title, trace colors and DI domain
+    // taken from the source Plotly payload.
+    pub chart_only: bool,
+    pub title_override: Option<String>,
+    pub trace_colors: HashMap<String, D3Color>,
+    pub di_domain: (f64, f64),
+    pub contour_plane_label: &'static str,
 }
 
 impl SpinoramaApp {
@@ -209,11 +219,28 @@ impl SpinoramaApp {
             polar_contour_freq_range: (20.0, 20000.0),
             content_width: 800.0,
             content_height: 600.0,
+            chart_only: false,
+            title_override: None,
+            trace_colors: HashMap::new(),
+            di_domain: (-5.0, 45.0),
+            contour_plane_label: "Horizontal",
         };
 
-        // Start loading speakers list
+        // Start loading speakers list (skipped for offline headless
+        // rendering, where data is injected directly).
+        #[cfg(target_family = "wasm")]
         app.load_speakers(cx);
+        #[cfg(not(target_family = "wasm"))]
+        if std::env::var_os("SPINORAMA_OFFLINE").is_none() {
+            app.load_speakers(cx);
+        }
         app
+    }
+
+    /// Replaces the contour data and invalidates cached contour geometry.
+    pub fn set_contour_data(&mut self, data: ContourPlotData) {
+        self.contour_data = Some(data);
+        self.contour_data_revision = self.contour_data_revision.wrapping_add(1);
     }
 
     pub(super) fn load_speakers(&mut self, cx: &mut Context<Self>) {
@@ -1280,16 +1307,31 @@ impl Render for SpinoramaApp {
         let bounds = window.bounds();
         let win_w: f32 = bounds.size.width.into();
         let win_h: f32 = bounds.size.height.into();
-        let header_h = if win_w < 700.0 { 180.0_f32 } else { 60.0_f32 }.max(
+        let header_h = if self.chart_only {
+            0.0_f32
+        } else if win_w < 700.0 {
+            180.0_f32
+        } else {
+            60.0_f32
+        }
+        .max(if self.chart_only {
+            0.0
+        } else {
             ds.typography.base_size
                 + ds.spacing.control_padding_y * 2.0
-                + ds.spacing.grid_unit * 2.0,
-        );
+                + ds.spacing.grid_unit * 2.0
+        });
         let (header_w, header_h, content_w, content_h) =
             self.solve_shell_layout(win_w, win_h, header_h);
         let padding = ds.spacing.card_padding * 2.0;
-        self.content_width =
-            (content_w - padding - if win_w < 700.0 { 0.0 } else { 120.0 }).max(200.0);
+        self.content_width = (content_w
+            - padding
+            - if win_w < 700.0 || self.chart_only {
+                0.0
+            } else {
+                120.0
+            })
+        .max(200.0);
         self.content_height = (content_h - padding).max(300.0);
 
         div()
@@ -1298,15 +1340,17 @@ impl Render for SpinoramaApp {
             .flex()
             .flex_col()
             .bg(theme.background)
-            .child(
-                div()
-                    .id("layout-header-slot")
-                    .w(px(header_w))
-                    .h(px(header_h))
-                    .flex()
-                    .flex_col()
-                    .child(self.render_header(cx)),
-            )
+            .when(!self.chart_only, |el| {
+                el.child(
+                    div()
+                        .id("layout-header-slot")
+                        .w(px(header_w))
+                        .h(px(header_h))
+                        .flex()
+                        .flex_col()
+                        .child(self.render_header(cx)),
+                )
+            })
             .child(
                 div()
                     .id("layout-content-slot")

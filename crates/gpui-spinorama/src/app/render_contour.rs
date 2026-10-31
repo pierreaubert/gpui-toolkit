@@ -43,8 +43,16 @@ impl SpinoramaApp {
 
         // Pre-render the contour plots
         let colormap = self.contour_colormap;
+        let chart_only = self.chart_only;
+        // Static images carry the full payload title as heading; the
+        // inner subtitle would duplicate it.
+        let spl_contour_title = if chart_only {
+            String::new()
+        } else {
+            format!("SPL {} Contour (Full 360°)", self.contour_plane_label)
+        };
         let spl_contour = self.render_contour_from_contour_data(
-            "SPL Horizontal Contour (Full 360°)",
+            &spl_contour_title,
             spl_mode,
             colormap,
             &ds,
@@ -67,7 +75,9 @@ impl SpinoramaApp {
                     .text_size(px(ds.typography.large_size * s))
                     .font_weight(FontWeight::BOLD)
                     .text_color(theme.text_primary)
-                    .child(format!("Horizontal Contour Plots - {speaker_name}")),
+                    .child(self.title_override.clone().unwrap_or_else(|| {
+                        format!("{} Contour Plots - {speaker_name}", self.contour_plane_label)
+                    })),
             )
             // SPL Horizontal Contour (new format, -180 to +180) with toggle
             .when_some(spl_contour, |el, contour_div| {
@@ -76,7 +86,7 @@ impl SpinoramaApp {
                         .flex()
                         .flex_col()
                         .gap(px(ds.spacing.control_gap))
-                        .child(spl_toggle)
+                        .when(!chart_only, |el| el.child(spl_toggle))
                         .child(contour_div),
                 )
             })
@@ -87,7 +97,7 @@ impl SpinoramaApp {
                         .flex()
                         .flex_col()
                         .gap(px(ds.spacing.control_gap))
-                        .child(directivity_toggle)
+                        .when(!chart_only, |el| el.child(directivity_toggle))
                         .child(contour_div),
                 )
             })
