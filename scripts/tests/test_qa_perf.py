@@ -59,6 +59,33 @@ class PerformanceEnvironmentTests(unittest.TestCase):
             specs["gpui-px:mesh_plot_frames"].features,
         )
 
+    def test_force_many_body_run_retains_base_and_10k_results(self) -> None:
+        requested = next(
+            spec for spec in qa_perf_baseline.BENCHMARKS
+            if spec.key == "gpui-d3rs:force_many_body"
+        )
+        records = [
+            {"group": group, "function": function, "median_ns": 10.0,
+             "mean_ns": 11.0, "unit": "ns"}
+            for group, function in [
+                ("force_many_body", "brute_force/50"),
+                ("force_many_body_10k", "brute_force"),
+                ("force_many_body_10k", "barnes_hut"),
+            ]
+        ]
+        with (
+            mock.patch.object(qa_perf_baseline, "run_bench"),
+            mock.patch.object(qa_perf_baseline, "discover_records", return_value=records),
+        ):
+            selected = qa_perf_baseline.run_one(requested)
+
+        self.assertEqual(len(selected), 3)
+        self.assertEqual(
+            {(record["crate"], record["bench"]) for record in selected},
+            {("gpui-d3rs", "force_many_body")},
+        )
+        self.assertIsNone(qa_perf_baseline.spec_for_group("force_many_body_unrelated"))
+
     def test_single_benchmark_run_does_not_collect_stale_other_benchmarks(self) -> None:
         requested = next(
             spec

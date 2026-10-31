@@ -98,7 +98,10 @@ BENCHMARKS: list[BenchSpec] = [
         [],
         groups=["balanced_tree_*", "wide_tree_*", "text_cache_hit"],
     ),
-    BenchSpec("gpui-d3rs", "force_many_body", ["gpui", "gpu-2d", "gpu-3d"]),
+    BenchSpec(
+        "gpui-d3rs", "force_many_body", ["gpui", "gpu-2d", "gpu-3d"],
+        groups=["force_many_body_10k"],
+    ),
     BenchSpec(
         "gpui-d3rs",
         "path_strings",
