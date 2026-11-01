@@ -25,6 +25,9 @@ name = "spinorama-render-images"
 path = "src/render_images_main.rs"
 required-features = ["capture-bench"]
 
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+
 [dependencies]
 gpui = { workspace = true }
 gpui-miniapp = { workspace = true }

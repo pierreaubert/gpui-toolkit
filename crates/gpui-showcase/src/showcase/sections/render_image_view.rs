@@ -1,9 +1,14 @@
 use super::prelude::*;
+use std::sync::Arc;
 
 impl Showcase {
     pub(crate) fn render_image_view_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let section_title = cx.t(TranslationKey::SectionImageView);
         let _theme = cx.theme();
+        let image = Arc::new(gpui::Image::from_bytes(
+            gpui::ImageFormat::Png,
+            include_bytes!("../../../../gpui-ui-kit/docs/images/3.png").to_vec(),
+        ));
 
         VStack::new()
             .spacing(StackSpacing::Lg)
@@ -62,6 +67,8 @@ impl Showcase {
                     .child(
                         Field::new("img-cover-field").label("Cover").child(
                             ImageView::new("img-cover")
+                                .source(image.clone())
+                                .alt("Toolkit screenshot")
                                 .width(px(120.0))
                                 .height(px(80.0))
                                 .fit(ImageFit::Cover)
@@ -71,6 +78,8 @@ impl Showcase {
                     .child(
                         Field::new("img-contain-field").label("Contain").child(
                             ImageView::new("img-contain")
+                                .source(image.clone())
+                                .alt("Toolkit screenshot")
                                 .width(px(120.0))
                                 .height(px(80.0))
                                 .fit(ImageFit::Contain)
@@ -80,6 +89,8 @@ impl Showcase {
                     .child(
                         Field::new("img-fill-field").label("Fill").child(
                             ImageView::new("img-fill")
+                                .source(image)
+                                .alt("Toolkit screenshot")
                                 .width(px(120.0))
                                 .height(px(80.0))
                                 .fit(ImageFit::Fill)

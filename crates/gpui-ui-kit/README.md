@@ -74,6 +74,7 @@ gpui-ui-kit = { version = "0.6.12", git="https://github.com/pierreaubert/sotf/tr
 | `Spinner` / `LoadingDots` | Loading indicators |
 | `ThinkingOrb` | Dotted 3D "thinking orb" status animations (9 states, GPU-rendered via vello, requires the `vello` feature) |
 | `Avatar` / `AvatarGroup` | User avatars with status indicators |
+| `ImageView` | Load and display images with fit modes, rounded corners, and a fallback |
 | `Table` | Data table with sorting, selection, and pagination |
 | `QrCode` | QR code display with custom size, foreground, and background colors |
 | `KeyboardShortcutLabel` | Renders keyboard shortcuts as styled key caps (e.g., `⌘+K`) |
@@ -88,6 +89,27 @@ gpui-ui-kit = { version = "0.6.12", git="https://github.com/pierreaubert/sotf/tr
 | `MetadataList` | Label/value detail rows with dividers |
 | `List` | Static selectable rows with descriptions and keyboard navigation |
 | `Text` / `Heading` / `Code` / `Link` | Typography components |
+
+### Images
+
+```rust
+use gpui::px;
+use gpui_ui_kit::{ImageFit, ImageView};
+
+let image = ImageView::new("cover")
+    .path("images/cover.png")
+    .alt("Album cover")
+    .width(px(240.0))
+    .height(px(160.0))
+    .fit(ImageFit::Contain);
+```
+
+`src` accepts a file path or URL; `path` also accepts native `PathBuf` values.
+For embedded assets, encoded bytes or predecoded images, use `source` with a
+GPUI `ImageSource` (for example, `Arc<gpui::Image>`). GPUI loads and decodes
+the image asynchronously and shows the placeholder if loading fails. URL
+loading depends on the application's GPUI HTTP client; relative file paths
+are resolved from the process working directory.
 
 ### Large Data Surfaces
 

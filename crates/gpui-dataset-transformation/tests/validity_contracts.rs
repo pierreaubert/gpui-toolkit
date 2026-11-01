@@ -352,7 +352,10 @@ fn validated_views_reuse_one_check_without_changing_conversion_semantics() {
         .with_field(Field::scalar("p", vec![1.0, 2.0, 3.0, 4.0]))
         .with_field(Field::vector("v", vec![[2.0, 4.0, 6.0]]).on_cells());
     let checked = dataset.validated().unwrap();
-    assert!(std::ptr::eq(checked.as_dataset(), std::ptr::from_ref(&dataset)));
+    assert!(std::ptr::eq(
+        checked.as_dataset(),
+        std::ptr::from_ref(&dataset)
+    ));
     assert_eq!(checked.uniform_cell_dimension(), Some(3));
     assert_eq!(
         point_data_to_cell_data(&dataset, "p", "mean").unwrap(),

@@ -288,7 +288,9 @@ mod tests {
         assert!(manifest.contains("\"id\": \"d3-volcano-narrow\""));
         assert!(manifest.contains("\"renderer\": \"vello-auto\""));
         assert!(manifest.contains("\"renderer_query\": \"auto\""));
-        assert!(manifest.contains("\"id\": \"geo-desktop\", \"group\": \"D3\", \"section\": \"geo\""));
+        assert!(
+            manifest.contains("\"id\": \"geo-desktop\", \"group\": \"D3\", \"section\": \"geo\"")
+        );
         assert!(manifest.contains("\"extra_query\": {\"dataset\": \"large\"}"));
         assert_eq!(manifest.matches("\"extra_query\"").count(), 2);
     }

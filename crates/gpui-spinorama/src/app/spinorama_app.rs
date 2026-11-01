@@ -8,7 +8,7 @@ use crate::api::{
     fetch_directivity_data, fetch_measurement_plot_data, is_auth_error, measurement_image_url,
     parse_plot,
 };
-use crate::auth::{ApiKey, delete_api_key, load_api_key, save_api_key};
+use crate::auth::{ApiKey, delete_api_key, load_api_key, mask_key, save_api_key};
 use crate::render::{render_generic_bars, render_generic_freq_chart, render_generic_polar};
 use crate::types::{GRAPH_CATALOG, GraphDef, GraphRenderer, PlotData};
 use crate::api::{Curve, DirectivityData};
@@ -24,7 +24,7 @@ use gpui_builder::{
 };
 use gpui_design::DesignExt;
 use gpui_ui_kit::theme::ThemeExt;
-use gpui_ui_kit::{Input, SelectOption, Spinner, SpinnerSize};
+use gpui_ui_kit::{SelectOption, Spinner, SpinnerSize};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -40,6 +40,34 @@ pub(super) struct ContourGeometryCache {
     pub(super) contours: Option<Vec<d3rs::contour::Contour>>,
     pub(super) bands: Option<Vec<d3rs::contour::ContourBand>>,
     pub(super) heatmap: Option<d3rs::shape::HeatmapData>,
+}
+
+/// Whether the API-key popup may appear in this host context.
+///
+/// The key is only for the spinorama demo. Native runs of this binary
+/// are that demo. On wasm, the hosting page declares itself via
+/// `data-demo="spinorama"` (see `index.html`); other demos declare a
+/// different demo, and gallery captures pass `qa=1` — neither may be
+/// blocked by the spinorama popup.
+pub fn key_popup_allowed_here() -> bool {
+    #[cfg(target_family = "wasm")]
+    {
+        if gpui_miniapp::web_query_param("qa").as_deref() == Some("1") {
+            return false;
+        }
+        if let Some(demo) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.document_element())
+            .and_then(|el| el.get_attribute("data-demo"))
+        {
+            return demo == "spinorama";
+        }
+        true
+    }
+    #[cfg(not(target_family = "wasm"))]
+    {
+        std::env::var_os("SPINORAMA_NO_KEY_POPUP").is_none()
+    }
 }
 
 /// Main application state
@@ -126,6 +154,8 @@ pub struct SpinoramaApp {
     // API-key gate: key held in memory, persisted only in the OS
     // credential store (native) — never on wasm.
     pub api_key: Option<ApiKey>,
+    pub key_focus: FocusHandle,
+    pub key_show_plain: bool,
     pub show_key_popup: bool,
     pub key_input: String,
     pub key_error: Option<String>,
@@ -183,8 +213,14 @@ impl SpinoramaApp {
         app.api_key = load_api_key();
         if app.api_key.is_some() {
             app.load_speakers(cx);
-        } else {
+        } else if key_popup_allowed_here() {
             app.show_key_popup = true;
+        } else {
+            // The key is only for the spinorama demo: embedded, gallery
+            // (qa=1), or other-demo contexts never show the popup and go
+            // straight to the public picture.
+            app.picture_mode = true;
+            app.load_speakers(cx);
         }
         app
     }
@@ -265,6 +301,47 @@ impl SpinoramaApp {
         cx.notify();
     }
 
+    /// Handles keys while the API-key popup is open.
+    ///
+    /// Paste (Cmd/Ctrl+V) reads the GPUI clipboard directly, typing
+    /// appends, Backspace deletes, Enter submits, Escape continues
+    /// without a key. This deliberately avoids a nested text-input
+    /// entity inside the overlay.
+    pub fn handle_key_popup_key(
+        &mut self,
+        event: &KeyDownEvent,
+        cx: &mut Context<Self>,
+    ) {
+        let ks = &event.keystroke;
+        let paste_modifier = ks.modifiers.platform || ks.modifiers.control;
+        match ks.key.as_str() {
+            "v" if paste_modifier => {
+                if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+                    self.key_input.push_str(text.trim());
+                    self.key_error = None;
+                }
+            }
+            "a" if paste_modifier => {}
+            "c" if paste_modifier && self.key_show_plain => {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                    self.key_input.clone(),
+                ));
+            }
+            "backspace" => {
+                self.key_input.pop();
+            }
+            "enter" => self.submit_api_key(cx),
+            "escape" => self.continue_without_key(cx),
+            _ => {
+                // Printable characters and pasted text arrive through
+                // the platform text-input handler
+                // (`replace_text_in_range`), not here — handling them in
+                // both places would insert every character twice.
+            }
+        }
+        cx.notify();
+    }
+
     /// Reopens the key popup (header action / picture-mode banner).
     pub fn open_key_popup(&mut self, cx: &mut Context<Self>) {
         self.show_key_popup = true;
@@ -287,8 +364,9 @@ impl SpinoramaApp {
     }
 
     /// Creates a viewer without starting network requests.
-    pub fn new_offline(_cx: &mut Context<Self>) -> Self {
+    pub fn new_offline(cx: &mut Context<Self>) -> Self {
         let runtime = Arc::new(Runtime::new());
+        let key_focus = cx.focus_handle();
 
         Self {
             runtime,
@@ -354,6 +432,8 @@ impl SpinoramaApp {
             content_width: 800.0,
             content_height: 600.0,
             api_key: None,
+            key_focus,
+            key_show_plain: false,
             show_key_popup: false,
             key_input: String::new(),
             key_error: None,
@@ -379,6 +459,19 @@ impl SpinoramaApp {
     }
 
     pub(super) fn load_speakers(&mut self, cx: &mut Context<Self>) {
+        // Unit tests must not spawn real network tasks on the
+        // app's Tokio runtime from the GPUI test scheduler.
+        #[cfg(test)]
+        {
+            let _ = cx;
+            self.speakers_load_state = LoadState::Loaded;
+        }
+        #[cfg(not(test))]
+        self.load_speakers_live(cx);
+    }
+
+    #[cfg(not(test))]
+    fn load_speakers_live(&mut self, cx: &mut Context<Self>) {
         self.speakers_load_state = LoadState::Loading;
         let runtime = self.runtime.clone();
         let api_key = self.api_key_string();
@@ -1335,6 +1428,7 @@ impl SpinoramaApp {
                     .child(
                         div()
                             .id("picture-enter-key")
+                            .debug_selector(|| "picture-enter-key".to_string())
                             .px(px(ds.spacing.control_padding_x))
                             .py(px(ds.spacing.control_padding_y * 0.5))
                             .rounded(px(ds.corners.sm))
@@ -1587,9 +1681,13 @@ impl SpinoramaApp {
     pub fn render_key_popup(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let ds = cx.design();
-        let entity = cx.entity().clone();
-        let entity_submit = entity.clone();
         let key_error = self.key_error.clone();
+        let key_len = self.key_input.chars().count();
+        let masked: String = if self.key_show_plain {
+            self.key_input.clone()
+        } else {
+            mask_key(&self.key_input)
+        };
         div()
             .id("key-popup-backdrop")
             .absolute()
@@ -1598,9 +1696,21 @@ impl SpinoramaApp {
             .items_center()
             .justify_center()
             .bg(gpui::rgba(0x00000088))
+            // Swallow clicks so nothing behind the modal reacts.
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
             .child(
                 div()
                     .id("key-popup")
+                    .track_focus(&self.key_focus)
+                    .focusable()
+                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, _w, cx| {
+                        this.handle_key_popup_key(event, cx);
+                    }))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                        cx.stop_propagation();
+                    })
                     .w(px(440.0))
                     .flex()
                     .flex_col()
@@ -1624,25 +1734,108 @@ impl SpinoramaApp {
                             .text_color(theme.text_secondary)
                             .child("Measurement data is now protected. Enter your API key to get the full interactive interface. Without a key you will see the result picture only."),
                     )
+                    // Self-managed masked field: click to focus, type or
+                    // paste (Cmd/Ctrl+V). Display is `*` per character.
+                    .child(KeyInputElement {
+                        focus_handle: self.key_focus.clone(),
+                        entity: cx.entity(),
+                        child: div()
+                            .id("key-field")
+                            .debug_selector(|| "key-field".to_string())
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap(px(ds.spacing.control_gap))
+                            .px(px(ds.spacing.control_padding_x))
+                            .py(px(ds.spacing.control_padding_y))
+                            .bg(theme.background)
+                            .border_1()
+                            .border_color(theme.accent)
+                            .rounded(px(ds.corners.md))
+                            .cursor_text()
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _, window, cx| {
+                                    window.focus(&this.key_focus.clone(), cx);
+                                    cx.stop_propagation();
+                                }),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(ds.typography.base_size))
+                                    .text_color(if key_len == 0 {
+                                        theme.text_muted
+                                    } else {
+                                        theme.text_primary
+                                    })
+                                    .child(if key_len == 0 {
+                                        "Paste or type your API key…".to_string()
+                                    } else {
+                                        masked
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .id("key-paste")
+                                    .debug_selector(|| "key-paste".to_string())
+                                    .flex_none()
+                                    .px(px(6.0))
+                                    .py(px(2.0))
+                                    .rounded(px(ds.corners.sm))
+                                    .bg(theme.accent)
+                                    .text_size(px(ds.typography.small_size))
+                                    .text_color(theme.text_on_accent)
+                                    .cursor_pointer()
+                                    .child("Paste")
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _, window, cx| {
+                                            cx.stop_propagation();
+                                            if let Some(text) = cx
+                                                .read_from_clipboard()
+                                                .and_then(|item| item.text())
+                                            {
+                                                this.key_input.push_str(text.trim());
+                                                this.key_error = None;
+                                            }
+                                            let focus = this.key_focus.clone();
+                                            window.focus(&focus, cx);
+                                            cx.notify();
+                                        }),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .id("key-toggle-visibility")
+                                    .debug_selector(|| "key-toggle-visibility".to_string())
+                                    .flex_none()
+                                    .px(px(6.0))
+                                    .py(px(2.0))
+                                    .rounded(px(ds.corners.sm))
+                                    .text_size(px(ds.typography.small_size))
+                                    .text_color(theme.text_secondary)
+                                    .cursor_pointer()
+                                    .child(if self.key_show_plain { "Hide" } else { "Show" })
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _, _w, cx| {
+                                            this.key_show_plain = !this.key_show_plain;
+                                            cx.stop_propagation();
+                                            cx.notify();
+                                        }),
+                                    ),
+                            )
+                            .into_any_element(),
+                    })
                     .child(
-                        Input::new("spinorama-api-key")
-                            .password(true)
-                            .value(self.key_input.clone())
-                            .placeholder("API key")
-                            .on_text_change({
-                                let entity = entity.clone();
-                                move |text: &str, _w, cx| {
-                                    let text = text.to_string();
-                                    entity.update(cx, |this, _cx| {
-                                        this.key_input = text;
-                                    });
-                                }
-                            })
-                            .on_change({
-                                let entity = entity_submit.clone();
-                                move |_: &str, _w, cx| {
-                                    entity.update(cx, SpinoramaApp::submit_api_key);
-                                }
+                        div()
+                            .text_size(px(ds.typography.small_size))
+                            .text_color(theme.text_muted)
+                            .child(if key_len == 0 {
+                                "No key entered yet.".to_string()
+                            } else {
+                                format!("{key_len} characters entered.")
                             }),
                     )
                     .when_some(key_error, |el, error| {
@@ -1660,6 +1853,7 @@ impl SpinoramaApp {
                             .child(
                                 div()
                                     .id("key-submit")
+                                    .debug_selector(|| "key-submit".to_string())
                                     .px(px(ds.spacing.control_padding_x))
                                     .py(px(ds.spacing.control_padding_y))
                                     .rounded(px(ds.corners.md))
@@ -1667,24 +1861,34 @@ impl SpinoramaApp {
                                     .text_color(theme.text_on_accent)
                                     .cursor_pointer()
                                     .child("Save and continue")
-                                    .on_click(cx.listener(|this, _, _w, cx| {
-                                        this.submit_api_key(cx);
-                                    })),
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _, _w, cx| {
+                                            cx.stop_propagation();
+                                            this.submit_api_key(cx);
+                                        }),
+                                    ),
                             )
                             .child(
                                 div()
                                     .id("key-skip")
+                                    .debug_selector(|| "key-skip".to_string())
                                     .px(px(ds.spacing.control_padding_x))
                                     .py(px(ds.spacing.control_padding_y))
                                     .rounded(px(ds.corners.md))
                                     .border_1()
                                     .border_color(theme.border)
-                                    .text_color(theme.text_secondary)
+                                    .bg(theme.surface)
+                                    .text_color(theme.text_primary)
                                     .cursor_pointer()
                                     .child("Continue without a key")
-                                    .on_click(cx.listener(|this, _, _w, cx| {
-                                        this.continue_without_key(cx);
-                                    })),
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _, _w, cx| {
+                                            cx.stop_propagation();
+                                            this.continue_without_key(cx);
+                                        }),
+                                    ),
                             ),
                     )
                     .child(
@@ -2010,6 +2214,203 @@ impl SpinoramaApp {
     }
 }
 
+/// Element wrapper that registers the platform text-input handler for
+/// the key field, so OS paste (Edit > Paste, Cmd/Ctrl+V delivered as
+/// text input, IME) reaches [`SpinoramaApp::replace_text_in_range`]
+/// instead of being swallowed by the platform.
+struct KeyInputElement {
+    child: gpui::AnyElement,
+    focus_handle: FocusHandle,
+    entity: Entity<SpinoramaApp>,
+}
+
+impl gpui::Element for KeyInputElement {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        (self.child.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        window.set_focus_handle(&self.focus_handle, cx);
+        self.child.prepaint(window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        window.handle_input(
+            &self.focus_handle,
+            ElementInputHandler::new(bounds, self.entity.clone()),
+            cx,
+        );
+        self.child.paint(window, cx);
+    }
+}
+
+impl IntoElement for KeyInputElement {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+fn utf16_to_char_index(text: &str, utf16_index: usize) -> usize {
+    let mut pos = 0usize;
+    for (char_index, ch) in text.chars().enumerate() {
+        if pos >= utf16_index {
+            return char_index;
+        }
+        pos += ch.len_utf16();
+    }
+    text.chars().count()
+}
+
+impl EntityInputHandler for SpinoramaApp {
+    fn text_for_range(
+        &mut self,
+        range: std::ops::Range<usize>,
+        adjusted_range: &mut Option<std::ops::Range<usize>>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<String> {
+        let start = utf16_to_char_index(&self.key_input, range.start);
+        let end = utf16_to_char_index(&self.key_input, range.end).max(start);
+        *adjusted_range = Some(
+            self.key_input.chars().take(start).map(char::len_utf16).sum::<usize>()
+                ..self.key_input.chars().take(end).map(char::len_utf16).sum::<usize>(),
+        );
+        let start_byte = self.key_input.char_indices().nth(start).map_or(self.key_input.len(), |(i, _)| i);
+        let end_byte = self.key_input.char_indices().nth(end).map_or(self.key_input.len(), |(i, _)| i);
+        Some(self.key_input[start_byte..end_byte].to_string())
+    }
+
+    fn selected_text_range(
+        &mut self,
+        _ignore_disabled_input: bool,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<UTF16Selection> {
+        let len: usize = self.key_input.chars().map(char::len_utf16).sum();
+        Some(UTF16Selection {
+            range: len..len,
+            reversed: false,
+        })
+    }
+
+    fn marked_text_range(
+        &self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<std::ops::Range<usize>> {
+        None
+    }
+
+    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {}
+
+    fn replace_text_in_range(
+        &mut self,
+        range: Option<std::ops::Range<usize>>,
+        text: &str,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.show_key_popup {
+            return;
+        }
+        // Paste / IME text: a key never contains whitespace or newlines.
+        let cleaned: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+        if cleaned.is_empty() {
+            cx.notify();
+            return;
+        }
+        if let Some(range) = range {
+            let start = utf16_to_char_index(&self.key_input, range.start);
+            let end = utf16_to_char_index(&self.key_input, range.end).max(start);
+            let start_byte = self.key_input.char_indices().nth(start).map_or(self.key_input.len(), |(i, _)| i);
+            let end_byte = self.key_input.char_indices().nth(end).map_or(self.key_input.len(), |(i, _)| i);
+            // A full-range replacement from the platform is a fresh paste
+            // into an empty selection; appending is the expected result
+            // when the reported range covers existing text the user did
+            // not select in this simple field.
+            if start == 0 && end == self.key_input.chars().count() && !self.key_input.is_empty() {
+                self.key_input.push_str(&cleaned);
+            } else {
+                self.key_input.replace_range(start_byte..end_byte, &cleaned);
+            }
+        } else {
+            self.key_input.push_str(&cleaned);
+        }
+        self.key_error = None;
+        cx.notify();
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        range: Option<std::ops::Range<usize>>,
+        new_text: &str,
+        _new_selected_range: Option<std::ops::Range<usize>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.replace_text_in_range(range, new_text, window, cx);
+    }
+
+    fn bounds_for_range(
+        &mut self,
+        _range_utf16: std::ops::Range<usize>,
+        element_bounds: Bounds<Pixels>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<Bounds<Pixels>> {
+        Some(element_bounds)
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        _point: Point<Pixels>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<usize> {
+        Some(self.key_input.chars().map(char::len_utf16).sum())
+    }
+
+    fn accepts_text_input(&self, _window: &mut Window, _cx: &mut Context<Self>) -> bool {
+        self.show_key_popup
+    }
+}
+
 impl Render for SpinoramaApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         #[cfg(target_family = "wasm")]
@@ -2035,6 +2436,9 @@ impl Render for SpinoramaApp {
         }
         let theme = cx.theme();
         let ds = cx.design();
+        if self.show_key_popup && !self.key_focus.is_focused(window) {
+            window.focus(&self.key_focus, cx);
+        }
 
         let bounds = window.bounds();
         let win_w: f32 = bounds.size.width.into();
@@ -2096,5 +2500,275 @@ impl Render for SpinoramaApp {
             .when(self.show_key_popup && !self.chart_only, |el| {
                 el.child(self.render_key_popup(cx))
             })
+    }
+}
+
+#[cfg(test)]
+mod key_popup_tests {
+    use super::SpinoramaApp;
+    use gpui::{ClipboardItem, Modifiers, MouseButton, TestAppContext, VisualTestContext};
+
+    fn open_popup(cx: &mut TestAppContext) -> gpui::WindowHandle<SpinoramaApp> {
+        cx.set_global(gpui_ui_kit::theme::ThemeState::new());
+        cx.set_global(gpui_design::DesignSystemState::new());
+        cx.add_window(|_window, cx| {
+            let mut app = SpinoramaApp::new_offline(cx);
+            app.show_key_popup = true;
+            app
+        })
+    }
+
+    #[gpui::test]
+    async fn continue_without_key_button_is_clickable(cx: &mut TestAppContext) {
+        let window = open_popup(cx);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        let bounds = cx.debug_bounds("key-skip").expect("continue button laid out");
+        let center = bounds.center();
+        cx.simulate_mouse_down(center, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_up(center, MouseButton::Left, Modifiers::default());
+        cx.run_until_parked();
+        let (popup, picture) = window
+            .update(&mut cx, |app, _window, _cx| {
+                (app.show_key_popup, app.picture_mode)
+            })
+            .expect("read app");
+        assert!(!popup, "popup should close after Continue without a key");
+        assert!(picture, "picture mode should be enabled");
+    }
+
+    #[gpui::test]
+    async fn pasting_a_key_fills_the_masked_field(cx: &mut TestAppContext) {
+        let window = open_popup(cx);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        cx.write_to_clipboard(ClipboardItem::new_string("test-key-123".to_string()));
+        cx.simulate_keystrokes("cmd-v");
+        cx.run_until_parked();
+        let key = window
+            .update(&mut cx, |app, _window, _cx| app.key_input.clone())
+            .expect("read app");
+        assert_eq!(key, "test-key-123");
+    }
+
+    fn backup_key() -> Option<crate::auth::ApiKey> {
+        crate::auth::load_api_key()
+    }
+    fn restore_key(prior: Option<&crate::auth::ApiKey>) {
+        match prior {
+            Some(k) => {
+                let _ = crate::auth::save_api_key(k);
+            }
+            None => {
+                let _ = crate::auth::delete_api_key();
+            }
+        }
+    }
+    fn click(cx: &mut VisualTestContext, selector: &'static str) {
+        let bounds = cx
+            .debug_bounds(selector)
+            .unwrap_or_else(|| panic!("{selector} laid out"));
+        let center = bounds.center();
+        cx.simulate_mouse_down(center, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_up(center, MouseButton::Left, Modifiers::default());
+        cx.run_until_parked();
+    }
+
+    #[gpui::test]
+    async fn save_and_continue_click_stores_key_and_unlocks(cx: &mut TestAppContext) {
+        let prior = backup_key();
+        let window = open_popup(cx);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |app, _w, _cx| {
+                app.key_input = "test-key-123".to_string();
+            })
+            .expect("preset key");
+        cx.run_until_parked();
+        click(&mut cx, "key-submit");
+        let (popup, picture, has_key) = window
+            .update(&mut cx, |app, _w, _cx| {
+                (app.show_key_popup, app.picture_mode, app.api_key.is_some())
+            })
+            .expect("read app");
+        assert!(!popup && !picture && has_key);
+        restore_key(prior.as_ref());
+    }
+
+    #[gpui::test]
+    async fn enter_submits_the_key(cx: &mut TestAppContext) {
+        let prior = backup_key();
+        let window = open_popup(cx);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |app, _w, _cx| {
+                app.key_input = "enter-key-9".to_string();
+            })
+            .expect("preset key");
+        cx.run_until_parked();
+        cx.simulate_keystrokes("enter");
+        cx.run_until_parked();
+        let (popup, has_key) = window
+            .update(&mut cx, |app, _w, _cx| {
+                (app.show_key_popup, app.api_key.is_some())
+            })
+            .expect("read app");
+        assert!(!popup && has_key);
+        restore_key(prior.as_ref());
+    }
+
+    #[gpui::test]
+    async fn escape_continues_without_a_key(cx: &mut TestAppContext) {
+        let window = open_popup(cx);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        let (popup, picture) = window
+            .update(&mut cx, |app, _w, _cx| (app.show_key_popup, app.picture_mode))
+            .expect("read app");
+        assert!(!popup && picture);
+    }
+
+    #[gpui::test]
+    async fn show_hide_toggle_flips_plain_visibility(cx: &mut TestAppContext) {
+        let window = open_popup(cx);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |app, _w, _cx| {
+                app.key_input = "visible-key".to_string();
+            })
+            .expect("preset key");
+        cx.run_until_parked();
+        click(&mut cx, "key-toggle-visibility");
+        let plain = window
+            .update(&mut cx, |app, _w, _cx| app.key_show_plain)
+            .expect("read app");
+        assert!(plain, "Show should reveal the key");
+        click(&mut cx, "key-toggle-visibility");
+        let plain = window
+            .update(&mut cx, |app, _w, _cx| app.key_show_plain)
+            .expect("read app");
+        assert!(!plain, "Hide should mask the key again");
+    }
+
+    #[gpui::test]
+    async fn ctrl_v_pastes_like_cmd_v(cx: &mut TestAppContext) {
+        let window = open_popup(cx);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        cx.write_to_clipboard(ClipboardItem::new_string("ctrl-pasted".to_string()));
+        cx.simulate_keystrokes("ctrl-v");
+        cx.run_until_parked();
+        let key = window
+            .update(&mut cx, |app, _w, _cx| app.key_input.clone())
+            .expect("read app");
+        assert_eq!(key, "ctrl-pasted");
+    }
+
+    #[gpui::test]
+    async fn picture_mode_shows_picture_banner_not_data(cx: &mut TestAppContext) {
+        cx.set_global(gpui_ui_kit::theme::ThemeState::new());
+        cx.set_global(gpui_design::DesignSystemState::new());
+        let window = cx.add_window(|_window, cx| {
+            let mut app = SpinoramaApp::new_offline(cx);
+            app.picture_mode = true;
+            app.selected_speaker = Some("KEF R3".to_string());
+            app.selected_version = Some("asr".to_string());
+            app
+        });
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("picture-enter-key").is_some(),
+            "picture mode banner should be rendered"
+        );
+        let url = crate::api::measurement_image_url("KEF R3", "asr", "CEA2034")
+            .expect("image url");
+        assert!(url.contains("measurement_format=png"), "{url}");
+    }
+
+    #[gpui::test]
+    async fn many_frames_stay_responsive_while_typing(cx: &mut TestAppContext) {
+        let window = open_popup(cx);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        let started = std::time::Instant::now();
+        for _ in 0..24 {
+            cx.simulate_keystrokes("x");
+            cx.run_until_parked();
+        }
+        let elapsed = started.elapsed();
+        let key = window
+            .update(&mut cx, |app, _w, _cx| app.key_input.clone())
+            .expect("read app");
+        assert_eq!(key.chars().count(), 24);
+        assert!(elapsed.as_secs() < 10, "24 frames took {elapsed:?}");
+    }
+
+    #[gpui::test]
+    async fn platform_text_input_pastes_into_the_field(cx: &mut TestAppContext) {
+        // This is the OS paste / IME path (Edit > Paste, system Cmd+V),
+        // not a synthetic key-down: it only works when an input handler
+        // is registered for the focused field.
+        let window = open_popup(cx);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        cx.simulate_input("platform-pasted-key");
+        cx.run_until_parked();
+        let key = window
+            .update(&mut cx, |app, _w, _cx| app.key_input.clone())
+            .expect("read app");
+        assert_eq!(key, "platform-pasted-key");
+    }
+
+    #[gpui::test]
+    async fn paste_button_reads_the_clipboard(cx: &mut TestAppContext) {
+        let window = open_popup(cx);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        cx.write_to_clipboard(ClipboardItem::new_string("button-pasted".to_string()));
+        click(&mut cx, "key-paste");
+        let key = window
+            .update(&mut cx, |app, _w, _cx| app.key_input.clone())
+            .expect("read app");
+        assert_eq!(key, "button-pasted");
+    }
+
+    #[gpui::test]
+    async fn copy_writes_plain_key_to_clipboard(cx: &mut TestAppContext) {
+        let window = open_popup(cx);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        window
+            .update(&mut cx, |app, _w, _cx| {
+                app.key_input = "copy-me-1".to_string();
+                app.key_show_plain = true;
+            })
+            .expect("preset key");
+        cx.run_until_parked();
+        cx.simulate_keystrokes("cmd-c");
+        cx.run_until_parked();
+        let copied = cx
+            .read_from_clipboard()
+            .and_then(|item| item.text())
+            .unwrap_or_default();
+        assert_eq!(copied, "copy-me-1");
+    }
+
+    #[gpui::test]
+    async fn typing_and_backspace_edit_the_key(cx: &mut TestAppContext) {
+        let window = open_popup(cx);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        cx.simulate_keystrokes("a b c backspace");
+        cx.run_until_parked();
+        let key = window
+            .update(&mut cx, |app, _window, _cx| app.key_input.clone())
+            .expect("read app");
+        assert_eq!(key, "ab");
     }
 }

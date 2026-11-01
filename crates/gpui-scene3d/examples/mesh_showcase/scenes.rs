@@ -79,7 +79,8 @@ fn vortices_scene() -> Result<(Scene, Camera), String> {
         .and_then(|field| field.as_scalar())
         .map(|values| values.iter().copied().fold(f64::MAX, f64::min))
         .unwrap_or(0.0);
-    let cores = isosurface(&with_swirling, "lambda2", min_lambda * 0.3).map_err(|e| e.to_string())?;
+    let cores =
+        isosurface(&with_swirling, "lambda2", min_lambda * 0.3).map_err(|e| e.to_string())?;
 
     let mut seeds = Vec::new();
     for i in 0..10 {
@@ -107,19 +108,13 @@ fn vortices_scene() -> Result<(Scene, Camera), String> {
             Actor::new(arrows).coloured_by("magnitude", TransferFunction::viridis([0.0, 1.2])),
         )
         .with_actor(Actor::new(dashes).color([1.0, 1.0, 1.0, 0.9]));
-    let camera = scene
-        .bounds()
-        .map(Camera::fitted)
-        .unwrap_or_default();
+    let camera = scene.bounds().map(Camera::fitted).unwrap_or_default();
     Ok((scene, camera))
 }
 
 /// Top-down camera over slice bounds.
 fn top_camera(dataset: &DataSet) -> Camera {
-    let mut camera = dataset
-        .bounds()
-        .map(Camera::fitted)
-        .unwrap_or_default();
+    let mut camera = dataset.bounds().map(Camera::fitted).unwrap_or_default();
     camera.azimuth = 0.0;
     camera.elevation = 0.0;
     camera
@@ -153,8 +148,7 @@ fn contours_scene() -> Result<(Scene, Camera), String> {
     let cut = slice(&fine, &Plane::axis(2, 3.0).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
     let pressure = TransferFunction::coolwarm([-1.6, 1.6]);
-    let lines =
-        contour_lines(&cut, "pressure", &pressure_levels()).map_err(|e| e.to_string())?;
+    let lines = contour_lines(&cut, "pressure", &pressure_levels()).map_err(|e| e.to_string())?;
     let scene = Scene::new()
         .with_actor(Actor::new(cut.clone()).coloured_by("pressure", pressure.banded(8)))
         .with_actor(Actor::new(lines).color([1.0, 1.0, 1.0, 0.8]));
@@ -170,10 +164,7 @@ fn shells_scene() -> Result<(Scene, Camera), String> {
     let scene = Scene::new()
         .with_actor(Actor::new(hi).coloured_by("pressure", pressure.clone()))
         .with_actor(Actor::new(lo).coloured_by("pressure", pressure));
-    let camera = fine
-        .bounds()
-        .map(Camera::fitted)
-        .unwrap_or_default();
+    let camera = fine.bounds().map(Camera::fitted).unwrap_or_default();
     Ok((scene, camera))
 }
 

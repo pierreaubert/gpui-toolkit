@@ -157,7 +157,11 @@ impl ShowcaseApp {
         #[cfg(not(target_family = "wasm"))]
         let requested = std::env::var("D3RS_SHOWCASE_DATASET").ok();
 
-        let normalized = requested.as_deref().unwrap_or("").trim().to_ascii_lowercase();
+        let normalized = requested
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
         matches!(normalized.as_str(), "large" | "full" | "50m")
     }
 

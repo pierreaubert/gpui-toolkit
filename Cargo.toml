@@ -315,6 +315,8 @@ codegen-units = 256
 # use the vendored manifest with Apple mobile target fixes.
 
 [patch.crates-io]
+# Avoid uninhabited Objective-C block statics rejected by future Rust versions.
+block = { git = "https://github.com/pierreaubert/sotf-3rdparties", rev = "5a4634af0916b5f53effa5ef6340efd90af32285" }
 # SOTF owned maintenance forks; upstream 2.1.1, local version 2.1.2.
 
 # NOTE: a bridge [patch."https://github.com/pierreaubert/sotf-3rdparties"]

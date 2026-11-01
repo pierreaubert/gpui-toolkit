@@ -117,6 +117,7 @@ pub async fn fetch_versions(speaker: &str, api_key: Option<&str>) -> Result<Vec<
     serde_json::from_value(value).map_err(|e| e.to_string())
 }
 
+#[cfg_attr(test, allow(dead_code, reason = "live caller is gated out in unit tests"))]
 pub async fn fetch_available_speakers(api_key: Option<&str>) -> Result<Vec<String>, String> {
     let value = get(&api_url("speakers")?, api_key).await?;
     serde_json::from_value(value).map_err(|e| e.to_string())
@@ -685,6 +686,56 @@ mod tests {
                 .unwrap();
         assert_eq!(data.spl, [1.0, 2.0, 3.0, 4.0]);
         assert_eq!((data.angle_count, data.freq_count), (2, 2));
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn bearer_header_is_sent_only_with_a_key() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::sync::mpsc;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let (tx, rx) = mpsc::channel::<Vec<String>>();
+        std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().expect("accept");
+                let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+                let mut headers = Vec::new();
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).expect("read line");
+                    if line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                    headers.push(line.trim().to_string());
+                }
+                tx.send(headers).expect("send headers");
+                let body = "{}";
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .expect("write response");
+            }
+        });
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        let url = format!("http://{addr}/v1/speakers");
+        runtime.block_on(async {
+            get(&url, Some("secret-key-1")).await.expect("authed get");
+            get(&url, None).await.expect("anon get");
+        });
+        let authed = rx.recv().expect("authed headers");
+        assert!(
+            authed.iter().any(|h| h.eq_ignore_ascii_case("authorization: Bearer secret-key-1")),
+            "missing Bearer header in {authed:?}"
+        );
+        let anon = rx.recv().expect("anon headers");
+        assert!(
+            !anon.iter().any(|h| h.to_ascii_lowercase().starts_with("authorization:")),
+            "unexpected Authorization header in {anon:?}"
+        );
     }
 
     #[test]
