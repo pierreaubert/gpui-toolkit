@@ -2646,7 +2646,7 @@ dependencies = [
  "futures",
  "gpui-foreign-parent",
  "jni",
- "jni-sys 0.3.1",
+ "jni-sys 0.4.1",
  "libc",
  "log",
  "ndk",
