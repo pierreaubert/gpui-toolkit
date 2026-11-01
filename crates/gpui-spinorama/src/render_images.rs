@@ -11,12 +11,12 @@
 // Rust guideline compliant 2026-02-21
 
 use crate::api::{contour_plot_data, extract_cea2034_curves_original};
+use crate::app::SpinoramaApp;
 use crate::headless::{draw_capture, make_context, open_app_window};
 use crate::types::{ContourRenderMode, LoadState, PlotSection};
 use d3rs::color::D3Color;
 use d3rs::zoom::ZoomState;
 use gpui::{AnyWindowHandle, HeadlessAppContext, WindowHandle};
-use crate::app::SpinoramaApp;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -38,7 +38,9 @@ fn classify(stem: &str) -> Option<GraphKind> {
     match stem {
         "CEA2034" | "CEA2034 Normalized" => Some(GraphKind::Cea2034),
         "SPL Horizontal Contour" | "SPL Horizontal Contour Normalized" => {
-            Some(GraphKind::Contour { plane: "Horizontal" })
+            Some(GraphKind::Contour {
+                plane: "Horizontal",
+            })
         }
         "SPL Vertical Contour" | "SPL Vertical Contour Normalized" => {
             Some(GraphKind::Contour { plane: "Vertical" })
@@ -120,8 +122,9 @@ fn render_one(
         GraphKind::Cea2034 => {
             let curves = extract_cea2034_curves_original(plot, "CEA2034")?;
             let colors = trace_colors(plot);
-            let (x0, x1) = axis_range(plot, "xaxis")
-                .map_or((20.0, 20_000.0), |(lo, hi)| (10f64.powf(lo), 10f64.powf(hi)));
+            let (x0, x1) = axis_range(plot, "xaxis").map_or((20.0, 20_000.0), |(lo, hi)| {
+                (10f64.powf(lo), 10f64.powf(hi))
+            });
             let (y0, y1) = axis_range(plot, "yaxis").unwrap_or((-40.0, 10.0));
             let di_domain = axis_range(plot, "yaxis2").unwrap_or((-5.0, 45.0));
             handle
@@ -172,10 +175,12 @@ fn render_one(
 /// walked, no Metal adapter is available, or any file failed to render.
 pub fn run(args: &[String]) -> Result<(), String> {
     let private_root = PathBuf::from(
-        args.first().ok_or("--render-images requires <private_root> <out_root>")?,
+        args.first()
+            .ok_or("--render-images requires <private_root> <out_root>")?,
     );
     let out_root = PathBuf::from(
-        args.get(1).ok_or("--render-images requires <private_root> <out_root>")?,
+        args.get(1)
+            .ok_or("--render-images requires <private_root> <out_root>")?,
     );
     let mut limit: Option<usize> = None;
     let mut filter: Option<String> = None;
@@ -195,14 +200,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
     }
 
-    // SAFETY: set once at startup, before any other thread reads the env.
-    unsafe { std::env::set_var("SPINORAMA_OFFLINE", "1") };
-
     let mut files = Vec::new();
     collect_json(&private_root, &mut files)?;
     let jobs: Vec<(PathBuf, GraphKind)> = files
         .into_iter()
-        .filter(|path| filter.as_deref().is_none_or(|needle| path.to_string_lossy().contains(needle)))
+        .filter(|path| {
+            filter
+                .as_deref()
+                .is_none_or(|needle| path.to_string_lossy().contains(needle))
+        })
         .filter_map(|path| {
             let kind = classify(path.file_stem()?.to_str()?)?;
             Some((path, kind))
@@ -235,7 +241,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
             if let Some(parent) = out_path.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
             }
-            image.save(&out_path).map_err(|e| format!("save {}: {e}", out_path.display()))?;
+            image
+                .save(&out_path)
+                .map_err(|e| format!("save {}: {e}", out_path.display()))?;
             Ok(())
         })();
         match result {

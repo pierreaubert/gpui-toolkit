@@ -338,6 +338,7 @@ fn contour(plot: &Value) -> Result<ContourPlotData, String> {
 }
 
 /// Parse contour data from an already-fetched Plotly measurement payload.
+#[cfg(all(target_os = "macos", feature = "capture-bench"))]
 pub fn contour_plot_data(plot: &Value) -> Result<ContourPlotData, String> {
     contour(plot)
 }

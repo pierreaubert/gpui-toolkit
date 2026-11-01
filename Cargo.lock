@@ -892,8 +892,7 @@ dependencies = [
 [[package]]
 name = "block"
 version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d8c1fef690941d3e7788d328517591fecc684c084084702d6ff1641e993699a"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties?rev=5a4634af0916b5f53effa5ef6340efd90af32285#5a4634af0916b5f53effa5ef6340efd90af32285"
 
 [[package]]
 name = "block-buffer"
@@ -4941,6 +4940,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-io-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33fafba39597d6dc1fb709123dfa8289d39406734be322956a69f0931c73bb15"
+dependencies = [
+ "libc",
+ "objc2-core-foundation",
+]
+
+[[package]]
 name = "objc2-io-surface"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4972,6 +4981,17 @@ dependencies = [
  "bitflags 2.13.2",
  "block2 0.6.2",
  "objc2 0.6.5",
+ "objc2-foundation 0.3.2",
+]
+
+[[package]]
+name = "objc2-open-directory"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb82bed227edf5201dfedf072bba4015a33d3d4a98519837295a90f0a23f676d"
+dependencies = [
+ "objc2 0.6.5",
+ "objc2-core-foundation",
  "objc2-foundation 0.3.2",
 ]
 
@@ -6851,7 +6871,6 @@ dependencies = [
 [[package]]
 name = "sotf-collections"
 version = "0.1.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "indexmap",
  "rustc-hash 2.1.3",
@@ -6861,7 +6880,6 @@ dependencies = [
 [[package]]
 name = "sotf-cosmic-text"
 version = "0.19.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "bitflags 2.13.2",
  "fontdb",
@@ -6884,7 +6902,6 @@ dependencies = [
 [[package]]
 name = "sotf-derive_more"
 version = "2.1.2"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "sotf-derive_more-impl",
 ]
@@ -6892,7 +6909,6 @@ dependencies = [
 [[package]]
 name = "sotf-derive_more-impl"
 version = "2.1.2"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "convert_case 0.11.0",
  "proc-macro2",
@@ -6905,7 +6921,6 @@ dependencies = [
 [[package]]
 name = "sotf-derive_refineable"
 version = "0.1.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6915,7 +6930,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui-toolkit-gpui"
 version = "0.2.3"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -6979,7 +6993,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui-toolkit-gpui-apple"
 version = "0.1.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "anyhow",
  "async-task",
@@ -7020,7 +7033,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui-toolkit-gpui-linux"
 version = "0.1.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -7064,7 +7076,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui-toolkit-gpui-macos"
 version = "0.1.2"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -7103,7 +7114,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui-toolkit-gpui-macros"
 version = "0.1.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -7114,7 +7124,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui-toolkit-gpui-web"
 version = "0.1.1"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -7143,7 +7152,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui-toolkit-gpui-wgpu"
 version = "0.1.3"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -7173,7 +7181,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui-toolkit-gpui-windows"
 version = "0.1.2"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "anyhow",
  "etagere",
@@ -7199,7 +7206,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui-toolkit-http-client"
 version = "0.1.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "anyhow",
  "bytes",
@@ -7217,7 +7223,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui-toolkit-path"
 version = "0.1.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "anyhow",
  "dunce",
@@ -7228,7 +7233,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui-toolkit-scheduler"
 version = "0.1.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "async-channel",
  "async-task",
@@ -7244,7 +7248,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui-toolkit-sum-tree"
 version = "0.1.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "heapless",
  "rayon",
@@ -7254,7 +7257,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui-toolkit-util"
 version = "0.1.1"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "anyhow",
  "async-fs",
@@ -7293,7 +7295,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui_shared_string"
 version = "0.1.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "schemars",
  "serde",
@@ -7303,7 +7304,6 @@ dependencies = [
 [[package]]
 name = "sotf-gpui_util"
 version = "0.1.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "anyhow",
  "log",
@@ -7313,7 +7313,6 @@ dependencies = [
 [[package]]
 name = "sotf-naga"
 version = "29.0.3"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "arrayvec",
  "bit-set 0.9.1",
@@ -7338,7 +7337,6 @@ dependencies = [
 [[package]]
 name = "sotf-objc"
 version = "0.2.7"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "malloc_buf",
 ]
@@ -7346,7 +7344,6 @@ dependencies = [
 [[package]]
 name = "sotf-oo7"
 version = "0.7.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "aes",
  "ashpd",
@@ -7380,7 +7377,6 @@ dependencies = [
 [[package]]
 name = "sotf-refineable"
 version = "0.1.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "sotf-derive_refineable",
 ]
@@ -7388,7 +7384,6 @@ dependencies = [
 [[package]]
 name = "sotf-vello"
 version = "0.10.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "bytemuck",
  "futures-intrusive",
@@ -7406,7 +7401,6 @@ dependencies = [
 [[package]]
 name = "sotf-wgpu"
 version = "29.0.3"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "arrayvec",
  "bitflags 2.13.2",
@@ -7435,7 +7429,6 @@ dependencies = [
 [[package]]
 name = "sotf-wgpu-core"
 version = "29.0.3"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "arrayvec",
  "bit-set 0.9.1",
@@ -7467,7 +7460,6 @@ dependencies = [
 [[package]]
 name = "sotf-wgpu-core-deps-apple"
 version = "29.0.3"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "sotf-wgpu-hal",
 ]
@@ -7475,7 +7467,6 @@ dependencies = [
 [[package]]
 name = "sotf-wgpu-core-deps-emscripten"
 version = "29.0.3"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "sotf-wgpu-hal",
 ]
@@ -7483,7 +7474,6 @@ dependencies = [
 [[package]]
 name = "sotf-wgpu-core-deps-windows-linux-android"
 version = "29.0.3"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "sotf-wgpu-hal",
 ]
@@ -7491,7 +7481,6 @@ dependencies = [
 [[package]]
 name = "sotf-wgpu-hal"
 version = "29.0.3"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -7544,7 +7533,6 @@ dependencies = [
 [[package]]
 name = "sotf-wgpu-naga-bridge"
 version = "29.0.3"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "sotf-naga",
  "sotf-wgpu-types",
@@ -7553,7 +7541,6 @@ dependencies = [
 [[package]]
 name = "sotf-wgpu-types"
 version = "29.0.3"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
@@ -7566,7 +7553,6 @@ dependencies = [
 [[package]]
 name = "sotf-xim-ctext"
 version = "0.3.0"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "encoding_rs",
 ]
@@ -7574,7 +7560,6 @@ dependencies = [
 [[package]]
 name = "sotf-xim-parser"
 version = "0.2.1"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "bitflags 2.13.2",
 ]
@@ -7582,7 +7567,6 @@ dependencies = [
 [[package]]
 name = "sotf-zed-font-kit"
 version = "0.14.1-zed"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "bitflags 2.13.2",
  "byteorder",
@@ -7606,7 +7590,6 @@ dependencies = [
 [[package]]
 name = "sotf-zed-scap"
 version = "0.0.8-zed"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "anyhow",
  "cocoa 0.25.0",
@@ -7627,7 +7610,6 @@ dependencies = [
 [[package]]
 name = "sotf-zed-xim"
 version = "0.4.0-zed"
-source = "git+https://github.com/pierreaubert/sotf-3rdparties#9b7c2134cb5831391c7863f584cd631c63719fd5"
 dependencies = [
  "ahash",
  "hashbrown 0.14.5",
@@ -7865,16 +7847,17 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
-version = "0.31.4"
+version = "0.40.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "355dbe4f8799b304b05e1b0f05fc59b2a18d36645cf169607da45bde2f69a1be"
+checksum = "0e8a3edbe0394ce115f3917a00349dd242be09eb5a091ed509eaf67b55cfb8a8"
 dependencies = [
- "core-foundation-sys",
  "libc",
  "memchr",
  "ntapi",
- "rayon",
- "windows 0.57.0",
+ "objc2-core-foundation",
+ "objc2-io-kit",
+ "objc2-open-directory",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -7900,9 +7883,9 @@ dependencies = [
 
 [[package]]
 name = "taffy"
-version = "0.15.0"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c8480887e8803986d96a7173729565520d4bbb721ad6b7ad6941a22897207aa"
+checksum = "31f7bd2d97198df05186f93a3a3c306845f40e8b3c22bf9279cdd7e5cf5fea7d"
 dependencies = [
  "serde",
  "slotmap",
@@ -8939,16 +8922,6 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windows"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12342cb4d8e3b046f3d80effd474a7a02447231330ef77d71daa6fbc40681143"
-dependencies = [
- "windows-core 0.57.0",
- "windows-targets",
-]
-
-[[package]]
-name = "windows"
 version = "0.61.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893"
@@ -9005,24 +8978,12 @@ dependencies = [
 
 [[package]]
 name = "windows-core"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2ed2439a290666cd67ecce2b0ffaad89c2a56b976b736e6ece670297897832d"
-dependencies = [
- "windows-implement 0.57.0",
- "windows-interface 0.57.0",
- "windows-result 0.1.2",
- "windows-targets",
-]
-
-[[package]]
-name = "windows-core"
 version = "0.61.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0fdd3ddb90610c7638aa2b3a3ab2904fb9e5cdbecc643ddb3647212781c4ae3"
 dependencies = [
- "windows-implement 0.60.2",
- "windows-interface 0.59.3",
+ "windows-implement",
+ "windows-interface",
  "windows-link 0.1.3",
  "windows-result 0.3.4",
  "windows-strings 0.4.2",
@@ -9034,8 +8995,8 @@ version = "0.62.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb"
 dependencies = [
- "windows-implement 0.60.2",
- "windows-interface 0.59.3",
+ "windows-implement",
+ "windows-interface",
  "windows-link 0.2.1",
  "windows-result 0.4.1",
  "windows-strings 0.5.1",
@@ -9065,31 +9026,9 @@ dependencies = [
 
 [[package]]
 name = "windows-implement"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9107ddc059d5b6fbfbffdfa7a7fe3e22a226def0b2608f72e9d552763d3e1ad7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "windows-implement"
 version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "053e2e040ab57b9dc951b72c264860db7eb3b0200ba345b4e4c3b14f67855ddf"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "windows-interface"
-version = "0.57.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29bee4b38ea3cde66011baa44dba677c432a78593e202392d1e9070cf2a7fca7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9148,15 +9087,6 @@ dependencies = [
  "windows-link 0.2.1",
  "windows-result 0.4.1",
  "windows-strings 0.5.1",
-]
-
-[[package]]
-name = "windows-result"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e383302e8ec8515204254685643de10811af0ed97ea37210dc26fb0032647f8"
-dependencies = [
- "windows-targets",
 ]
 
 [[package]]

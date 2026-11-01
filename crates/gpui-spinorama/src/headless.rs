@@ -5,7 +5,9 @@
 // Rust guideline compliant 2026-02-21
 
 use crate::app::SpinoramaApp;
-use gpui::{AnyWindowHandle, AppContext as _, HeadlessAppContext, Platform as _, WindowHandle, px, size};
+use gpui::{
+    AnyWindowHandle, AppContext as _, HeadlessAppContext, Platform as _, WindowHandle, px, size,
+};
 use gpui_design::DesignSystemState;
 use gpui_macos::{MacPlatform, metal_renderer::MetalHeadlessRenderer};
 use gpui_ui_kit::accessibility::AccessibilityTree;
@@ -33,7 +35,9 @@ pub fn make_context() -> Result<HeadlessAppContext, String> {
     });
     cx.update(|app| {
         app.set_global(ThemeState::with_variant(ThemeVariant::Light));
-        app.set_global(DesignSystemState::with_system(gpui_design::DesignSystem::neutral()));
+        app.set_global(DesignSystemState::with_system(
+            gpui_design::DesignSystem::neutral(),
+        ));
         app.set_global(AccessibilityTree::new());
         app.set_global(I18nState::new());
     });
@@ -51,7 +55,7 @@ pub fn open_app_window(
     height: f32,
 ) -> Result<WindowHandle<SpinoramaApp>, String> {
     cx.open_window(size(px(width), px(height)), |_window, app| {
-        app.new(SpinoramaApp::new)
+        app.new(SpinoramaApp::new_offline)
     })
     .map_err(|e| format!("open window: {e}"))
 }
@@ -69,5 +73,6 @@ pub fn draw_capture(
         let _ = window.draw(app);
     })
     .map_err(|e| format!("draw: {e}"))?;
-    cx.capture_screenshot(window).map_err(|e| format!("capture: {e}"))
+    cx.capture_screenshot(window)
+        .map_err(|e| format!("capture: {e}"))
 }

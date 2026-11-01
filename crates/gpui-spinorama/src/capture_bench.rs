@@ -29,15 +29,16 @@ const HEIGHT: f32 = 800.0;
 /// read or parsed, no Metal adapter is available, or rendering fails.
 pub fn run(args: &[String]) -> Result<(), String> {
     let section_arg = args.first().map_or("cea2034", String::as_str);
-    let fixture = args.get(1).ok_or("--capture-bench requires a fixture JSON path")?;
-    let out = args.get(2).ok_or("--capture-bench requires an output PNG path")?;
+    let fixture = args
+        .get(1)
+        .ok_or("--capture-bench requires a fixture JSON path")?;
+    let out = args
+        .get(2)
+        .ok_or("--capture-bench requires an output PNG path")?;
     let iterations: usize = args
         .get(3)
         .map_or(Ok(20), |s| s.parse())
         .map_err(|_| "iterations must be a number")?;
-
-    // SAFETY: set once at startup, before any other thread reads the env.
-    unsafe { std::env::set_var("SPINORAMA_OFFLINE", "1") };
 
     let raw = std::fs::read_to_string(fixture).map_err(|e| format!("read {fixture}: {e}"))?;
     let parse_started = Instant::now();
@@ -96,7 +97,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let min_ms = samples_ms.first().copied().unwrap_or(0.0);
 
     let save_started = Instant::now();
-    image.save(Path::new(out)).map_err(|e| format!("save {out}: {e}"))?;
+    image
+        .save(Path::new(out))
+        .map_err(|e| format!("save {out}: {e}"))?;
     let save_ms = save_started.elapsed().as_secs_f64() * 1000.0;
 
     println!(

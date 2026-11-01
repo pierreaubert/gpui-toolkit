@@ -154,9 +154,21 @@ impl SpinoramaApp {
     }
 
     pub fn new(cx: &mut Context<Self>) -> Self {
+        let mut app = Self::new_offline(cx);
+        #[cfg(target_family = "wasm")]
+        app.load_speakers(cx);
+        #[cfg(not(target_family = "wasm"))]
+        if std::env::var_os("SPINORAMA_OFFLINE").is_none() {
+            app.load_speakers(cx);
+        }
+        app
+    }
+
+    /// Creates a viewer without starting network requests.
+    pub fn new_offline(_cx: &mut Context<Self>) -> Self {
         let runtime = Arc::new(Runtime::new());
 
-        let mut app = Self {
+        Self {
             runtime,
             speakers: Vec::new(),
             speakers_load_state: LoadState::Idle,
@@ -224,20 +236,11 @@ impl SpinoramaApp {
             trace_colors: HashMap::new(),
             di_domain: (-5.0, 45.0),
             contour_plane_label: "Horizontal",
-        };
-
-        // Start loading speakers list (skipped for offline headless
-        // rendering, where data is injected directly).
-        #[cfg(target_family = "wasm")]
-        app.load_speakers(cx);
-        #[cfg(not(target_family = "wasm"))]
-        if std::env::var_os("SPINORAMA_OFFLINE").is_none() {
-            app.load_speakers(cx);
         }
-        app
     }
 
     /// Replaces the contour data and invalidates cached contour geometry.
+    #[cfg(all(target_os = "macos", feature = "capture-bench"))]
     pub fn set_contour_data(&mut self, data: ContourPlotData) {
         self.contour_data = Some(data);
         self.contour_data_revision = self.contour_data_revision.wrapping_add(1);

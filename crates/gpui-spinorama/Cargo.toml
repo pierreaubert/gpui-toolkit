@@ -22,7 +22,7 @@ path = "src/main.rs"
 
 [[bin]]
 name = "spinorama-render-images"
-path = "src/main.rs"
+path = "src/render_images_main.rs"
 required-features = ["capture-bench"]
 
 [dependencies]
