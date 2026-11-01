@@ -45,7 +45,7 @@ fn render_cea2034_plot(&mut self, cx: &mut Context<Self>) -> Div {
             if points.is_empty() {
                 return None;
             }
-            Some(PlotCurve::new(points, color))
+            Some(PlotCurve::new(points, color).name(name))
         })
         .collect();
 
@@ -69,7 +69,7 @@ fn render_cea2034_plot(&mut self, cx: &mut Context<Self>) -> Div {
             if points.is_empty() {
                 return None;
             }
-            Some(PlotCurve::new(points, color).secondary_axis())
+            Some(PlotCurve::new(points, color).name(name).secondary_axis())
         })
         .collect();
     plot_curves.extend(di_curves);

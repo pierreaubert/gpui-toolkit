@@ -44,6 +44,7 @@ image = { workspace = true, optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { workspace = true }
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "sync-secret-service"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]

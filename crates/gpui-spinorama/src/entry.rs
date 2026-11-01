@@ -5,6 +5,7 @@ use gpui_miniapp::{MiniApp, MiniAppConfig};
 
 mod api;
 mod app;
+mod auth;
 #[cfg(all(target_os = "macos", feature = "capture-bench"))]
 mod capture_bench;
 #[cfg(all(target_os = "macos", feature = "capture-bench"))]

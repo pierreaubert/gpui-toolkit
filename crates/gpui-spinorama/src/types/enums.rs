@@ -179,6 +179,12 @@ pub enum PlotSection {
     Surface3D,
     SurfaceSphere,
     PolarContour,
+    /// Generic frequency chart for any catalog graph (see `graph.rs`).
+    FrequencyChart,
+    /// Generic polar chart (radar / spider) from scatterpolar traces.
+    PolarChart,
+    /// Grouped categorical bar chart (histograms, `filters_eq`).
+    BarChart,
 }
 
 impl PlotSection {
@@ -192,6 +198,9 @@ impl PlotSection {
             Self::Surface3D,
             Self::SurfaceSphere,
             Self::PolarContour,
+            Self::FrequencyChart,
+            Self::PolarChart,
+            Self::BarChart,
         ]
     }
 
@@ -205,6 +214,9 @@ impl PlotSection {
             Self::Surface3D => "3D Surface",
             Self::SurfaceSphere => "Sphere Plot",
             Self::PolarContour => "Polar Contour",
+            Self::FrequencyChart => "All Graphs (Frequency)",
+            Self::PolarChart => "All Graphs (Polar)",
+            Self::BarChart => "All Graphs (Bars)",
         }
     }
 }

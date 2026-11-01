@@ -5,8 +5,12 @@ use super::super::types::{
 use crate::api::Runtime;
 use crate::api::{
     ContourPlotData, extract_cea2034_curves_original, fetch_available_speakers, fetch_contour_data,
-    fetch_directivity_data, fetch_measurement_plot_data,
+    fetch_directivity_data, fetch_measurement_plot_data, is_auth_error, measurement_image_url,
+    parse_plot,
 };
+use crate::auth::{ApiKey, delete_api_key, load_api_key, save_api_key};
+use crate::render::{render_generic_bars, render_generic_freq_chart, render_generic_polar};
+use crate::types::{GRAPH_CATALOG, GraphDef, GraphRenderer, PlotData};
 use crate::api::{Curve, DirectivityData};
 use d3rs::brush::{BrushSelection, BrushState};
 use d3rs::color::D3Color;
@@ -20,7 +24,7 @@ use gpui_builder::{
 };
 use gpui_design::DesignExt;
 use gpui_ui_kit::theme::ThemeExt;
-use gpui_ui_kit::{SelectOption, Spinner, SpinnerSize};
+use gpui_ui_kit::{Input, SelectOption, Spinner, SpinnerSize};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -119,6 +123,21 @@ pub struct SpinoramaApp {
     // Static image generation (headless capture): render only the chart
     // content, optionally with external title, trace colors and DI domain
     // taken from the source Plotly payload.
+    // API-key gate: key held in memory, persisted only in the OS
+    // credential store (native) — never on wasm.
+    pub api_key: Option<ApiKey>,
+    pub show_key_popup: bool,
+    pub key_input: String,
+    pub key_error: Option<String>,
+    /// Picture mode: no key, only the public PNG result is shown.
+    pub picture_mode: bool,
+    // Generic graph (all spinorama.org plots) state
+    pub generic_plot: Option<PlotData>,
+    pub generic_load_state: LoadState,
+    pub selected_graph_index: usize,
+    pub graph_dropdown_open: bool,
+    pub hidden_generic_traces: HashSet<String>,
+
     pub chart_only: bool,
     pub title_override: Option<String>,
     pub trace_colors: HashMap<String, D3Color>,
@@ -155,13 +174,116 @@ impl SpinoramaApp {
 
     pub fn new(cx: &mut Context<Self>) -> Self {
         let mut app = Self::new_offline(cx);
-        #[cfg(target_family = "wasm")]
-        app.load_speakers(cx);
-        #[cfg(not(target_family = "wasm"))]
-        if std::env::var_os("SPINORAMA_OFFLINE").is_none() {
+        let offline = std::env::var_os("SPINORAMA_OFFLINE").is_some();
+        if offline {
+            return app;
+        }
+        // Saved key (OS credential store / env) skips the popup; the
+        // popup is shown again only when that key is rejected (401/403).
+        app.api_key = load_api_key();
+        if app.api_key.is_some() {
             app.load_speakers(cx);
+        } else {
+            app.show_key_popup = true;
         }
         app
+    }
+
+    /// The catalog graph currently selected in the generic sections.
+    pub fn current_graph(&self) -> &'static GraphDef {
+        &GRAPH_CATALOG[self.selected_graph_index.min(GRAPH_CATALOG.len() - 1)]
+    }
+
+    /// Measurement name whose public PNG is shown in picture mode.
+    pub fn picture_measurement(&self) -> &'static str {
+        if self.is_generic_section() {
+            self.current_graph().measurement
+        } else {
+            match self.current_section {
+                PlotSection::CEA2034 => "CEA2034",
+                PlotSection::HorizontalSPL => "SPL Horizontal",
+                PlotSection::VerticalSPL => "SPL Vertical",
+                PlotSection::Contour
+                | PlotSection::Surface3D
+                | PlotSection::PolarContour => "SPL Horizontal Contour",
+                PlotSection::PolarDirectivity => "SPL Horizontal Radar",
+                PlotSection::SurfaceSphere => "SPL Horizontal Globe",
+                _ => "CEA2034",
+            }
+        }
+    }
+
+    pub fn is_generic_section(&self) -> bool {
+        matches!(
+            self.current_section,
+            PlotSection::FrequencyChart | PlotSection::PolarChart | PlotSection::BarChart
+        )
+    }
+
+    fn api_key_string(&self) -> Option<String> {
+        self.api_key.as_ref().map(|k| k.as_str().to_string())
+    }
+
+    /// Handles a 401/403: drops the rejected key and reopens the popup.
+    pub(super) fn handle_auth_error(&mut self, cx: &mut Context<Self>) {
+        self.api_key = None;
+        let _ = delete_api_key();
+        self.key_error = Some("That API key was rejected. Enter a valid key or continue without one.".into());
+        self.show_key_popup = true;
+        self.picture_mode = false;
+        cx.notify();
+    }
+
+    /// Validates and stores a key entered in the popup, then loads data.
+    pub fn submit_api_key(&mut self, cx: &mut Context<Self>) {
+        let Some(key) = ApiKey::new(self.key_input.clone()) else {
+            self.key_error = Some("Enter an API key, or continue without one.".into());
+            cx.notify();
+            return;
+        };
+        if let Err(e) = save_api_key(&key) {
+            self.key_error = Some(e);
+            cx.notify();
+            return;
+        }
+        self.api_key = Some(key);
+        self.key_input.clear();
+        self.key_error = None;
+        self.show_key_popup = false;
+        self.picture_mode = false;
+        self.load_speakers(cx);
+        cx.notify();
+    }
+
+    /// Enters picture mode: public PNG results, no measurement data.
+    pub fn continue_without_key(&mut self, cx: &mut Context<Self>) {
+        self.show_key_popup = false;
+        self.key_error = None;
+        self.key_input.clear();
+        self.picture_mode = true;
+        self.load_speakers(cx);
+        cx.notify();
+    }
+
+    /// Reopens the key popup (header action / picture-mode banner).
+    pub fn open_key_popup(&mut self, cx: &mut Context<Self>) {
+        self.show_key_popup = true;
+        cx.notify();
+    }
+
+    /// Forgets the stored key and returns to picture mode.
+    pub fn forget_api_key(&mut self, cx: &mut Context<Self>) {
+        self.api_key = None;
+        let _ = delete_api_key();
+        self.picture_mode = true;
+        self.show_key_popup = false;
+        self.cea2034_curves.clear();
+        self.directivity_data = None;
+        self.contour_data = None;
+        self.generic_plot = None;
+        self.data_load_state = LoadState::Idle;
+        self.load_speakers(cx);
+        cx.notify();
     }
 
     /// Creates a viewer without starting network requests.
@@ -231,6 +353,16 @@ impl SpinoramaApp {
             polar_contour_freq_range: (20.0, 20000.0),
             content_width: 800.0,
             content_height: 600.0,
+            api_key: None,
+            show_key_popup: false,
+            key_input: String::new(),
+            key_error: None,
+            picture_mode: false,
+            generic_plot: None,
+            generic_load_state: LoadState::Idle,
+            selected_graph_index: 0,
+            graph_dropdown_open: false,
+            hidden_generic_traces: HashSet::new(),
             chart_only: false,
             title_override: None,
             trace_colors: HashMap::new(),
@@ -249,10 +381,11 @@ impl SpinoramaApp {
     pub(super) fn load_speakers(&mut self, cx: &mut Context<Self>) {
         self.speakers_load_state = LoadState::Loading;
         let runtime = self.runtime.clone();
+        let api_key = self.api_key_string();
 
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let result: Result<Vec<String>, String> = runtime
-                .spawn(async { fetch_available_speakers().await.map_err(|e| e.clone()) })
+                .spawn(async move { fetch_available_speakers(api_key.as_deref()).await })
                 .await
                 .map_err(|e| e.clone())
                 .and_then(|r| r);
@@ -278,11 +411,104 @@ impl SpinoramaApp {
                 }
                 Err(e) => {
                     let _ = this.update(cx, |app, cx| {
+                        if is_auth_error(&e) && app.api_key.is_some() {
+                            app.speakers_load_state = LoadState::Idle;
+                            app.handle_auth_error(cx);
+                            return;
+                        }
                         app.speakers_load_state = LoadState::Error(e);
                         cx.notify();
                     });
                 }
             }
+        })
+        .detach();
+    }
+
+    /// Loads the selected catalog graph for the generic sections.
+    pub fn load_generic_data(&mut self, cx: &mut Context<Self>) {
+        let Some(speaker) = self.selected_speaker.clone() else {
+            return;
+        };
+        let Some(version) = self.selected_version.clone() else {
+            return;
+        };
+        if self.picture_mode {
+            self.generic_load_state = LoadState::Loaded;
+            cx.notify();
+            return;
+        }
+        let def = self.current_graph();
+        let measurement = def.measurement;
+        self.generic_load_state = LoadState::Loading;
+        let runtime = self.runtime.clone();
+        let api_key = self.api_key_string();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            // Fetch on the runtime (Send), apply state on the GPUI thread.
+            enum Loaded {
+                Plot(Box<PlotData>),
+                Contour(ContourPlotData),
+                Directivity(DirectivityData),
+            }
+            let result: Result<Loaded, String> = runtime
+                .spawn({
+                    let speaker = speaker.clone();
+                    let version = version.clone();
+                    let api_key = api_key.clone();
+                    async move {
+                        match def.renderer {
+                            GraphRenderer::Contour | GraphRenderer::Surface3d => Ok(Loaded::Contour(
+                                crate::api::fetch_contour_measurement(
+                                    &speaker,
+                                    &version,
+                                    measurement,
+                                    api_key.as_deref(),
+                                )
+                                .await?,
+                            )),
+                            GraphRenderer::Sphere => Ok(Loaded::Directivity(
+                                fetch_directivity_data(&speaker, &version, api_key.as_deref())
+                                    .await?,
+                            )),
+                            _ => {
+                                let raw = fetch_measurement_plot_data(
+                                    &speaker,
+                                    &version,
+                                    measurement,
+                                    api_key.as_deref(),
+                                )
+                                .await?;
+                                Ok(Loaded::Plot(Box::new(parse_plot(&raw)?)))
+                            }
+                        }
+                    }
+                })
+                .await
+                .map_err(|e| e.clone())
+                .and_then(|r| r);
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(Loaded::Plot(plot)) => app.generic_plot = Some(*plot),
+                    Ok(Loaded::Contour(data)) => {
+                        app.contour_data = Some(data);
+                        app.contour_data_revision = app.contour_data_revision.wrapping_add(1);
+                        app.contour_geometry_cache.borrow_mut().take();
+                    }
+                    Ok(Loaded::Directivity(data)) => app.directivity_data = Some(data),
+                    Err(e) => {
+                        if is_auth_error(&e) && app.api_key.is_some() {
+                            app.generic_load_state = LoadState::Idle;
+                            app.handle_auth_error(cx);
+                            return;
+                        }
+                        app.generic_load_state = LoadState::Error(e);
+                        cx.notify();
+                        return;
+                    }
+                }
+                app.generic_load_state = LoadState::Loaded;
+                cx.notify();
+            });
         })
         .detach();
     }
@@ -296,12 +522,16 @@ impl SpinoramaApp {
         self.versions.clear();
         self.selected_version = None;
         let runtime = self.runtime.clone();
+        let api_key = self.api_key_string();
 
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let result: Result<Vec<String>, String> = runtime
                 .spawn({
                     let speaker = speaker.clone();
-                    async move { crate::api::fetch_versions(&speaker).await }
+                    let api_key = api_key.clone();
+                    async move {
+                        crate::api::fetch_versions(&speaker, api_key.as_deref()).await
+                    }
                 })
                 .await
                 .map_err(|e| e.clone())
@@ -328,6 +558,11 @@ impl SpinoramaApp {
                         if app.selected_speaker.as_ref() != Some(&speaker) {
                             return;
                         }
+                        if is_auth_error(&e) && app.api_key.is_some() {
+                            app.versions_load_state = LoadState::Idle;
+                            app.handle_auth_error(cx);
+                            return;
+                        }
                         app.versions_load_state = LoadState::Error(e);
                         cx.notify();
                     });
@@ -345,8 +580,16 @@ impl SpinoramaApp {
             return;
         };
 
+        if self.picture_mode {
+            // Picture mode never requests measurement data.
+            self.data_load_state = LoadState::Loaded;
+            self.generic_load_state = LoadState::Loaded;
+            cx.notify();
+            return;
+        }
         self.data_load_state = LoadState::Loading;
         let runtime = self.runtime.clone();
+        let api_key = self.api_key_string();
         let measurement = self.selected_measurement.clone();
 
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
@@ -356,11 +599,16 @@ impl SpinoramaApp {
                     let speaker = speaker.clone();
                     let version = version.clone();
                     let measurement = measurement.clone();
+                    let api_key = api_key.clone();
                     async move {
-                        let plot_data =
-                            fetch_measurement_plot_data(&speaker, &version, &measurement)
-                                .await
-                                .map_err(|e| e.clone())?;
+                        let plot_data = fetch_measurement_plot_data(
+                            &speaker,
+                            &version,
+                            &measurement,
+                            api_key.as_deref(),
+                        )
+                        .await
+                        .map_err(|e| e.clone())?;
                         extract_cea2034_curves_original(&plot_data, &measurement)
                             .map_err(|e| e.clone())
                     }
@@ -374,7 +622,12 @@ impl SpinoramaApp {
                 .spawn({
                     let speaker = speaker.clone();
                     let version = version.clone();
-                    async move { fetch_directivity_data(&speaker, &version).await.ok() }
+                    let api_key = api_key.clone();
+                    async move {
+                        fetch_directivity_data(&speaker, &version, api_key.as_deref())
+                            .await
+                            .ok()
+                    }
                 })
                 .await
                 .ok()
@@ -385,8 +638,9 @@ impl SpinoramaApp {
                 .spawn({
                     let speaker = speaker.clone();
                     let version = version.clone();
+                    let api_key = api_key.clone();
                     async move {
-                        fetch_contour_data(&speaker, &version, "horizontal")
+                        fetch_contour_data(&speaker, &version, "horizontal", api_key.as_deref())
                             .await
                             .ok()
                     }
@@ -409,6 +663,9 @@ impl SpinoramaApp {
                         app.contour_data_revision = app.contour_data_revision.wrapping_add(1);
                         app.contour_geometry_cache.borrow_mut().take();
                         app.data_load_state = LoadState::Loaded;
+                        if app.is_generic_section() {
+                            app.load_generic_data(cx);
+                        }
                         cx.notify();
                     });
                 }
@@ -417,6 +674,11 @@ impl SpinoramaApp {
                         if app.selected_speaker.as_ref() != Some(&speaker)
                             || app.selected_version.as_ref() != Some(&version)
                         {
+                            return;
+                        }
+                        if is_auth_error(&e) && app.api_key.is_some() {
+                            app.data_load_state = LoadState::Idle;
+                            app.handle_auth_error(cx);
                             return;
                         }
                         app.data_load_state = LoadState::Error(e);
@@ -562,6 +824,42 @@ impl SpinoramaApp {
                         cx,
                     )),
             )
+            // API-key status / actions
+            .child(
+                div()
+                    .id("header-api-key")
+                    .ml_auto()
+                    .px(px(ds.spacing.control_padding_x))
+                    .py(px(ds.spacing.control_padding_y * 0.5))
+                    .rounded(px(ds.corners.sm))
+                    .border_1()
+                    .border_color(theme.border)
+                    .text_size(px(ds.typography.small_size))
+                    .text_color(theme.text_secondary)
+                    .cursor_pointer()
+                    .child(if self.api_key.is_some() {
+                        "API key ✓ — change"
+                    } else if self.picture_mode {
+                        "Picture mode — enter key"
+                    } else {
+                        "Enter API key"
+                    })
+                    .on_click(cx.listener(|this, _, _w, cx| this.open_key_popup(cx))),
+            )
+            .when(self.api_key.is_some(), |el| {
+                el.child(
+                    div()
+                        .id("header-forget-key")
+                        .px(px(ds.spacing.control_padding_x))
+                        .py(px(ds.spacing.control_padding_y * 0.5))
+                        .rounded(px(ds.corners.sm))
+                        .text_size(px(ds.typography.small_size))
+                        .text_color(theme.text_muted)
+                        .cursor_pointer()
+                        .child("Forget key")
+                        .on_click(cx.listener(|this, _, _w, cx| this.forget_api_key(cx))),
+                )
+            })
             // Loading indicator
             .when(is_loading_data, |el| {
                 el.child(
@@ -902,6 +1200,12 @@ impl SpinoramaApp {
                                         entity.update(cx, |this, cx| {
                                             this.current_section = section;
                                             this.section_dropdown_open = false;
+                                            if this.is_generic_section()
+                                                && this.selected_speaker.is_some()
+                                                && this.selected_version.is_some()
+                                            {
+                                                this.load_generic_data(cx);
+                                            }
                                             cx.notify();
                                         });
                                     })
@@ -929,20 +1233,29 @@ impl SpinoramaApp {
         if let LoadState::Error(ref error) = self.versions_load_state {
             return self.render_error(error, cx).into_any_element();
         }
-        let content: Div = match self.data_load_state {
-            LoadState::Idle => self.render_welcome(cx),
-            LoadState::Loading => self.render_loading(cx),
-            LoadState::Error(ref e) => self.render_error(e, cx),
-            LoadState::Loaded => match self.current_section {
-                PlotSection::CEA2034 => self.render_cea2034_plot(cx),
-                PlotSection::HorizontalSPL => self.render_directivity_plot("horizontal", cx),
-                PlotSection::VerticalSPL => self.render_directivity_plot("vertical", cx),
-                PlotSection::Contour => self.render_contour_plot(cx),
-                PlotSection::PolarDirectivity => self.render_polar_directivity_plot(cx),
-                PlotSection::Surface3D => self.render_surface_3d_plot(cx),
-                PlotSection::SurfaceSphere => self.render_sphere_plot(cx),
-                PlotSection::PolarContour => self.render_polar_contour_plot(cx),
-            },
+        let content: Div = if self.picture_mode && !self.chart_only {
+            self.render_picture(cx)
+        } else if self.is_generic_section() && !self.chart_only {
+            self.render_generic(cx)
+        } else {
+            match self.data_load_state {
+                LoadState::Idle => self.render_welcome(cx),
+                LoadState::Loading => self.render_loading(cx),
+                LoadState::Error(ref e) => self.render_error(e, cx),
+                LoadState::Loaded => match self.current_section {
+                    PlotSection::CEA2034 => self.render_cea2034_plot(cx),
+                    PlotSection::HorizontalSPL => self.render_directivity_plot("horizontal", cx),
+                    PlotSection::VerticalSPL => self.render_directivity_plot("vertical", cx),
+                    PlotSection::Contour => self.render_contour_plot(cx),
+                    PlotSection::PolarDirectivity => self.render_polar_directivity_plot(cx),
+                    PlotSection::Surface3D => self.render_surface_3d_plot(cx),
+                    PlotSection::SurfaceSphere => self.render_sphere_plot(cx),
+                    PlotSection::PolarContour => self.render_polar_contour_plot(cx),
+                    PlotSection::FrequencyChart
+                    | PlotSection::PolarChart
+                    | PlotSection::BarChart => self.render_generic(cx),
+                },
+            }
         };
 
         let theme = cx.theme();
@@ -969,6 +1282,422 @@ impl SpinoramaApp {
                 this.section_dropdown_open = false;
             }))
             .into_any_element()
+    }
+
+    /// Picture mode: the public PNG result, with no data access.
+    pub fn render_picture(&mut self, cx: &mut Context<Self>) -> Div {
+        let theme = cx.theme();
+        let ds = cx.design();
+        let s = self.font_scale();
+        let title = format!(
+            "{} — {}",
+            self.picture_measurement(),
+            self.selected_speaker.as_deref().unwrap_or("Select a speaker")
+        );
+        let image = match (
+            self.selected_speaker.as_ref(),
+            self.selected_version.as_ref(),
+        ) {
+            (Some(speaker), Some(version)) => {
+                match measurement_image_url(speaker, version, self.picture_measurement()) {
+                    Ok(url) => div()
+                        .flex_1()
+                        .child(
+                            img(url)
+                                .w_full()
+                                .object_fit(gpui::ObjectFit::Contain),
+                        )
+                        .into_any_element(),
+                    Err(e) => div().child(e).into_any_element(),
+                }
+            }
+            _ => div()
+                .text_color(theme.text_secondary)
+                .child("Select a speaker and version to see the result picture.")
+                .into_any_element(),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(ds.spacing.section_gap))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(ds.spacing.control_gap))
+                    .child(
+                        div()
+                            .text_size(px(ds.typography.base_size * s))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(theme.text_primary)
+                            .child(title),
+                    )
+                    .child(
+                        div()
+                            .id("picture-enter-key")
+                            .px(px(ds.spacing.control_padding_x))
+                            .py(px(ds.spacing.control_padding_y * 0.5))
+                            .rounded(px(ds.corners.sm))
+                            .bg(theme.accent)
+                            .text_color(theme.text_on_accent)
+                            .cursor_pointer()
+                            .child("Enter API key for interactive data")
+                            .on_click(cx.listener(|this, _, _w, cx| this.open_key_popup(cx))),
+                    ),
+            )
+            .child(
+                div()
+                    .text_size(px(ds.typography.small_size * s))
+                    .text_color(theme.text_secondary)
+                    .child("Picture only — measurement data requires an API key."),
+            )
+            .child(image)
+    }
+
+    /// Generic graph view for every catalog entry.
+    pub fn render_generic(&mut self, cx: &mut Context<Self>) -> Div {
+        let theme = cx.theme();
+        let ds = cx.design();
+        let s = self.font_scale();
+        let def = self.current_graph();
+        let title = format!(
+            "{} — {}",
+            def.label,
+            self.selected_speaker.as_deref().unwrap_or("Unknown")
+        );
+        let header = div()
+            .flex()
+            .flex_col()
+            .gap(px(ds.spacing.control_gap))
+            .child(
+                div()
+                    .text_size(px(ds.typography.large_size * s))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(theme.text_primary)
+                    .child(title),
+            )
+            .child(self.render_graph_dropdown(cx));
+        let body: Div = match self.generic_load_state {
+            LoadState::Idle => self.render_welcome(cx),
+            LoadState::Loading => self.render_loading(cx),
+            LoadState::Error(ref e) => self.render_error(e, cx),
+            LoadState::Loaded => {
+                let w = self.content_width;
+                let h = (w * 0.5).min(self.content_height * 0.62).max(240.0);
+                match def.renderer {
+                    GraphRenderer::Contour => self.render_contour_plot(cx),
+                    GraphRenderer::Surface3d => self.render_surface_3d_plot(cx),
+                    GraphRenderer::Sphere => self.render_sphere_plot(cx),
+                    GraphRenderer::PolarChart => match self.generic_plot {
+                        Some(ref plot) => {
+                            let size = w.min(h * 1.4).min(620.0);
+                            div()
+                                .flex()
+                                .flex_col()
+                                .items_center()
+                                .gap(px(ds.spacing.section_gap))
+                                .child(render_generic_polar(
+                                    plot,
+                                    &self.hidden_generic_traces,
+                                    size,
+                                    &theme,
+                                ))
+                                .child(self.render_generic_legend(cx))
+                        }
+                        None => self.render_welcome(cx),
+                    },
+                    GraphRenderer::BarChart => match self.generic_plot {
+                        Some(ref plot) => div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(ds.spacing.section_gap))
+                            .child(render_generic_bars(
+                                plot,
+                                &self.hidden_generic_traces,
+                                w,
+                                h,
+                                &theme,
+                            ))
+                            .child(self.render_generic_legend(cx)),
+                        None => self.render_welcome(cx),
+                    },
+                    _ => match self.generic_plot {
+                        Some(ref plot) => div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(ds.spacing.section_gap))
+                            .child(render_generic_freq_chart(
+                                plot,
+                                def,
+                                &self.hidden_generic_traces,
+                                w,
+                                h,
+                                &theme,
+                            ))
+                            .child(self.render_generic_legend(cx)),
+                        None => self.render_welcome(cx),
+                    },
+                }
+            }
+        };
+        if self.chart_only {
+            return body;
+        }
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(ds.spacing.section_gap * 1.5))
+            .child(header)
+            .child(body)
+    }
+
+    pub fn render_generic_legend(&mut self, cx: &mut Context<Self>) -> Div {
+        let theme = cx.theme();
+        let ds = cx.design();
+        let Some(plot) = self.generic_plot.clone() else {
+            return div();
+        };
+        div()
+            .flex()
+            .flex_wrap()
+            .gap(px(ds.spacing.control_gap))
+            .children(plot.traces.iter().enumerate().filter_map(|(i, trace)| {
+                if !trace.visible || trace.name.is_empty() {
+                    return None;
+                }
+                let hidden = self.hidden_generic_traces.contains(&trace.name);
+                let name = trace.name.clone();
+                let color = trace.fill_color.unwrap_or(trace.color);
+                Some(
+                    div()
+                        .id(ElementId::NamedInteger("generic-legend".into(), i as u64))
+                        .flex()
+                        .items_center()
+                        .gap(px(ds.spacing.control_gap))
+                        .px(px(ds.spacing.control_padding_x))
+                        .py(px(ds.spacing.control_padding_y * 0.5))
+                        .rounded(px(ds.corners.sm))
+                        .cursor_pointer()
+                        .when(hidden, |el| el.opacity(0.35))
+                        .child(div().w(px(16.0)).h(px(3.0)).bg(color.to_rgba()))
+                        .child(
+                            div()
+                                .text_size(px(ds.typography.small_size))
+                                .text_color(theme.text_secondary)
+                                .child(trace.name.clone()),
+                        )
+                        .on_click(cx.listener(move |this, _, _w, cx| {
+                            if this.hidden_generic_traces.contains(&name) {
+                                this.hidden_generic_traces.remove(&name);
+                            } else {
+                                this.hidden_generic_traces.insert(name.clone());
+                            }
+                            cx.notify();
+                        })),
+                )
+            }))
+    }
+
+    pub fn render_graph_dropdown(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let theme = cx.theme();
+        let ds = cx.design();
+        let entity = cx.entity().clone();
+        let current = self.current_graph().label;
+        let open = self.graph_dropdown_open;
+        div()
+            .relative()
+            .id("graph-dropdown-container")
+            .child(
+                div()
+                    .id("graph-select")
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px(px(ds.spacing.control_padding_x))
+                    .py(px(ds.spacing.control_padding_y))
+                    .min_w(px(260.0))
+                    .bg(theme.surface)
+                    .border_1()
+                    .border_color(theme.border)
+                    .rounded(px(ds.corners.md))
+                    .cursor_pointer()
+                    .text_size(px(ds.typography.small_size))
+                    .child(div().text_color(theme.text_primary).child(current))
+                    .child(div().text_color(theme.text_secondary).child("▼"))
+                    .on_mouse_down(MouseButton::Left, move |_, _w, cx| {
+                        entity.update(cx, |this, cx| {
+                            this.graph_dropdown_open = !this.graph_dropdown_open;
+                            cx.notify();
+                        });
+                    }),
+            )
+            .when(open, |el| {
+                let entity = cx.entity().clone();
+                el.child(
+                    deferred(
+                        div()
+                            .id("graph-dropdown")
+                            .absolute()
+                            .top_full()
+                            .left_0()
+                            .mt(px(ds.spacing.grid_unit))
+                            .w(px(340.0))
+                            .max_h(px(400.0))
+                            .overflow_y_scroll()
+                            .bg(theme.surface)
+                            .border_1()
+                            .border_color(theme.border)
+                            .rounded(px(ds.corners.md))
+                            .shadow_lg()
+                            .py(px(ds.spacing.control_padding_y * 0.5))
+                            .children(GRAPH_CATALOG.iter().enumerate().map(|(i, g)| {
+                                let selected = i == self.selected_graph_index;
+                                let entity = entity.clone();
+                                div()
+                                    .id(ElementId::NamedInteger("graph-opt".into(), i as u64))
+                                    .px(px(ds.spacing.control_padding_x))
+                                    .py(px(6.0))
+                                    .cursor_pointer()
+                                    .text_size(px(ds.typography.small_size))
+                                    .when(selected, |el| {
+                                        el.bg(theme.accent).text_color(theme.text_on_accent)
+                                    })
+                                    .when(!selected, |el| {
+                                        el.text_color(theme.text_secondary)
+                                            .hover(|st| st.bg(theme.surface_hover))
+                                    })
+                                    .child(g.label)
+                                    .on_mouse_down(MouseButton::Left, move |_, _w, cx| {
+                                        entity.update(cx, |this, cx| {
+                                            this.selected_graph_index = i;
+                                            this.graph_dropdown_open = false;
+                                            this.hidden_generic_traces.clear();
+                                            this.load_generic_data(cx);
+                                            cx.notify();
+                                        });
+                                    })
+                            })),
+                    )
+                    .with_priority(1),
+                )
+            })
+    }
+
+    /// Modal popup asking for the API key.
+    pub fn render_key_popup(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let ds = cx.design();
+        let entity = cx.entity().clone();
+        let entity_submit = entity.clone();
+        let key_error = self.key_error.clone();
+        div()
+            .id("key-popup-backdrop")
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(gpui::rgba(0x00000088))
+            .child(
+                div()
+                    .id("key-popup")
+                    .w(px(440.0))
+                    .flex()
+                    .flex_col()
+                    .gap(px(ds.spacing.section_gap))
+                    .p(px(ds.spacing.card_padding))
+                    .bg(theme.surface)
+                    .border_1()
+                    .border_color(theme.border)
+                    .rounded(px(ds.corners.lg))
+                    .shadow_lg()
+                    .child(
+                        div()
+                            .text_size(px(ds.typography.large_size))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(theme.text_primary)
+                            .child("Spinorama API key"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(ds.typography.small_size))
+                            .text_color(theme.text_secondary)
+                            .child("Measurement data is now protected. Enter your API key to get the full interactive interface. Without a key you will see the result picture only."),
+                    )
+                    .child(
+                        Input::new("spinorama-api-key")
+                            .password(true)
+                            .value(self.key_input.clone())
+                            .placeholder("API key")
+                            .on_text_change({
+                                let entity = entity.clone();
+                                move |text: &str, _w, cx| {
+                                    let text = text.to_string();
+                                    entity.update(cx, |this, _cx| {
+                                        this.key_input = text;
+                                    });
+                                }
+                            })
+                            .on_change({
+                                let entity = entity_submit.clone();
+                                move |_: &str, _w, cx| {
+                                    entity.update(cx, SpinoramaApp::submit_api_key);
+                                }
+                            }),
+                    )
+                    .when_some(key_error, |el, error| {
+                        el.child(
+                            div()
+                                .text_size(px(ds.typography.small_size))
+                                .text_color(theme.error)
+                                .child(error),
+                        )
+                    })
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(ds.spacing.control_gap))
+                            .child(
+                                div()
+                                    .id("key-submit")
+                                    .px(px(ds.spacing.control_padding_x))
+                                    .py(px(ds.spacing.control_padding_y))
+                                    .rounded(px(ds.corners.md))
+                                    .bg(theme.accent)
+                                    .text_color(theme.text_on_accent)
+                                    .cursor_pointer()
+                                    .child("Save and continue")
+                                    .on_click(cx.listener(|this, _, _w, cx| {
+                                        this.submit_api_key(cx);
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .id("key-skip")
+                                    .px(px(ds.spacing.control_padding_x))
+                                    .py(px(ds.spacing.control_padding_y))
+                                    .rounded(px(ds.corners.md))
+                                    .border_1()
+                                    .border_color(theme.border)
+                                    .text_color(theme.text_secondary)
+                                    .cursor_pointer()
+                                    .child("Continue without a key")
+                                    .on_click(cx.listener(|this, _, _w, cx| {
+                                        this.continue_without_key(cx);
+                                    })),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(ds.typography.small_size))
+                            .text_color(theme.text_muted)
+                            .child(if cfg!(target_family = "wasm") {
+                                "On the web the key is kept in memory only for this session."
+                            } else {
+                                "The key is saved in your OS credential store, never in a file."
+                            }),
+                    ),
+            )
     }
 
     pub(super) fn render_welcome(&self, cx: &mut Context<Self>) -> Div {
@@ -1340,6 +2069,7 @@ impl Render for SpinoramaApp {
         div()
             .id("main-container")
             .size_full()
+            .relative()
             .flex()
             .flex_col()
             .bg(theme.background)
@@ -1363,5 +2093,8 @@ impl Render for SpinoramaApp {
                     .flex_col()
                     .child(self.render_content(cx)),
             )
+            .when(self.show_key_popup && !self.chart_only, |el| {
+                el.child(self.render_key_popup(cx))
+            })
     }
 }

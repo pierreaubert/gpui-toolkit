@@ -10,10 +10,13 @@
 
 // Rust guideline compliant 2026-02-21
 
-use crate::api::{contour_plot_data, extract_cea2034_curves_original};
+use crate::api::{contour_plot_data, extract_cea2034_curves_original, parse_plot};
 use crate::app::SpinoramaApp;
 use crate::headless::{draw_capture, make_context, open_app_window};
-use crate::types::{ContourRenderMode, LoadState, PlotSection};
+use crate::types::{
+    ContourRenderMode, GRAPH_CATALOG, GraphRenderer, LoadState, PlotSection,
+    graph_for_measurement,
+};
 use d3rs::color::D3Color;
 use d3rs::zoom::ZoomState;
 use gpui::{AnyWindowHandle, HeadlessAppContext, WindowHandle};
@@ -32,6 +35,8 @@ const HEIGHT: f32 = 800.0;
 enum GraphKind {
     Cea2034,
     Contour { plane: &'static str },
+    /// Any other catalog graph, rendered through the generic views.
+    Generic { graph_index: usize },
 }
 
 fn classify(stem: &str) -> Option<GraphKind> {
@@ -45,7 +50,12 @@ fn classify(stem: &str) -> Option<GraphKind> {
         "SPL Vertical Contour" | "SPL Vertical Contour Normalized" => {
             Some(GraphKind::Contour { plane: "Vertical" })
         }
-        _ => None,
+        _ => {
+            let def = graph_for_measurement(stem)?;
+            let graph_index =
+                GRAPH_CATALOG.iter().position(|g| g.measurement == def.measurement)?;
+            Some(GraphKind::Generic { graph_index })
+        }
     }
 }
 
@@ -143,6 +153,38 @@ fn render_one(
                     state.cea2034_curves = curves;
                 })
                 .map_err(|e| format!("inject CEA2034 data: {e}"))?;
+        }
+        GraphKind::Generic { graph_index } => {
+            let def = &GRAPH_CATALOG[graph_index];
+            let generic = parse_plot(plot)?;
+            let section = match def.renderer {
+                GraphRenderer::PolarChart => PlotSection::PolarChart,
+                GraphRenderer::BarChart => PlotSection::BarChart,
+                GraphRenderer::Contour => PlotSection::Contour,
+                GraphRenderer::Surface3d => PlotSection::Surface3D,
+                GraphRenderer::Sphere => PlotSection::SurfaceSphere,
+                _ => PlotSection::FrequencyChart,
+            };
+            handle
+                .update(cx, |state, _window, _cx| {
+                    state.chart_only = true;
+                    state.selected_speaker = Some(speaker.to_string());
+                    state.selected_version = Some(version.to_string());
+                    state.speakers_load_state = LoadState::Loaded;
+                    state.versions_load_state = LoadState::Loaded;
+                    state.data_load_state = LoadState::Loaded;
+                    state.current_section = section;
+                    state.selected_graph_index = graph_index;
+                    state.title_override = title;
+                    state.generic_plot = Some(generic);
+                    state.generic_load_state = LoadState::Loaded;
+                    if matches!(def.renderer, GraphRenderer::Contour | GraphRenderer::Surface3d)
+                        && let Ok(data) = contour_plot_data(plot)
+                    {
+                        state.set_contour_data(data);
+                    }
+                })
+                .map_err(|e| format!("inject generic data: {e}"))?;
         }
         GraphKind::Contour { plane } => {
             let data = contour_plot_data(plot)?;

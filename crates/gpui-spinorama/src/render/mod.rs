@@ -3,11 +3,16 @@ use d3rs::grid::{GridConfig, render_grid};
 use d3rs::scale::{LinearScale, LogScale};
 use d3rs::shape::{CurveType, LineConfig, render_line};
 use gpui::prelude::FluentBuilder;
+use gpui::prelude::IntoElement;
 use gpui::{Div, ParentElement, Styled, div, px};
 use gpui_ui_kit::theme::Theme;
 
 use super::types::{BrushOverlay, PlotCurve, SecondaryAxisConfig};
 use super::utils::ChartTheme;
+
+pub mod generic;
+#[allow(unused_imports, reason = "legend helper kept for external batch/image consumers")]
+pub use generic::{generic_legend_entries, render_generic_bars, render_generic_freq_chart, render_generic_polar};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FreqSplPlotMargins {
@@ -171,6 +176,67 @@ pub fn render_freq_spl_plot(
                             chart_height,
                             &theme,
                         ))
+                        // Filled curves (recommended zones / bands)
+                        .children(primary_curves.iter().filter_map(|curve| {
+                            let (color, opacity) = curve.fill?;
+                            if curve.points.is_empty() {
+                                return None;
+                            }
+                            let base = 0.0f64.clamp(spl_domain.0, spl_domain.1);
+                            let mut poly: Vec<(f32, f32)> = curve
+                                .points
+                                .iter()
+                                .map(|p| {
+                                    (
+                                        ((p.x.ln() - freq_domain.0.ln())
+                                            / (freq_domain.1.ln() - freq_domain.0.ln()))
+                                            as f32
+                                            * chart_width,
+                                        ((spl_domain.1 - p.y)
+                                            / (spl_domain.1 - spl_domain.0))
+                                            as f32
+                                            * chart_height,
+                                    )
+                                })
+                                .collect();
+                            if let (Some(&(fx, _)), Some(&(lx, _))) =
+                                (poly.first(), poly.last())
+                            {
+                                let by = ((spl_domain.1 - base)
+                                    / (spl_domain.1 - spl_domain.0))
+                                    as f32
+                                    * chart_height;
+                                poly.push((lx, by));
+                                poly.push((fx, by));
+                            }
+                            let fill = color.to_rgba();
+                            Some(
+                                gpui::canvas(
+                                    move |_b, _w, _c| (poly.clone(), fill, opacity),
+                                    move |bounds, (poly, fill, opacity), window, _cx| {
+                                        let ox: f32 = bounds.origin.x.into();
+                                        let oy: f32 = bounds.origin.y.into();
+                                        let mut b = gpui::PathBuilder::fill();
+                                        for (i, &(x, y)) in poly.iter().enumerate() {
+                                            if i == 0 {
+                                                b.move_to(gpui::point(px(ox + x), px(oy + y)));
+                                            } else {
+                                                b.line_to(gpui::point(px(ox + x), px(oy + y)));
+                                            }
+                                        }
+                                        b.close();
+                                        if let Ok(path) = b.build() {
+                                            let mut c = fill;
+                                            c.a *= opacity;
+                                            window.paint_path(path, c);
+                                        }
+                                    },
+                                )
+                                .absolute()
+                                .inset_0()
+                                .into_any_element(),
+                            )
+                        }))
                         // Render primary axis curves
                         .children(primary_curves.iter().filter_map(|curve| {
                             if curve.points.is_empty() {

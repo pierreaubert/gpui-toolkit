@@ -18,7 +18,17 @@ host must preserve for threaded WASM.
 
 The full D3rs Spinorama viewer uses the live speaker catalog and measurements
 from `api.spinorama.org`, with eight views, curve selection, zoom, polar
-frequencies, contour modes, and interactive 3D surfaces/spheres. The upstream
+frequencies, contour modes, and interactive 3D surfaces/spheres.
+The measurement API is key-protected: on first run a popup asks for an API
+key (saved in the OS credential store on native builds, memory-only on
+wasm, sent as `Authorization: Bearer …`). Without a key the viewer shows
+only the public result picture (`?measurement_format=png`) with no access
+to measurement data; a rejected (401/403) key reopens the popup.
+Three additional sections (`All Graphs (Frequency/Polar/Bars)`) expose
+every other spinorama.org graph — reflections, directivity, group delay,
+headphone graphs, radar/spider, histograms, and the `filters_*` family —
+through generic Plotly trace renderers, and the batch image generator
+classifies those payload stems the same way. The upstream
 does not send CORS headers. Include `spinorama-nginx.conf` inside the site's
 nginx server block before publishing: browser requests use
 `/api/spinorama/v1/`. Trunk's Spinorama configuration provides the same proxy

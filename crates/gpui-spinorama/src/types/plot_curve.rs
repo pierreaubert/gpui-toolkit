@@ -13,6 +13,10 @@ pub struct PlotCurve {
     pub dash_array: Option<StrokeDashArray>,
     /// Whether this curve uses the secondary (right) Y-axis
     pub use_secondary_axis: bool,
+    /// Optional fill under the curve: (colour, opacity).
+    pub fill: Option<(D3Color, f32)>,
+    /// Trace name for legend ordering / toggling.
+    pub name: String,
 }
 
 impl PlotCurve {
@@ -23,7 +27,20 @@ impl PlotCurve {
             stroke_width: 2.0,
             dash_array: None,
             use_secondary_axis: false,
+            fill: None,
+            name: String::new(),
         }
+    }
+
+    #[allow(dead_code, reason = "builder API for filled zone curves")]
+    pub fn fill(mut self, color: D3Color, opacity: f32) -> Self {
+        self.fill = Some((color, opacity.clamp(0.0, 1.0)));
+        self
+    }
+
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
     }
 
     pub fn stroke_width(mut self, width: f32) -> Self {
