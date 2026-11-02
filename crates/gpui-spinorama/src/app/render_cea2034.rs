@@ -45,7 +45,12 @@ fn render_cea2034_plot(&mut self, cx: &mut Context<Self>) -> Div {
             if points.is_empty() {
                 return None;
             }
-            Some(PlotCurve::new(points, color).name(name))
+            let mut curve = PlotCurve::new(points, color).name(name);
+            if let Some(symbol) = self.cea_marker_symbols.get(name) {
+                let size = self.cea_marker_sizes.get(name).copied().unwrap_or(7.0);
+                curve = curve.marker(*symbol, size);
+            }
+            Some(curve)
         })
         .collect();
 
@@ -69,7 +74,12 @@ fn render_cea2034_plot(&mut self, cx: &mut Context<Self>) -> Div {
             if points.is_empty() {
                 return None;
             }
-            Some(PlotCurve::new(points, color).name(name).secondary_axis())
+            let mut curve = PlotCurve::new(points, color).name(name).secondary_axis();
+            if let Some(symbol) = self.cea_marker_symbols.get(name) {
+                let size = self.cea_marker_sizes.get(name).copied().unwrap_or(7.0);
+                curve = curve.marker(*symbol, size);
+            }
+            Some(curve)
         })
         .collect();
     plot_curves.extend(di_curves);
@@ -87,6 +97,7 @@ fn render_cea2034_plot(&mut self, cx: &mut Context<Self>) -> Div {
         plot_curves,
         self.freq_spl_zoom.x_domain(), // Frequency domain (zoomed)
         self.freq_spl_zoom.y_domain(), // SPL domain (zoomed)
+        self.cea_grid_tickvals.as_ref(),
         secondary_axis,
         chart_width,
         chart_height,

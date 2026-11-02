@@ -134,6 +134,7 @@ impl SpinoramaApp {
             plot_curves,
             self.freq_spl_zoom.x_domain(),
             self.freq_spl_zoom.y_domain(),
+            None, // No dense grid override for directivity plots
             None, // No secondary axis for directivity plots
             chart_width,
             chart_height,

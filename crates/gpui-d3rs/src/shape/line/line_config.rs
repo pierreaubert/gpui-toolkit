@@ -2,6 +2,7 @@ use super::style::CurveType;
 use super::style::StrokeDashArray;
 use crate::color::D3Color;
 use crate::render2d::{Renderer2D, VelloBackend};
+use crate::shape::SymbolType;
 
 /// Configuration for line chart rendering
 #[derive(Clone)]
@@ -18,6 +19,10 @@ pub struct LineConfig {
     pub show_points: bool,
     /// Point radius if `show_points` is true
     pub point_radius: f32,
+    /// Marker shape drawn at each point when `show_points` is true.
+    /// `Circle` keeps the fast rounded-quad path; every other shape is
+    /// filled as a polygon from the symbol outline.
+    pub point_symbol: SymbolType,
     /// Fill color for points
     pub point_fill_color: Option<D3Color>,
     /// Stroke dash array pattern (None = solid line)
@@ -37,6 +42,7 @@ impl Default for LineConfig {
             curve: CurveType::Linear,
             show_points: false,
             point_radius: 3.0,
+            point_symbol: SymbolType::Circle,
             point_fill_color: None,
             dash_array: None,
             renderer_2d: Renderer2D::default(),
@@ -114,6 +120,12 @@ impl LineConfig {
     /// Set point radius
     pub fn point_radius(mut self, radius: f32) -> Self {
         self.point_radius = radius;
+        self
+    }
+
+    /// Set the marker shape drawn at each point (see [`SymbolType`]).
+    pub fn point_symbol(mut self, symbol: SymbolType) -> Self {
+        self.point_symbol = symbol;
         self
     }
 

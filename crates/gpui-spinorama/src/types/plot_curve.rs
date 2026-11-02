@@ -1,5 +1,5 @@
 use d3rs::color::D3Color;
-use d3rs::shape::{LinePoint, StrokeDashArray};
+use d3rs::shape::{LinePoint, StrokeDashArray, SymbolType};
 
 /// A single curve to be rendered on the frequency/SPL plot
 pub struct PlotCurve {
@@ -17,6 +17,10 @@ pub struct PlotCurve {
     pub fill: Option<(D3Color, f32)>,
     /// Trace name for legend ordering / toggling.
     pub name: String,
+    /// Marker shape drawn at each data point, when set.
+    pub marker_symbol: Option<SymbolType>,
+    /// Marker size in pixels (Plotly `marker.size`).
+    pub marker_size: f32,
 }
 
 impl PlotCurve {
@@ -29,12 +33,21 @@ impl PlotCurve {
             use_secondary_axis: false,
             fill: None,
             name: String::new(),
+            marker_symbol: None,
+            marker_size: 5.0,
         }
     }
 
     #[allow(dead_code, reason = "builder API for filled zone curves")]
     pub fn fill(mut self, color: D3Color, opacity: f32) -> Self {
         self.fill = Some((color, opacity.clamp(0.0, 1.0)));
+        self
+    }
+
+    /// Shows the given marker shape at each data point.
+    pub fn marker(mut self, symbol: SymbolType, size: f32) -> Self {
+        self.marker_symbol = Some(symbol);
+        self.marker_size = size;
         self
     }
 

@@ -62,6 +62,7 @@ pub fn render_freq_spl_plot(
     curves: Vec<PlotCurve>,
     freq_domain: (f64, f64),
     spl_domain: (f64, f64),
+    grid_tickvals: Option<&(Vec<f64>, Vec<f64>)>,
     secondary_axis: Option<SecondaryAxisConfig>,
     chart_width: f32,
     chart_height: f32,
@@ -170,8 +171,35 @@ pub fn render_freq_spl_plot(
                         .child(render_grid(
                             &freq_scale,
                             &spl_scale,
-                            &GridConfig::with_lines()
-                                .with_vertical_values(grid_freq_values.clone()),
+                            &{
+                                let mut config = GridConfig::with_lines()
+                                    .with_vertical_values(grid_freq_values.clone());
+                                if let Some((x_vals, y_vals)) = grid_tickvals {
+                                    if !x_vals.is_empty() {
+                                        config = config.with_vertical_values(
+                                            x_vals
+                                                .iter()
+                                                .copied()
+                                                .filter(|f| {
+                                                    *f >= freq_domain.0 && *f <= freq_domain.1
+                                                })
+                                                .collect(),
+                                        );
+                                    }
+                                    if !y_vals.is_empty() {
+                                        config = config.with_horizontal_values(
+                                            y_vals
+                                                .iter()
+                                                .copied()
+                                                .filter(|v| {
+                                                    *v >= spl_domain.0 && *v <= spl_domain.1
+                                                })
+                                                .collect(),
+                                        );
+                                    }
+                                }
+                                config
+                            },
                             chart_width,
                             chart_height,
                             &theme,
@@ -249,6 +277,12 @@ pub fn render_freq_spl_plot(
                             if let Some(dash_array) = curve.dash_array.clone() {
                                 line_config = line_config.dash_array(dash_array);
                             }
+                            if let Some(symbol) = curve.marker_symbol {
+                                line_config = line_config
+                                    .show_points(true)
+                                    .point_symbol(symbol)
+                                    .point_radius((curve.marker_size / 2.0).max(1.5));
+                            }
                             Some(render_line(
                                 &freq_scale,
                                 &spl_scale,
@@ -268,6 +302,12 @@ pub fn render_freq_spl_plot(
                                 .curve(CurveType::Linear);
                             if let Some(dash_array) = curve.dash_array.clone() {
                                 line_config = line_config.dash_array(dash_array);
+                            }
+                            if let Some(symbol) = curve.marker_symbol {
+                                line_config = line_config
+                                    .show_points(true)
+                                    .point_symbol(symbol)
+                                    .point_radius((curve.marker_size / 2.0).max(1.5));
                             }
                             Some(render_line(
                                 &freq_scale,

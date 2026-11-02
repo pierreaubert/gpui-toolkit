@@ -10,7 +10,7 @@
 
 // Rust guideline compliant 2026-02-21
 
-use crate::api::{contour_plot_data, extract_cea2034_curves_original, parse_plot};
+use crate::api::{contour_plot_data, extract_cea2034_curves_original, parse_plot, plotly_symbol};
 use crate::app::SpinoramaApp;
 use crate::headless::{draw_capture, make_context, open_app_window};
 use crate::types::{
@@ -99,6 +99,45 @@ fn parse_hex_color(text: &str) -> Option<D3Color> {
     Some(D3Color::rgb(r, g, b))
 }
 
+fn tickvals(plot: &Value, axis: &str) -> Vec<f64> {
+    plot.pointer(&format!("/layout/{axis}/tickvals"))
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_f64).collect())
+        .unwrap_or_default()
+}
+
+fn trace_markers(
+    plot: &Value,
+) -> (
+    HashMap<String, d3rs::shape::SymbolType>,
+    HashMap<String, f32>,
+) {
+    let mut symbols = HashMap::new();
+    let mut sizes = HashMap::new();
+    if let Some(traces) = plot.get("data").and_then(Value::as_array) {
+        for trace in traces {
+            let Some(name) = trace.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            if let Some(symbol) = trace
+                .pointer("/marker/symbol")
+                .and_then(Value::as_str)
+                .and_then(plotly_symbol)
+            {
+                symbols.insert(name.to_string(), symbol);
+                sizes.insert(
+                    name.to_string(),
+                    trace
+                        .pointer("/marker/size")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(7.0) as f32,
+                );
+            }
+        }
+    }
+    (symbols, sizes)
+}
+
 fn trace_colors(plot: &Value) -> HashMap<String, D3Color> {
     let mut colors = HashMap::new();
     if let Some(traces) = plot.get("data").and_then(Value::as_array) {
@@ -132,6 +171,16 @@ fn render_one(
         GraphKind::Cea2034 => {
             let curves = extract_cea2034_curves_original(plot, "CEA2034")?;
             let colors = trace_colors(plot);
+            let (marker_symbols, marker_sizes) = trace_markers(plot);
+            let grid_tickvals = {
+                let x = tickvals(plot, "xaxis");
+                let y = tickvals(plot, "yaxis");
+                if x.is_empty() && y.is_empty() {
+                    None
+                } else {
+                    Some((x, y))
+                }
+            };
             let (x0, x1) = axis_range(plot, "xaxis").map_or((20.0, 20_000.0), |(lo, hi)| {
                 (10f64.powf(lo), 10f64.powf(hi))
             });
@@ -148,6 +197,9 @@ fn render_one(
                     state.current_section = PlotSection::CEA2034;
                     state.title_override = title;
                     state.trace_colors = colors;
+                    state.cea_marker_symbols = marker_symbols;
+                    state.cea_marker_sizes = marker_sizes;
+                    state.cea_grid_tickvals = grid_tickvals;
                     state.di_domain = di_domain;
                     state.freq_spl_zoom = ZoomState::new(x0, x1, y0, y1).with_log_x(true);
                     state.cea2034_curves = curves;

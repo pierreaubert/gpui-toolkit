@@ -104,6 +104,17 @@ fn domain_for(
     fallback
 }
 
+fn grid_config(plot: &PlotData) -> GridConfig {
+    let mut config = GridConfig::with_lines();
+    if !plot.layout.x_axis.tick_values.is_empty() {
+        config = config.with_vertical_values(plot.layout.x_axis.tick_values.clone());
+    }
+    if !plot.layout.y_axis.tick_values.is_empty() {
+        config = config.with_horizontal_values(plot.layout.y_axis.tick_values.clone());
+    }
+    config
+}
+
 /// Renders a generic frequency chart from a parsed Plotly payload.
 pub fn render_generic_freq_chart(
     plot: &PlotData,
@@ -192,6 +203,7 @@ pub fn render_generic_freq_chart(
             .map(|&(x, y)| (x_to_px(x), y_to_px(y)))
             .collect();
         match fill {
+            TraceFill::ToSelf => {}
             TraceFill::ToZeroY => {
                 if let (Some(&(fx, _)), Some(&(lx, _))) = (poly.first(), poly.last()) {
                     poly.push((lx, y_to_px(0.0_f64.clamp(y_domain.0, y_domain.1))));
@@ -260,7 +272,7 @@ pub fn render_generic_freq_chart(
         let area = chart_area.child(render_grid(
             &xs,
             &ys,
-            &GridConfig::with_lines(),
+            &grid_config(plot),
             chart_width,
             chart_height,
             &theme,
@@ -279,7 +291,7 @@ pub fn render_generic_freq_chart(
         let area = chart_area.child(render_grid(
             &xs,
             &ys,
-            &GridConfig::with_lines(),
+            &grid_config(plot),
             chart_width,
             chart_height,
             &theme,
@@ -470,7 +482,10 @@ fn add_lines<XS: Scale<f64, f64>, YS: Scale<f64, f64>>(
             config = config.dash_array(dash);
         }
         if matches!(trace.mode, TraceMode::Markers | TraceMode::LinesMarkers) {
-            config = config.show_points(true);
+            config = config
+                .show_points(true)
+                .point_radius((trace.marker_size / 2.0).max(1.5))
+                .point_symbol(trace.marker_symbol.unwrap_or_default());
         }
         let scale_y: &YS = if trace.secondary_axis && has_secondary {
             ys2

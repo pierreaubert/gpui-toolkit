@@ -171,6 +171,12 @@ pub struct SpinoramaApp {
     pub chart_only: bool,
     pub title_override: Option<String>,
     pub trace_colors: HashMap<String, D3Color>,
+    /// Per-curve marker shapes for the CEA2034 view (scan style).
+    pub cea_marker_symbols: HashMap<String, d3rs::shape::SymbolType>,
+    /// Per-curve marker sizes for the CEA2034 view (scan style).
+    pub cea_marker_sizes: HashMap<String, f32>,
+    /// Dense grid tick values (x hertz, y dB) for the CEA2034 view.
+    pub cea_grid_tickvals: Option<(Vec<f64>, Vec<f64>)>,
     pub di_domain: (f64, f64),
     pub contour_plane_label: &'static str,
 }
@@ -446,6 +452,9 @@ impl SpinoramaApp {
             chart_only: false,
             title_override: None,
             trace_colors: HashMap::new(),
+            cea_marker_symbols: HashMap::new(),
+            cea_marker_sizes: HashMap::new(),
+            cea_grid_tickvals: None,
             di_domain: (-5.0, 45.0),
             contour_plane_label: "Horizontal",
         }
@@ -1515,20 +1524,40 @@ impl SpinoramaApp {
                             .child(self.render_generic_legend(cx)),
                         None => self.render_welcome(cx),
                     },
-                    _ => match self.generic_plot {
-                        Some(ref plot) => div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(ds.spacing.section_gap))
-                            .child(render_generic_freq_chart(
-                                plot,
-                                def,
-                                &self.hidden_generic_traces,
-                                w,
-                                h,
-                                &theme,
-                            ))
-                            .child(self.render_generic_legend(cx)),
+                    _ => match self.generic_plot.clone() {
+                        Some(ref plot) => {
+                            let chart = div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(ds.spacing.section_gap))
+                                .child(render_generic_freq_chart(
+                                    plot,
+                                    def,
+                                    &self.hidden_generic_traces,
+                                    w,
+                                    h,
+                                    &theme,
+                                ))
+                                .child(self.render_generic_legend(cx));
+                            if self.chart_only {
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(ds.spacing.section_gap * 1.5))
+                                    .child(
+                                        div()
+                                            .text_size(px(ds.typography.large_size * s))
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(theme.text_primary)
+                                            .child(self.title_override.clone().unwrap_or_else(|| {
+                                                plot.layout.title.clone().unwrap_or_default()
+                                            })),
+                                    )
+                                    .child(chart)
+                            } else {
+                                chart
+                            }
+                        }
                         None => self.render_welcome(cx),
                     },
                 }
@@ -1543,6 +1572,70 @@ impl SpinoramaApp {
             .gap(px(ds.spacing.section_gap * 1.5))
             .child(header)
             .child(body)
+    }
+
+    /// Legend swatch: a plain line, or a line with the trace marker
+    /// shape at its centre when the trace uses markers.
+    fn legend_swatch(symbol: Option<d3rs::shape::SymbolType>, color: D3Color) -> AnyElement {
+        let Some(symbol) = symbol else {
+            return div().w(px(16.0)).h(px(3.0)).bg(color.to_rgba()).into_any_element();
+        };
+        if symbol == d3rs::shape::SymbolType::Circle {
+            return div()
+                .flex()
+                .items_center()
+                .child(div().w(px(16.0)).h(px(3.0)).bg(color.to_rgba()))
+                .child(
+                    div()
+                        .absolute()
+                        .w(px(9.0))
+                        .h(px(9.0))
+                        .rounded(px(4.5))
+                        .bg(color.to_rgba()),
+                )
+                .relative()
+                .into_any_element();
+        }
+        let fill = color.to_rgba();
+        gpui::canvas(
+            move |_b, _w, _c| {},
+            move |bounds, (), window, _cx| {
+                let ox: f32 = bounds.origin.x.into();
+                let oy: f32 = bounds.origin.y.into();
+                let cy = oy + 7.0;
+                let mut line = gpui::PathBuilder::stroke(px(3.0));
+                line.move_to(gpui::point(px(ox), px(cy)));
+                line.line_to(gpui::point(px(ox + 28.0), px(cy)));
+                if let Ok(path) = line.build() {
+                    window.paint_path(path, fill);
+                }
+                let marker = d3rs::shape::Symbol::new(symbol, 81.0);
+                let mut builder = gpui::PathBuilder::fill();
+                let mut any = false;
+                for cmd in marker
+                    .generate_at(f64::from(ox + 14.0), f64::from(cy))
+                    .commands()
+                {
+                    match *cmd {
+                        d3rs::shape::PathCommand::MoveTo { x, y } => {
+                            builder.move_to(gpui::point(px(x as f32), px(y as f32)));
+                            any = true;
+                        }
+                        d3rs::shape::PathCommand::LineTo { x, y } => {
+                            builder.line_to(gpui::point(px(x as f32), px(y as f32)));
+                        }
+                        d3rs::shape::PathCommand::ClosePath => builder.close(),
+                        _ => {}
+                    }
+                }
+                if any && let Ok(path) = builder.build() {
+                    window.paint_path(path, fill);
+                }
+            },
+        )
+        .w(px(28.0))
+        .h(px(14.0))
+        .into_any_element()
     }
 
     pub fn render_generic_legend(&mut self, cx: &mut Context<Self>) -> Div {
@@ -1573,7 +1666,16 @@ impl SpinoramaApp {
                         .rounded(px(ds.corners.sm))
                         .cursor_pointer()
                         .when(hidden, |el| el.opacity(0.35))
-                        .child(div().w(px(16.0)).h(px(3.0)).bg(color.to_rgba()))
+                        .child(Self::legend_swatch(
+                            trace.marker_symbol.filter(|_| {
+                                matches!(
+                                    trace.mode,
+                                    crate::types::TraceMode::Markers
+                                        | crate::types::TraceMode::LinesMarkers
+                                )
+                            }),
+                            color,
+                        ))
                         .child(
                             div()
                                 .text_size(px(ds.typography.small_size))

@@ -106,6 +106,7 @@ where
     let curve_type = config.curve;
     let show_points = config.show_points;
     let point_radius = config.point_radius;
+    let point_symbol = config.point_symbol;
     let point_fill = config
         .point_fill_color
         .as_ref()
@@ -255,29 +256,65 @@ where
 
             // Paint points if enabled (only for points inside the clip region)
             if show_points {
-                for &(x_rel, y_rel) in rel_points.iter() {
-                    // Only draw points inside the chart area
-                    if (0.0..=1.0).contains(&x_rel) && (0.0..=1.0).contains(&y_rel) {
-                        let px_x = origin_x + x_rel * width;
-                        let px_y = origin_y + y_rel * height;
-                        let point_bounds = Bounds {
-                            origin: gpui::point(px(px_x - point_radius), px(px_y - point_radius)),
-                            size: gpui::size(px(point_radius * 2.0), px(point_radius * 2.0)),
-                        };
-                        let color_with_opacity = Rgba {
-                            r: point_fill.r,
-                            g: point_fill.g,
-                            b: point_fill.b,
-                            a: point_fill.a * opacity,
-                        };
-                        window.paint_quad(PaintQuad {
-                            bounds: point_bounds,
-                            corner_radii: Corners::all(px(point_radius)),
-                            background: color_with_opacity.into(),
-                            border_widths: Edges::default(),
-                            border_color: transparent_black(),
-                            border_style: BorderStyle::default(),
-                        });
+                let color_with_opacity = Rgba {
+                    r: point_fill.r,
+                    g: point_fill.g,
+                    b: point_fill.b,
+                    a: point_fill.a * opacity,
+                };
+                if point_symbol == crate::shape::SymbolType::Circle {
+                    for &(x_rel, y_rel) in rel_points.iter() {
+                        // Only draw points inside the chart area
+                        if (0.0..=1.0).contains(&x_rel) && (0.0..=1.0).contains(&y_rel) {
+                            let px_x = origin_x + x_rel * width;
+                            let px_y = origin_y + y_rel * height;
+                            let point_bounds = Bounds {
+                                origin: gpui::point(
+                                    px(px_x - point_radius),
+                                    px(px_y - point_radius),
+                                ),
+                                size: gpui::size(px(point_radius * 2.0), px(point_radius * 2.0)),
+                            };
+                            window.paint_quad(PaintQuad {
+                                bounds: point_bounds,
+                                corner_radii: Corners::all(px(point_radius)),
+                                background: color_with_opacity.into(),
+                                border_widths: Edges::default(),
+                                border_color: transparent_black(),
+                                border_style: BorderStyle::default(),
+                            });
+                        }
+                    }
+                } else {
+                    // Non-circle markers: one batched fill path built from
+                    // the symbol outline (polygons only; arcs are exclusive
+                    // to Circle, handled above).
+                    let size = f64::from(point_radius) * 2.0;
+                    let symbol = crate::shape::Symbol::new(point_symbol, size * size);
+                    let mut builder = PathBuilder::fill();
+                    let mut any = false;
+                    for &(x_rel, y_rel) in rel_points.iter() {
+                        if !(0.0..=1.0).contains(&x_rel) || !(0.0..=1.0).contains(&y_rel) {
+                            continue;
+                        }
+                        let cx = f64::from(origin_x + x_rel * width);
+                        let cy = f64::from(origin_y + y_rel * height);
+                        for cmd in symbol.generate_at(cx, cy).commands() {
+                            match *cmd {
+                                crate::shape::PathCommand::MoveTo { x, y } => {
+                                    builder.move_to(gpui::point(px(x as f32), px(y as f32)));
+                                    any = true;
+                                }
+                                crate::shape::PathCommand::LineTo { x, y } => {
+                                    builder.line_to(gpui::point(px(x as f32), px(y as f32)));
+                                }
+                                crate::shape::PathCommand::ClosePath => builder.close(),
+                                _ => {}
+                            }
+                        }
+                    }
+                    if any && let Ok(path) = builder.build() {
+                        window.paint_path(path, color_with_opacity);
                     }
                 }
             }
@@ -376,17 +413,34 @@ pub fn line_chart_scene(
     }
     if config.show_points && config.point_radius > 0.0 {
         let mut path = BezPath::new();
-        for &(x, y) in geometry.points.iter() {
-            path.extend(
-                Circle::new(
-                    (
-                        f64::from(x) * f64::from(width),
-                        f64::from(y) * f64::from(height),
-                    ),
-                    f64::from(config.point_radius),
-                )
-                .to_path(0.1),
-            );
+        if config.point_symbol == crate::shape::SymbolType::Circle {
+            for &(x, y) in geometry.points.iter() {
+                path.extend(
+                    Circle::new(
+                        (
+                            f64::from(x) * f64::from(width),
+                            f64::from(y) * f64::from(height),
+                        ),
+                        f64::from(config.point_radius),
+                    )
+                    .to_path(0.1),
+                );
+            }
+        } else {
+            let size = f64::from(config.point_radius) * 2.0;
+            let symbol = crate::shape::Symbol::new(config.point_symbol, size * size);
+            for &(x, y) in geometry.points.iter() {
+                let cx = f64::from(x) * f64::from(width);
+                let cy = f64::from(y) * f64::from(height);
+                for cmd in symbol.generate_at(cx, cy).commands() {
+                    match *cmd {
+                        crate::shape::PathCommand::MoveTo { x, y } => path.move_to((x, y)),
+                        crate::shape::PathCommand::LineTo { x, y } => path.line_to((x, y)),
+                        crate::shape::PathCommand::ClosePath => path.close_path(),
+                        _ => {}
+                    }
+                }
+            }
         }
         scene.fill_path(
             path,

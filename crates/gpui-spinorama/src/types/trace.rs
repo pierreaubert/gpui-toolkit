@@ -43,6 +43,8 @@ pub enum TraceFill {
     ToZeroY,
     /// Fill to the previous trace (`tonexty`).
     ToNextY,
+    /// Fill the closed polygon formed by the trace points (`toself`).
+    ToSelf,
 }
 
 /// A single Plotly annotation (text placed at a data position).
@@ -109,6 +111,8 @@ pub struct GenericTrace {
     pub visible: bool,
     /// Marker size for marker modes.
     pub marker_size: f32,
+    /// Marker shape for marker modes (`marker.symbol`); `None` = circle.
+    pub marker_symbol: Option<d3rs::shape::SymbolType>,
 }
 
 impl GenericTrace {
@@ -133,6 +137,7 @@ impl GenericTrace {
             secondary_axis: false,
             visible: true,
             marker_size: 5.0,
+            marker_symbol: None,
         }
     }
 

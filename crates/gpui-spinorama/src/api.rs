@@ -227,6 +227,23 @@ fn numbers(value: &Value) -> Result<Vec<f64>, String> {
     Ok(values)
 }
 
+/// Maps a Plotly `marker.symbol` name to a d3rs symbol type.
+pub fn plotly_symbol(name: &str) -> Option<d3rs::shape::SymbolType> {
+    match name {
+        "square" => Some(d3rs::shape::SymbolType::Square),
+        "diamond" => Some(d3rs::shape::SymbolType::Diamond),
+        "cross" => Some(d3rs::shape::SymbolType::Cross),
+        "x" => Some(d3rs::shape::SymbolType::Wye),
+        "triangle-up" => Some(d3rs::shape::SymbolType::Triangle),
+        "triangle-down" => Some(d3rs::shape::SymbolType::TriangleDown),
+        "triangle-left" => Some(d3rs::shape::SymbolType::TriangleLeft),
+        "triangle-right" => Some(d3rs::shape::SymbolType::TriangleRight),
+        "star" => Some(d3rs::shape::SymbolType::Star),
+        "circle" => Some(d3rs::shape::SymbolType::Circle),
+        _ => None,
+    }
+}
+
 fn curve(trace: &Value) -> Result<Curve, String> {
     let freq = numbers(&trace["x"])?;
     let spl = numbers(&trace["y"])?;
@@ -569,8 +586,13 @@ pub fn parse_plot(plot: &Value) -> Result<crate::types::PlotData, String> {
         generic.fill = match trace.get("fill").and_then(Value::as_str) {
             Some("tozeroy") => Some(crate::types::TraceFill::ToZeroY),
             Some("tonexty") => Some(crate::types::TraceFill::ToNextY),
+            Some("toself") => Some(crate::types::TraceFill::ToSelf),
             _ => None,
         };
+        generic.marker_symbol = trace
+            .pointer("/marker/symbol")
+            .and_then(Value::as_str)
+            .and_then(plotly_symbol);
         if trace.pointer("/line/color").is_none() && trace.pointer("/marker/color").is_none() {
             generic.color = d3rs_color_from_hex(PALETTE[index % PALETTE.len()]);
         }

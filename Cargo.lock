@@ -2743,7 +2743,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-d3rs"
-version = "0.10.44"
+version = "0.10.45"
 dependencies = [
  "approx",
  "bytemuck",
@@ -3104,7 +3104,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-spinorama"
-version = "0.10.44"
+version = "0.10.45"
 dependencies = [
  "base64",
  "gpui-builder",
