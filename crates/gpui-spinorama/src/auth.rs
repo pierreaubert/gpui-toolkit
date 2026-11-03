@@ -62,12 +62,17 @@ pub fn mask_key(key: &str) -> String {
 ///
 /// Wasm builds only honour the in-memory key held by the app, so this
 /// returns `None` there unless the environment override is present.
-#[allow(clippy::needless_return, reason = "cfg-gated test/wasm stores return early")]
 pub fn load_api_key() -> Option<ApiKey> {
     if let Ok(raw) = std::env::var(ENV_API_KEY)
         && let Some(key) = ApiKey::new(raw) {
             return Some(key);
         }
+    load_stored_api_key()
+}
+
+/// Loads the stored key without consulting the process environment.
+#[allow(clippy::needless_return, reason = "cfg-gated test/wasm stores return early")]
+fn load_stored_api_key() -> Option<ApiKey> {
     #[cfg(all(test, not(target_family = "wasm")))]
     {
         return TEST_STORE
@@ -168,16 +173,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "touches the real OS credential store; run explicitly"]
+    #[ignore = "mutates the shared test credential store; run explicitly"]
     fn secure_store_save_load_delete_round_trip() {
-        // SAFETY: env is process-local in this test process.
-        unsafe { std::env::remove_var(ENV_API_KEY) };
-        let prior = load_api_key();
+        let prior = load_stored_api_key();
         let probe = ApiKey::new("round-trip-probe-42").expect("probe key");
         save_api_key(&probe).expect("save probe");
-        assert_eq!(load_api_key().as_ref().map(ApiKey::as_str), Some("round-trip-probe-42"));
+        assert_eq!(load_stored_api_key().as_ref().map(ApiKey::as_str), Some("round-trip-probe-42"));
         delete_api_key().expect("delete probe");
-        assert!(load_api_key().is_none());
+        assert!(load_stored_api_key().is_none());
         if let Some(k) = prior {
             save_api_key(&k).expect("restore prior key");
         }

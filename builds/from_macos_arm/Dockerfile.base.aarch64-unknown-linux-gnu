@@ -49,7 +49,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN rustup target add aarch64-unknown-linux-gnu && \
-    cargo install just --locked && \
+    cargo install just && \
     rm -rf /root/.cargo/registry /root/.cargo/git
 
 WORKDIR /project

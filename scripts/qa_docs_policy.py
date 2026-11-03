@@ -19,13 +19,17 @@ def _cargo_lock_third_parties_rev() -> str | None:
     lock = ROOT / "Cargo.lock"
     if not lock.is_file():
         return None
-    prefix = f'source = "git+{THIRD_PARTIES_GIT_URL}'
-    for line in lock.read_text().splitlines():
-        stripped = line.strip()
-        if stripped.startswith(prefix):
-            rev = stripped.rsplit("#", 1)[-1].rstrip('"')
-            if rev:
-                return rev
+    for package in tomllib.loads(lock.read_text()).get("package", []):
+        if package.get("name") != "sotf-gpui-toolkit-gpui":
+            continue
+        source = package.get("source", "")
+        origin, separator, revision = source.rpartition("#")
+        if (
+            origin.split("?", 1)[0] == f"git+{THIRD_PARTIES_GIT_URL}"
+            and separator
+            and revision
+        ):
+            return revision
     return None
 
 

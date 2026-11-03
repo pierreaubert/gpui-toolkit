@@ -126,7 +126,7 @@ const RELEASE_PACKAGING_ENTRIES: &[ReleasePackagingEntry] = &[
         id: "gpui-design-dry-run",
         crate_or_lane: "gpui-design",
         lane: "public-core",
-        command_or_action: "cargo publish --dry-run --locked -p gpui-design",
+        command_or_action: "cargo publish --dry-run -p gpui-design",
         status: ReleasePackagingStatus::Passed,
         evidence: "Locked dry-run passed from the release branch on 2026-08-07.",
         release_requirement: "Re-run from the clean release commit immediately before publishing.",
@@ -135,7 +135,7 @@ const RELEASE_PACKAGING_ENTRIES: &[ReleasePackagingEntry] = &[
         id: "gpui-profiler-dry-run",
         crate_or_lane: "gpui-profiler",
         lane: "public-core",
-        command_or_action: "cargo publish --dry-run --locked -p gpui-profiler",
+        command_or_action: "cargo publish --dry-run -p gpui-profiler",
         status: ReleasePackagingStatus::Passed,
         evidence: "Locked dry-run passed from the release branch on 2026-08-07.",
         release_requirement: "Re-run from the clean release commit and publish before any later gpui-pretext registry wave.",
@@ -144,7 +144,7 @@ const RELEASE_PACKAGING_ENTRIES: &[ReleasePackagingEntry] = &[
         id: "gpui-pretext-dry-run",
         crate_or_lane: "gpui-pretext",
         lane: "deferred-registry",
-        command_or_action: "cargo publish --dry-run --locked -p gpui-pretext",
+        command_or_action: "cargo publish --dry-run -p gpui-pretext",
         status: ReleasePackagingStatus::Deferred,
         evidence: "Locked dry-run on 2026-08-07 could not resolve the unpublished gpui-profiler dev-dependency from crates.io; gpui-pretext is deferred from registry wave 1.",
         release_requirement: "Publish gpui-profiler, then require a clean locked dry-run before a later registry wave.",
@@ -153,7 +153,7 @@ const RELEASE_PACKAGING_ENTRIES: &[ReleasePackagingEntry] = &[
         id: "gpui-builder-dry-run",
         crate_or_lane: "gpui-builder",
         lane: "deferred-registry",
-        command_or_action: "cargo publish --dry-run --locked -p gpui-builder",
+        command_or_action: "cargo publish --dry-run -p gpui-builder",
         status: ReleasePackagingStatus::Deferred,
         evidence: "Deferred from registry wave 1 because compatible gpui-design and gpui-pretext predecessors are not both published.",
         release_requirement: "Publish predecessors, then require a clean locked dry-run before a later registry wave.",
@@ -162,7 +162,7 @@ const RELEASE_PACKAGING_ENTRIES: &[ReleasePackagingEntry] = &[
         id: "gpui-ui-kit-macros-dry-run",
         crate_or_lane: "gpui-ui-kit-macros",
         lane: "public-core",
-        command_or_action: "cargo publish --dry-run --locked -p gpui-ui-kit-macros",
+        command_or_action: "cargo publish --dry-run -p gpui-ui-kit-macros",
         status: ReleasePackagingStatus::Passed,
         evidence: "Locked dry-run passed from the release branch on 2026-08-07.",
         release_requirement: "Re-run from the clean release commit immediately before publishing.",
@@ -315,7 +315,7 @@ mod tests {
         let markdown = release_packaging_report().to_markdown_table();
 
         assert!(markdown.contains(RELEASE_PACKAGING_REPORT_TYPE));
-        assert!(markdown.contains("cargo publish --dry-run --locked -p gpui-design"));
+        assert!(markdown.contains("cargo publish --dry-run -p gpui-design"));
         assert!(markdown.contains("gpui-profiler"));
         assert!(markdown.contains("support-tooling"));
         assert!(markdown.contains("platform-delivery"));

@@ -25,7 +25,7 @@ jobs:
       - name: Install Android QA tools
         run: |
           brew install just imagemagick
-          cargo install cargo-ndk --locked
+          cargo install cargo-ndk
           sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
 
       - name: Cache cargo and Android builds

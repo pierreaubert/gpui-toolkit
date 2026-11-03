@@ -28,7 +28,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN rustup target add x86_64-pc-windows-gnullvm && \
-    cargo install just --locked && \
+    cargo install just && \
     rm -rf /root/.cargo/registry /root/.cargo/git
 
 ARG LLVM_MINGW_VERSION=20260421

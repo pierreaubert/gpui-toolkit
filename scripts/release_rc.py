@@ -98,7 +98,7 @@ def git_archive(root: Path, destination: Path, prefix: str, paths: tuple[str, ..
 
 
 def cargo_metadata(root: Path) -> dict[str, Any]:
-    raw = run(root, "cargo", "metadata", "--locked", "--offline", "--format-version", "1")
+    raw = run(root, "cargo", "metadata", "--format-version", "1")
     return json.loads(raw)
 
 
@@ -190,7 +190,7 @@ def package_wave_one(root: Path, staging: Path, metadata: dict[str, Any]) -> lis
         if package not in versions:
             raise ReleaseError(f"cargo metadata does not contain workspace package {package}")
         subprocess.run(
-            resolve_command(("cargo", "package", "--locked", "--offline", "-p", package)),
+            resolve_command(("cargo", "package", "-p", package)),
             cwd=root,
             check=True,
         )

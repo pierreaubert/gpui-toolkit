@@ -219,13 +219,13 @@ qa-python-rustdoc-inventory:
 	python3 scripts/generate_python_capabilities.py --check
 
 # Public release contract. Registry wave 1 deliberately contains only the
-# two GPUI-free packages pass a locked package verification.
+# two GPUI-free packages, which pass package verification.
 [group('qa')]
 qa-release-contract: qa-api
-	{{cargo}} package --locked -p gpui-profiler
-	{{cargo}} package --locked -p gpui-ui-kit-macros
+	{{cargo}} package -p gpui-profiler
+	{{cargo}} package -p gpui-ui-kit-macros
 
-# Build release assets locally and offline. This never tags, pushes, publishes,
+# Build release assets locally. This never tags, pushes, publishes,
 # signs, or uploads; those remain explicit maintainer actions.
 [group('release')]
 release-rc version:

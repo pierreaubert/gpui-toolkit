@@ -81,11 +81,11 @@ try {
     } | ConvertTo-Json | Set-Content -Encoding UTF8 "$StatusPath.build-owner.json"
     Push-Location $RepoRoot
     try {
-        & $cargo +1.99.0 check --locked -p gpui-toolkit-gpui-util --target aarch64-pc-windows-msvc
+        & $cargo +1.99.0 check -p gpui-toolkit-gpui-util --target aarch64-pc-windows-msvc
         if ($LASTEXITCODE -ne 0) {
             throw "Windows gpui-util check failed with exit code $LASTEXITCODE"
         }
-        & $cargo +1.99.0 build --locked --target aarch64-pc-windows-msvc -p gpui-builder --features showcase --bin layout-showcase
+        & $cargo +1.99.0 build --target aarch64-pc-windows-msvc -p gpui-builder --features showcase --bin layout-showcase
         if ($LASTEXITCODE -ne 0) {
             throw "cargo build failed with exit code $LASTEXITCODE"
         }

@@ -54,7 +54,7 @@ jobs:
       - name: Install just and Trunk
         run: |
           brew install just
-          cargo install trunk --locked
+          cargo install trunk
 
       - name: Install uv and browser capture dependencies
         uses: astral-sh/setup-uv@v7

@@ -108,7 +108,18 @@ fn cargo_lock_third_parties_rev() -> Option<String> {
         .map(|dir| dir.join("Cargo.lock"))
         .find(|lock| lock.is_file())?;
     let content = std::fs::read_to_string(lock).ok()?;
-    content.lines().find_map(lock_source_rev)
+    gpui_lock_source_rev(&content)
+}
+
+/// Extract the GPUI source revision from a Cargo lockfile.
+fn gpui_lock_source_rev(content: &str) -> Option<String> {
+    // Other forks, such as block, can pin a different revision of this repository.
+    let gpui = content.split("[[package]]").find(|package| {
+        package
+            .lines()
+            .any(|line| line.trim() == r#"name = "sotf-gpui-toolkit-gpui""#)
+    })?;
+    gpui.lines().find_map(lock_source_rev)
 }
 
 /// Extract the `sotf-3rdparties` revision from one lockfile `source` line,
@@ -697,6 +708,19 @@ pub const fn vendored_patches() -> &'static [VendoredPatch] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gpui_revision_ignores_other_packages_from_the_same_repository() {
+        let lock = r#"[[package]]
+name = "block"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties?rev=block-fix#block-revision"
+
+[[package]]
+name = "sotf-gpui-toolkit-gpui"
+source = "git+https://github.com/pierreaubert/sotf-3rdparties#gpui-revision"
+"#;
+        assert_eq!(gpui_lock_source_rev(lock).as_deref(), Some("gpui-revision"));
+    }
 
     #[test]
     fn lock_source_rev_accepts_plain_and_branch_sources() {

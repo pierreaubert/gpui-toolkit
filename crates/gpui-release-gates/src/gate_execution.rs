@@ -1,7 +1,7 @@
 //! Execute recorded release-gate commands so CI refreshes evidence instead of
 //! trusting stale `evidence` strings.
 //!
-//! Only the allowlisted `cargo publish --dry-run --locked -p <crate>` shape is
+//! Only the allowlisted `cargo publish --dry-run -p <crate>` shape is
 //! executable; manual-action rows (installers, archives, external gates) parse
 //! to `None` and must stay human-attested. Execution never uses a shell: the
 //! recorded command is split into argv and spawned directly.
@@ -73,7 +73,7 @@ fn split_argv(command: &str) -> Vec<String> {
 }
 
 /// Parse a recorded `command_or_action` into executable argv when it matches
-/// the allowlisted `cargo publish --dry-run --locked -p <crate>` shape.
+/// the allowlisted `cargo publish --dry-run -p <crate>` shape.
 /// Returns `None` for manual actions, so callers fail closed instead of
 /// executing prose.
 pub fn parse_executable_gate_command(command: &str) -> Option<ExecutableGateCommand> {

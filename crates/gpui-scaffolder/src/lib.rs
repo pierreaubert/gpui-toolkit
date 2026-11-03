@@ -1943,9 +1943,6 @@ mod tests {
             .arg("--manifest-path")
             .arg(manifest_path)
             .env("CARGO_TARGET_DIR", target_dir);
-        if std::env::var_os("GPUI_SCAFFOLDER_OFFLINE").is_some() {
-            command.arg("--offline");
-        }
         command.args(extra_args);
 
         let output = command

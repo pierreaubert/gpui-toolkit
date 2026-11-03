@@ -124,7 +124,7 @@ const PUBLISH_PLAN_ENTRIES: &[PublishPlanEntry] = &[
         crate_name: "gpui-design",
         order: 1,
         lane: "public-core",
-        command: "cargo publish --dry-run --locked -p gpui-design",
+        command: "cargo publish --dry-run -p gpui-design",
         status: PublishPlanStatus::DryRunPassed,
         reason: "Leaf public-core design crate used by builder and UI kit.",
         evidence: "Locked dry-run passed from the release branch on 2026-08-07; the optional `gpui` feature remains outside the registry package verification path.",
@@ -134,7 +134,7 @@ const PUBLISH_PLAN_ENTRIES: &[PublishPlanEntry] = &[
         crate_name: "gpui-profiler",
         order: 2,
         lane: "public-core",
-        command: "cargo publish --dry-run --locked -p gpui-profiler",
+        command: "cargo publish --dry-run -p gpui-profiler",
         status: PublishPlanStatus::DryRunPassed,
         reason: "GPUI-free allocation profiling support and a dev-dependency predecessor for gpui-pretext.",
         evidence: "Locked dry-run passed from the release branch on 2026-08-07.",
@@ -144,7 +144,7 @@ const PUBLISH_PLAN_ENTRIES: &[PublishPlanEntry] = &[
         crate_name: "gpui-ui-kit-macros",
         order: 3,
         lane: "public-core",
-        command: "cargo publish --dry-run --locked -p gpui-ui-kit-macros",
+        command: "cargo publish --dry-run -p gpui-ui-kit-macros",
         status: PublishPlanStatus::DryRunPassed,
         reason: "Standalone proc-macro package with no unpublished runtime dependency.",
         evidence: "Locked dry-run passed from the release branch on 2026-08-07.",
@@ -154,7 +154,7 @@ const PUBLISH_PLAN_ENTRIES: &[PublishPlanEntry] = &[
         crate_name: "gpui-pretext",
         order: 4,
         lane: "deferred-registry",
-        command: "cargo publish --dry-run --locked -p gpui-pretext",
+        command: "cargo publish --dry-run -p gpui-pretext",
         status: PublishPlanStatus::Deferred,
         reason: "Package verification resolves the allocation-contract dev-dependency from crates.io.",
         evidence: "2026-08-07 locked dry-run stopped because gpui-profiler is not yet present on crates.io.",
@@ -164,7 +164,7 @@ const PUBLISH_PLAN_ENTRIES: &[PublishPlanEntry] = &[
         crate_name: "gpui-builder",
         order: 5,
         lane: "deferred-registry",
-        command: "cargo publish --dry-run --locked -p gpui-builder",
+        command: "cargo publish --dry-run -p gpui-builder",
         status: PublishPlanStatus::Deferred,
         reason: "Package verification requires compatible gpui-design and gpui-pretext registry releases.",
         evidence: "Registry predecessors are not all available at the workspace-compatible versions.",
@@ -337,6 +337,6 @@ mod tests {
         assert!(markdown.contains("dry-run-passed"));
         assert!(markdown.contains("source-release-ready"));
         assert!(markdown.contains("deferred"));
-        assert!(markdown.contains("cargo publish --dry-run --locked -p gpui-profiler"));
+        assert!(markdown.contains("cargo publish --dry-run -p gpui-profiler"));
     }
 }
