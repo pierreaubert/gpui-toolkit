@@ -11,6 +11,13 @@ use super::types::{BrushOverlay, PlotCurve, SecondaryAxisConfig};
 use super::utils::ChartTheme;
 
 pub mod generic;
+
+/// Padding between a vertical axis title and its tick values.
+///
+/// Kept small so the SPL/DI titles sit close to the values on both the
+/// left and right axes; used by every axis config (and the matching
+/// margin computations) so widths stay consistent.
+pub(crate) const AXIS_TITLE_PADDING: f32 = 2.0;
 #[allow(unused_imports, reason = "legend helper kept for external batch/image consumers")]
 pub use generic::{
     generic_legend_entries, render_generic_bars, render_generic_freq_chart, render_generic_polar,
@@ -39,6 +46,7 @@ pub fn freq_spl_plot_margins(chart_width: f32, has_secondary_axis: bool) -> Freq
         .with_label_font_size(label_size)
         .with_title_font_size(title_size)
         .with_tick_size(tick_size)
+        .with_title_padding(AXIS_TITLE_PADDING)
         .total_size();
     let right_axis_width = if has_secondary_axis {
         AxisConfig::right()
@@ -46,6 +54,7 @@ pub fn freq_spl_plot_margins(chart_width: f32, has_secondary_axis: bool) -> Freq
             .with_label_font_size(label_size)
             .with_title_font_size(title_size)
             .with_tick_size(tick_size)
+            .with_title_padding(AXIS_TITLE_PADDING)
             .total_size()
     } else {
         0.0
@@ -159,7 +168,8 @@ pub fn render_freq_spl_plot(
         .with_title("SPL (dB)")
         .with_label_font_size(label_size)
         .with_title_font_size(title_size)
-        .with_tick_size(tick_size);
+        .with_tick_size(tick_size)
+        .with_title_padding(AXIS_TITLE_PADDING);
 
     div()
         .flex()
@@ -395,7 +405,8 @@ pub fn render_freq_spl_plot(
                         .with_title(cfg.title)
                         .with_label_font_size(label_size)
                         .with_title_font_size(title_size)
-                        .with_tick_size(tick_size);
+                        .with_tick_size(tick_size)
+                        .with_title_padding(AXIS_TITLE_PADDING);
                     el.child(render_axis(&sec_scale, &axis_config, chart_height, &theme))
                 }),
         )

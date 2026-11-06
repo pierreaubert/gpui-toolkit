@@ -218,6 +218,8 @@ impl SpinoramaApp {
 
         // Map colormap
         let colormap = match self.contour_colormap {
+            // No Spinorama ramp in the GPU colormaps; Turbo is closest.
+            Colormap::Spinorama => Surface3DColormap::Turbo,
             Colormap::Viridis => Surface3DColormap::Viridis,
             Colormap::Plasma => Surface3DColormap::Plasma,
             Colormap::Magma => Surface3DColormap::Inferno,
@@ -477,6 +479,24 @@ impl SpinoramaApp {
                     cx.notify();
                 }
             }));
+
+        // Headless (chart-only) pictures carry the payload title and
+        // no interactive controls.
+        if self.chart_only {
+            return div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .gap(px(ds.spacing.section_gap))
+                .child(
+                    div()
+                        .text_size(px(ds.typography.large_size * s))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(theme.text_primary)
+                        .child(self.title_override.clone().unwrap_or_default()),
+                )
+                .child(surface_view);
+        }
 
         div()
             .size_full()

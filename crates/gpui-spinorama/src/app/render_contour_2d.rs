@@ -43,25 +43,14 @@ impl SpinoramaApp {
             .copied()
             .fold(f64::NEG_INFINITY, f64::max);
 
-        // Calculate SPL range
-        let spl_min = contour_data
-            .spl
-            .iter()
-            .copied()
-            .fold(f64::INFINITY, f64::min);
-        let spl_max = contour_data
-            .spl
-            .iter()
-            .copied()
-            .fold(f64::NEG_INFINITY, f64::max);
-
-        // Generate contour thresholds (every 3 dB based on actual data range)
-        let threshold_min = ((spl_min / 3.0).floor() * 3.0) as i32;
-        let threshold_max = ((spl_max / 3.0).ceil() * 3.0) as i32;
-        let thresholds: Vec<f64> = (threshold_min..=threshold_max)
-            .step_by(3)
-            .map(f64::from)
-            .collect();
+        // Python contour scale: fixed -30..+3 dB, one band every 3 dB
+        // (`contour_start`/`contour_end` in plot/contour.py), so the
+        // colours are comparable across speakers.
+        const SPL_MIN: f64 = -30.0;
+        const SPL_MAX: f64 = 3.0;
+        let spl_min = SPL_MIN;
+        let spl_max = SPL_MAX;
+        let thresholds: Vec<f64> = (-30..=3).step_by(3).map(f64::from).collect();
 
         // For the contour generator, we pass the log-transformed frequencies
         let log_freq_values: Vec<f64> = contour_data.freq.iter().map(|f| f.ln()).collect();
@@ -70,10 +59,14 @@ impl SpinoramaApp {
         let log_freq_min = freq_min.max(20.0).ln();
         let log_freq_max = freq_max.min(20000.0).ln();
 
-        // Create contour generator with explicit log-transformed x values
+        // Create contour generator with explicit log-transformed x
+        // values. Upsampling the coarse (angle x frequency) grid
+        // bilinearly smooths the marching-squares band edges, as the
+        // Plotly contour rendering does.
         let generator = ContourGenerator::new(freq_count, angle_count)
             .x_values(log_freq_values.clone())
-            .y_values(contour_data.angles.clone());
+            .y_values(contour_data.angles.clone())
+            .upsample_factor(4);
 
         // Generate contours and heatmap data based on render mode
         let is_isoline = render_mode == ContourRenderMode::Isoline;
@@ -153,17 +146,14 @@ impl SpinoramaApp {
 
         // Configure rendering based on mode
         let color_scale = colormap.color_scale();
+        // Surface bands are opaque fills without outlines, like the
+        // Plotly contour: stroking every band polygon leaves a dotted
+        // mesh of seams over the field.
         let contour_config = ContourConfig::new()
-            .stroke_width(if is_isoline { 1.5 } else { 0.5 })
+            .stroke_width(if is_isoline { 1.5 } else { 0.0 })
             .fill(is_surface)
-            .fill_opacity(if is_surface {
-                0.6
-            } else if is_heatmap {
-                1.0
-            } else {
-                0.0
-            })
-            .stroke_opacity(if is_isoline { 1.0 } else { 0.8 })
+            .fill_opacity(if is_surface || is_heatmap { 1.0 } else { 0.0 })
+            .stroke_opacity(if is_isoline { 1.0 } else { 0.0 })
             .color_scale(color_scale);
 
         // Build frequency tick values in log space
@@ -211,18 +201,7 @@ impl SpinoramaApp {
                                         .h(px(chart_height))
                                         .relative()
                                         .bg(theme.surface)
-                                        // In Isoline mode, render grid first (underneath lines)
-                                        .when(is_isoline, |el| {
-                                            el.child(render_grid(
-                                                &freq_scale,
-                                                &angle_scale,
-                                                &GridConfig::with_lines()
-                                                    .with_vertical_values(freq_ticks.clone()),
-                                                chart_width,
-                                                chart_height,
-                                                &axis_theme,
-                                            ))
-                                        })
+                                        // No grid over the contour field.
                                         // Render contour bands (for Surface mode) - filled polygons
                                         .when_some(contour_bands.clone(), |el, bands| {
                                             el.child(render_contour_bands(
@@ -239,18 +218,6 @@ impl SpinoramaApp {
                                                 &freq_scale,
                                                 &angle_scale,
                                                 &contour_config,
-                                            ))
-                                        })
-                                        // In Surface/Heatmap mode, render grid on top
-                                        .when(is_surface || is_heatmap, |el| {
-                                            el.child(render_grid(
-                                                &freq_scale,
-                                                &angle_scale,
-                                                &GridConfig::with_lines()
-                                                    .with_vertical_values(freq_ticks.clone()),
-                                                chart_width,
-                                                chart_height,
-                                                &axis_theme,
                                             ))
                                         })
                                         // Render contour lines (for Isoline mode)

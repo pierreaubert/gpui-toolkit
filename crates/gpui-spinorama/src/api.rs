@@ -311,6 +311,15 @@ pub fn extract_cea2034_curves_original(
     Ok(curves)
 }
 
+/// Parses the angle curves of an SPL Horizontal/Vertical payload.
+///
+/// Public wrapper for the headless image renderer, which builds
+/// sphere (globe) data from the two plane payloads on disk.
+#[cfg(all(target_os = "macos", feature = "capture-bench"))]
+pub fn directivity_curves(plot: &Value) -> Result<Vec<DirectivityCurve>, String> {
+    directivity(plot)
+}
+
 fn directivity(plot: &Value) -> Result<Vec<DirectivityCurve>, String> {
     let traces = plot["data"]
         .as_array()
@@ -530,6 +539,10 @@ pub fn parse_plot(plot: &Value) -> Result<crate::types::PlotData, String> {
     if let Some(y2) = layout.get("yaxis2") {
         out.layout.y_axis2 = Some(axis_layout(y2));
     }
+    out.layout.hide_zero_line = layout
+        .get("hide_zero_line")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     out.layout.polar_radial_range = layout
         .pointer("/polar/radialaxis/range")
         .and_then(Value::as_array)
@@ -873,6 +886,35 @@ mod tests {
         assert!(data.layout.x_axis.log);
         assert!(is_auth_error("HTTP status client error (401 Unauthorized)"));
         assert!(!is_auth_error("HTTP status client error (404 Not Found)"));
+    }
+
+    #[test]
+    fn parse_plot_reads_hide_zero_line() {
+        let with_flag = json!({
+            "data": [{"type":"scatter","name":"main","x":[100,1000],"y":[1,2]}],
+            "layout": {"hide_zero_line": true}
+        });
+        assert!(parse_plot(&with_flag).unwrap().layout.hide_zero_line);
+        let without_flag = json!({
+            "data": [{"type":"scatter","name":"main","x":[100,1000],"y":[1,2]}],
+            "layout": {}
+        });
+        assert!(!parse_plot(&without_flag).unwrap().layout.hide_zero_line);
+    }
+
+    #[test]
+    fn spinorama_colormap_matches_python_stops() {
+        let scale = crate::types::Colormap::Spinorama.color_scale();
+        let low = scale(0.0);
+        assert!((low.b - 168.0 / 255.0_f32).abs() < 1e-6 && low.r == 0.0 && low.g == 0.0);
+        let high = scale(1.0);
+        assert!(
+            (high.r - 253.0 / 255.0_f32).abs() < 1e-6
+                && (high.g - 14.0 / 255.0_f32).abs() < 1e-6
+                && (high.b - 13.0 / 255.0_f32).abs() < 1e-6,
+            "high stop: {high:?}"
+        );
+        assert_eq!(crate::types::Colormap::default(), crate::types::Colormap::Spinorama);
     }
 
     #[test]

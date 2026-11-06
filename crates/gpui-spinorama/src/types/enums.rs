@@ -28,7 +28,9 @@ impl ContourRenderMode {
 /// Colormap selection for contour plots
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Colormap {
+    /// Python spinorama `CONTOUR_COLORSCALE` (blue to red, 11 stops).
     #[default]
+    Spinorama,
     Viridis,
     Plasma,
     Magma,
@@ -40,6 +42,7 @@ pub enum Colormap {
 impl Colormap {
     pub fn label(&self) -> &'static str {
         match self {
+            Self::Spinorama => "Spinorama",
             Self::Viridis => "Viridis",
             Self::Plasma => "Plasma",
             Self::Magma => "Magma",
@@ -51,12 +54,13 @@ impl Colormap {
 
     pub fn next(&self) -> Self {
         match self {
+            Self::Spinorama => Self::Viridis,
             Self::Viridis => Self::Plasma,
             Self::Plasma => Self::Magma,
             Self::Magma => Self::Inferno,
             Self::Inferno => Self::Heat,
             Self::Heat => Self::Coolwarm,
-            Self::Coolwarm => Self::Viridis,
+            Self::Coolwarm => Self::Spinorama,
         }
     }
 
@@ -67,6 +71,24 @@ impl Colormap {
         move |t: f64| {
             let t = t.clamp(0.0, 1.0);
             match colormap {
+                Colormap::Spinorama => {
+                    // Python `CONTOUR_COLORSCALE` stops (theme.py),
+                    // equally spaced from 0 to 1 in 0.1 steps.
+                    let colors = [
+                        d3rs::color::D3Color::from_hex(0x0000a8),
+                        d3rs::color::D3Color::from_hex(0x0000c8),
+                        d3rs::color::D3Color::from_hex(0x004aff),
+                        d3rs::color::D3Color::from_hex(0x0098ff),
+                        d3rs::color::D3Color::from_hex(0x4affa1),
+                        d3rs::color::D3Color::from_hex(0xa1ff4a),
+                        d3rs::color::D3Color::from_hex(0xffff00),
+                        d3rs::color::D3Color::from_hex(0xea9f00),
+                        d3rs::color::D3Color::from_hex(0xff4a00),
+                        d3rs::color::D3Color::from_hex(0xde4a00),
+                        d3rs::color::D3Color::from_hex(0xfd0e0d),
+                    ];
+                    super::super::utils::interpolate_colors(&colors, t)
+                }
                 Colormap::Viridis => {
                     let colors = [
                         d3rs::color::D3Color::from_hex(0x440154),

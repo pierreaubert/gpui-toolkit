@@ -198,6 +198,7 @@ pub fn render_generic_freq_chart(
         .with_label_font_size(label_size)
         .with_title_font_size(title_size)
         .with_tick_size(tick_size)
+        .with_title_padding(super::AXIS_TITLE_PADDING)
         .total_size();
     let right_axis_width = if has_secondary {
         AxisConfig::right()
@@ -205,6 +206,7 @@ pub fn render_generic_freq_chart(
             .with_label_font_size(label_size)
             .with_title_font_size(title_size)
             .with_tick_size(tick_size)
+            .with_title_padding(super::AXIS_TITLE_PADDING)
             .total_size()
     } else {
         0.0
@@ -298,7 +300,7 @@ pub fn render_generic_freq_chart(
     // 0 dB reference line: black, slightly thicker than the grid,
     // painted above the grid but below the curves.
     let make_zero_line = || {
-        (y_domain.0 <= 0.0 && 0.0 <= y_domain.1).then(|| {
+        (!plot.layout.hide_zero_line && y_domain.0 <= 0.0 && 0.0 <= y_domain.1).then(|| {
             let zero_y = ((y_domain.1 / (y_domain.1 - y_domain.0)) as f32) * chart_height;
             div()
                 .absolute()
@@ -393,7 +395,8 @@ pub fn render_generic_freq_chart(
         .with_title(y_title)
         .with_label_font_size(label_size)
         .with_title_font_size(title_size)
-        .with_tick_size(tick_size);
+        .with_tick_size(tick_size)
+        .with_title_padding(super::AXIS_TITLE_PADDING);
     let y_scale_axis = LinearScale::new()
         .domain(y_domain.0, y_domain.1)
         .range(f64::from(chart_height), 0.0);
@@ -451,7 +454,8 @@ pub fn render_generic_freq_chart(
                 .with_title(title2)
                 .with_label_font_size(label_size)
                 .with_title_font_size(title_size)
-                .with_tick_size(tick_size),
+                .with_tick_size(tick_size)
+                .with_title_padding(super::AXIS_TITLE_PADDING),
             chart_height,
             &theme,
         ));
@@ -994,6 +998,7 @@ pub fn render_generic_subplots(
                 y_axis2: None,
                 annotations: Vec::new(),
                 polar_radial_range: None,
+                hide_zero_line: false,
                 subplots: Vec::new(),
             },
         };

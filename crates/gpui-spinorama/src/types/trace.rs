@@ -97,6 +97,8 @@ pub struct PlotLayout {
     pub annotations: Vec<Annotation>,
     /// Radial range for polar figures (`polar.radialaxis.range`).
     pub polar_radial_range: Option<(f64, f64)>,
+    /// Payload `layout.hide_zero_line`: suppress the 0 dB reference line.
+    pub hide_zero_line: bool,
     /// Subplot cells for `make_subplots` figures; empty for single plots.
     /// Traces reference their cell via `GenericTrace::subplot`.
     pub subplots: Vec<SubplotCell>,

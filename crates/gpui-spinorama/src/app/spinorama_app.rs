@@ -469,6 +469,13 @@ impl SpinoramaApp {
         self.contour_data_revision = self.contour_data_revision.wrapping_add(1);
     }
 
+    /// Replaces the directivity data used by the sphere (globe) view.
+    #[cfg(all(target_os = "macos", feature = "capture-bench"))]
+    pub fn set_directivity_data(&mut self, data: crate::api::DirectivityData) {
+        self.directivity_data = Some(data);
+        self.contour_data_revision = self.contour_data_revision.wrapping_add(1);
+    }
+
     pub(super) fn load_speakers(&mut self, cx: &mut Context<Self>) {
         // Unit tests must not spawn real network tasks on the
         // app's Tokio runtime from the GPUI test scheduler.
@@ -1546,7 +1553,8 @@ impl SpinoramaApp {
                     GraphRenderer::PolarChart => match self.generic_plot {
                         Some(ref plot) => {
                             let size = w.min(h * 1.4).min(620.0);
-                            div()
+                            let plot_title = plot.layout.title.clone();
+                            let chart = div()
                                 .flex()
                                 .flex_col()
                                 .items_center()
@@ -1557,7 +1565,27 @@ impl SpinoramaApp {
                                     size,
                                     &theme,
                                 ))
-                                .child(self.render_generic_legend(cx))
+                                .child(self.render_generic_legend(cx));
+                            if self.chart_only {
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(ds.spacing.section_gap * 1.5))
+                                    .child(
+                                        div()
+                                            .text_size(px(ds.typography.large_size * s))
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(theme.text_primary)
+                                            .child(
+                                                self.title_override
+                                                    .clone()
+                                                    .unwrap_or_else(|| plot_title.unwrap_or_default()),
+                                            ),
+                                    )
+                                    .child(chart)
+                            } else {
+                                chart
+                            }
                         }
                         None => self.render_welcome(cx),
                     },
