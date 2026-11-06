@@ -1,5 +1,14 @@
 # Unreleased
 
+# 0.10.46
+
+## Added
+
+- `AxisConfig::ticks_inside` (builder `with_ticks_inside`): draws tick
+  marks inside the plot area, Plotly `ticks="inside"` style, for bottom,
+  left, and right axes. Labels remain outside the plot. Default remains
+  outside ticks.
+
 # 0.10.19
 
 ## Fixed

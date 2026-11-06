@@ -48,6 +48,10 @@ pub struct AxisConfig {
     /// Label rotation angle in degrees (0 = horizontal, -45 = angled down-left)
     /// Useful for long labels on bottom axis
     pub label_angle: f32,
+    /// Draw tick marks inside the plot area (Plotly `ticks="inside"`)
+    /// instead of outside the domain line. The marks overflow the axis
+    /// element toward the chart; labels stay outside.
+    pub ticks_inside: bool,
 }
 
 impl Default for AxisConfig {
@@ -68,6 +72,7 @@ impl Default for AxisConfig {
             title_font_size: 12.0,
             title_padding: 8.0,
             label_angle: 0.0,
+            ticks_inside: false,
         }
     }
 }
@@ -191,6 +196,12 @@ impl AxisConfig {
     /// Set the tick size (length of tick mark)
     pub fn with_tick_size(mut self, size: f32) -> Self {
         self.tick_size = size;
+        self
+    }
+
+    /// Draw tick marks inside the plot area (see `ticks_inside`).
+    pub fn with_ticks_inside(mut self, inside: bool) -> Self {
+        self.ticks_inside = inside;
         self
     }
 

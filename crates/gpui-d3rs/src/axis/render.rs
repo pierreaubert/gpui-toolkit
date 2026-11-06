@@ -113,7 +113,13 @@ where
                 letter_spacing: 0.1,
             };
 
-            // Tick mark - positioned absolutely and centered on the x position
+            // Tick mark - positioned absolutely and centered on the x position.
+            // Inside ticks extend upward from the domain line, into the plot.
+            let tick_top = if config.ticks_inside {
+                tick_top - config.tick_size
+            } else {
+                tick_top
+            };
             let tick_mark = div()
                 .absolute()
                 .left(relative(x_pos as f32))
@@ -160,6 +166,11 @@ where
                     }
                     let half_tick_width = config.domain_line_width / 2.0;
 
+                    let tick_top = if config.ticks_inside {
+                        tick_top - config.minor_tick_size
+                    } else {
+                        tick_top
+                    };
                     Some(
                         div()
                             .absolute()
@@ -385,15 +396,27 @@ where
                 GlyphTextConfig::horizontal(config.label_font_size, theme.axis_label_color());
             let label_x = width - tick_right - config.tick_size - config.tick_padding;
 
-            // Tick mark - positioned absolutely and centered on the y position
-            let tick_mark = div()
-                .absolute()
-                .right(px(tick_right))
-                .top(relative(y_pos as f32))
-                .mt(px(-half_tick_height))
-                .w(px(config.tick_size))
-                .h(px(config.domain_line_width))
-                .bg(theme.axis_line_color());
+            // Tick mark - positioned absolutely and centered on the y position.
+            // Inside ticks extend right from the domain line, into the plot.
+            let tick_mark = if config.ticks_inside {
+                div()
+                    .absolute()
+                    .left(px(domain_line_x))
+                    .top(relative(y_pos as f32))
+                    .mt(px(-half_tick_height))
+                    .w(px(config.tick_size))
+                    .h(px(config.domain_line_width))
+                    .bg(theme.axis_line_color())
+            } else {
+                div()
+                    .absolute()
+                    .right(px(tick_right))
+                    .top(relative(y_pos as f32))
+                    .mt(px(-half_tick_height))
+                    .w(px(config.tick_size))
+                    .h(px(config.domain_line_width))
+                    .bg(theme.axis_line_color())
+            };
 
             let label_div = div()
                 .absolute()
@@ -424,17 +447,19 @@ where
                     }
                     let half_tick_height = config.domain_line_width / 2.0;
 
-                    Some(
-                        div()
-                            .absolute()
-                            .right(px(tick_right))
-                            .top(relative(y_pos as f32))
-                            .mt(px(-half_tick_height))
-                            .w(px(config.minor_tick_size))
-                            .h(px(config.domain_line_width))
-                            .bg(theme.axis_line_color())
-                            .into_any_element(),
-                    )
+                    let tick = div()
+                        .absolute()
+                        .top(relative(y_pos as f32))
+                        .mt(px(-half_tick_height))
+                        .w(px(config.minor_tick_size))
+                        .h(px(config.domain_line_width))
+                        .bg(theme.axis_line_color());
+                    let tick = if config.ticks_inside {
+                        tick.left(px(domain_line_x))
+                    } else {
+                        tick.right(px(tick_right))
+                    };
+                    Some(tick.into_any_element())
                 }),
         )
 }
@@ -482,7 +507,13 @@ where
             let font_config =
                 GlyphTextConfig::horizontal(config.label_font_size, theme.axis_label_color());
 
-            // Tick mark - positioned absolutely and centered on the y position
+            // Tick mark - positioned absolutely and centered on the y position.
+            // Inside ticks extend left from the domain line, into the plot.
+            let tick_left = if config.ticks_inside {
+                tick_left - config.tick_size
+            } else {
+                tick_left
+            };
             let tick_mark = div()
                 .absolute()
                 .left(px(tick_left))
