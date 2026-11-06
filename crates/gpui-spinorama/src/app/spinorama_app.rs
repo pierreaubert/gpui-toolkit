@@ -1552,7 +1552,13 @@ impl SpinoramaApp {
                     GraphRenderer::Sphere => self.render_sphere_plot(cx),
                     GraphRenderer::PolarChart => match self.generic_plot {
                         Some(ref plot) => {
-                            let size = w.min(h * 1.4).min(620.0);
+                            // Headless pictures fill the frame; the
+                            // interactive view keeps its compact size.
+                            let size = if self.chart_only {
+                                w.min(h * 1.05)
+                            } else {
+                                w.min(h * 1.4).min(620.0)
+                            };
                             let plot_title = plot.layout.title.clone();
                             let chart = div()
                                 .flex()
@@ -1725,10 +1731,19 @@ impl SpinoramaApp {
         let Some(plot) = self.generic_plot.clone() else {
             return div();
         };
+        // Same look and feel as the CEA2034 legend (render_legend):
+        // entries centred on a muted rounded band.
+        let font_size = (12.0 * self.font_scale()).round();
+        let row_height = (font_size * 1.25).ceil().max(18.0);
         div()
             .flex()
             .flex_wrap()
-            .gap(px(ds.spacing.control_gap))
+            .justify_center()
+            .items_center()
+            .gap(px(ds.spacing.section_gap))
+            .p(px(ds.spacing.card_padding))
+            .bg(theme.muted)
+            .rounded(px(ds.corners.md))
             .children(plot.traces.iter().enumerate().filter_map(|(i, trace)| {
                 if !trace.visible || trace.name.is_empty() {
                     return None;
@@ -1740,13 +1755,13 @@ impl SpinoramaApp {
                     div()
                         .id(ElementId::NamedInteger("generic-legend".into(), i as u64))
                         .flex()
+                        .h(px(row_height))
                         .items_center()
                         .gap(px(ds.spacing.control_gap))
-                        .px(px(ds.spacing.control_padding_x))
-                        .py(px(ds.spacing.control_padding_y * 0.5))
                         .rounded(px(ds.corners.sm))
                         .cursor_pointer()
                         .when(hidden, |el| el.opacity(0.35))
+                        .hover(|el| el.bg(theme.surface_hover))
                         .child(Self::legend_swatch(
                             trace.marker_symbol.filter(|_| {
                                 matches!(
@@ -1759,8 +1774,10 @@ impl SpinoramaApp {
                         ))
                         .child(
                             div()
-                                .text_size(px(ds.typography.small_size))
-                                .text_color(theme.text_secondary)
+                                .h(px(row_height))
+                                .line_height(px(row_height))
+                                .text_size(px(font_size))
+                                .text_color(theme.text_primary)
                                 .child(trace.name.clone()),
                         )
                         .on_click(cx.listener(move |this, _, _w, cx| {

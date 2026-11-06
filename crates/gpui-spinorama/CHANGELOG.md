@@ -1,5 +1,25 @@
 # Unreleased
 
+# 0.10.51
+
+## Changed
+
+- Radar/spider charts: category and angle labels are much larger
+  (scaled with the chart size, centred on their spokes, primary text
+  colour), and the radial grid circles now carry scale labels along
+  the top spoke (grid fractions for spiders, nice steps for numeric
+  radars). Headless polar pictures also fill the frame instead of
+  being capped at the interactive 620 px size.
+
+# 0.10.50
+
+## Changed
+
+- The generic chart legend reuses the CEA2034 legend's look and
+  feel: entries centred on a muted rounded band, same 12 px primary
+  text, row height, and hover treatment. Applies to the frequency,
+  polar, bar, and subplot chart legends.
+
 # 0.10.49
 
 ## Fixed

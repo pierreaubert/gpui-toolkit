@@ -3104,7 +3104,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-spinorama"
-version = "0.10.49"
+version = "0.10.51"
 dependencies = [
  "base64",
  "gpui-builder",

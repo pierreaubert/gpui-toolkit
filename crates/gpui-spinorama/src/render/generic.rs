@@ -572,6 +572,20 @@ fn add_lines<XS: Scale<f64, f64>, YS: Scale<f64, f64>>(
     area
 }
 
+/// Formats a radial tick value without trailing zeros (`0.5`, `-30`).
+fn format_radial_value(value: f64) -> String {
+    if value == value.trunc() && value.abs() < 1e15 {
+        #[expect(clippy::cast_possible_truncation, reason = "checked integral and bounded")]
+        let int = value as i64;
+        format!("{int}")
+    } else {
+        format!("{value:.2}")
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_owned()
+    }
+}
+
 /// Renders a generic polar chart: every scatterpolar trace, numeric or
 /// categorical (spider). No trace-count cap.
 pub fn render_generic_polar(
@@ -580,8 +594,12 @@ pub fn render_generic_polar(
     chart_size: f32,
     ui_theme: &Theme,
 ) -> Div {
+    // Category and radial labels scale with the chart so published
+    // pictures (rendered large) keep readable text.
+    let label_px = (chart_size * 0.028).clamp(15.0, 26.0);
+    let radial_px = label_px * 0.78;
     let center = chart_size / 2.0;
-    let outer = (chart_size / 2.0 - 56.0).max(40.0);
+    let outer = (chart_size / 2.0 - label_px * 3.4).max(40.0);
     let traces: Vec<&GenericTrace> = plot
         .traces
         .iter()
@@ -670,6 +688,38 @@ pub fn render_generic_polar(
     } else {
         (0..12).map(|i| f64::from(i) * 30.0_f64.to_radians()).collect()
     };
+    // Radial scale: grid circles carry value labels along the top
+    // spoke. Spiders use the grid fractions of their (usually
+    // normalised) range; numeric radars get nice round steps.
+    let radial_ticks: Vec<(f32, String)> = if categorical {
+        [0.25, 0.5, 0.75, 1.0]
+            .iter()
+            .map(|&t| {
+                let value = r_min + t * (r_max - r_min);
+                #[expect(clippy::cast_possible_truncation, reason = "radius fits in f32")]
+                let radius = (t * f64::from(outer)) as f32;
+                (radius, format_radial_value(value))
+            })
+            .collect()
+    } else {
+        let span = r_max - r_min;
+        let step = [1.0, 2.0, 5.0, 10.0, 20.0, 25.0, 50.0]
+            .into_iter()
+            .find(|step| span / step <= 5.0)
+            .unwrap_or(50.0);
+        let mut ticks = Vec::new();
+        let mut value = (r_min / step).ceil() * step;
+        while value <= r_max + 1e-9 {
+            if value > r_min {
+                #[expect(clippy::cast_possible_truncation, reason = "radius fits in f32")]
+                let radius = ((value - r_min) / span) as f32 * outer;
+                ticks.push((radius, format_radial_value(value)));
+            }
+            value += step;
+        }
+        ticks
+    };
+
     let polar_canvas = canvas(
         move |_b, _w, _c| (series.clone(), grid_radii.clone(), spokes.clone()),
         move |bounds, (series, radii, spokes), window, cx| {
@@ -724,8 +774,16 @@ pub fn render_generic_polar(
     .w(px(chart_size))
     .h(px(chart_size));
 
-    let label_cfg = GlyphTextConfig::horizontal(10.0, Hsla::from(ui_theme.text_secondary));
-    let labels = div().absolute().inset_0().children(if categorical {
+    let label_cfg = GlyphTextConfig::horizontal(label_px, Hsla::from(ui_theme.text_primary));
+    let radial_cfg = GlyphTextConfig::horizontal(radial_px, Hsla::from(ui_theme.text_secondary));
+    // Glyph advance is roughly half the font size; centre each label
+    // on its spoke point with that estimate.
+    let centred = |text: &str, x: f32, y: f32, font: f32| {
+        #[expect(clippy::cast_precision_loss, reason = "label length fits in f32")]
+        let est_width = text.chars().count() as f32 * font * 0.52;
+        (x - est_width / 2.0, y - font * 0.55)
+    };
+    let mut label_divs: Vec<Div> = if categorical {
         categories
             .iter()
             .enumerate()
@@ -733,29 +791,53 @@ pub fn render_generic_polar(
                 let ang =
                     (i as f64 / categories.len().max(1) as f64) * std::f64::consts::TAU
                         - std::f64::consts::FRAC_PI_2;
-                let r = outer + 28.0;
+                let r = outer + label_px * 1.1;
+                let (left, top) = centred(
+                    label,
+                    center + r * ang.cos() as f32,
+                    center + r * ang.sin() as f32,
+                    label_px,
+                );
                 div()
                     .absolute()
-                    .left(px(center + r * ang.cos() as f32 - 24.0))
-                    .top(px(center + r * ang.sin() as f32 - 6.0))
+                    .left(px(left))
+                    .top(px(top))
                     .child(render_glyph_text(label, &label_cfg))
             })
-            .collect::<Vec<_>>()
+            .collect()
     } else {
         (0..12)
             .map(|i| {
                 let deg = f64::from(i) * 30.0;
                 let ang = (deg - 90.0).to_radians();
-                let r = outer + 22.0;
+                let r = outer + label_px * 0.9;
                 let shown = if deg <= 180.0 { deg as i32 } else { deg as i32 - 360 };
+                let text = format!("{shown}°");
+                let (left, top) = centred(
+                    &text,
+                    center + r * ang.cos() as f32,
+                    center + r * ang.sin() as f32,
+                    label_px,
+                );
                 div()
                     .absolute()
-                    .left(px(center + r * ang.cos() as f32 - 14.0))
-                    .top(px(center + r * ang.sin() as f32 - 6.0))
-                    .child(render_glyph_text(&format!("{shown}°"), &label_cfg))
+                    .left(px(left))
+                    .top(px(top))
+                    .child(render_glyph_text(&text, &label_cfg))
             })
-            .collect::<Vec<_>>()
-    });
+            .collect()
+    };
+    // Radial scale labels along the top spoke, right of the line.
+    for (radius, text) in &radial_ticks {
+        label_divs.push(
+            div()
+                .absolute()
+                .left(px(center + radial_px * 0.35))
+                .top(px(center - radius - radial_px * 0.55))
+                .child(render_glyph_text(text, &radial_cfg)),
+        );
+    }
+    let labels = div().absolute().inset_0().children(label_divs);
 
     div()
         .relative()
