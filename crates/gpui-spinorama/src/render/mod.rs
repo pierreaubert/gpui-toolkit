@@ -131,16 +131,10 @@ pub fn render_freq_spl_plot(
         .filter(|&f| f >= freq_domain.0 && f <= freq_domain.1)
         .collect();
 
-    // Grid lines - filter to current domain
-    let grid_freq_values: Vec<f64> = vec![
-        50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 20000.0,
-    ]
-    .into_iter()
-    .filter(|&f| f >= freq_domain.0 && f <= freq_domain.1)
-    .collect();
 
-    // Generate SPL tick values
-    let spl_step = 10.0;
+    // Generate SPL tick values: a label every 5 dB, as in the Python
+    // layout (generate_yaxis_spl with range_step=5 for spinorama plots).
+    let spl_step = 5.0;
     let spl_ticks: Vec<f64> = {
         let start = (spl_domain.0 / spl_step).ceil() as i32;
         let end = (spl_domain.1 / spl_step).floor() as i32;
@@ -159,6 +153,7 @@ pub fn render_freq_spl_plot(
     let secondary_curves: Vec<&PlotCurve> =
         curves.iter().filter(|c| c.use_secondary_axis).collect();
     let left_axis_config = AxisConfig::left()
+        .with_ticks_inside(true)
         .with_tick_values(spl_ticks)
         .with_formatter(|v| format!("{v:.0}"))
         .with_title("SPL (dB)")
@@ -191,8 +186,22 @@ pub fn render_freq_spl_plot(
                             &freq_scale,
                             &spl_scale,
                             &{
+                                // Thin lines at every log tick (2..9 per
+                                // decade, Python dtick="D1"), no dots at
+                                // intersections.
+                                let mut log_grid_values: Vec<f64> = (0..=3)
+                                    .flat_map(|decade| {
+                                        let base = 10f64.powi(decade + 1);
+                                        (1..=9).map(move |m| f64::from(m) * base)
+                                    })
+                                    .filter(|f| {
+                                        *f >= freq_domain.0 && *f <= freq_domain.1
+                                    })
+                                    .collect();
+                                log_grid_values.sort_by(f64::total_cmp);
                                 let mut config = GridConfig::with_lines()
-                                    .with_vertical_values(grid_freq_values.clone());
+                                    .with_dots(false)
+                                    .with_vertical_values(log_grid_values);
                                 if let Some((x_vals, y_vals)) = grid_tickvals {
                                     if !x_vals.is_empty() {
                                         config = config.with_vertical_values(
@@ -223,6 +232,26 @@ pub fn render_freq_spl_plot(
                             chart_height,
                             &theme,
                         ))
+                        // 0 dB reference line: black, slightly thicker
+                        // than the grid (Python layouts draw the eye to
+                        // the 0 dB axis first).
+                        .when(
+                            spl_domain.0 <= 0.0 && 0.0 <= spl_domain.1,
+                            |el| {
+                                let zero_y = ((spl_domain.1 / (spl_domain.1 - spl_domain.0))
+                                    as f32)
+                                    * chart_height;
+                                el.child(
+                                    div()
+                                        .absolute()
+                                        .left_0()
+                                        .right_0()
+                                        .top(px(zero_y - 0.75))
+                                        .h(px(1.5))
+                                        .bg(gpui::black()),
+                                )
+                            },
+                        )
                         // Filled curves (recommended zones / bands)
                         .children(primary_curves.iter().filter_map(|curve| {
                             let (color, opacity) = curve.fill?;
@@ -360,6 +389,7 @@ pub fn render_freq_spl_plot(
                     // For DI axis, we use the tick values directly and filter with max_label_value
                     // by passing only tick values up to max_label_value that should have labels
                     let axis_config = AxisConfig::right()
+                        .with_ticks_inside(true)
                         .with_tick_values(cfg.tick_values)
                         .with_formatter(|v| format!("{v:.0}"))
                         .with_title(cfg.title)
@@ -377,6 +407,7 @@ pub fn render_freq_spl_plot(
                 .child(render_axis(
                     &freq_scale,
                     &AxisConfig::bottom()
+                        .with_ticks_inside(true)
                         .with_tick_values(major_freq_ticks)
                         .with_minor_tick_values(minor_freq_ticks)
                         .with_minor_tick_size((3.0 * scale).max(2.0))

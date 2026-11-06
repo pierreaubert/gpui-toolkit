@@ -104,10 +104,21 @@ fn domain_for(
     fallback
 }
 
-fn grid_config(plot: &PlotData) -> GridConfig {
-    let mut config = GridConfig::with_lines();
+fn grid_config(plot: &PlotData, log_x: bool, x_domain: (f64, f64)) -> GridConfig {
+    // Thin grid lines, no dots at intersections (Python layout style).
+    let mut config = GridConfig::with_lines().with_dots(false);
     if !plot.layout.x_axis.tick_values.is_empty() {
         config = config.with_vertical_values(plot.layout.x_axis.tick_values.clone());
+    } else if log_x {
+        // Grid at every log tick, 2..9 per decade (Plotly dtick="D1").
+        let log_grid: Vec<f64> = (0..=3)
+            .flat_map(|decade| {
+                let base = 10f64.powi(decade + 1);
+                (1..=9).map(move |m| f64::from(m) * base)
+            })
+            .filter(|f| *f >= x_domain.0 && *f <= x_domain.1)
+            .collect();
+        config = config.with_vertical_values(log_grid);
     }
     if !plot.layout.y_axis.tick_values.is_empty() {
         config = config.with_horizontal_values(plot.layout.y_axis.tick_values.clone());
@@ -169,6 +180,9 @@ pub fn render_generic_freq_chart(
     };
     let y_step = if def.y_step > 0.0 {
         def.y_step
+    } else if y_domain.1 - y_domain.0 <= 60.0 {
+        // SPL graphs: a label every 5 dB, as in the Python layout.
+        5.0
     } else {
         nice_step(y_domain.1 - y_domain.0)
     };
@@ -281,6 +295,20 @@ pub fn render_generic_freq_chart(
     .absolute()
     .inset_0();
 
+    // 0 dB reference line: black, slightly thicker than the grid,
+    // painted above the grid but below the curves.
+    let make_zero_line = || {
+        (y_domain.0 <= 0.0 && 0.0 <= y_domain.1).then(|| {
+            let zero_y = ((y_domain.1 / (y_domain.1 - y_domain.0)) as f32) * chart_height;
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .top(px(zero_y - 0.75))
+                .h(px(1.5))
+                .bg(gpui::black())
+        })
+    };
     let chart_area = div()
         .w(px(plot_width))
         .h(px(chart_height))
@@ -300,11 +328,16 @@ pub fn render_generic_freq_chart(
         let area = chart_area.child(render_grid(
             &xs,
             &ys,
-            &grid_config(plot),
+            &grid_config(plot, log_x, x_domain),
             plot_width,
             chart_height,
             &theme,
         ));
+        let area = if let Some(line) = make_zero_line() {
+            area.child(line)
+        } else {
+            area
+        };
         add_lines(area, &visible_scatter, &xs, &ys, &ys2, has_secondary)
     } else {
         let xs = LinearScale::new()
@@ -319,14 +352,18 @@ pub fn render_generic_freq_chart(
         let area = chart_area.child(render_grid(
             &xs,
             &ys,
-            &grid_config(plot),
+            &grid_config(plot, log_x, x_domain),
             plot_width,
             chart_height,
             &theme,
         ));
+        let area = if let Some(line) = make_zero_line() {
+            area.child(line)
+        } else {
+            area
+        };
         add_lines(area, &visible_scatter, &xs, &ys, &ys2, has_secondary)
     };
-
     // Annotations as positioned glyph text.
     let annotation_layer = div()
         .absolute()
@@ -350,6 +387,7 @@ pub fn render_generic_freq_chart(
     let chart_area = chart_area.child(annotation_layer);
 
     let left_axis = AxisConfig::left()
+        .with_ticks_inside(true)
         .with_tick_values(y_ticks.clone())
         .with_formatter(fmt)
         .with_title(y_title)
@@ -407,6 +445,7 @@ pub fn render_generic_freq_chart(
         top = top.child(render_axis(
             &y2_scale,
             &AxisConfig::right()
+                .with_ticks_inside(true)
                 .with_tick_values(ticks(y2_domain, nice_step(y2_domain.1 - y2_domain.0)))
                 .with_formatter(fmt)
                 .with_title(title2)
@@ -438,7 +477,17 @@ pub fn render_generic_freq_chart(
                     render_axis(
                         &xs,
                         &AxisConfig::bottom()
+                            .with_ticks_inside(true)
                             .with_tick_values(bottom_ticks)
+                            .with_minor_tick_values(
+                                (0..=3)
+                                    .flat_map(|decade| {
+                                        let base = 10f64.powi(decade + 1);
+                                        (2..=9).map(move |m| f64::from(m) * base)
+                                    })
+                                    .filter(|f| *f >= x_domain.0 && *f <= x_domain.1)
+                                    .collect::<Vec<f64>>(),
+                            )
                             .with_formatter(|f| {
                                 if f >= 1000.0 {
                                     format!("{:.0}k", f / 1000.0)
@@ -461,6 +510,7 @@ pub fn render_generic_freq_chart(
                     render_axis(
                         &xs,
                         &AxisConfig::bottom()
+                            .with_ticks_inside(true)
                             .with_tick_values(bottom_ticks)
                             .with_formatter(fmt)
                             .with_title(x_title)

@@ -1,6 +1,6 @@
 [package]
 name = "gpui-spinorama"
-version = "0.10.46"
+version = "0.10.47"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
