@@ -31,7 +31,7 @@ const WIDTH: f32 = 1200.0;
 /// See [`WIDTH`].
 const HEIGHT: f32 = 800.0;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GraphKind {
     Cea2034,
     Contour { plane: &'static str },
@@ -41,7 +41,12 @@ enum GraphKind {
 
 fn classify(stem: &str) -> Option<GraphKind> {
     match stem {
-        "CEA2034" | "CEA2034 Normalized" => Some(GraphKind::Cea2034),
+        // The AutoEQ spin sheets hold the same six CEA2034 curves; run
+        // them through the specialised CEA2034 renderer so the with-EQ
+        // and without-EQ pictures share one look and feel.
+        "CEA2034" | "CEA2034 Normalized" | "filters_spin_noeq" | "filters_spin_auto" => {
+            Some(GraphKind::Cea2034)
+        }
         "SPL Horizontal Contour" | "SPL Horizontal Contour Normalized" => {
             Some(GraphKind::Contour {
                 plane: "Horizontal",
@@ -57,6 +62,45 @@ fn classify(stem: &str) -> Option<GraphKind> {
             Some(GraphKind::Generic { graph_index })
         }
     }
+}
+
+/// True for the two directivity graphs, whose pictures are cropped.
+fn is_directivity(kind: GraphKind) -> bool {
+    match kind {
+        GraphKind::Generic { graph_index } => matches!(
+            GRAPH_CATALOG[graph_index].measurement,
+            "Horizontal Directivity" | "Vertical Directivity"
+        ),
+        _ => false,
+    }
+}
+
+/// Crops trailing rows that are uniformly the background colour.
+///
+/// Directivity charts only occupy the top of the capture; keeping the
+/// blank band below the legend would give the published picture dead
+/// height. A small padding row is kept under the last content row.
+fn crop_blank_bottom(image: &image::RgbaImage) -> image::RgbaImage {
+    let (width, height) = image.dimensions();
+    if height == 0 || width == 0 {
+        return image.clone();
+    }
+    let bg = *image.get_pixel(0, height - 1);
+    let blank = |y: u32| -> bool {
+        (0..width).all(|x| {
+            let p = image.get_pixel(x, y);
+            (0..3).all(|c| (i32::from(p[c]) - i32::from(bg[c])).abs() <= 2)
+        })
+    };
+    let mut last_content = height - 1;
+    while last_content > 0 && blank(last_content) {
+        last_content -= 1;
+    }
+    let keep = (last_content + 9).min(height);
+    if keep == height {
+        return image.clone();
+    }
+    image::imageops::crop_imm(image, 0, 0, width, keep).to_image()
 }
 
 fn collect_json(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
@@ -331,6 +375,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
             let raw = std::fs::read_to_string(path).map_err(|e| format!("read: {e}"))?;
             let plot: Value = serde_json::from_str(&raw).map_err(|e| format!("parse: {e}"))?;
             let image = render_one(&mut cx, &handle, any_handle, *kind, &plot, speaker, version)?;
+            let image = if is_directivity(*kind) {
+                crop_blank_bottom(&image)
+            } else {
+                image
+            };
             let out_path = out_root.join(relative).with_extension("png");
             if let Some(parent) = out_path.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
@@ -365,4 +414,43 @@ pub fn run(args: &[String]) -> Result<(), String> {
         return Err(format!("{failed_count} file(s) failed to render"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crop_removes_blank_bottom_band() {
+        // 4x10 white image with a black pixel at row 2.
+        let mut image = image::RgbaImage::from_pixel(4, 10, image::Rgba([255, 255, 255, 255]));
+        image.put_pixel(1, 2, image::Rgba([0, 0, 0, 255]));
+        let cropped = crop_blank_bottom(&image);
+        // Last content row (2) plus 8 padding rows, capped by height.
+        assert_eq!(cropped.dimensions(), (4, 10.min(2 + 9)));
+        let cropped = crop_blank_bottom(&image::RgbaImage::from_pixel(
+            4,
+            30,
+            image::Rgba([255, 255, 255, 255]),
+        ));
+        assert_eq!(cropped.dimensions(), (4, 9));
+    }
+
+    #[test]
+    fn directivity_stems_classify_as_directivity() {
+        let index = GRAPH_CATALOG
+            .iter()
+            .position(|g| g.measurement == "Horizontal Directivity")
+            .expect("catalog has directivity");
+        assert!(is_directivity(GraphKind::Generic {
+            graph_index: index
+        }));
+        assert!(!is_directivity(GraphKind::Cea2034));
+    }
+
+    #[test]
+    fn spin_filters_use_cea_renderer() {
+        assert_eq!(classify("filters_spin_auto"), Some(GraphKind::Cea2034));
+        assert_eq!(classify("filters_spin_noeq"), Some(GraphKind::Cea2034));
+    }
 }

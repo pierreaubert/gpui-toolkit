@@ -68,6 +68,24 @@ pub struct AxisLayout {
 }
 
 
+/// One subplot cell of a Plotly `make_subplots` figure.
+///
+/// Domains are Plotly paper coordinates (0..1, y pointing up); the
+/// renderer maps them into its canvas.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SubplotCell {
+    /// X domain in paper coordinates.
+    pub x_domain: (f64, f64),
+    /// Y domain in paper coordinates.
+    pub y_domain: (f64, f64),
+    /// Subplot title (from a paper annotation above the cell).
+    pub title: Option<String>,
+    /// The cell's x axis.
+    pub x_axis: AxisLayout,
+    /// The cell's y axis.
+    pub y_axis: AxisLayout,
+}
+
 /// Layout of a Plotly figure: axes, title, and annotations.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PlotLayout {
@@ -79,6 +97,9 @@ pub struct PlotLayout {
     pub annotations: Vec<Annotation>,
     /// Radial range for polar figures (`polar.radialaxis.range`).
     pub polar_radial_range: Option<(f64, f64)>,
+    /// Subplot cells for `make_subplots` figures; empty for single plots.
+    /// Traces reference their cell via `GenericTrace::subplot`.
+    pub subplots: Vec<SubplotCell>,
 }
 
 /// One generic trace with everything the renderers need.
@@ -108,6 +129,8 @@ pub struct GenericTrace {
     pub opacity: f32,
     /// True when the trace is bound to `yaxis2`.
     pub secondary_axis: bool,
+    /// Subplot cell index (`PlotLayout::subplots`); 0 for single plots.
+    pub subplot: usize,
     pub visible: bool,
     /// Marker size for marker modes.
     pub marker_size: f32,
@@ -135,6 +158,7 @@ impl GenericTrace {
             fill_color: None,
             opacity: 1.0,
             secondary_axis: false,
+            subplot: 0,
             visible: true,
             marker_size: 5.0,
             marker_symbol: None,

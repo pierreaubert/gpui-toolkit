@@ -20,7 +20,7 @@ use gpui::{Div, Hsla, PathBuilder, canvas, div, point, px};
 use gpui_ui_kit::theme::{Theme, ThemeExt};
 
 use crate::types::{
-    GenericTrace, GraphDef, PlotData, TraceFill, TraceKind, TraceMode,
+    GenericTrace, GraphDef, PlotData, PlotLayout, TraceFill, TraceKind, TraceMode,
 };
 use crate::utils::ChartTheme;
 
@@ -174,14 +174,36 @@ pub fn render_generic_freq_chart(
     };
     let y_ticks = ticks(y_domain, y_step);
     let fmt = formatter_for(y_domain);
+    // `chart_width` is the total width including the Y axes (callers
+    // pass the available content width). The plot area is what remains;
+    // using the total for the plot area makes the chart row overflow
+    // and flex-shrink out of sync with the bottom-axis row, drifting
+    // the frequency labels away from the grid and curves.
+    let left_axis_width = AxisConfig::left()
+        .with_title(y_title)
+        .with_label_font_size(label_size)
+        .with_title_font_size(title_size)
+        .with_tick_size(tick_size)
+        .total_size();
+    let right_axis_width = if has_secondary {
+        AxisConfig::right()
+            .with_title("DI (dB)")
+            .with_label_font_size(label_size)
+            .with_title_font_size(title_size)
+            .with_tick_size(tick_size)
+            .total_size()
+    } else {
+        0.0
+    };
+    let plot_width = (chart_width - left_axis_width - right_axis_width).max(1.0);
 
     // Fill polygons (pixel space) painted under the lines.
     let x_to_px = |v: f64| -> f32 {
         if log_x {
             let (lo, hi) = (x_domain.0.ln(), x_domain.1.ln());
-            ((v.ln() - lo) / (hi - lo)) as f32 * chart_width
+            ((v.ln() - lo) / (hi - lo)) as f32 * plot_width
         } else {
-            ((v - x_domain.0) / (x_domain.1 - x_domain.0)) as f32 * chart_width
+            ((v - x_domain.0) / (x_domain.1 - x_domain.0)) as f32 * plot_width
         }
     };
     let y_to_px = |v: f64| -> f32 {
@@ -222,6 +244,12 @@ pub fn render_generic_freq_chart(
                 }
             }
         }
+        // Fill traces are closed data polygons (e.g. the ±3 dB zone is
+        // built from frequencies beyond the axis range and a sloped
+        // regression line); GPUI does not clip canvas paint to the chart
+        // area, so clip here or the zone spills past the axes instead of
+        // reading as a rectangle inside the plot.
+        let poly = clip_poly_to_rect(&poly, plot_width, chart_height);
         if poly.len() >= 3 {
             fills.push((poly, color, trace.opacity));
         }
@@ -254,7 +282,7 @@ pub fn render_generic_freq_chart(
     .inset_0();
 
     let chart_area = div()
-        .w(px(chart_width))
+        .w(px(plot_width))
         .h(px(chart_height))
         .relative()
         .bg(ui_theme.surface)
@@ -262,7 +290,7 @@ pub fn render_generic_freq_chart(
     let chart_area = if log_x {
         let xs = LogScale::new()
             .domain(x_domain.0, x_domain.1)
-            .range(0.0, f64::from(chart_width));
+            .range(0.0, f64::from(plot_width));
         let ys = LinearScale::new()
             .domain(y_domain.0, y_domain.1)
             .range(f64::from(chart_height), 0.0);
@@ -273,7 +301,7 @@ pub fn render_generic_freq_chart(
             &xs,
             &ys,
             &grid_config(plot),
-            chart_width,
+            plot_width,
             chart_height,
             &theme,
         ));
@@ -281,7 +309,7 @@ pub fn render_generic_freq_chart(
     } else {
         let xs = LinearScale::new()
             .domain(x_domain.0, x_domain.1)
-            .range(0.0, f64::from(chart_width));
+            .range(0.0, f64::from(plot_width));
         let ys = LinearScale::new()
             .domain(y_domain.0, y_domain.1)
             .range(f64::from(chart_height), 0.0);
@@ -292,7 +320,7 @@ pub fn render_generic_freq_chart(
             &xs,
             &ys,
             &grid_config(plot),
-            chart_width,
+            plot_width,
             chart_height,
             &theme,
         ));
@@ -402,18 +430,11 @@ pub fn render_generic_freq_chart(
         .child(
             div()
                 .flex()
-                .child(div().flex_none().w(px(
-                    AxisConfig::left()
-                        .with_title(y_title)
-                        .with_label_font_size(label_size)
-                        .with_title_font_size(title_size)
-                        .with_tick_size(tick_size)
-                        .total_size(),
-                )))
+                .child(div().flex_none().w(px(left_axis_width)))
                 .child(if log_x {
                     let xs = LogScale::new()
                         .domain(x_domain.0, x_domain.1)
-                        .range(0.0, f64::from(chart_width));
+                        .range(0.0, f64::from(plot_width));
                     render_axis(
                         &xs,
                         &AxisConfig::bottom()
@@ -429,14 +450,14 @@ pub fn render_generic_freq_chart(
                             .with_label_font_size(label_size)
                             .with_title_font_size(title_size)
                             .with_tick_size(tick_size),
-                        chart_width,
+                        plot_width,
                         &theme,
                     )
                     .into_any_element()
                 } else {
                     let xs = LinearScale::new()
                         .domain(x_domain.0, x_domain.1)
-                        .range(0.0, f64::from(chart_width));
+                        .range(0.0, f64::from(plot_width));
                     render_axis(
                         &xs,
                         &AxisConfig::bottom()
@@ -446,7 +467,7 @@ pub fn render_generic_freq_chart(
                             .with_label_font_size(label_size)
                             .with_title_font_size(title_size)
                             .with_tick_size(tick_size),
-                        chart_width,
+                        plot_width,
                         &theme,
                     )
                     .into_any_element()
@@ -851,6 +872,14 @@ pub fn render_generic_bars(
     } else {
         "Value"
     };
+    let y_axis_config = AxisConfig::left()
+        .with_tick_values(ticks((y_min, y_max), y_step))
+        .with_formatter(formatter_for((y_min, y_max)))
+        .with_title(y_title)
+        .with_label_font_size(label_size)
+        .with_title_font_size(title_size)
+        .with_tick_size(tick_size);
+    let axis_w = y_axis_config.total_size();
     div()
         .flex()
         .flex_col()
@@ -858,32 +887,194 @@ pub fn render_generic_bars(
             div()
                 .flex()
                 .items_start()
-                .child(render_axis(
-                    &ys,
-                    &AxisConfig::left()
-                        .with_tick_values(ticks((y_min, y_max), y_step))
-                        .with_formatter(formatter_for((y_min, y_max)))
-                        .with_title(y_title)
-                        .with_label_font_size(label_size)
-                        .with_title_font_size(title_size)
-                        .with_tick_size(tick_size),
-                    chart_height,
-                    &theme,
-                ))
+                .child(render_axis(&ys, &y_axis_config, chart_height, &theme))
                 .child(area),
         )
+        // Category labels sit in slots of the same width as the bar
+        // slots above, offset by the y-axis width, so each label stays
+        // centred under its bar group.
         .child(
             div()
                 .flex()
-                .flex_wrap()
-                .gap(px(8.0))
-                .children(categories.iter().map(|cat| {
+                .child(div().w(px(axis_w)).flex_none())
+                .child(div().flex().children(categories.iter().map(|cat| {
                     div()
+                        .w(px(slot))
+                        .flex_none()
+                        .text_center()
                         .text_size(px(label_size))
                         .text_color(ui_theme.text_secondary)
                         .child(cat.clone())
-                })),
+                }))),
         )
+}
+
+/// Renders a `make_subplots` figure: one mini chart per subplot cell.
+///
+/// Each cell reuses the frequency-chart or bar renderer with the
+/// cell's own axes, positioned by the cell's paper domain. This draws
+/// the combined `filters_auto_eq` sheet (8x2 cells of PEQ details,
+/// spin curves, per-curve regressions and error histograms).
+pub fn render_generic_subplots(
+    plot: &PlotData,
+    def: &GraphDef,
+    hidden: &HashSet<String>,
+    chart_width: f32,
+    chart_height: f32,
+    ui_theme: &Theme,
+) -> Div {
+    let theme = ChartTheme::from_theme(ui_theme);
+    let title_size = (chart_width / 800.0).clamp(0.7, 1.2) * 10.0;
+    let mut container = div()
+        .relative()
+        .w(px(chart_width))
+        .h(px(chart_height));
+    for (index, cell) in plot.layout.subplots.iter().enumerate() {
+        let cell_plot = PlotData {
+            traces: plot
+                .traces
+                .iter()
+                .filter(|trace| trace.subplot == index)
+                .cloned()
+                .collect(),
+            layout: PlotLayout {
+                title: None,
+                x_axis: cell.x_axis.clone(),
+                y_axis: cell.y_axis.clone(),
+                y_axis2: None,
+                annotations: Vec::new(),
+                polar_radial_range: None,
+                subplots: Vec::new(),
+            },
+        };
+        if cell_plot.traces.is_empty() {
+            continue;
+        }
+        let left = cell.x_domain.0 as f32 * chart_width;
+        let top = (1.0 - cell.y_domain.1) as f32 * chart_height;
+        let width = ((cell.x_domain.1 - cell.x_domain.0) as f32 * chart_width).max(40.0);
+        let height = ((cell.y_domain.1 - cell.y_domain.0) as f32 * chart_height).max(40.0);
+        let title_h = if cell.title.is_some() { 15.0 } else { 0.0 };
+        let has_bars = cell_plot
+            .traces
+            .iter()
+            .any(|trace| trace.visible && trace.kind == TraceKind::Bar);
+        let chart = if has_bars {
+            render_generic_bars(
+                &cell_plot,
+                hidden,
+                width,
+                (height - title_h).max(30.0),
+                ui_theme,
+            )
+        } else {
+            render_generic_freq_chart(
+                &cell_plot,
+                def,
+                hidden,
+                width,
+                (height - title_h).max(30.0),
+                ui_theme,
+            )
+        };
+        let mut cell_div = div()
+            .absolute()
+            .left(px(left))
+            .top(px(top))
+            .w(px(width))
+            .h(px(height))
+            .flex()
+            .flex_col();
+        if let Some(title) = &cell.title {
+            cell_div = cell_div.child(
+                div()
+                    .pl(px(16.0))
+                    .text_size(px(title_size))
+                    .text_color(theme.label_color)
+                    .child(title.clone()),
+            );
+        }
+        container = container.child(cell_div.child(chart));
+    }
+    container
+}
+
+/// Clips a pixel-space polygon to the chart rectangle
+/// (`0..=width`, `0..=height`) with Sutherland–Hodgman clipping.
+///
+/// Fill polygons are built from data coordinates that can exceed the
+/// axis domain (frequencies above 20 kHz, band edges beyond the y
+/// range); without clipping they paint outside the plot area.
+fn clip_poly_to_rect(poly: &[(f32, f32)], width: f32, height: f32) -> Vec<(f32, f32)> {
+    // One clip edge: (point inside test, intersection with the edge).
+    fn clip_edge(
+        poly: &[(f32, f32)],
+        inside: impl Fn((f32, f32)) -> bool,
+        intersect: impl Fn((f32, f32), (f32, f32)) -> (f32, f32),
+    ) -> Vec<(f32, f32)> {
+        let mut out = Vec::with_capacity(poly.len());
+        for (index, &current) in poly.iter().enumerate() {
+            let previous = poly[(index + poly.len() - 1) % poly.len()];
+            let (current_in, previous_in) = (inside(current), inside(previous));
+            if current_in {
+                if !previous_in {
+                    out.push(intersect(previous, current));
+                }
+                out.push(current);
+            } else if previous_in {
+                out.push(intersect(previous, current));
+            }
+        }
+        out
+    }
+    // Intersection factor along `a -> b` for one coordinate; the caller
+    // only invokes this when the segment crosses the edge, so the
+    // denominator is non-zero.
+    fn cross(a: (f32, f32), b: (f32, f32), edge: f32, horizontal: bool) -> (f32, f32) {
+        let (a_edge, b_edge) = if horizontal { (a.1, b.1) } else { (a.0, b.0) };
+        let t = (edge - a_edge) / (b_edge - a_edge);
+        (a.0 + t * (b.0 - a.0), a.1 + t * (b.1 - a.1))
+    }
+    let mut clipped = poly.to_vec();
+    clipped = clip_edge(&clipped, |p| p.0 >= 0.0, |a, b| cross(a, b, 0.0, false));
+    clipped = clip_edge(&clipped, |p| p.0 <= width, |a, b| cross(a, b, width, false));
+    clipped = clip_edge(&clipped, |p| p.1 >= 0.0, |a, b| cross(a, b, 0.0, true));
+    clipped = clip_edge(&clipped, |p| p.1 <= height, |a, b| {
+        cross(a, b, height, true)
+    });
+    clipped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clip_keeps_polygon_inside_the_chart() {
+        let poly = vec![(10.0, 10.0), (90.0, 10.0), (90.0, 90.0), (10.0, 90.0)];
+        assert_eq!(clip_poly_to_rect(&poly, 100.0, 100.0), poly);
+    }
+
+    #[test]
+    fn clip_cuts_band_polygon_at_the_chart_edges() {
+        // ±dB zone built from out-of-domain points: wider than the
+        // chart on both sides and taller than the y range at the top.
+        let poly = vec![(-20.0, -10.0), (120.0, -30.0), (120.0, 60.0), (-20.0, 60.0)];
+        let clipped = clip_poly_to_rect(&poly, 100.0, 50.0);
+        assert!(clipped.len() >= 3);
+        assert!(
+            clipped
+                .iter()
+                .all(|&(x, y)| (0.0..=100.0).contains(&x) && (0.0..=50.0).contains(&y)),
+            "clipped polygon escapes the chart: {clipped:?}"
+        );
+    }
+
+    #[test]
+    fn clip_drops_polygon_fully_outside() {
+        let poly = vec![(200.0, 10.0), (300.0, 10.0), (300.0, 90.0)];
+        assert!(clip_poly_to_rect(&poly, 100.0, 100.0).len() < 3);
+    }
 }
 
 /// Legend for generic traces, in payload order with toggle support data.

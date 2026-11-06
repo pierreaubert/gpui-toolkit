@@ -12,7 +12,10 @@ use super::utils::ChartTheme;
 
 pub mod generic;
 #[allow(unused_imports, reason = "legend helper kept for external batch/image consumers")]
-pub use generic::{generic_legend_entries, render_generic_bars, render_generic_freq_chart, render_generic_polar};
+pub use generic::{
+    generic_legend_entries, render_generic_bars, render_generic_freq_chart, render_generic_polar,
+    render_generic_subplots,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FreqSplPlotMargins {
@@ -54,10 +57,25 @@ pub fn freq_spl_plot_margins(chart_width: f32, has_secondary_axis: bool) -> Freq
     }
 }
 
+/// Width of the plot area itself: `total_width` minus both Y axes.
+///
+/// Callers pass the total available width; the axes live inside it.
+/// Using the total as the plot width instead makes the chart row wider
+/// than its container, and flex shrink then scales the chart row and
+/// the bottom-axis row by different factors, drifting the frequency
+/// labels away from the grid lines and curves.
+fn plot_area_width(total_width: f32, margins: &FreqSplPlotMargins) -> f32 {
+    (total_width - margins.left_axis_width - margins.right_axis_width).max(1.0)
+}
+
 /// Renders a reusable frequency/SPL plot with optional secondary Y-axis
 ///
 /// This is the common chart used for CEA2034, horizontal SPL, and vertical SPL plots.
 /// All use a log frequency X-axis and linear SPL Y-axis.
+///
+/// `chart_width` is the total width including the left (and optional
+/// right) Y axis; the plot area is what remains after subtracting them,
+/// so the bottom axis, grid, and curves share one coordinate system.
 pub fn render_freq_spl_plot(
     curves: Vec<PlotCurve>,
     freq_domain: (f64, f64),
@@ -75,11 +93,12 @@ pub fn render_freq_spl_plot(
     let scale = (chart_width / 800.0).clamp(0.7, 1.2);
     let (label_size, title_size, tick_size) = freq_spl_plot_axis_sizes(chart_width);
     let margins = freq_spl_plot_margins(chart_width, secondary_axis.is_some());
+    let plot_width = plot_area_width(chart_width, &margins);
 
     // Create log frequency scale with zoom support
     let freq_scale = LogScale::new()
         .domain(freq_domain.0, freq_domain.1)
-        .range(0.0, f64::from(chart_width));
+        .range(0.0, f64::from(plot_width));
     // Create linear SPL scale for main curves
     let spl_scale = LinearScale::new()
         .domain(spl_domain.0, spl_domain.1)
@@ -164,7 +183,7 @@ pub fn render_freq_spl_plot(
                 // Chart area
                 .child(
                     div()
-                        .w(px(chart_width))
+                        .w(px(plot_width))
                         .h(px(chart_height))
                         .relative()
                         .bg(ui_theme.surface)
@@ -200,7 +219,7 @@ pub fn render_freq_spl_plot(
                                 }
                                 config
                             },
-                            chart_width,
+                            plot_width,
                             chart_height,
                             &theme,
                         ))
@@ -219,7 +238,7 @@ pub fn render_freq_spl_plot(
                                         ((p.x.ln() - freq_domain.0.ln())
                                             / (freq_domain.1.ln() - freq_domain.0.ln()))
                                             as f32
-                                            * chart_width,
+                                            * plot_width,
                                         ((spl_domain.1 - p.y)
                                             / (spl_domain.1 - spl_domain.0))
                                             as f32
@@ -372,7 +391,7 @@ pub fn render_freq_spl_plot(
                         .with_label_font_size(label_size)
                         .with_title_font_size(title_size)
                         .with_tick_size(tick_size),
-                    chart_width,
+                    plot_width,
                     &theme,
                 ))
                 .when(margins.right_axis_width > 0.0, |el| {
@@ -397,6 +416,29 @@ mod tests {
             without_secondary.left_axis_width
         );
         assert!(with_secondary.right_axis_width > 0.0);
+    }
+
+    #[test]
+    fn plot_area_width_subtracts_both_axes() {
+        // The bottom axis, grid, and curves must share the plot-area
+        // width; using the total width drifts the frequency labels
+        // away from the grid (flex shrink scales the rows differently).
+        let without_secondary = freq_spl_plot_margins(1200.0, false);
+        assert_eq!(
+            plot_area_width(1200.0, &without_secondary),
+            1200.0 - without_secondary.left_axis_width
+        );
+        let with_secondary = freq_spl_plot_margins(1200.0, true);
+        assert_eq!(
+            plot_area_width(1200.0, &with_secondary),
+            1200.0 - with_secondary.left_axis_width - with_secondary.right_axis_width
+        );
+        assert!(
+            plot_area_width(1200.0, &with_secondary)
+                < plot_area_width(1200.0, &without_secondary)
+        );
+        // Degenerate widths clamp to a positive plot area.
+        assert_eq!(plot_area_width(10.0, &with_secondary), 1.0);
     }
 
     #[test]

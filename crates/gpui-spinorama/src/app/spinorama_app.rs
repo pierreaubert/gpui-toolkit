@@ -9,7 +9,9 @@ use crate::api::{
     parse_plot,
 };
 use crate::auth::{ApiKey, delete_api_key, load_api_key, mask_key, save_api_key};
-use crate::render::{render_generic_bars, render_generic_freq_chart, render_generic_polar};
+use crate::render::{
+    render_generic_bars, render_generic_freq_chart, render_generic_polar, render_generic_subplots,
+};
 use crate::types::{GRAPH_CATALOG, GraphDef, GraphRenderer, PlotData};
 use crate::api::{Curve, DirectivityData};
 use d3rs::brush::{BrushSelection, BrushState};
@@ -1487,7 +1489,57 @@ impl SpinoramaApp {
             LoadState::Loaded => {
                 let w = self.content_width;
                 let h = (w * 0.5).min(self.content_height * 0.62).max(240.0);
-                match def.renderer {
+                let subplot_view = self
+                    .generic_plot
+                    .as_ref()
+                    .filter(|plot| !plot.layout.subplots.is_empty())
+                    .map(|plot| {
+                        let sheet_h = if self.chart_only {
+                            (w * 1.64).min(self.content_height * 0.94)
+                        } else {
+                            h
+                        };
+                        (
+                            render_generic_subplots(
+                                plot,
+                                def,
+                                &self.hidden_generic_traces,
+                                w,
+                                sheet_h,
+                                &theme,
+                            ),
+                            plot.layout.title.clone(),
+                        )
+                    });
+                if let Some((chart, plot_title)) = subplot_view {
+                    let sheet = div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(ds.spacing.section_gap))
+                        .child(chart)
+                        .child(self.render_generic_legend(cx));
+                    if self.chart_only {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(ds.spacing.section_gap * 1.5))
+                            .child(
+                                div()
+                                    .text_size(px(ds.typography.large_size * s))
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(theme.text_primary)
+                                    .child(
+                                        self.title_override
+                                            .clone()
+                                            .unwrap_or_else(|| plot_title.unwrap_or_default()),
+                                    ),
+                            )
+                            .child(sheet)
+                    } else {
+                        sheet
+                    }
+                } else {
+                    match def.renderer {
                     GraphRenderer::Contour => self.render_contour_plot(cx),
                     GraphRenderer::Surface3d => self.render_surface_3d_plot(cx),
                     GraphRenderer::Sphere => self.render_sphere_plot(cx),
@@ -1560,6 +1612,7 @@ impl SpinoramaApp {
                         }
                         None => self.render_welcome(cx),
                     },
+                    }
                 }
             }
         };

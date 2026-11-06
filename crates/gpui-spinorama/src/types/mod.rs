@@ -11,6 +11,6 @@ pub use enums::{ChartId, Colormap, ContourRenderMode, DirectivityPlane, LoadStat
 pub use graph::{GRAPH_CATALOG, GraphDef, GraphRenderer, graph_for_measurement};
 pub use plot_curve::PlotCurve;
 pub use trace::{
-    Annotation, AxisLayout, GenericTrace, PlotData, PlotLayout, TraceFill, TraceKind, TraceMode,
-    parse_plotly_color,
+    Annotation, AxisLayout, GenericTrace, PlotData, PlotLayout, SubplotCell, TraceFill, TraceKind,
+    TraceMode, parse_plotly_color,
 };

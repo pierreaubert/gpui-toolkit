@@ -472,24 +472,28 @@ fn trace_color(trace: &Value) -> (crate::types::GenericTrace, f32) {
         .get("opacity")
         .and_then(Value::as_f64)
         .unwrap_or(1.0) as f32;
-    for pointer in ["/line/color", "/marker/color", "/fillcolor"] {
+    // Line/marker colour and fill colour are independent in Plotly: a
+    // band trace carries both (`line.color` for its outline,
+    // `fillcolor` for the zone), so parse them separately instead of
+    // stopping at the first colour found.
+    for pointer in ["/line/color", "/marker/color"] {
         if let Some(text) = trace.pointer(pointer).and_then(Value::as_str)
-            && let Some((color, alpha)) = crate::types::parse_plotly_color(text) {
-                if pointer == "/fillcolor" {
-                    out.fill_color = Some(color);
-                    if alpha < 1.0 {
-                        opacity = alpha;
-                    }
-                } else {
-                    out.color = color;
-                    if alpha < 1.0 {
-                        opacity = alpha;
-                    }
-                }
-                if pointer != "/fillcolor" {
-                    break;
-                }
+            && let Some((color, alpha)) = crate::types::parse_plotly_color(text)
+        {
+            out.color = color;
+            if alpha < 1.0 {
+                opacity = alpha;
             }
+            break;
+        }
+    }
+    if let Some(text) = trace.pointer("/fillcolor").and_then(Value::as_str)
+        && let Some((color, alpha)) = crate::types::parse_plotly_color(text)
+    {
+        out.fill_color = Some(color);
+        if alpha < 1.0 {
+            opacity = alpha;
+        }
     }
     (out, opacity)
 }
@@ -530,6 +534,43 @@ pub fn parse_plot(plot: &Value) -> Result<crate::types::PlotData, String> {
         .pointer("/polar/radialaxis/range")
         .and_then(Value::as_array)
         .and_then(|r| Some((r.first()?.as_f64()?, r.get(1)?.as_f64()?)));
+    // Subplot cells: Plotly writes one xaxis/yaxis pair per cell
+    // (xaxis, xaxis2, ...) with paper domains. Cells only exist when
+    // more than one x axis is declared.
+    let axis_domain = |axis: &Value| -> (f64, f64) {
+        axis.get("domain")
+            .and_then(Value::as_array)
+            .and_then(|d| Some((d.first()?.as_f64()?, d.get(1)?.as_f64()?)))
+            .unwrap_or((0.0, 1.0))
+    };
+    let mut axis_index = 1usize;
+    loop {
+        let suffix = if axis_index == 1 {
+            String::new()
+        } else {
+            axis_index.to_string()
+        };
+        let Some(x_axis) = layout.get(format!("xaxis{suffix}")) else {
+            break;
+        };
+        let y_axis = layout
+            .get(format!("yaxis{suffix}"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        out.layout.subplots.push(crate::types::SubplotCell {
+            x_domain: axis_domain(x_axis),
+            y_domain: axis_domain(&y_axis),
+            title: None,
+            x_axis: axis_layout(x_axis),
+            y_axis: axis_layout(&y_axis),
+        });
+        axis_index += 1;
+    }
+    if out.layout.subplots.len() <= 1 {
+        out.layout.subplots.clear();
+    }
+
+    let mut paper_annotations: Vec<(String, f64, f64)> = Vec::new();
     if let Some(items) = layout.get("annotations").and_then(Value::as_array) {
         for item in items {
             let text = item
@@ -538,11 +579,34 @@ pub fn parse_plot(plot: &Value) -> Result<crate::types::PlotData, String> {
                 .unwrap_or_default()
                 .replace("<br>", " ")
                 .replace("<br/>", " ");
-            out.layout.annotations.push(crate::types::Annotation {
-                text,
-                x: item.get("x").and_then(Value::as_f64).unwrap_or(0.0),
-                y: item.get("y").and_then(Value::as_f64).unwrap_or(0.0),
-            });
+            let xref = item.get("xref").and_then(Value::as_str).unwrap_or("");
+            let (x, y) = (
+                item.get("x").and_then(Value::as_f64).unwrap_or(0.0),
+                item.get("y").and_then(Value::as_f64).unwrap_or(0.0),
+            );
+            if xref == "paper" && !out.layout.subplots.is_empty() {
+                paper_annotations.push((text, x, y));
+            } else {
+                out.layout.annotations.push(crate::types::Annotation { text, x, y });
+            }
+        }
+    }
+    // Subplot titles are paper annotations sitting just above a cell.
+    for (text, x, y) in paper_annotations {
+        let mut best: Option<(usize, f64)> = None;
+        for (index, cell) in out.layout.subplots.iter().enumerate() {
+            let center_x = cell.x_domain.0.midpoint(cell.x_domain.1);
+            if y < cell.y_domain.1 - 0.02 {
+                continue;
+            }
+            let distance = (center_x - x).abs() + (y - cell.y_domain.1).abs();
+            if best.is_none_or(|(_, d)| distance < d) {
+                best = Some((index, distance));
+            }
+        }
+        match best {
+            Some((index, _)) => out.layout.subplots[index].title = Some(text),
+            None => out.layout.annotations.push(crate::types::Annotation { text, x, y }),
         }
     }
     const PALETTE: [u32; 10] = [
@@ -565,6 +629,22 @@ pub fn parse_plot(plot: &Value) -> Result<crate::types::PlotData, String> {
             .get("yaxis")
             .and_then(Value::as_str)
             .is_some_and(|a| a == "y2");
+        if !out.layout.subplots.is_empty() {
+            generic.subplot = trace
+                .get("xaxis")
+                .and_then(Value::as_str)
+                .and_then(|axis| axis.strip_prefix('x'))
+                .and_then(|digits| {
+                    if digits.is_empty() {
+                        Some(1usize)
+                    } else {
+                        digits.parse().ok()
+                    }
+                })
+                .unwrap_or(1)
+                .saturating_sub(1)
+                .min(out.layout.subplots.len() - 1);
+        }
         generic.stroke_width = trace
             .pointer("/line/width")
             .and_then(Value::as_f64)
@@ -793,6 +873,70 @@ mod tests {
         assert!(data.layout.x_axis.log);
         assert!(is_auth_error("HTTP status client error (401 Unauthorized)"));
         assert!(!is_auth_error("HTTP status client error (404 Not Found)"));
+    }
+
+    #[test]
+    fn parse_plot_keeps_distinct_line_and_fill_colors() {
+        // Band traces carry both an outline colour and a zone colour;
+        // the fill colour must survive parsing even when a line colour
+        // is present (spinorama's ±dB zones).
+        let plot = json!({
+            "data": [
+                {"type":"scatter","name":"Band ±3dB","x":[20,20000,20000,20],"y":[3,3,-3,-3],"fill":"toself","fillcolor":"#E2F705","opacity":0.25,"line":{"color":"#0000ff"}}
+            ],
+            "layout": {"xaxis":{"type":"log"},"yaxis":{"range":[-45,5]}}
+        });
+        let data = parse_plot(&plot).unwrap();
+        let trace = &data.traces[0];
+        assert_eq!(trace.fill, Some(crate::types::TraceFill::ToSelf));
+        assert_eq!(
+            trace.fill_color,
+            Some(d3rs::color::D3Color::rgb(0xE2, 0xF7, 0x05))
+        );
+        assert_eq!(trace.color, d3rs::color::D3Color::rgb(0, 0, 0xFF));
+        assert!((trace.opacity - 0.25).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn parses_subplot_cells_traces_and_titles() {
+        let plot = json!({
+            "data": [
+                {"type": "scatter", "name": "eq", "x": [100.0, 1000.0], "y": [1.0, 2.0], "xaxis": "x", "yaxis": "y"},
+                {"type": "scatter", "name": "target", "x": [100.0, 1000.0], "y": [0.0, 1.0], "xaxis": "x2", "yaxis": "y2"},
+                {"type": "bar", "name": "err", "x": ["-1-0", "0-1"], "y": [3.0, 7.0], "xaxis": "x3", "yaxis": "y3"},
+                {"type": "scatter", "name": "spin", "x": [100.0, 1000.0], "y": [80.0, 85.0], "xaxis": "x4", "yaxis": "y4"}
+            ],
+            "layout": {
+                "title": {"text": "Sheet"},
+                "xaxis": {"domain": [0.0, 0.48], "type": "log"},
+                "yaxis": {"domain": [0.55, 1.0]},
+                "xaxis2": {"domain": [0.52, 1.0], "type": "log"},
+                "yaxis2": {"domain": [0.55, 1.0]},
+                "xaxis3": {"domain": [0.0, 0.48]},
+                "yaxis3": {"domain": [0.0, 0.45]},
+                "xaxis4": {"domain": [0.52, 1.0], "type": "log"},
+                "yaxis4": {"domain": [0.0, 0.45]},
+                "annotations": [
+                    {"text": "PEQ details", "x": 0.24, "y": 1.0, "xref": "paper", "yref": "paper", "showarrow": false},
+                    {"text": "PEQ v.s. Target", "x": 0.76, "y": 1.0, "xref": "paper", "yref": "paper", "showarrow": false},
+                    {"text": "Histogram", "x": 0.24, "y": 0.45, "xref": "paper", "yref": "paper", "showarrow": false},
+                    {"text": "Spin", "x": 0.76, "y": 0.45, "xref": "paper", "yref": "paper", "showarrow": false}
+                ]
+            }
+        });
+        let data = parse_plot(&plot).unwrap();
+        assert_eq!(data.layout.subplots.len(), 4);
+        assert_eq!(data.layout.subplots[0].title.as_deref(), Some("PEQ details"));
+        assert_eq!(data.layout.subplots[1].title.as_deref(), Some("PEQ v.s. Target"));
+        assert_eq!(data.layout.subplots[2].title.as_deref(), Some("Histogram"));
+        assert_eq!(data.layout.subplots[3].title.as_deref(), Some("Spin"));
+        assert_eq!(data.traces[0].subplot, 0);
+        assert_eq!(data.traces[1].subplot, 1);
+        assert_eq!(data.traces[2].subplot, 2);
+        assert_eq!(data.traces[2].kind, crate::types::TraceKind::Bar);
+        assert_eq!(data.traces[3].subplot, 3);
+        assert!(data.layout.annotations.is_empty());
+        assert!(data.layout.subplots[0].x_axis.log);
     }
 
     #[test]

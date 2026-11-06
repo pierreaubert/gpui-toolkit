@@ -26,6 +26,8 @@ pub enum GraphRenderer {
     PolarChart,
     /// Grouped categorical bar chart, optionally with scatter overlays.
     BarChart,
+    /// Plotly `make_subplots` sheet: many mini charts in domain cells.
+    Subplot,
 }
 
 /// One graph in the spinorama.org catalog.
@@ -71,7 +73,9 @@ const fn freq_y(
 ///
 /// Measurement names for the `filters_*` family follow the generated
 /// payload stems (`filters_eq`, `filters_auto_eq`, `filters_eq_full`,
-/// `filters_{on,lw,pir,spin}`, `filters_{on,lw,pir}_hist_{fullrange,midrange}`).
+/// `filters_{spin,on,lw,pir}_{noeq,auto}`,
+/// `filters_{on,lw,pir}_hist_{fullrange,midrange}` — the same stems the
+/// Python `AutoEQ` export writes as hardened WebP files).
 pub const GRAPH_CATALOG: &[GraphDef] = &[
     GraphDef {
         measurement: "CEA2034",
@@ -95,13 +99,13 @@ pub const GRAPH_CATALOG: &[GraphDef] = &[
     freq_y(
         "Horizontal Directivity",
         "Horizontal Directivity",
-        "Directivity (dB)",
+        "Angle (°)",
         10.0,
     ),
     freq_y(
         "Vertical Directivity",
         "Vertical Directivity",
-        "Directivity (dB)",
+        "Angle (°)",
         10.0,
     ),
     freq_y("Group Delay", "Group Delay", "Group Delay (ms)", 5.0),
@@ -250,19 +254,23 @@ pub const GRAPH_CATALOG: &[GraphDef] = &[
         y_title: "",
         y_step: 0.0,
     },
+    freq("filters_eq", "Filters EQ"),
     GraphDef {
-        measurement: "filters_eq",
-        label: "Filters EQ",
-        renderer: GraphRenderer::BarChart,
+        measurement: "filters_auto_eq",
+        label: "Filters Auto EQ",
+        renderer: GraphRenderer::Subplot,
         y_title: "",
         y_step: 0.0,
     },
-    freq("filters_auto_eq", "Filters Auto EQ"),
     freq("filters_eq_full", "Filters EQ Full"),
-    freq("filters_on", "Filters On Axis"),
-    freq("filters_lw", "Filters Listening Window"),
-    freq("filters_pir", "Filters PIR"),
-    freq("filters_spin", "Filters Spinorama"),
+    freq("filters_spin_noeq", "Filters Spinorama (no EQ)"),
+    freq("filters_spin_auto", "Filters Spinorama (auto EQ)"),
+    freq("filters_on_noeq", "Filters On Axis (no EQ)"),
+    freq("filters_on_auto", "Filters On Axis (auto EQ)"),
+    freq("filters_lw_noeq", "Filters Listening Window (no EQ)"),
+    freq("filters_lw_auto", "Filters Listening Window (auto EQ)"),
+    freq("filters_pir_noeq", "Filters PIR (no EQ)"),
+    freq("filters_pir_auto", "Filters PIR (auto EQ)"),
     GraphDef {
         measurement: "filters_on_hist_fullrange",
         label: "Filters On-Axis Histogram (Fullrange)",
@@ -332,10 +340,26 @@ mod tests {
             "spider",
             "filters_eq",
             "filters_auto_eq",
+            "filters_spin_noeq",
+            "filters_spin_auto",
+            "filters_on_noeq",
+            "filters_on_auto",
+            "filters_lw_auto",
+            "filters_pir_auto",
             "filters_pir_hist_midrange",
         ] {
             assert!(names.contains(&required), "missing {required}");
         }
+        // filters_eq is a scatter of filter responses, not bars; the
+        // combined sheet needs the subplot renderer.
+        assert_eq!(
+            graph_for_measurement("filters_eq").map(|def| def.renderer),
+            Some(GraphRenderer::FrequencyChart)
+        );
+        assert_eq!(
+            graph_for_measurement("filters_auto_eq").map(|def| def.renderer),
+            Some(GraphRenderer::Subplot)
+        );
         assert!(GRAPH_CATALOG.len() >= 40);
     }
 }
