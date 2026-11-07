@@ -1,5 +1,30 @@
 # Unreleased
 
+# 0.10.53
+
+## Changed
+
+- Contour charts: the resampled field is bucketed on the Python
+  3 dB scale (11 bands from -30 to +3 dB, one flat colorscale
+  colour per band, smooth band edges). Angle axis is titled
+  "Angle (deg)" with ticks every 30 degrees including the
+  extremes; frequency ticks run every 100 Hz to 1 kHz, every
+  1 kHz to 10 kHz, then 20 kHz. A grid aligned with the axis
+  ticks is drawn over the filled field. The colour legend is a
+  centered continuous 11-segment bar with 3 dB boundary labels
+  and a "dB (SPL)" title.
+
+# 0.10.52
+
+## Changed
+
+- Headless contour pictures (`spinorama-render-images`) now render
+  the 2D contour as a smooth top-down raster of the SPL surface:
+  the field is bilinearly resampled in (angle x log-frequency) onto
+  a fine regular grid and drawn as merged heatmap quads with the
+  fixed -30..+3 dB Spinorama scale, replacing the marching-squares
+  band polygons and their visible cell texture.
+
 # 0.10.51
 
 ## Changed

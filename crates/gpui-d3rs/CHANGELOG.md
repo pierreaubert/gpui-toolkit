@@ -1,5 +1,20 @@
 # Unreleased
 
+# 0.10.47
+
+## Added
+
+- `ContourConfig::value_range(min, max)`: fixed value range for
+  heatmap color normalization, honored by both the GPUI quad
+  heatmap and the Vello heatmap scene. Default (`None`) keeps
+  normalizing over the data's own min/max.
+
+## Fixed
+
+- Vello heatmap cells are expanded by half a pixel so abutting
+  rects no longer leave anti-aliased hairline seams (a fine mesh
+  over smooth fields).
+
 # 0.10.46
 
 ## Added

@@ -350,7 +350,11 @@ fn render_one(
                     state.title_override = title;
                     state.trace_colors = HashMap::new();
                     state.contour_plane_label = plane;
-                    state.contour_mode_spl = ContourRenderMode::Surface;
+                    // Published contour pictures are the smooth
+                    // top-down raster of the SPL field (Heatmap mode
+                    // resamples it bilinearly), not marching-squares
+                    // band polygons.
+                    state.contour_mode_spl = ContourRenderMode::Heatmap;
                     state.set_contour_data(data);
                 })
                 .map_err(|e| format!("inject contour data: {e}"))?;

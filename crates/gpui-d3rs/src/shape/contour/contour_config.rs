@@ -27,6 +27,9 @@ pub struct ContourConfig {
     pub smoothing_iterations: usize,
     /// Maximum allowed stroke deviation in pixels before smoothing is rejected
     pub smoothing_max_deviation_px: f32,
+    /// Fixed value range for heatmap color normalization. `None`
+    /// normalizes over the data's own min/max.
+    pub value_range: Option<(f64, f64)>,
     /// High-level renderer preference for contour/heatmap elements.
     pub renderer_2d: Renderer2D,
     /// Vello WGPU/CPU backend when `renderer_2d` is `Vello`.
@@ -46,6 +49,7 @@ impl Default for ContourConfig {
             smooth_strokes: false,
             smoothing_iterations: 1,
             smoothing_max_deviation_px: 2.0,
+            value_range: None,
             renderer_2d: Renderer2D::default(),
             vello_backend: VelloBackend::default(),
         }
@@ -118,6 +122,12 @@ impl ContourConfig {
         F: Fn(f64) -> D3Color + Send + Sync + 'static,
     {
         self.color_scale = Some(Arc::new(f));
+        self
+    }
+
+    /// Set a fixed value range for heatmap color normalization.
+    pub fn value_range(mut self, min: f64, max: f64) -> Self {
+        self.value_range = Some((min, max));
         self
     }
 

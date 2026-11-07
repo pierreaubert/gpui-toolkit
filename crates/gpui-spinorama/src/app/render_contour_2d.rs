@@ -104,13 +104,22 @@ impl SpinoramaApp {
                 .as_ref()
                 .and_then(|cache| cache.heatmap.clone())
         } else if is_heatmap {
-            // Use log-transformed frequencies for the heatmap x-values
-            let log_freq_values: Vec<f64> = contour_data.freq.iter().map(|f| f.ln()).collect();
-            Some(HeatmapData::new(
-                log_freq_values,
-                contour_data.angles.clone(),
-                contour_data.spl.clone(),
-            ))
+            // Top-down raster of the SPL surface: bilinearly resample
+            // the coarse (angle x log-frequency) field onto a fine
+            // regular grid (~2 px cells), like the 3D surface seen
+            // from above, then bucket values on the Python 3 dB scale
+            // (3, 0, -3, ..., -30) so each band takes one flat colour
+            // from the colorscale while band edges stay smooth.
+            let nx = ((self.content_width / 2.0) as usize).clamp(freq_count, 900);
+            let ny = ((self.content_height / 2.0) as usize).clamp(angle_count, 450);
+            let (xs, ys, values) = resample_spl_field(
+                &log_freq_values,
+                &contour_data.angles,
+                &contour_data.spl,
+                nx,
+                ny,
+            );
+            Some(HeatmapData::new(xs, ys, values))
         } else {
             None
         };
@@ -127,7 +136,9 @@ impl SpinoramaApp {
 
         let chart_width = self.content_width;
         let chart_height = if self.chart_only {
-            (chart_width * 0.5).min(self.content_height * 0.72)
+            // Leave room for the title, x axis, and the three-row
+            // colorbar (bar, boundary labels, dB (SPL) title).
+            (chart_width * 0.5).min(self.content_height * 0.64)
         } else {
             (chart_width * 0.375).min(self.content_height * 0.5)
         };
@@ -154,16 +165,28 @@ impl SpinoramaApp {
             .fill(is_surface)
             .fill_opacity(if is_surface || is_heatmap { 1.0 } else { 0.0 })
             .stroke_opacity(if is_isoline { 1.0 } else { 0.0 })
+            .value_range(spl_min, spl_max)
             .color_scale(color_scale);
 
-        // Build frequency tick values in log space
-        let freq_ticks: Vec<f64> = [
-            20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 20000.0,
-        ]
-        .iter()
-        .filter(|&&f| f >= freq_min && f <= freq_max)
-        .map(|f| f.ln())
-        .collect();
+        // Frequency ticks in log space: every 100 Hz up to 1 kHz,
+        // every 1 kHz up to 10 kHz, then 20 kHz.
+        let freq_ticks: Vec<f64> = (1..=9)
+            .map(|i| f64::from(i) * 100.0)
+            .chain((1..=9).map(|i| f64::from(i) * 1000.0))
+            .chain([10_000.0, 20_000.0])
+            // Small tolerance so the 100 Hz and 20 kHz edge labels
+            // survive data whose first/last samples sit just inside.
+            .filter(|&f| f >= freq_min / 1.05 && f <= freq_max * 1.05)
+            .map(f64::ln)
+            .collect();
+
+        // Angle ticks: every 30 degrees across the full domain,
+        // extremes included.
+        let angle_ticks: Vec<f64> = (-180..=180)
+            .step_by(30)
+            .map(f64::from)
+            .filter(|&a| a >= angle_min && a <= angle_max)
+            .collect();
 
         Some(
             div()
@@ -187,9 +210,9 @@ impl SpinoramaApp {
                                 .child(render_axis(
                                     &angle_scale,
                                     &AxisConfig::left()
-                                        .with_ticks(13)
+                                        .with_tick_values(angle_ticks.clone())
                                         .with_formatter(|v| format!("{v:.0}°"))
-                                        .with_title("Angle")
+                                        .with_title("Angle (deg)")
                                         .with_label_font_size(label_sz)
                                         .with_title_font_size(title_sz),
                                     chart_height,
@@ -201,7 +224,6 @@ impl SpinoramaApp {
                                         .h(px(chart_height))
                                         .relative()
                                         .bg(theme.surface)
-                                        // No grid over the contour field.
                                         // Render contour bands (for Surface mode) - filled polygons
                                         .when_some(contour_bands.clone(), |el, bands| {
                                             el.child(render_contour_bands(
@@ -218,6 +240,20 @@ impl SpinoramaApp {
                                                 &freq_scale,
                                                 &angle_scale,
                                                 &contour_config,
+                                            ))
+                                        })
+                                        // Grid over the filled field, aligned
+                                        // with the axis ticks.
+                                        .when(is_surface || is_heatmap, |el| {
+                                            el.child(render_grid(
+                                                &freq_scale,
+                                                &angle_scale,
+                                                &GridConfig::lines_only()
+                                                    .with_vertical_values(freq_ticks.clone())
+                                                    .with_horizontal_values(angle_ticks.clone()),
+                                                chart_width,
+                                                chart_height,
+                                                &axis_theme,
                                             ))
                                         })
                                         // Render contour lines (for Isoline mode)
@@ -255,41 +291,124 @@ impl SpinoramaApp {
                                 )),
                         ),
                 )
-                // Color legend
+                // Centered continuous colorbar: 11 adjacent 3 dB
+                // segments with boundary labels, titled dB (SPL).
                 .child({
-                    let font_config = GlyphTextConfig::horizontal(
-                        (10.0 * font_scale).round(),
-                        Hsla::from(theme.text_primary),
-                    );
+                    let font_sz = (10.0 * font_scale).round();
+                    let font_config =
+                        GlyphTextConfig::horizontal(font_sz, Hsla::from(theme.text_primary));
+                    let bar_w = chart_width * 0.75;
+                    let scale_fn = colormap.color_scale();
                     div()
                         .flex()
+                        .flex_col()
                         .items_center()
-                        .gap(px(ds.spacing.section_gap))
-                        .py(px(ds.spacing.control_padding_y))
-                        .bg(theme.muted)
-                        .rounded(px(ds.corners.md))
-                        .child(render_glyph_text(
-                            &format!("{spl_min:.0} dB"),
-                            &font_config,
-                        ))
-                        .children((0..15).map(|i| {
-                            let t = f64::from(i) / 14.0;
-                            let color = colormap.color_scale()(t);
-                            let (r, g, b) = (
-                                (color.r * 255.0) as u32,
-                                (color.g * 255.0) as u32,
-                                (color.b * 255.0) as u32,
-                            );
+                        .gap(px(2.0))
+                        .child(
                             div()
-                                .w(px(15.0))
-                                .h(px(15.0))
-                                .bg(rgb((r << 16) | (g << 8) | b))
-                        }))
-                        .child(render_glyph_text(
-                            &format!("{spl_max:.0} dB"),
-                            &font_config,
-                        ))
+                                .w(px(bar_w))
+                                .flex()
+                                .children((0..11).map(|i| {
+                                    let color = scale_fn(f64::from(i) / 10.0);
+                                    let (r, g, b) = (
+                                        (color.r * 255.0) as u32,
+                                        (color.g * 255.0) as u32,
+                                        (color.b * 255.0) as u32,
+                                    );
+                                    div()
+                                        .flex_1()
+                                        .h(px(14.0 * font_scale))
+                                        .bg(rgb((r << 16) | (g << 8) | b))
+                                })),
+                        )
+                        .child(
+                            div()
+                                .relative()
+                                .w(px(bar_w))
+                                .h(px(font_sz * 1.4))
+                                .children((0..12).map(|i| {
+                                    let value = -30 + i * 3;
+                                    let label = format!("{value}");
+                                    let half_w =
+                                        label.len() as f32 * font_sz * 0.28;
+                                    let left = (bar_w * i as f32 / 11.0 - half_w)
+                                        .clamp(0.0, bar_w - half_w * 2.0);
+                                    div()
+                                        .absolute()
+                                        .left(px(left))
+                                        .child(render_glyph_text(&label, &font_config))
+                                })),
+                        )
+                        .child(render_glyph_text("dB (SPL)", &font_config))
                 }),
         )
     }
+}
+
+/// Bracket `v` in a monotonic axis, returning the lower index and the
+/// fraction toward the next sample. Works for ascending and
+/// descending axes; positions outside the axis clamp to the ends.
+fn axis_bracket(axis: &[f64], v: f64) -> (usize, f64) {
+    if axis.len() < 2 {
+        return (0, 0.0);
+    }
+    let ascending = axis[axis.len() - 1] >= axis[0];
+    let idx = if ascending {
+        axis.partition_point(|a| *a < v)
+    } else {
+        axis.partition_point(|a| *a > v)
+    };
+    let lo = idx.saturating_sub(1).min(axis.len() - 2);
+    let span = axis[lo + 1] - axis[lo];
+    let t = if span == 0.0 {
+        0.0
+    } else {
+        ((v - axis[lo]) / span).clamp(0.0, 1.0)
+    };
+    (lo, t)
+}
+
+/// Bilinearly resample a row-major SPL field (`values[y * xs.len() +
+/// x]`) onto a regular `nx` by `ny` grid spanning the same axis
+/// extents. Output values are bucketed on the 3 dB scale over
+/// -30..+3 dB (11 bands); each band is mapped to `-30 + band * 3.3`
+/// so its normalized position lands exactly on one of the 11
+/// colorscale stops.
+fn resample_spl_field(
+    xs: &[f64],
+    ys: &[f64],
+    values: &[f64],
+    nx: usize,
+    ny: usize,
+) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let width = xs.len();
+    if width == 0 || ys.is_empty() || values.len() < width * ys.len() || nx == 0 || ny == 0 {
+        return (xs.to_vec(), ys.to_vec(), values.to_vec());
+    }
+    let linspace = |a: f64, b: f64, n: usize| -> Vec<f64> {
+        if n == 1 {
+            return vec![a];
+        }
+        (0..n)
+            .map(|i| a + (b - a) * (i as f64) / ((n - 1) as f64))
+            .collect()
+    };
+    let out_xs = linspace(xs[0], xs[width - 1], nx);
+    let out_ys = linspace(ys[0], ys[ys.len() - 1], ny);
+    let x_brackets: Vec<(usize, f64)> = out_xs.iter().map(|x| axis_bracket(xs, *x)).collect();
+    let mut out = Vec::with_capacity(nx * ny);
+    for y in &out_ys {
+        let (ylo, ty) = axis_bracket(ys, *y);
+        let row0 = ylo * width;
+        let row1 = (ylo + 1).min(ys.len() - 1) * width;
+        for (xlo, tx) in &x_brackets {
+            let xhi = (*xlo + 1).min(width - 1);
+            let top = values[row0 + xlo] + (values[row0 + xhi] - values[row0 + xlo]) * tx;
+            let bottom = values[row1 + xlo] + (values[row1 + xhi] - values[row1 + xlo]) * tx;
+            let v = top + (bottom - top) * ty;
+            let bucket = ((v + 30.0) / 3.0).floor().clamp(0.0, 10.0);
+            out.push(-30.0 + bucket * 3.3);
+        }
+    }
+    (out_xs, out_ys, out)
 }

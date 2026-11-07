@@ -77,7 +77,11 @@ where
     XS: Scale<f64, f64> + Clone + 'static,
     YS: Scale<f64, f64> + Clone + 'static,
 {
-    HeatmapElement::new(data, x_scale.clone(), y_scale.clone()).config(config.clone())
+    let element = HeatmapElement::new(data, x_scale.clone(), y_scale.clone()).config(config.clone());
+    match config.value_range {
+        Some((min, max)) => element.value_range(min, max),
+        None => element,
+    }
 }
 
 /// Dispatch contours through the renderer selected on [`ContourConfig`].
@@ -453,13 +457,15 @@ where
     use crate::vello2d::kurbo::Rect;
     use crate::vello2d::peniko::{Brush, Color};
 
-    let value_range = (
-        data.values.iter().copied().fold(f64::INFINITY, f64::min),
-        data.values
-            .iter()
-            .copied()
-            .fold(f64::NEG_INFINITY, f64::max),
-    );
+    let value_range = config.value_range.unwrap_or_else(|| {
+        (
+            data.values.iter().copied().fold(f64::INFINITY, f64::min),
+            data.values
+                .iter()
+                .copied()
+                .fold(f64::NEG_INFINITY, f64::max),
+        )
+    });
     let (x0, x1) = x_scale.range();
     let (y0, y1) = y_scale.range();
     let x_span = (x1 - x0).abs().max(f64::EPSILON);
@@ -496,8 +502,12 @@ where
                 .as_ref()
                 .map_or(config.fill_color, |scale| scale(t));
             let rgba = color.to_rgba();
+            // Expand by half a pixel on every side: exactly abutting
+            // rects leave anti-aliased hairline seams between cells,
+            // which reads as a fine mesh over smooth fields. Later
+            // cells simply paint over the overlap.
             scene.fill_rect(
-                Rect::new(xa.min(xb), ya.min(yb), xa.max(xb), ya.max(yb)),
+                Rect::new(xa.min(xb) - 0.5, ya.min(yb) - 0.5, xa.max(xb) + 0.5, ya.max(yb) + 0.5),
                 Brush::Solid(Color::new([
                     rgba.r,
                     rgba.g,
