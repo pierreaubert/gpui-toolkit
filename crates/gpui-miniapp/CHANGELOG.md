@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.11.0
+
 ## Added
 
 - Added `bundled_ui_fonts()` returning the eight embedded IBM Plex Sans

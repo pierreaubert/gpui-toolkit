@@ -2,6 +2,8 @@
 
 # 0.11.0
 
+# 0.11.0
+
 ## Added
 
 - New platform-neutral core for foreign-parent editor embedding (GPUI inside

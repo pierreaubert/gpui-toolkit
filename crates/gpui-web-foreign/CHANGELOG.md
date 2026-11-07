@@ -2,6 +2,8 @@
 
 # 0.11.0
 
+# 0.11.0
+
 ## Added
 
 - New browser foreign-parent binding: page-owned canvas host shell

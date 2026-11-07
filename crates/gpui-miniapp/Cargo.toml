@@ -1,6 +1,6 @@
 [package]
 name = "gpui-miniapp"
-version = "0.10.44"
+version = "0.11.0"
 edition.workspace = true
 authors.workspace = true
 keywords.workspace = true
@@ -46,7 +46,7 @@ gpui-design = { workspace = true, features = ["gpui"] }
 # enable ui-kit's `vello` through their own direct ui-kit dependency.
 # A direct path dep is used because Cargo rejects `default-features = false`
 # on a `workspace = true` dep inside the d3rs ↔ ui-kit dev-dependency cycle.
-gpui-ui-kit = { path = "../gpui-ui-kit", version = "0.10", default-features = false }
+gpui-ui-kit = { path = "../gpui-ui-kit", version = "0.11", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 gpui_macos = { workspace = true }

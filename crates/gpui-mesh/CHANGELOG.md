@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.11.0
+
 ## Added
 
 - Data-model wave: `CellType::Polygon` with fan triangulation across

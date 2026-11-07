@@ -1,6 +1,6 @@
 [package]
 name = "gpui-builder"
-version = "0.10.44"
+version = "0.11.0"
 authors.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -59,7 +59,7 @@ required-features = ["showcase"]
 gpui = { workspace = true, features = ["test-support"] }
 serde_json = { workspace = true }
 criterion = { workspace = true }
-gpui-profiler = { path = "../gpui-profiler", version = "0.10", features = ["global-allocator"] }
+gpui-profiler = { path = "../gpui-profiler", version = "0.11", features = ["global-allocator"] }
 proptest = { workspace = true }
 
 [[bench]]

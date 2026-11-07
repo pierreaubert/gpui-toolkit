@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.11.0
+
 ## Added
 
 - Data-model and I/O wave: VTU appended raw binary and zlib-compressed

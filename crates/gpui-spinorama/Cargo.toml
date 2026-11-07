@@ -1,6 +1,6 @@
 [package]
 name = "gpui-spinorama"
-version = "0.10.53"
+version = "0.11.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -32,7 +32,7 @@ gpui = { workspace = true, features = ["test-support"] }
 gpui = { workspace = true }
 gpui-miniapp = { workspace = true }
 gpui-ui-kit = { workspace = true }
-d3rs = { package = "gpui-d3rs", path = "../gpui-d3rs", version = "0.10", default-features = false, features = ["gpui", "gpu-2d", "gpu-3d", "vello-gpui"] }
+d3rs = { package = "gpui-d3rs", path = "../gpui-d3rs", version = "0.11", default-features = false, features = ["gpui", "gpu-2d", "gpu-3d", "vello-gpui"] }
 gpui-builder = { workspace = true }
 gpui-design = { workspace = true }
 ndarray = { version = "0.17", default-features = false }

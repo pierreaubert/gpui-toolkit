@@ -305,13 +305,21 @@ impl NumberInput {
 
 impl NumberInputEntity {
     fn emit_change(&mut self, value: f64, window: &mut Window, cx: &mut Context<Self>) {
+        let changed = self.props.value != value;
         self.props.value = value;
         let handler = self.props.on_change.clone();
         if let Some(handler) = handler {
             handler(value, window, cx);
         }
-        cx.notify();
-        window.refresh();
+        // Stepping at a clamp boundary (or committing the same text) reaches
+        // here with an unchanged value; notifying then redraws this view —
+        // and with refresh(), the window — for no visual change. It also
+        // defeats retained rendering, which can only skip views whose
+        // notifies mean something changed.
+        if changed {
+            cx.notify();
+            window.refresh();
+        }
     }
 
     fn handle_dec_click(&mut self, window: &mut Window, cx: &mut Context<Self>) {

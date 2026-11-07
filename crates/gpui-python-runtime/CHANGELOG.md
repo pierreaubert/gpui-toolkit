@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.11.0
+
 ## Features
 
 - Python stays in sync with the Rust data-model and I/O wave:

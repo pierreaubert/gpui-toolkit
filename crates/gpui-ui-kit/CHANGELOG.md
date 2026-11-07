@@ -1,5 +1,20 @@
 # Unreleased
 
+# 0.11.0
+
+## Fixed
+
+- Accessibility registration no longer takes `global_mut` when the node
+  is unchanged (`AccessibilityTree::needs_register`): `global_mut` counts
+  as a change on every call, and under GPUI 0.2.4's retained rendering
+  that rebuilt every view that had read the tree, every frame, because
+  components register on every render.
+- `NumberInput` no longer notifies and refreshes the window when a step
+  or commit leaves the value unchanged (e.g. stepping at a clamp bound).
+- Hoisted the per-row table-id string in `build_body` (one format per
+  frame instead of one per row) and skipped the selection lookup for
+  empty selection sets.
+
 ## Added
 
 - Added a `table` criterion benchmark (headless element build, layout,
@@ -8,11 +23,6 @@
 - Added allocation contracts for table pagination math, virtual-window
   scroll math, selection toggles, and a per-frame redraw budget.
 
-## Fixed
-
-- Hoisted the per-row table-id string in `build_body` (one format per
-  frame instead of one per row) and skipped the selection lookup for
-  empty selection sets.
 
 # 0.10.43
 

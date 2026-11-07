@@ -2,6 +2,8 @@
 
 # 0.11.0
 
+# 0.11.0
+
 ## Added
 
 - Added the Android `Surface` foreign-parent binding (keyed editors, `Sync`

@@ -1,0 +1,88 @@
+{
+  "topic": "gpui-fast port (perf-cache): retained steady-state frames vs from-scratch frames",
+  "date": "2026-11-07",
+  "harness": "crates/gpui-showcase/benches/retained_frames.rs (criterion, --quick --noplot)",
+  "method": "Headless window per scenario, warmed, then per iteration one small change + one full draw. Each scenario runs with Window::set_view_retention(true) vs (false); (false) is upstream GPUI's drawing model on the same build, so the pair isolates retention. LayoutStats deltas are over 10 warm frames after reset_layout_stats().",
+  "environment_note": "Same machine/session as the run recorded here; absolute times are for pair comparison, regenerate via scripts/qa_perf_baseline.py for the committed baseline.",
+  "pairs": [
+    {
+      "scenario": "panels_one_change (60 panel entities, one notified per frame)",
+      "retained_us": 179.3,
+      "scratch_us": 428.0,
+      "speedup": 2.39,
+      "layout_stats_10_frames": {
+        "retained": {
+          "nodes_reused": 6020,
+          "nodes_created": 0,
+          "style_writes": 0,
+          "children_writes": 0,
+          "measure_calls": 30,
+          "measurements_kept": 30
+        },
+        "scratch": {
+          "nodes_reused": 6020,
+          "nodes_created": 0,
+          "style_writes": 0,
+          "children_writes": 0,
+          "measure_calls": 30,
+          "measurements_kept": 4790
+        }
+      },
+      "note": "Post stage-4b run: text carry/replay also speeds the from-scratch arm (941us before 4b), so the retained pair ratio narrows while both arms get faster in absolute terms."
+    },
+    {
+      "scenario": "panels_no_change (root notified, nothing changed)",
+      "retained_us": 200.5,
+      "scratch_us": 940.3,
+      "speedup": 4.69
+    },
+    {
+      "scenario": "uniform_list_scroll (5000 rows, ~5 rows per frame)",
+      "retained_us": 159.8,
+      "scratch_us": 232.3,
+      "speedup": 1.45,
+      "layout_stats_10_frames": {
+        "retained": {
+          "nodes_reused": 646,
+          "nodes_created": 144,
+          "style_writes": 0,
+          "children_writes": 0,
+          "measure_calls": 1440
+        },
+        "scratch": {
+          "nodes_reused": 1336,
+          "nodes_created": 144,
+          "style_writes": 0,
+          "children_writes": 0,
+          "measure_calls": 2880
+        }
+      }
+    },
+    {
+      "scenario": "showcase_table_refresh (gpui-showcase Table section, root notified per frame)",
+      "retained_us": 523.4,
+      "scratch_us": 1272.1,
+      "speedup": 2.43,
+      "layout_stats_10_frames": {
+        "retained": {
+          "nodes_reused": 7560,
+          "nodes_created": 0,
+          "style_writes": 0,
+          "children_writes": 0,
+          "measure_calls": 2860
+        },
+        "scratch": {
+          "nodes_reused": 7560,
+          "nodes_created": 0,
+          "style_writes": 0,
+          "children_writes": 0,
+          "measure_calls": 12360
+        }
+      }
+    }
+  ],
+  "notes": [
+    "Retained layout nodes are active in both arms (nodes_reused is high in both); the pair isolates retained views/splicing + list layers.",
+    "Div tile layers are gated off in real apps until a renderer calls gpui::set_tile_layers_supported(true); list layers need no tiles and are on. The uniform_list pair therefore understates the div-container case gpui-fast measures on its own renderers."
+  ]
+}

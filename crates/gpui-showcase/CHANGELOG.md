@@ -1,7 +1,14 @@
 # Unreleased
 
+# 0.11.0
+
 ## Added
 
+- Added a `retained_frames` criterion benchmark (steady-state frames:
+  one notified panel of sixty, a scrolling 5000-row uniform list, and a
+  refreshed Table section), each run retained vs from-scratch via
+  `Window::set_view_retention`, wired into the `qa-perf` gate. First
+  paired record: `qa/perf/20261107-retained-frames-paired.json`.
 - Added an `e2e_frames` criterion benchmark (cold-open plus first frame
   for the buttons, table, and tree-view sections) wired into the
   `qa-perf` non-regression gate.
