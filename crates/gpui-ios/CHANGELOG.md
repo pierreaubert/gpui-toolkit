@@ -2,6 +2,8 @@
 
 # 0.11.0
 
+# 0.11.0
+
 ## Added
 
 - Added the iOS AUv3 `UIView` foreign-parent binding

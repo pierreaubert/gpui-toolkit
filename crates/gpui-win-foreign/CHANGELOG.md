@@ -2,6 +2,8 @@
 
 # 0.11.0
 
+# 0.11.0
+
 ## Added
 
 - New Windows foreign-parent binding (VST3): GPUI editors in host-owned

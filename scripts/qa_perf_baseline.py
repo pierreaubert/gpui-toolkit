@@ -158,6 +158,12 @@ BENCHMARKS: list[BenchSpec] = [
         [],
         groups=["showcase_frame_*"],
     ),
+    BenchSpec(
+        "gpui-showcase",
+        "retained_frames",
+        [],
+        groups=["retained_*"],
+    ),
 ]
 
 

@@ -1,5 +1,7 @@
 # Unreleased
 
+# 0.11.0
+
 ## Added
 
 - `gpu` feature: `GpuRenderer` / `GpuScene` / `GpuTarget` — GPU-resident

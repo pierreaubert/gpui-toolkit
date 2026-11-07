@@ -971,6 +971,21 @@ impl AccessibilityTree {
         self.frame_active = false;
     }
 
+    /// Whether [`Self::register`] would change anything for `node`.
+    ///
+    /// Components register on every render, and `App::global_mut` counts as
+    /// a change of the global on every call: under retained rendering, a
+    /// view that read this tree is rebuilt whenever its generation moves.
+    /// Checking immutably first keeps a frame in which nothing semantic
+    /// changed from invalidating every reader.
+    pub fn needs_register(&self, node: &AccessibilityNode) -> bool {
+        let id = &node.element_id;
+        if self.nodes.get(id).is_none_or(|existing| existing != node) {
+            return true;
+        }
+        self.frame_active && self.last_seen.get(id) != Some(&self.generation)
+    }
+
     pub fn register(&mut self, node: AccessibilityNode) {
         let id = node.element_id.clone();
         if self.frame_active {
@@ -1119,7 +1134,14 @@ pub trait AccessibilityExt {
 
 impl AccessibilityExt for App {
     fn register_accessible(&mut self, node: AccessibilityNode) {
-        if self.has_global::<AccessibilityTree>() {
+        // `global_mut` marks the global changed on every call, which under
+        // retained rendering rebuilds every view that read the tree. Most
+        // registrations repeat the previous frame's node verbatim, so only
+        // take the mutable borrow when registration would change something.
+        let needs = self
+            .try_global::<AccessibilityTree>()
+            .is_some_and(|tree| tree.needs_register(&node));
+        if needs {
             self.global_mut::<AccessibilityTree>().register(node);
         }
     }
@@ -1197,6 +1219,40 @@ mod tests {
             screen_reader.status,
             AccessibilityReadinessStatus::PlatformQaPending
         );
+    }
+
+    #[test]
+    fn needs_register_tracks_changes_and_frame_sightings() {
+        let node = || AccessibilityNode {
+            element_id: ElementId::Name("volume".into()),
+            label: "Volume".into(),
+            props: AriaProps::with_role(AriaRole::Slider),
+        };
+        let mut tree = AccessibilityTree::new();
+        assert!(tree.needs_register(&node()), "new node must register");
+        tree.register(node());
+        assert!(
+            !tree.needs_register(&node()),
+            "re-registering the same node outside a frame must be skippable"
+        );
+
+        tree.begin_frame();
+        assert!(
+            tree.needs_register(&node()),
+            "first sighting in a frame must register for last_seen"
+        );
+        tree.register(node());
+        assert!(
+            !tree.needs_register(&node()),
+            "second sighting in the same frame must be skippable"
+        );
+        tree.end_frame();
+
+        let changed = AccessibilityNode {
+            label: "Gain".into(),
+            ..node()
+        };
+        assert!(tree.needs_register(&changed), "changed node must register");
     }
 
     #[test]

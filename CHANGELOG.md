@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.11.0
+
+### Changed
+
+- GPUI stack (sotf-3rdparties `gpui` 0.2.4) now renders retained frames,
+  ported from longbridge/gpui-fast: unchanged views are drawn from last
+  frame's output instead of being rendered, laid out, and painted again;
+  Taffy layout nodes and text measurements survive between frames; lists
+  scroll by replaying rows. Measured steady-state: one-change panel grid
+  179us vs 428us from scratch, showcase Table refresh 523us vs 1272us
+  (`qa/perf/20261107-retained-frames-paired.json`,
+  `crates/gpui-showcase/benches/retained_frames.rs`). Views that read
+  state GPUI cannot track (interior-mutable cells, wall-clock time) must
+  notify when it changes, as `AnyView::cached` has always required;
+  `GPUI_VIEW_RETENTION=0` restores the previous drawing model.
+- Aligned crate and Python versions move to the 0.11 series for the new
+  rendering stack.
+
+
 ### Added
 
 - Mesh data-model and I/O wave: rectilinear/curvilinear grids, polygon

@@ -2,6 +2,8 @@
 
 # 0.11.0
 
+# 0.11.0
+
 ## Added
 
 - New Linux foreign-parent binding: X11 child windows (VST3, CLAP-x11) and

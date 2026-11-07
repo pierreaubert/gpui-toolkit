@@ -2,6 +2,8 @@
 
 # 0.11.0
 
+# 0.11.0
+
 ## Added
 
 - Rebased onto the shared `gpui-foreign-parent` core: single-key editor

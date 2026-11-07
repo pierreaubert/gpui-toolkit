@@ -1,6 +1,6 @@
 [package]
 name = "gpui-keybinding"
-version = "0.10.44"
+version = "0.11.0"
 authors.workspace = true
 edition.workspace = true
 description = "Reusable keybinding framework with Vim/Emacs/VSCode presets for GPUI applications"
@@ -34,7 +34,7 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-gpui-profiler = { path = "../gpui-profiler", version = "0.10", features = ["global-allocator"] }
+gpui-profiler = { path = "../gpui-profiler", version = "0.11", features = ["global-allocator"] }
 
 [[bench]]
 name = "discovery"
