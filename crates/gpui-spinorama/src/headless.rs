@@ -70,6 +70,11 @@ pub fn draw_capture(
     window: AnyWindowHandle,
 ) -> Result<image::RgbaImage, String> {
     cx.update_window(window, |_view, window, app| {
+        // State is injected by direct field mutation; the gpui-fast
+        // element cache keeps serving the first (empty) frame until
+        // the window is explicitly invalidated.
+        window.refresh();
+        let _ = window.draw(app);
         let _ = window.draw(app);
     })
     .map_err(|e| format!("draw: {e}"))?;

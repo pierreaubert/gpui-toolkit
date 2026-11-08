@@ -188,6 +188,11 @@ impl SpinoramaApp {
             .filter(|&a| a >= angle_min && a <= angle_max)
             .collect();
 
+        // The bottom axis is offset by exactly this config's
+        // rendered width; a hard-coded spacer drifts the frequency
+        // ticks sideways against the field.
+        let angle_axis_config = contour_angle_axis_config(label_sz, title_sz, angle_ticks.clone());
+
         Some(
             div()
                 .flex()
@@ -209,12 +214,7 @@ impl SpinoramaApp {
                                 .flex()
                                 .child(render_axis(
                                     &angle_scale,
-                                    &AxisConfig::left()
-                                        .with_tick_values(angle_ticks.clone())
-                                        .with_formatter(|v| format!("{v:.0}°"))
-                                        .with_title("Angle (deg)")
-                                        .with_label_font_size(label_sz)
-                                        .with_title_font_size(title_sz),
+                                    &angle_axis_config,
                                     chart_height,
                                     &axis_theme,
                                 ))
@@ -270,7 +270,7 @@ impl SpinoramaApp {
                         .child(
                             div()
                                 .flex()
-                                .child(div().w(px((80.0 * font_scale).round())))
+                                .child(div().w(px(angle_axis_config.total_size())))
                                 .child(render_axis(
                                     &freq_scale,
                                     &AxisConfig::bottom()
@@ -411,4 +411,43 @@ fn resample_spl_field(
         }
     }
     (out_xs, out_ys, out)
+}
+
+/// Left angle-axis configuration for contour charts. The frequency
+/// axis below the field is offset by this config's `total_size()`,
+/// so both must come from the same object.
+fn contour_angle_axis_config(label_sz: f32, title_sz: f32, ticks: Vec<f64>) -> AxisConfig {
+    AxisConfig::left()
+        .with_tick_values(ticks)
+        .with_formatter(|v| format!("{v:.0}°"))
+        .with_title("Angle (deg)")
+        .with_label_font_size(label_sz)
+        .with_title_font_size(title_sz)
+}
+
+#[cfg(test)]
+mod contour_axis_alignment_tests {
+    use super::contour_angle_axis_config;
+
+    #[test]
+    fn angle_axis_width_is_the_config_total_size() {
+        // Regression: the frequency-axis spacer was hard-coded to
+        // 80 * font_scale while the left axis renders
+        // total_size() wide, shifting every frequency tick right
+        // of its gridline (~14 logical px at font_scale 1.2).
+        let font_scale = 1.2_f32;
+        let label_sz = (10.0 * font_scale).round();
+        let title_sz = (12.0 * font_scale).round();
+        let config = contour_angle_axis_config(label_sz, title_sz, vec![-180.0, 0.0, 180.0]);
+        let legacy_spacer = (80.0 * font_scale).round();
+        assert!(
+            (config.total_size() - legacy_spacer).abs() > 5.0,
+            "test premise: legacy spacer {} must differ from axis width {}",
+            legacy_spacer,
+            config.total_size()
+        );
+        // Left-axis width formula: label room + title padding + title.
+        let expected = 60.0 + config.title_padding + title_sz;
+        assert!((config.total_size() - expected).abs() < 0.01);
+    }
 }

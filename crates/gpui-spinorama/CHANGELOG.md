@@ -2,6 +2,17 @@
 
 # 0.11.0
 
+## Fixed
+
+- Contour charts: the frequency axis below the field is offset
+  by the angle axis' own `total_size()` instead of a hard-coded
+  80 * font_scale spacer, which drifted every frequency tick
+  sideways against the field and grid.
+- Headless `draw_capture` refreshes the window before drawing:
+  with the gpui-fast element cache, state injected by direct
+  field mutation was never rendered and every captured image was
+  the empty first frame.
+
 # 0.10.53
 
 ## Changed

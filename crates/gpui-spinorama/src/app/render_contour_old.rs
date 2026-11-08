@@ -131,6 +131,16 @@ impl SpinoramaApp {
             20000.0_f64.ln(),
         ];
 
+        // The bottom axis is offset by exactly this config's
+        // rendered width; a hard-coded spacer drifts the frequency
+        // ticks sideways against the field.
+        let angle_axis_config = AxisConfig::left()
+            .with_ticks(9)
+            .with_formatter(|v| format!("{v:.0}°"))
+            .with_title("Angle")
+            .with_label_font_size(label_sz)
+            .with_title_font_size(title_sz);
+
         Some(
             div()
                 .flex()
@@ -152,12 +162,7 @@ impl SpinoramaApp {
                                 .flex()
                                 .child(render_axis(
                                     &angle_scale,
-                                    &AxisConfig::left()
-                                        .with_ticks(9)
-                                        .with_formatter(|v| format!("{v:.0}°"))
-                                        .with_title("Angle")
-                                        .with_label_font_size(label_sz)
-                                        .with_title_font_size(title_sz),
+                                    &angle_axis_config,
                                     chart_height,
                                     &axis_theme,
                                 ))
@@ -223,7 +228,7 @@ impl SpinoramaApp {
                         .child(
                             div()
                                 .flex()
-                                .child(div().w(px((80.0 * font_scale).round())))
+                                .child(div().w(px(angle_axis_config.total_size())))
                                 .child(render_axis(
                                     &freq_scale,
                                     &AxisConfig::bottom()
