@@ -48,17 +48,17 @@ pub fn freq_spl_plot_margins(chart_width: f32, has_secondary_axis: bool) -> Freq
         .with_tick_size(tick_size)
         .with_title_padding(AXIS_TITLE_PADDING)
         .total_size();
-    let right_axis_width = if has_secondary_axis {
-        AxisConfig::right()
-            .with_title("DI (dB)")
-            .with_label_font_size(label_size)
-            .with_title_font_size(title_size)
-            .with_tick_size(tick_size)
-            .with_title_padding(AXIS_TITLE_PADDING)
-            .total_size()
-    } else {
-        0.0
-    };
+    // Always reserve the secondary (DI) axis width, even on charts
+    // without one, so every SPL-vs-frequency graph has the same plot
+    // width and graphs line up when compared side by side.
+    let _ = has_secondary_axis;
+    let right_axis_width = AxisConfig::right()
+        .with_title("DI (dB)")
+        .with_label_font_size(label_size)
+        .with_title_font_size(title_size)
+        .with_tick_size(tick_size)
+        .with_title_padding(AXIS_TITLE_PADDING)
+        .total_size();
 
     FreqSplPlotMargins {
         left_axis_width,
@@ -452,12 +452,17 @@ mod tests {
         let with_secondary = freq_spl_plot_margins(800.0, true);
 
         assert!(without_secondary.left_axis_width > 0.0);
-        assert_eq!(without_secondary.right_axis_width, 0.0);
+        // The DI axis width is reserved on every chart so plot widths
+        // match with and without a secondary axis.
+        assert!(without_secondary.right_axis_width > 0.0);
         assert_eq!(
             with_secondary.left_axis_width,
             without_secondary.left_axis_width
         );
-        assert!(with_secondary.right_axis_width > 0.0);
+        assert_eq!(
+            with_secondary.right_axis_width,
+            without_secondary.right_axis_width
+        );
     }
 
     #[test]
@@ -468,16 +473,17 @@ mod tests {
         let without_secondary = freq_spl_plot_margins(1200.0, false);
         assert_eq!(
             plot_area_width(1200.0, &without_secondary),
-            1200.0 - without_secondary.left_axis_width
+            1200.0 - without_secondary.left_axis_width - without_secondary.right_axis_width
         );
         let with_secondary = freq_spl_plot_margins(1200.0, true);
         assert_eq!(
             plot_area_width(1200.0, &with_secondary),
             1200.0 - with_secondary.left_axis_width - with_secondary.right_axis_width
         );
-        assert!(
-            plot_area_width(1200.0, &with_secondary)
-                < plot_area_width(1200.0, &without_secondary)
+        // Same plot width either way: graphs align in comparisons.
+        assert_eq!(
+            plot_area_width(1200.0, &with_secondary),
+            plot_area_width(1200.0, &without_secondary)
         );
         // Degenerate widths clamp to a positive plot area.
         assert_eq!(plot_area_width(10.0, &with_secondary), 1.0);

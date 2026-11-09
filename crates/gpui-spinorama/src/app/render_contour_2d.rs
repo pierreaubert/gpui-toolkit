@@ -134,13 +134,22 @@ impl SpinoramaApp {
             });
         }
 
-        let chart_width = self.content_width;
-        let chart_height = if self.chart_only {
-            // Leave room for the title, x axis, and the three-row
-            // colorbar (bar, boundary labels, dB (SPL) title).
-            (chart_width * 0.5).min(self.content_height * 0.64)
+        // Published pictures keep a 1.6 width/height ratio on the
+        // contour area itself (the Python layout), not on the whole
+        // frame: derive the height from the available vertical space
+        // (leaving room for title, x axis, and colorbar) and size
+        // the width from it.
+        let (chart_width, chart_height) = if self.chart_only {
+            // The heatmap element adds its own vertical extent on
+            // top of the requested height, so the sizing constant is
+            // wider than the 1.6 target; measured field ratio lands
+            // at ~1.6 (verified on rendered PNGs).
+            let max_h = self.content_height * 0.72;
+            let w = self.content_width.min(max_h * 1.82);
+            (w, w / 1.82)
         } else {
-            (chart_width * 0.375).min(self.content_height * 0.5)
+            let w = self.content_width;
+            (w, (w * 0.375).min(self.content_height * 0.5))
         };
         let font_scale = (chart_width / 800.0).clamp(0.7, 1.2);
         let label_sz = (10.0 * font_scale).round();

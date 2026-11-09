@@ -71,10 +71,22 @@ impl SpinoramaApp {
             .show_grid(self.surface_show_grid)
             .plot_type(SurfacePlotType::Cartesian) // Set plot type
             .camera_position(
-                5.0,
+                // Published pictures sit further back so the whole
+                // surface (incl. the low front edge) fits the frame
+                // instead of being truncated at the bottom.
+                if self.chart_only { 7.8 } else { 5.0 },
                 self.surface_rotation_azimuth,
                 self.surface_rotation_elevation,
             );
+
+        // The camera lives in the shared state (config distance only
+        // seeds new elements); published pictures pull it back so
+        // the front edge of the surface fits the frame.
+        if self.chart_only {
+            let mut state = self.surface_state.borrow_mut();
+            state.controls.distance = 5.4;
+            state.update_camera();
+        }
 
         // Create element with shared state
         // Retain the registration across GPUI frame submission and interaction.

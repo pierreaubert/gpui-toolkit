@@ -13,7 +13,11 @@ impl SpinoramaApp {
             );
         };
 
-        let chart_size = self.content_width.min(self.content_height * 0.7).min(700.0);
+        let chart_size = if self.chart_only {
+            self.content_width.min(self.content_height * 0.86)
+        } else {
+            self.content_width.min(self.content_height * 0.7).min(700.0)
+        };
         let center_x = chart_size / 2.0;
         let center_y = chart_size / 2.0;
         let outer_radius = (chart_size / 2.0) - 80.0;
@@ -27,22 +31,29 @@ impl SpinoramaApp {
         // Color scale
         let color_scale = self.contour_colormap.color_scale();
 
-        // Find SPL range for color normalization
-        let spl_min = contour_data
-            .spl
-            .iter()
-            .copied()
-            .fold(f64::INFINITY, f64::min);
-        let spl_max = contour_data
-            .spl
-            .iter()
-            .copied()
-            .fold(f64::NEG_INFINITY, f64::max);
+        // Published pictures use the fixed Python contour scale
+        // (-30..+3 dB) so globes are comparable across speakers;
+        // the interactive view keeps the data-driven range.
+        let (spl_min, spl_max) = if self.chart_only {
+            (-30.0, 3.0)
+        } else {
+            (
+                contour_data.spl.iter().copied().fold(f64::INFINITY, f64::min),
+                contour_data
+                    .spl
+                    .iter()
+                    .copied()
+                    .fold(f64::NEG_INFINITY, f64::max),
+            )
+        };
         let spl_range = (spl_max - spl_min).max(1.0);
 
         // Generate polar heatmap data - store wedge geometry and colors
-        let angular_resolution = 72_usize; // 5° steps
-        let radial_resolution = 50_usize;
+        let (angular_resolution, radial_resolution) = if self.chart_only {
+            (180_usize, 110_usize) // 2° steps, fine radial rings
+        } else {
+            (72_usize, 50_usize) // 5° steps
+        };
 
         // Build wedge data for canvas rendering
         #[derive(Clone)]
@@ -58,6 +69,7 @@ impl SpinoramaApp {
 
         let angle_min_data = contour_data.angles.first().copied().unwrap_or(-180.0);
         let angle_max_data = contour_data.angles.last().copied().unwrap_or(180.0);
+        let log_freqs: Vec<f64> = contour_data.freq.iter().map(|f| f.ln()).collect();
 
         for r_idx in 0..radial_resolution {
             for a_idx in 0..angular_resolution {
@@ -75,35 +87,32 @@ impl SpinoramaApp {
                 // Map to data angle range
                 let angle = angle_min_data + angle_t * (angle_max_data - angle_min_data);
 
-                // Find nearest indices in contour data
-                let freq_idx = contour_data
-                    .freq
-                    .iter()
-                    .position(|&f| f >= freq)
-                    .unwrap_or(contour_data.freq_count - 1)
-                    .min(contour_data.freq_count - 1);
-
-                let angle_idx = contour_data
-                    .angles
-                    .iter()
-                    .position(|&a| a >= angle)
-                    .unwrap_or(contour_data.angle_count - 1)
-                    .min(contour_data.angle_count - 1);
-
-                let idx = angle_idx * contour_data.freq_count + freq_idx;
-                let spl = contour_data.spl.get(idx).copied().unwrap_or(0.0);
+                // Bilinear sample in (log-frequency, angle) so the
+                // disc is a smooth field, like the 2D contour raster.
+                let (flo, tf) = axis_bracket(&log_freqs, freq.ln());
+                let (alo, ta) = axis_bracket(&contour_data.angles, angle);
+                let w = contour_data.freq_count;
+                let at = |a: usize, f: usize| contour_data.spl.get(a * w + f).copied().unwrap_or(0.0);
+                let fhi = (flo + 1).min(w.saturating_sub(1));
+                let ahi = (alo + 1).min(contour_data.angle_count.saturating_sub(1));
+                let top = at(alo, flo) + (at(alo, fhi) - at(alo, flo)) * tf;
+                let bottom = at(ahi, flo) + (at(ahi, fhi) - at(ahi, flo)) * tf;
+                let spl = top + (bottom - top) * ta;
 
                 // Normalize SPL to color
                 let color_t = ((spl - spl_min) / spl_range).clamp(0.0, 1.0);
                 let color = color_scale(color_t);
 
-                // Calculate radii (inner and outer)
+                // Calculate radii (inner and outer). The outer edge
+                // and the second angle extend slightly past the cell
+                // so abutting wedges leave no hairline seams.
                 let r_inner = (r_t * f64::from(outer_radius)) as f32;
-                let r_outer = (r_t_next * f64::from(outer_radius)) as f32;
+                let r_outer = (r_t_next * f64::from(outer_radius)) as f32 + 1.0;
 
                 // Calculate angles (convert to radians, 0° at top)
+                let theta_step = (angle_t_next - angle_t) * 360.0;
                 let theta1 = ((angle_t * 360.0 - 90.0).to_radians()) as f32;
-                let theta2 = ((angle_t_next * 360.0 - 90.0).to_radians()) as f32;
+                let theta2 = ((angle_t_next * 360.0 - 90.0 + theta_step * 0.2).to_radians()) as f32;
 
                 wedges.push(WedgeData {
                     r_inner,
@@ -259,14 +268,13 @@ impl SpinoramaApp {
         }));
 
         // Colorbar using div elements
-        let colorbar_height = 200.0_f32;
+        let colorbar_height = if self.chart_only { chart_size * 0.45 } else { 200.0_f32 };
         let colorbar_width = 20.0_f32;
         let num_color_steps = 20;
 
         let colorbar = div()
             .flex()
             .flex_col()
-            .gap_1()
             .children((0..num_color_steps).map(|i| {
                 let t = f64::from(i) / f64::from(num_color_steps);
                 let color = color_scale(1.0 - t); // Invert so high values at top
@@ -282,7 +290,7 @@ impl SpinoramaApp {
             .flex_col()
             .justify_between()
             .h(px(colorbar_height))
-            .children([0.0, 0.5, 1.0].iter().map(|&t| {
+            .children([1.0, 0.5, 0.0].iter().map(|&t| {
                 let spl_val = spl_min + t * spl_range;
                 div().child(render_glyph_text(
                     &format!("{spl_val:.0} dB"),
@@ -327,6 +335,54 @@ impl SpinoramaApp {
                             cx.notify();
                         }))
                 }));
+
+        // Headless (chart-only) pictures carry the payload title and
+        // no interactive controls.
+        if self.chart_only {
+            return div()
+                .flex()
+                .flex_col()
+                .gap(px(ds.spacing.section_gap))
+                .child(
+                    div()
+                        .text_size(px(ds.typography.large_size * s))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(theme.text_primary)
+                        .child(self.title_override.clone().unwrap_or_default()),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .justify_center()
+                        .gap(px(ds.spacing.section_gap * 2.0))
+                        .child(
+                            div()
+                                .relative()
+                                .w(px(chart_size))
+                                .h(px(chart_size))
+                                .child(polar_canvas)
+                                .child(freq_labels)
+                                .child(angle_labels),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .items_center()
+                                .gap(px(ds.spacing.control_gap))
+                                .child(div().text_size(px(ds.typography.small_size * s)).text_color(theme.text_secondary).child("SPL (dB)"))
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .gap(px(ds.spacing.control_gap))
+                                        .child(colorbar)
+                                        .child(colorbar_labels),
+                                ),
+                        ),
+                );
+        }
 
         div()
             .flex()

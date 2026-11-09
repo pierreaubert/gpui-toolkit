@@ -1,5 +1,23 @@
 # Unreleased
 
+# 0.11.1
+
+## Changed
+
+- Published Globe pictures are now the polar disc (angle around,
+  log-frequency as radius, fixed -30..+3 dB scale, bilinearly
+  sampled) instead of the per-frequency 3D sphere; the interactive
+  sphere view is unchanged.
+- Contour pictures keep a 1.6 width/height ratio on the contour
+  area itself.
+- 3D surface pictures sit further back so the surface is no longer
+  truncated at the bottom of the frame.
+- Every SPL-vs-frequency graph reserves the DI secondary-axis
+  width, so all plot areas have the same width and align in
+  comparisons.
+- CEA2034 DI curves share their parent curve colour (ERDI green
+  like Early Reflections, SPDI red like Sound Power).
+
 # 0.11.0
 
 ## Fixed

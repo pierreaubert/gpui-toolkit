@@ -200,17 +200,15 @@ pub fn render_generic_freq_chart(
         .with_tick_size(tick_size)
         .with_title_padding(super::AXIS_TITLE_PADDING)
         .total_size();
-    let right_axis_width = if has_secondary {
-        AxisConfig::right()
-            .with_title("DI (dB)")
-            .with_label_font_size(label_size)
-            .with_title_font_size(title_size)
-            .with_tick_size(tick_size)
-            .with_title_padding(super::AXIS_TITLE_PADDING)
-            .total_size()
-    } else {
-        0.0
-    };
+    // Always reserve the DI axis width (see freq_spl_plot_margins):
+    // every frequency graph gets the same plot width.
+    let right_axis_width = AxisConfig::right()
+        .with_title("DI (dB)")
+        .with_label_font_size(label_size)
+        .with_title_font_size(title_size)
+        .with_tick_size(tick_size)
+        .with_title_padding(super::AXIS_TITLE_PADDING)
+        .total_size();
     let plot_width = (chart_width - left_axis_width - right_axis_width).max(1.0);
 
     // Fill polygons (pixel space) painted under the lines.

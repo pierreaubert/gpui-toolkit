@@ -11,8 +11,7 @@
 // Rust guideline compliant 2026-02-21
 
 use crate::api::{
-    DirectivityData, contour_plot_data, directivity_curves, extract_cea2034_curves_original,
-    parse_plot, plotly_symbol,
+    contour_plot_data, extract_cea2034_curves_original, parse_plot, plotly_symbol,
 };
 use crate::app::SpinoramaApp;
 use crate::headless::{draw_capture, make_context, open_app_window};
@@ -223,7 +222,7 @@ fn render_one(
     plot: &Value,
     speaker: &str,
     version: &str,
-    plot_dir: &Path,
+    _plot_dir: &Path,
 ) -> Result<image::RgbaImage, String> {
     let title = title_text(plot);
     match kind {
@@ -268,45 +267,16 @@ fn render_one(
         GraphKind::Generic { graph_index } => {
             let def = &GRAPH_CATALOG[graph_index];
             let generic = parse_plot(plot)?;
-            // The sphere (globe) view needs both directivity planes,
-            // which live in the sibling SPL plane payloads. The site
-            // picture shows the sphere at 1 kHz.
-            let sphere_data = if matches!(def.renderer, GraphRenderer::Sphere) {
-                let normalized = def.measurement.contains("Normalized");
-                let suffix = if normalized { " Normalized" } else { "" };
-                let load_plane = |plane: &str| -> Result<Vec<crate::api::DirectivityCurve>, String> {
-                    let path = plot_dir.join(format!("SPL {plane}{suffix}.json"));
-                    let raw = std::fs::read_to_string(&path)
-                        .map_err(|e| format!("read {}: {e}", path.display()))?;
-                    let plane_plot: Value =
-                        serde_json::from_str(&raw).map_err(|e| format!("parse: {e}"))?;
-                    directivity_curves(&plane_plot)
-                };
-                let horizontal = load_plane("Horizontal")?;
-                let vertical = load_plane("Vertical")?;
-                let freq_idx = horizontal
-                    .first()
-                    .map(|curve| {
-                        curve
-                            .freq
-                            .iter()
-                            .enumerate()
-                            .min_by(|(_, a), (_, b)| {
-                                (*a - 1_000.0).abs().total_cmp(&(*b - 1_000.0).abs())
-                            })
-                            .map_or(0, |(idx, _)| idx)
-                    })
-                    .unwrap_or(0);
-                Some((DirectivityData { horizontal, vertical }, freq_idx))
-            } else {
-                None
-            };
             let section = match def.renderer {
                 GraphRenderer::PolarChart => PlotSection::PolarChart,
                 GraphRenderer::BarChart => PlotSection::BarChart,
                 GraphRenderer::Contour => PlotSection::Contour,
                 GraphRenderer::Surface3d => PlotSection::Surface3D,
-                GraphRenderer::Sphere => PlotSection::SurfaceSphere,
+                // Published Globe pictures are the polar disc
+                // (angle around, log-frequency as radius): one static
+                // image covering every frequency, unlike the
+                // per-frequency 3D sphere used interactively.
+                GraphRenderer::Sphere => PlotSection::PolarContour,
                 _ => PlotSection::FrequencyChart,
             };
             handle
@@ -328,10 +298,6 @@ fn render_one(
                     ) && let Ok(data) = contour_plot_data(plot)
                     {
                         state.set_contour_data(data);
-                    }
-                    if let Some((data, freq_idx)) = sphere_data {
-                        state.set_directivity_data(data);
-                        state.sphere_freq_idx = freq_idx;
                     }
                 })
                 .map_err(|e| format!("inject generic data: {e}"))?;

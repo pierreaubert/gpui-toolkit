@@ -18,8 +18,8 @@ pub fn cea2034_colors() -> HashMap<&'static str, D3Color> {
     colors.insert("Listening Window", D3Color::rgb(255, 127, 14)); // Orange
     colors.insert("Early Reflections", D3Color::rgb(44, 160, 44)); // Green
     colors.insert("Sound Power", D3Color::rgb(214, 39, 40)); // Red
-    colors.insert("Early Reflections DI", D3Color::rgb(148, 103, 189)); // Purple
-    colors.insert("Sound Power DI", D3Color::rgb(140, 86, 75)); // Brown
+    colors.insert("Early Reflections DI", D3Color::rgb(44, 160, 44)); // Green, like Early Reflections
+    colors.insert("Sound Power DI", D3Color::rgb(214, 39, 40)); // Red, like Sound Power
     colors
 }
 
