@@ -1,5 +1,10 @@
 # gpui-python-runtime
 
+> **Python users start at [`PYPI.md`](PYPI.md)** (the PyPI page: install,
+> quickstart, examples) and the
+> [tutorial walkthrough](python/tutorial/README.md). This file documents
+> the runtime internals and contracts for toolkit contributors.
+
 Retained scene specifications for the GPUI Python wrapper.
 
 Python declares UI and `scene3d` objects. Rust validates the scene, tracks

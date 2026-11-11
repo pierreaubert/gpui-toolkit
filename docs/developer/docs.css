@@ -1,0 +1,164 @@
+/* Developer docs (/docs/) — layered on landing.css tokens and chrome. */
+
+.docs-layout {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 4rem;
+  padding-top: 3rem;
+  padding-bottom: 5rem;
+  align-items: start;
+}
+
+.docs-nav {
+  position: sticky;
+  top: 2rem;
+  font-size: 14px;
+}
+.docs-nav-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.7px;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+.docs-nav-title:not(:first-child) {
+  margin-top: 28px;
+}
+.docs-pages,
+.docs-nav .toc ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.docs-pages li,
+.docs-nav .toc li {
+  margin: 2px 0;
+}
+.docs-pages a,
+.docs-nav .toc a {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--ink);
+}
+.docs-nav .toc ul ul a {
+  padding-left: 22px;
+  color: var(--muted);
+}
+.docs-pages a:hover,
+.docs-nav .toc a:hover {
+  background: #e6e7dd;
+}
+.docs-pages a[aria-current="page"] {
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 600;
+}
+
+.doc {
+  max-width: 47rem;
+  font-size: 16px;
+  line-height: 1.7;
+}
+.doc h1 {
+  font-size: clamp(34px, 4vw, 48px);
+  letter-spacing: -1.5px;
+  line-height: 1.05;
+  margin: 0 0 1.2rem;
+}
+.doc h2 {
+  font-size: 24px;
+  letter-spacing: -0.5px;
+  margin: 2.6rem 0 0.8rem;
+  padding-top: 1.6rem;
+  border-top: 1px solid var(--line);
+}
+.doc h3 {
+  font-size: 18px;
+  margin: 1.8rem 0 0.6rem;
+}
+.doc p,
+.doc li {
+  color: #343a34;
+}
+.doc a {
+  color: #46681c;
+  font-weight: 550;
+}
+.doc code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  background: #e6e7dd;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+.doc pre {
+  background: var(--ink);
+  color: #eef0e4;
+  border-radius: 8px;
+  padding: 18px 20px;
+  overflow-x: auto;
+  line-height: 1.55;
+  /* landing.css pins a min-height for its tabbed code panel; docs code sizes to content. */
+  min-height: 0;
+  margin: 1rem 0;
+}
+.doc pre code {
+  background: none;
+  padding: 0;
+  font-size: 13.5px;
+}
+.doc table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.2rem 0;
+  font-size: 14.5px;
+  display: block;
+  overflow-x: auto;
+}
+.doc th,
+.doc td {
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+.doc th {
+  background: #e6e7dd;
+}
+.doc-pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 3rem;
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 600;
+}
+.doc-pager a {
+  text-decoration: none;
+}
+
+@media (max-width: 860px) {
+  .docs-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+    padding-top: 1.5rem;
+  }
+  .docs-nav {
+    position: static;
+  }
+  .docs-pages {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .docs-nav .toc {
+    display: none;
+  }
+  .docs-nav-title:not(:first-child) {
+    display: none;
+  }
+}
