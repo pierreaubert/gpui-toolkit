@@ -57,8 +57,17 @@ impl Render for FocusMappingView {
 }
 
 fn draw(cx: &mut TestAppContext, window: AnyWindowHandle) {
-    cx.update_window(window, |_, window, cx| window.draw(cx).clear(cx))
-        .unwrap();
+    // Request a full frame: GPUI reuses retained prepaint for clean windows,
+    // which skips the tracked elements' prepaint — and the element-focus
+    // registry is rebuilt only by elements that actually prepaint. This
+    // mirrors what production draws see after `refresh()` (e.g. from
+    // `window.focus`), and what the fork itself does for out-of-frame draws
+    // (`fast::retained::draw_outside_frames`).
+    cx.update_window(window, |_, window, cx| {
+        window.refresh();
+        window.draw(cx).clear(cx);
+    })
+    .unwrap();
 }
 
 fn focus_and_draw(cx: &mut TestAppContext, window: AnyWindowHandle, handle: &FocusHandle) {
