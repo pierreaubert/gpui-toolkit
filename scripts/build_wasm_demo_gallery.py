@@ -553,6 +553,10 @@ def main() -> int:
     copied = copy_images(entries, args.capture_root.resolve(), output)
     build_thumbnails(entries, output)
     write_site(catalog, entries, output)
+    # The /docs/ developer pages publish with the same site tree.
+    import build_docs_site
+
+    build_docs_site.build(output / "docs")
     shutil.copyfile(REPO_ROOT / "docs/demos/spinorama-nginx.conf", output / "spinorama-nginx.conf")
     if args.readme_snippet:
         write_readme_snippet(catalog, entries, args.readme_snippet.resolve())

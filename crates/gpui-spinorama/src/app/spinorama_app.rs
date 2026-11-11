@@ -163,6 +163,9 @@ pub struct SpinoramaApp {
     pub key_error: Option<String>,
     /// Picture mode: no key, only the public PNG result is shown.
     pub picture_mode: bool,
+    /// Demo mode: no key, interactive JSON data from the 10-speaker demo
+    /// API at `https://api.spinorama.org/demo/v1`.
+    pub use_demo_api: bool,
     // Generic graph (all spinorama.org plots) state
     pub generic_plot: Option<PlotData>,
     pub generic_load_state: LoadState,
@@ -216,6 +219,12 @@ impl SpinoramaApp {
         if offline {
             return app;
         }
+        // `?demo=1` / `SPINORAMA_USE_DEMO=1` starts in demo mode (no key,
+        // 10 speakers, full interactive charts).
+        if crate::api::demo_api_requested() {
+            app.enter_demo_mode(cx);
+            return app;
+        }
         // Saved key (OS credential store / env) skips the popup; the
         // popup is shown again only when that key is rejected (401/403).
         app.api_key = load_api_key();
@@ -265,6 +274,9 @@ impl SpinoramaApp {
     }
 
     fn api_key_string(&self) -> Option<String> {
+        if self.use_demo_api {
+            return None;
+        }
         self.api_key.as_ref().map(|k| k.as_str().to_string())
     }
 
@@ -272,16 +284,17 @@ impl SpinoramaApp {
     pub(super) fn handle_auth_error(&mut self, cx: &mut Context<Self>) {
         self.api_key = None;
         let _ = delete_api_key();
-        self.key_error = Some("That API key was rejected. Enter a valid key or continue without one.".into());
+        self.key_error = Some("That API key was rejected. Enter a valid key, try the demo, or continue without one.".into());
         self.show_key_popup = true;
         self.picture_mode = false;
+        self.use_demo_api = false;
         cx.notify();
     }
 
     /// Validates and stores a key entered in the popup, then loads data.
     pub fn submit_api_key(&mut self, cx: &mut Context<Self>) {
         let Some(key) = ApiKey::new(self.key_input.clone()) else {
-            self.key_error = Some("Enter an API key, or continue without one.".into());
+            self.key_error = Some("Enter an API key, try the demo, or continue without one.".into());
             cx.notify();
             return;
         };
@@ -295,7 +308,44 @@ impl SpinoramaApp {
         self.key_error = None;
         self.show_key_popup = false;
         self.picture_mode = false;
+        self.use_demo_api = false;
         self.load_speakers(cx);
+        cx.notify();
+    }
+
+    /// Enters demo mode: 10 speakers, interactive JSON data, no key.
+    pub fn enter_demo_mode(&mut self, cx: &mut Context<Self>) {
+        self.use_demo_api = true;
+        self.api_key = None;
+        self.show_key_popup = false;
+        self.key_error = None;
+        self.key_input.clear();
+        self.picture_mode = false;
+        self.cea2034_curves.clear();
+        self.directivity_data = None;
+        self.contour_data = None;
+        self.generic_plot = None;
+        self.data_load_state = LoadState::Idle;
+        self.load_speakers(cx);
+        cx.notify();
+    }
+
+    /// Leaves demo mode and reopens the key popup to choose full/picture.
+    pub fn exit_demo_mode(&mut self, cx: &mut Context<Self>) {
+        self.use_demo_api = false;
+        self.show_key_popup = true;
+        self.picture_mode = false;
+        self.cea2034_curves.clear();
+        self.directivity_data = None;
+        self.contour_data = None;
+        self.generic_plot = None;
+        self.data_load_state = LoadState::Idle;
+        self.speakers.clear();
+        self.versions.clear();
+        self.selected_speaker = None;
+        self.selected_version = None;
+        self.speakers_load_state = LoadState::Idle;
+        self.versions_load_state = LoadState::Idle;
         cx.notify();
     }
 
@@ -304,6 +354,7 @@ impl SpinoramaApp {
         self.show_key_popup = false;
         self.key_error = None;
         self.key_input.clear();
+        self.use_demo_api = false;
         self.picture_mode = true;
         self.load_speakers(cx);
         cx.notify();
@@ -360,6 +411,7 @@ impl SpinoramaApp {
     pub fn forget_api_key(&mut self, cx: &mut Context<Self>) {
         self.api_key = None;
         let _ = delete_api_key();
+        self.use_demo_api = false;
         self.picture_mode = true;
         self.show_key_popup = false;
         self.cea2034_curves.clear();
@@ -446,6 +498,7 @@ impl SpinoramaApp {
             key_input: String::new(),
             key_error: None,
             picture_mode: false,
+            use_demo_api: false,
             generic_plot: None,
             generic_load_state: LoadState::Idle,
             selected_graph_index: 0,
@@ -493,10 +546,11 @@ impl SpinoramaApp {
         self.speakers_load_state = LoadState::Loading;
         let runtime = self.runtime.clone();
         let api_key = self.api_key_string();
+        let use_demo = self.use_demo_api;
 
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let result: Result<Vec<String>, String> = runtime
-                .spawn(async move { fetch_available_speakers(api_key.as_deref()).await })
+                .spawn(async move { fetch_available_speakers(api_key.as_deref(), use_demo).await })
                 .await
                 .map_err(|e| e.clone())
                 .and_then(|r| r);
@@ -554,6 +608,7 @@ impl SpinoramaApp {
         self.generic_load_state = LoadState::Loading;
         let runtime = self.runtime.clone();
         let api_key = self.api_key_string();
+        let use_demo = self.use_demo_api;
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             // Fetch on the runtime (Send), apply state on the GPUI thread.
             enum Loaded {
@@ -574,11 +629,12 @@ impl SpinoramaApp {
                                     &version,
                                     measurement,
                                     api_key.as_deref(),
+                                    use_demo,
                                 )
                                 .await?,
                             )),
                             GraphRenderer::Sphere => Ok(Loaded::Directivity(
-                                fetch_directivity_data(&speaker, &version, api_key.as_deref())
+                                fetch_directivity_data(&speaker, &version, api_key.as_deref(), use_demo)
                                     .await?,
                             )),
                             _ => {
@@ -587,6 +643,7 @@ impl SpinoramaApp {
                                     &version,
                                     measurement,
                                     api_key.as_deref(),
+                                    use_demo,
                                 )
                                 .await?;
                                 Ok(Loaded::Plot(Box::new(parse_plot(&raw)?)))
@@ -634,6 +691,7 @@ impl SpinoramaApp {
         self.selected_version = None;
         let runtime = self.runtime.clone();
         let api_key = self.api_key_string();
+        let use_demo = self.use_demo_api;
 
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             let result: Result<Vec<String>, String> = runtime
@@ -641,7 +699,7 @@ impl SpinoramaApp {
                     let speaker = speaker.clone();
                     let api_key = api_key.clone();
                     async move {
-                        crate::api::fetch_versions(&speaker, api_key.as_deref()).await
+                        crate::api::fetch_versions(&speaker, api_key.as_deref(), use_demo).await
                     }
                 })
                 .await
@@ -701,6 +759,7 @@ impl SpinoramaApp {
         self.data_load_state = LoadState::Loading;
         let runtime = self.runtime.clone();
         let api_key = self.api_key_string();
+        let use_demo = self.use_demo_api;
         let measurement = self.selected_measurement.clone();
 
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
@@ -717,6 +776,7 @@ impl SpinoramaApp {
                             &version,
                             &measurement,
                             api_key.as_deref(),
+                            use_demo,
                         )
                         .await
                         .map_err(|e| e.clone())?;
@@ -735,7 +795,7 @@ impl SpinoramaApp {
                     let version = version.clone();
                     let api_key = api_key.clone();
                     async move {
-                        fetch_directivity_data(&speaker, &version, api_key.as_deref())
+                        fetch_directivity_data(&speaker, &version, api_key.as_deref(), use_demo)
                             .await
                             .ok()
                     }
@@ -751,7 +811,7 @@ impl SpinoramaApp {
                     let version = version.clone();
                     let api_key = api_key.clone();
                     async move {
-                        fetch_contour_data(&speaker, &version, "horizontal", api_key.as_deref())
+                        fetch_contour_data(&speaker, &version, "horizontal", api_key.as_deref(), use_demo)
                             .await
                             .ok()
                     }
@@ -948,7 +1008,9 @@ impl SpinoramaApp {
                     .text_size(px(ds.typography.small_size))
                     .text_color(theme.text_secondary)
                     .cursor_pointer()
-                    .child(if self.api_key.is_some() {
+                    .child(if self.use_demo_api {
+                        "Demo data (10 speakers) — change"
+                    } else if self.api_key.is_some() {
                         "API key ✓ — change"
                     } else if self.picture_mode {
                         "Picture mode — enter key"
@@ -969,6 +1031,20 @@ impl SpinoramaApp {
                         .cursor_pointer()
                         .child("Forget key")
                         .on_click(cx.listener(|this, _, _w, cx| this.forget_api_key(cx))),
+                )
+            })
+            .when(self.use_demo_api, |el| {
+                el.child(
+                    div()
+                        .id("header-exit-demo")
+                        .px(px(ds.spacing.control_padding_x))
+                        .py(px(ds.spacing.control_padding_y * 0.5))
+                        .rounded(px(ds.corners.sm))
+                        .text_size(px(ds.typography.small_size))
+                        .text_color(theme.text_muted)
+                        .cursor_pointer()
+                        .child("Exit demo")
+                        .on_click(cx.listener(|this, _, _w, cx| this.exit_demo_mode(cx))),
                 )
             })
             // Loading indicator
@@ -1410,7 +1486,7 @@ impl SpinoramaApp {
             self.selected_version.as_ref(),
         ) {
             (Some(speaker), Some(version)) => {
-                match measurement_image_url(speaker, version, self.picture_measurement()) {
+                match measurement_image_url(speaker, version, self.picture_measurement(), self.use_demo_api) {
                     Ok(url) => div()
                         .flex_1()
                         .child(
@@ -1663,7 +1739,10 @@ impl SpinoramaApp {
 
     /// Legend swatch: a plain line, or a line with the trace marker
     /// shape at its centre when the trace uses markers.
-    fn legend_swatch(symbol: Option<d3rs::shape::SymbolType>, color: D3Color) -> AnyElement {
+    pub(crate) fn legend_swatch(
+        symbol: Option<d3rs::shape::SymbolType>,
+        color: D3Color,
+    ) -> AnyElement {
         let Some(symbol) = symbol else {
             return div().w(px(16.0)).h(px(3.0)).bg(color.to_rgba()).into_any_element();
         };
@@ -1932,7 +2011,7 @@ impl SpinoramaApp {
                         div()
                             .text_size(px(ds.typography.small_size))
                             .text_color(theme.text_secondary)
-                            .child("Measurement data is now protected. Enter your API key to get the full interactive interface. Without a key you will see the result picture only."),
+                            .child("Full access needs an API key. Without one, try the demo (10 speakers, full interactive charts) or continue to the result picture only."),
                     )
                     // Self-managed masked field: click to focus, type or
                     // paste (Cmd/Ctrl+V). Display is `*` per character.
@@ -2049,44 +2128,75 @@ impl SpinoramaApp {
                     .child(
                         div()
                             .flex()
+                            .flex_col()
                             .gap(px(ds.spacing.control_gap))
                             .child(
                                 div()
-                                    .id("key-submit")
-                                    .debug_selector(|| "key-submit".to_string())
-                                    .px(px(ds.spacing.control_padding_x))
-                                    .py(px(ds.spacing.control_padding_y))
-                                    .rounded(px(ds.corners.md))
-                                    .bg(theme.accent)
-                                    .text_color(theme.text_on_accent)
-                                    .cursor_pointer()
-                                    .child("Save and continue")
-                                    .on_mouse_down(
-                                        MouseButton::Left,
-                                        cx.listener(|this, _, _w, cx| {
-                                            cx.stop_propagation();
-                                            this.submit_api_key(cx);
-                                        }),
+                                    .flex()
+                                    .gap(px(ds.spacing.control_gap))
+                                    .child(
+                                        div()
+                                            .id("key-submit")
+                                            .debug_selector(|| "key-submit".to_string())
+                                            .px(px(ds.spacing.control_padding_x))
+                                            .py(px(ds.spacing.control_padding_y))
+                                            .rounded(px(ds.corners.md))
+                                            .bg(theme.accent)
+                                            .text_color(theme.text_on_accent)
+                                            .cursor_pointer()
+                                            .child("Save and continue")
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                cx.listener(|this, _, _w, cx| {
+                                                    cx.stop_propagation();
+                                                    this.submit_api_key(cx);
+                                                }),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("key-skip")
+                                            .debug_selector(|| "key-skip".to_string())
+                                            .px(px(ds.spacing.control_padding_x))
+                                            .py(px(ds.spacing.control_padding_y))
+                                            .rounded(px(ds.corners.md))
+                                            .border_1()
+                                            .border_color(theme.border)
+                                            .bg(theme.surface)
+                                            .text_color(theme.text_primary)
+                                            .cursor_pointer()
+                                            .child("Continue without a key")
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                cx.listener(|this, _, _w, cx| {
+                                                    cx.stop_propagation();
+                                                    this.continue_without_key(cx);
+                                                }),
+                                            ),
                                     ),
                             )
                             .child(
                                 div()
-                                    .id("key-skip")
-                                    .debug_selector(|| "key-skip".to_string())
+                                    .id("key-demo")
+                                    .debug_selector(|| "key-demo".to_string())
+                                    .w_full()
+                                    .flex()
+                                    .justify_center()
                                     .px(px(ds.spacing.control_padding_x))
                                     .py(px(ds.spacing.control_padding_y))
                                     .rounded(px(ds.corners.md))
                                     .border_1()
-                                    .border_color(theme.border)
+                                    .border_color(theme.accent)
                                     .bg(theme.surface)
+                                    .text_size(px(ds.typography.small_size))
                                     .text_color(theme.text_primary)
                                     .cursor_pointer()
-                                    .child("Continue without a key")
+                                    .child("Try demo (10 speakers, no key)")
                                     .on_mouse_down(
                                         MouseButton::Left,
                                         cx.listener(|this, _, _w, cx| {
                                             cx.stop_propagation();
-                                            this.continue_without_key(cx);
+                                            this.enter_demo_mode(cx);
                                         }),
                                     ),
                             ),
@@ -2886,9 +2996,61 @@ mod key_popup_tests {
             cx.debug_bounds("picture-enter-key").is_some(),
             "picture mode banner should be rendered"
         );
-        let url = crate::api::measurement_image_url("KEF R3", "asr", "CEA2034")
+        let url = crate::api::measurement_image_url("KEF R3", "asr", "CEA2034", false)
             .expect("image url");
         assert!(url.contains("measurement_format=png"), "{url}");
+        assert!(
+            crate::api::measurement_image_url("KEF R3", "asr", "CEA2034", true).is_err(),
+            "demo API serves JSON only"
+        );
+    }
+
+    #[gpui::test]
+    async fn demo_button_enters_demo_mode_without_key(cx: &mut TestAppContext) {
+        let window = open_popup(cx);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        assert!(
+            cx.debug_bounds("key-demo").is_some(),
+            "demo button should be laid out"
+        );
+        click(&mut cx, "key-demo");
+        let (popup, picture, demo, has_key) = window
+            .update(&mut cx, |app, _w, _cx| {
+                (
+                    app.show_key_popup,
+                    app.picture_mode,
+                    app.use_demo_api,
+                    app.api_key.is_some(),
+                )
+            })
+            .expect("read app");
+        assert!(!popup && !picture && demo && !has_key);
+    }
+
+    #[gpui::test]
+    async fn demo_base_url_points_at_demo_api(cx: &mut TestAppContext) {
+        let _ = cx;
+        assert_eq!(
+            crate::api::DEMO_API_BASE_URL,
+            "https://api.spinorama.org/demo/v1"
+        );
+        assert_eq!(
+            crate::api::FULL_API_BASE_URL,
+            "https://api.spinorama.org/v1"
+        );
+        // Without an explicit `SPINORAMA_API_BASE` override the flag
+        // selects between the two public bases.
+        if std::env::var(crate::api::ENV_API_BASE_URL).is_err() {
+            assert_eq!(
+                crate::api::api_base_url(true).expect("demo base"),
+                crate::api::DEMO_API_BASE_URL
+            );
+            assert_eq!(
+                crate::api::api_base_url(false).expect("full base"),
+                crate::api::FULL_API_BASE_URL
+            );
+        }
     }
 
     #[gpui::test]

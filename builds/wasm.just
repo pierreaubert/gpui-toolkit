@@ -176,7 +176,7 @@ wasm-gallery only="":
 	done
 	only_flags=()
 	if [ -n "{{only}}" ]; then only_flags+=(--only "{{only}}"); fi
-	uv run --with pillow --with playwright python3 scripts/build_wasm_demo_gallery.py \
+	uv run --with pillow --with playwright --with markdown python3 scripts/build_wasm_demo_gallery.py \
 		--capture \
 		--url showcase=http://127.0.0.1:8081 \
 		--url px=http://127.0.0.1:8082 \
@@ -189,8 +189,14 @@ wasm-gallery only="":
 # Generate the static site from the Rust manifests without requiring a browser.
 [group('wasm')]
 demo-site: wasm-build-site
-	uv run --with pillow python3 scripts/build_wasm_demo_gallery.py \
+	uv run --with pillow --with markdown python3 scripts/build_wasm_demo_gallery.py \
 		--readme-snippet target/demo-site/README-snippet.md
+
+# Generate only the /docs/ developer pages into target/demo-site/docs
+# (no WASM builds), for iterating on documentation.
+[group('wasm')]
+docs-site:
+	uv run --with markdown python3 scripts/build_docs_site.py
 
 # Prereqs: `cargo install wasm-bindgen-cli` (provides wasm-bindgen-test-runner)
 # and a chromedriver on PATH (`brew install chromedriver`); set the CHROMEDRIVER
@@ -272,6 +278,14 @@ wasm-native-parity port="8081" *cases="":
 
 [group('wasm')]
 wasm-upload:
-    # Refuse to publish a viewer whose required backend route is missing.
-    curl --fail --silent --show-error --max-time 20 https://gpui-toolkit.spinorama.org/api/spinorama/v1/speakers > /dev/null
-    rsync -arv --delete target/demo-site/* ovhspin:/var/www/html/gpui-toolkit-prod
+	#!/usr/bin/env bash
+	set -euo pipefail
+	# Refuse to publish a viewer whose required backend route is missing.
+	# The API is key-protected: an unauthenticated probe gets 401, which
+	# proves the nginx proxy reached the API. A missing location is a 404.
+	code=$(curl --silent --show-error --max-time 20 --output /dev/null --write-out '%{http_code}' https://gpui-toolkit.spinorama.org/api/spinorama/v1/speakers)
+	if [ "$code" != 200 ] && [ "$code" != 401 ]; then
+		echo "error: /api/spinorama/v1/ answered HTTP $code (expected 200 or 401); is the nginx proxy installed?" >&2
+		exit 1
+	fi
+	rsync -arv --delete target/demo-site/* ovhspin:/var/www/html/gpui-toolkit-prod

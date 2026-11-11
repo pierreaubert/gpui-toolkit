@@ -5,34 +5,54 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "gpui-toolkit"
 version = "0.11.0"
-description = "Python declarations for GPUI Toolkit apps and retained 3D scene specs"
-readme = "crates/gpui-python-runtime/README.md"
+description = "Native GPU desktop apps, charts and 3D scenes in pure Python — GPUI rendering, no Rust toolchain required"
+readme = "crates/gpui-python-runtime/PYPI.md"
 requires-python = ">=3.10"
 license = { text = "ISC" }
 authors = [
     { name = "Pierre F. Aubert", email = "pierre@spinorama.org" },
 ]
-keywords = ["gpui", "ui", "visualization", "scene3d"]
+keywords = ["gpui", "gui", "desktop", "gpu", "ui", "charts", "visualization", "scene3d", "native"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: ISC License (ISCL)",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Visualization",
     "Topic :: Software Development :: User Interfaces",
 ]
-dependencies = [
+# The shipped package has no runtime dependencies. Pillow/playwright are
+# only used by the repo's QA screenshot scripts; see [dependency-groups].
+dependencies = []
+
+[project.optional-dependencies]
+# Arrow remains optional: declarations and the generic host install without
+# Python binary dependencies, while this extra enables live Dataset IPC frames.
+arrow = ["pyarrow>=14"]
+
+[project.urls]
+Homepage = "https://github.com/pierreaubert/gpui-toolkit"
+Documentation = "https://github.com/pierreaubert/gpui-toolkit/blob/main/crates/gpui-python-runtime/python/tutorial/README.md"
+Repository = "https://github.com/pierreaubert/gpui-toolkit"
+Issues = "https://github.com/pierreaubert/gpui-toolkit/issues"
+Changelog = "https://github.com/pierreaubert/gpui-toolkit/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+# Dev-only tools for the repo's QA screenshot/parity scripts (scripts/qa_*).
+# Installed by `uv sync`; never shipped in the wheel metadata.
+dev = [
     "Pillow>=10",
     "playwright>=1.40",
 ]
-
-[project.urls]
-Repository = "https://github.com/pierreaubert/gpui-toolkit"
-Documentation = "https://docs.rs/gpui-toolkit"
 
 [tool.setuptools]
 package-dir = { "" = "crates/gpui-python-runtime/python" }

@@ -16,6 +16,12 @@ Publish the generated directory manually to https://gpui-toolkit.spinorama.org/
 using `just wasm-upload`. The generated `_headers` declares COOP/COEP, which the
 host must preserve for threaded WASM.
 
+The site also serves developer documentation under `/docs/` (overview plus
+Python and Rust guides). Sources are Markdown in `docs/developer/`, rendered
+by `scripts/build_docs_site.py` into `target/demo-site/docs/` as part of every
+gallery/site build; `just docs-site` rebuilds only the docs for fast local
+iteration. Edit the `.md` files — never the generated HTML.
+
 The full D3rs Spinorama viewer uses the live speaker catalog and measurements
 from `api.spinorama.org`, with eight views, curve selection, zoom, polar
 frequencies, contour modes, and interactive 3D surfaces/spheres.

@@ -8,9 +8,6 @@ impl SpinoramaApp {
     ) -> Div {
         let font_size = (12.0 * self.font_scale()).round();
         let row_height = (font_size * 1.25).ceil().max(18.0);
-        let marker_width = 16.0;
-        let marker_height = 3.0;
-        let marker_top = ((row_height - marker_height) * 0.5).round();
 
         div()
             .flex()
@@ -28,36 +25,23 @@ impl SpinoramaApp {
                     .get(name)
                     .copied()
                     .unwrap_or(D3Color::rgb(128, 128, 128));
-                let (r, g, b) = (
-                    (color.r * 255.0) as u32,
-                    (color.g * 255.0) as u32,
-                    (color.b * 255.0) as u32,
-                );
 
                 div()
                     .flex()
                     .h(px(row_height))
+                    .items_center()
                     .gap(px(ds.spacing.control_gap))
                     .rounded(px(ds.corners.sm))
                     .cursor_pointer()
                     .opacity(if is_hidden { 0.35 } else { 1.0 })
                     .hover(|el| el.bg(theme.surface_hover))
-                    .child(
-                        div()
-                            .relative()
-                            .flex_none()
-                            .w(px(marker_width))
-                            .h(px(row_height))
-                            .child(
-                                div()
-                                    .absolute()
-                                    .left_0()
-                                    .top(px(marker_top))
-                                    .w(px(marker_width))
-                                    .h(px(marker_height))
-                                    .bg(rgb(r << 16 | g << 8 | b)),
-                            ),
-                    )
+                    // Marker-aware swatch: with same-coloured curves
+                    // (black speaker graphs) the symbol is the only
+                    // legend key to the curve.
+                    .child(Self::legend_swatch(
+                        self.cea_marker_symbols.get(name).copied(),
+                        color,
+                    ))
                     .child(
                         div()
                             .h(px(row_height))

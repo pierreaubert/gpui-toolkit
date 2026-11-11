@@ -8,7 +8,11 @@ open = true
 headers = { "Cross-Origin-Embedder-Policy" = "require-corp", "Cross-Origin-Opener-Policy" = "same-origin" }
 
 # The measurement API does not send CORS headers. Browser requests use the
-# same-origin proxy, matching the production nginx location.
+# same-origin proxy, matching the production nginx locations.
+# The demo API (no token, 10 speakers) is proxied alongside the full API.
 [[proxy]]
 backend = "https://api.spinorama.org/v1/"
 rewrite = "/api/spinorama/v1/"
+[[proxy]]
+backend = "https://api.spinorama.org/demo/v1/"
+rewrite = "/api/spinorama/demo/v1/"

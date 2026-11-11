@@ -87,30 +87,129 @@ async fn get(url: &str, api_key: Option<&str>) -> Result<Value, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Full-access API base (requires a token).
+pub const FULL_API_BASE_URL: &str = "https://api.spinorama.org/v1";
+/// Demo API base (no token, 10 speakers).
+pub const DEMO_API_BASE_URL: &str = "https://api.spinorama.org/demo/v1";
+/// Explicit base-URL override (CI / headless / tests).
+pub const ENV_API_BASE_URL: &str = "SPINORAMA_API_BASE";
+/// Set to `1`/`true`/`demo` to default to the demo API.
+pub const ENV_USE_DEMO_API: &str = "SPINORAMA_USE_DEMO";
+
+/// True when the process (or wasm query string) requests the demo API.
+///
+/// Native: `SPINORAMA_USE_DEMO=1` (or `true`/`demo`), or a
+/// `SPINORAMA_API_BASE` containing `/demo/`.
+/// Wasm: `?demo=1` (or `?api=demo`) on the hosting page URL.
+pub fn demo_api_requested() -> bool {
+    if std::env::var(ENV_USE_DEMO_API).is_ok_and(|v| {
+        v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("demo")
+    }) {
+        return true;
+    }
+    if let Ok(base) = std::env::var(ENV_API_BASE_URL)
+        && base.contains("/demo/")
+    {
+        return true;
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        if gpui_miniapp::web_query_param("demo")
+            .as_deref()
+            .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("demo"))
+        {
+            return true;
+        }
+        if gpui_miniapp::web_query_param("api")
+            .as_deref()
+            .is_some_and(|v| v.eq_ignore_ascii_case("demo"))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Base URL for the selected API mode.
+///
+/// An explicit `SPINORAMA_API_BASE` always wins (native and tests);
+/// otherwise the demo flag selects between the demo (10 speakers, no
+/// token) and the full token-protected API. On wasm the base is the
+/// same-origin proxy, matching the production nginx locations.
+// The wasm branch reads the browser origin and can fail, so the
+// `Result` is only vacuous on native targets.
+#[allow(clippy::unnecessary_wraps)]
+pub fn api_base_url(use_demo: bool) -> Result<String, String> {
+    if let Ok(custom) = std::env::var(ENV_API_BASE_URL) {
+        let trimmed = custom.trim().trim_end_matches('/').to_string();
+        if !trimmed.is_empty() {
+            return Ok(trimmed);
+        }
+    }
+    if use_demo {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            return Ok(DEMO_API_BASE_URL.to_string());
+        }
+        #[cfg(target_family = "wasm")]
+        {
+            // Same-origin proxy mirrors the upstream path; derive the
+            // suffix from the public constant so both stay in sync.
+            let suffix = DEMO_API_BASE_URL
+                .strip_prefix("https://api.spinorama.org/")
+                .unwrap_or("demo/v1");
+            return Ok(format!(
+                "{}/api/spinorama/{suffix}",
+                web_sys::window()
+                    .ok_or("Browser window unavailable")?
+                    .location()
+                    .origin()
+                    .map_err(|_| "Browser origin unavailable")?
+            ));
+        }
+    }
+    // The wasm branch reads the browser origin and can fail, so the
+    // `Result` is only vacuous on native targets.
+    #[cfg(not(target_family = "wasm"))]
+    let base = FULL_API_BASE_URL.to_string();
+    #[cfg(target_family = "wasm")]
+    let base = {
+        let suffix = FULL_API_BASE_URL
+            .strip_prefix("https://api.spinorama.org/")
+            .unwrap_or("v1");
+        format!(
+            "{}/api/spinorama/{suffix}",
+            web_sys::window()
+                .ok_or("Browser window unavailable")?
+                .location()
+                .origin()
+                .map_err(|_| "Browser origin unavailable")?
+        )
+    };
+    Ok(base)
+}
+
 // The wasm branch reads the browser origin and can fail, so the
 // `Result` is only vacuous on native targets.
 #[allow(clippy::unnecessary_wraps)]
 fn api_url(path: &str) -> Result<String, String> {
-    #[cfg(not(target_family = "wasm"))]
-    let base = "https://api.spinorama.org/v1".to_string();
-    #[cfg(target_family = "wasm")]
-    let base = format!(
-        "{}/api/spinorama/v1",
-        web_sys::window()
-            .ok_or("Browser window unavailable")?
-            .location()
-            .origin()
-            .map_err(|_| "Browser origin unavailable")?
-    );
-    Ok(format!("{base}/{path}"))
+    Ok(format!("{}/{path}", api_base_url(false)?))
 }
 
-pub async fn fetch_versions(speaker: &str, api_key: Option<&str>) -> Result<Vec<String>, String> {
+fn api_url_for(path: &str, use_demo: bool) -> Result<String, String> {
+    Ok(format!("{}/{path}", api_base_url(use_demo)?))
+}
+
+pub async fn fetch_versions(
+    speaker: &str,
+    api_key: Option<&str>,
+    use_demo: bool,
+) -> Result<Vec<String>, String> {
     let value = get(
-        &api_url(&format!(
-            "speaker/{}/versions",
-            urlencoding::encode(speaker)
-        ))?,
+        &api_url_for(
+            &format!("speaker/{}/versions", urlencoding::encode(speaker)),
+            use_demo,
+        )?,
         api_key,
     )
     .await?;
@@ -118,20 +217,29 @@ pub async fn fetch_versions(speaker: &str, api_key: Option<&str>) -> Result<Vec<
 }
 
 #[cfg_attr(test, allow(dead_code, reason = "live caller is gated out in unit tests"))]
-pub async fn fetch_available_speakers(api_key: Option<&str>) -> Result<Vec<String>, String> {
-    let value = get(&api_url("speakers")?, api_key).await?;
+pub async fn fetch_available_speakers(
+    api_key: Option<&str>,
+    use_demo: bool,
+) -> Result<Vec<String>, String> {
+    let value = get(&api_url_for("speakers", use_demo)?, api_key).await?;
     serde_json::from_value(value).map_err(|e| e.to_string())
 }
 
 /// Public (unauthenticated) PNG URL for a measurement.
 ///
 /// Used in picture mode: the user sees the rendered result without any
-/// access to the underlying measurement data.
+/// access to the underlying measurement data. The demo API serves JSON
+/// only, so requesting a demo PNG is an error — demo mode stays
+/// interactive instead of entering picture mode.
 pub fn measurement_image_url(
     speaker: &str,
     version: &str,
     measurement: &str,
+    use_demo: bool,
 ) -> Result<String, String> {
+    if use_demo {
+        return Err("The demo API serves JSON measurements only (no PNG pictures)".into());
+    }
     api_url(&format!(
         "speaker/{}/version/{}/measurements/{}?measurement_format=png",
         urlencoding::encode(speaker),
@@ -161,13 +269,17 @@ pub async fn fetch_measurement_plot_data(
     version: &str,
     measurement: &str,
     api_key: Option<&str>,
+    use_demo: bool,
 ) -> Result<Value, String> {
-    let url = api_url(&format!(
-        "speaker/{}/version/{}/measurements/{}?measurement_format=json",
-        urlencoding::encode(speaker),
-        urlencoding::encode(version),
-        urlencoding::encode(measurement)
-    ))?;
+    let url = api_url_for(
+        &format!(
+            "speaker/{}/version/{}/measurements/{}?measurement_format=json",
+            urlencoding::encode(speaker),
+            urlencoding::encode(version),
+            urlencoding::encode(measurement)
+        ),
+        use_demo,
+    )?;
     normalize(get(&url, api_key).await?)
 }
 
@@ -357,12 +469,13 @@ pub async fn fetch_directivity_data(
     speaker: &str,
     version: &str,
     api_key: Option<&str>,
+    use_demo: bool,
 ) -> Result<DirectivityData, String> {
     let horizontal = directivity(
-        &fetch_measurement_plot_data(speaker, version, "SPL Horizontal", api_key).await?,
+        &fetch_measurement_plot_data(speaker, version, "SPL Horizontal", api_key, use_demo).await?,
     )?;
     let vertical = directivity(
-        &fetch_measurement_plot_data(speaker, version, "SPL Vertical", api_key).await?,
+        &fetch_measurement_plot_data(speaker, version, "SPL Vertical", api_key, use_demo).await?,
     )?;
     Ok(DirectivityData {
         horizontal,
@@ -410,13 +523,14 @@ pub async fn fetch_contour_data(
     version: &str,
     plane: &str,
     api_key: Option<&str>,
+    use_demo: bool,
 ) -> Result<ContourPlotData, String> {
     let measurement = if plane == "horizontal" {
         "SPL Horizontal Contour"
     } else {
         "SPL Vertical Contour"
     };
-    fetch_contour_measurement(speaker, version, measurement, api_key).await
+    fetch_contour_measurement(speaker, version, measurement, api_key, use_demo).await
 }
 
 /// Fetches a named contour measurement (incl. Normalized variants).
@@ -425,8 +539,11 @@ pub async fn fetch_contour_measurement(
     version: &str,
     measurement: &str,
     api_key: Option<&str>,
+    use_demo: bool,
 ) -> Result<ContourPlotData, String> {
-    contour(&fetch_measurement_plot_data(speaker, version, measurement, api_key).await?)
+    contour(
+        &fetch_measurement_plot_data(speaker, version, measurement, api_key, use_demo).await?,
+    )
 }
 
 fn string_values(value: &Value) -> Vec<String> {
