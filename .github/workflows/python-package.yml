@@ -61,7 +61,7 @@ jobs:
             libfontconfig1-dev libfreetype6-dev libwayland-dev \
             libx11-xcb-dev libxkbcommon-dev libxkbcommon-x11-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libxrandr-dev libxi-dev libxcursor-dev
+            libxrandr-dev libxi-dev libxcursor-dev mold
       - name: Verify Python declaration surface
         # Integrity check only: --strict also requires
         # surface.release_ready, which the manifest keeps false until the

@@ -2886,7 +2886,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-layout-expr"
-version = "0.11.0"
+version = "0.11.1"
 
 [[package]]
 name = "gpui-linux-foreign"
@@ -3007,7 +3007,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-release-gates"
-version = "0.11.0"
+version = "0.11.1"
 
 [[package]]
 name = "gpui-scaffolder"
@@ -3140,7 +3140,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "gpui-au",
  "gpui-audio-kit",
@@ -3165,7 +3165,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit-cli"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "clap",
  "gpui-component-lab",
