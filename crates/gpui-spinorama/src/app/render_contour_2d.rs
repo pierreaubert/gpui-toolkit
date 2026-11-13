@@ -52,28 +52,34 @@ impl SpinoramaApp {
         let spl_max = SPL_MAX;
         let thresholds: Vec<f64> = (-30..=3).step_by(3).map(f64::from).collect();
 
-        // For the contour generator, we pass the log-transformed frequencies
-        let log_freq_values: Vec<f64> = contour_data.freq.iter().map(|f| f.ln()).collect();
-
-        // Fixed axis ranges based on data or reasonable defaults
-        let log_freq_min = freq_min.max(20.0).ln();
-        let log_freq_max = freq_max.min(20000.0).ln();
-
-        // Create contour generator with explicit log-transformed x
-        // values. Upsampling the coarse (angle x frequency) grid
-        // bilinearly smooths the marching-squares band edges, as the
-        // Plotly contour rendering does.
-        let generator = ContourGenerator::new(freq_count, angle_count)
-            .x_values(log_freq_values.clone())
-            .y_values(contour_data.angles.clone())
-            .upsample_factor(4);
-
-        // Generate contours and heatmap data based on render mode
+        // Cache check first: on a hit neither the log-frequency vector
+        // nor the contour generator is needed at all.
         let is_isoline = render_mode == ContourRenderMode::Isoline;
         let is_surface = render_mode == ContourRenderMode::Surface;
         let is_heatmap = render_mode == ContourRenderMode::Heatmap;
         let cache_hit = self.contour_geometry_cache.borrow().as_ref().is_some_and(|cache| {
             cache.data_revision == self.contour_data_revision && cache.mode == render_mode
+        });
+
+        // Fixed axis ranges based on data or reasonable defaults
+        let log_freq_min = freq_min.max(20.0).ln();
+        let log_freq_max = freq_max.min(20000.0).ln();
+
+        // For the contour generator, we pass the log-transformed frequencies
+        let log_freq_values: Vec<f64> = if cache_hit {
+            Vec::new()
+        } else {
+            contour_data.freq.iter().map(|f| f.ln()).collect()
+        };
+        // Create contour generator with explicit log-transformed x
+        // values. Upsampling the coarse (angle x frequency) grid
+        // bilinearly smooths the marching-squares band edges, as the
+        // Plotly contour rendering does.
+        let generator = (!cache_hit && (is_isoline || is_surface)).then(|| {
+            ContourGenerator::new(freq_count, angle_count)
+                .x_values(log_freq_values.clone())
+                .y_values(contour_data.angles.clone())
+                .upsample_factor(4)
         });
         // Generate contours for Isoline mode
         let contours = if cache_hit {
@@ -82,7 +88,12 @@ impl SpinoramaApp {
                 .as_ref()
                 .and_then(|cache| cache.contours.clone())
         } else if is_isoline {
-            Some(generator.contours(&contour_data.spl, &thresholds))
+            Some(
+                generator
+                    .as_ref()
+                    .expect("generator built on cache miss")
+                    .contours(&contour_data.spl, &thresholds),
+            )
         } else {
             None
         };
@@ -93,7 +104,12 @@ impl SpinoramaApp {
                 .as_ref()
                 .and_then(|cache| cache.bands.clone())
         } else if is_surface {
-            Some(generator.contour_bands(&contour_data.spl, &thresholds))
+            Some(
+                generator
+                    .as_ref()
+                    .expect("generator built on cache miss")
+                    .contour_bands(&contour_data.spl, &thresholds),
+            )
         } else {
             None
         };
