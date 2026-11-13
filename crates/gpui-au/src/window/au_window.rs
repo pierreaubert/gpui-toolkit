@@ -740,6 +740,36 @@ mod tests {
     }
 
     #[test]
+    fn deferred_drop_waits_for_active_lease_after_close() {
+        use crate::window::{defer_until_idle, register_au_window, unregister_au_window};
+        let dropped = Rc::new(Cell::new(0));
+        let fake = empty_window();
+        register_au_window(&fake);
+        let counter = dropped.clone();
+        let result = with_au_window(|_| {
+            unregister_au_window();
+            defer_until_idle(move || counter.set(counter.get() + 1));
+            assert_eq!(dropped.get(), 0, "destruction deferred during lease");
+            assert!(
+                with_au_window(|_| ()).is_none(),
+                "closed slots stop resolving"
+            );
+            7
+        });
+        assert_eq!(result, Some(7));
+        assert_eq!(dropped.get(), 1, "destruction runs after the lease returns");
+    }
+
+    #[test]
+    fn deferred_drop_runs_immediately_when_idle() {
+        use crate::window::defer_until_idle;
+        let dropped = Rc::new(Cell::new(0));
+        let counter = dropped.clone();
+        defer_until_idle(move || counter.set(1));
+        assert_eq!(dropped.get(), 1);
+    }
+
+    #[test]
     fn host_focus_and_hover_transitions_update_state_once() {
         let window = empty_window();
         let active_transitions = Rc::new(RefCell::new(Vec::new()));

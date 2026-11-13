@@ -1,5 +1,10 @@
 //! C-compatible FFI functions for embedding GPUI in macOS Audio Unit `ViewControllers`.
 //!
+//! Every export is `unsafe` with a documented pointer/thread contract
+//! and runs inside `ffi_boundary`, so a guest panic unwinds to the ABI
+//! fallback instead of across the C boundary. The window itself is
+//! reached only through the leased slot in `window/au_window_ptr.rs`.
+//!
 //! Note: `redundant_closure_for_method_calls` is expected below because the
 //! `|window| window.method()` closures cannot use method paths: `AuWindow`
 //! lives in the private `au_window` module and is unnameable from here.
@@ -14,7 +19,7 @@ use gpui::{
     App, AppCell, AppContext, Context, Entity, IntoElement, MouseButton, PlatformInput, Render,
     Styled, Window, WindowOptions, div, point, px,
 };
-use gpui_foreign_parent::{fill_out_buffer, optional_c_string};
+use gpui_foreign_parent::{ffi_boundary, fill_out_buffer, optional_c_string};
 use objc::runtime::Object;
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -169,102 +174,153 @@ pub unsafe fn gpui_au_create_with<V: Render + 'static>(
 /// pointer and `plugin_type` must be a valid C string. Renders the neutral
 /// placeholder root; Rust hosts inject real content through
 /// [`gpui_au_create_with`].
+/// # Safety
+///
+/// `ns_view` must be null or a live `NSView` outliving the context,
+/// `plugin_type` null or a valid NUL-terminated C string. Call on
+/// the host main thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_create(
+pub unsafe extern "C" fn gpui_au_create(
     ns_view: *mut Object,
     width: f32,
     height: f32,
     scale: f32,
     plugin_type: *const c_char,
 ) -> *mut AuContext {
-    init_logger();
-    nslog_verbose(b"SOTF gpui_au_create: entry");
+    ffi_boundary(std::ptr::null_mut(), || {
+        init_logger();
+        nslog_verbose(b"SOTF gpui_au_create: entry");
 
-    if ns_view.is_null() || plugin_type.is_null() {
-        nslog(b"SOTF gpui_au_create: null pointer argument!");
-        return std::ptr::null_mut();
-    }
-
-    // SAFETY: `plugin_type` is null-checked above and documented as a
-    // valid C string; invalid UTF-8 is rejected without dereferencing it.
-    let plugin_type_str = unsafe {
-        if let Ok(s) = CStr::from_ptr(plugin_type).to_str() {
-            s.to_string()
-        } else {
-            nslog(b"SOTF gpui_au_create: invalid UTF-8");
+        if ns_view.is_null() || plugin_type.is_null() {
+            nslog(b"SOTF gpui_au_create: null pointer argument!");
             return std::ptr::null_mut();
         }
-    };
 
-    // SAFETY: `ns_view` is null-checked above and documented as a live
-    // `NSView` outliving the context; hosts call on the main thread.
-    unsafe {
-        gpui_au_create_with(ns_view, width, height, scale, &plugin_type_str, |_, cx| {
-            cx.new(|_| PlaceholderRootView)
-        })
-    }
+        // SAFETY: `plugin_type` is null-checked above and documented as a
+        // valid C string; invalid UTF-8 is rejected without dereferencing it.
+        let plugin_type_str = unsafe {
+            if let Ok(s) = CStr::from_ptr(plugin_type).to_str() {
+                s.to_string()
+            } else {
+                nslog(b"SOTF gpui_au_create: invalid UTF-8");
+                return std::ptr::null_mut();
+            }
+        };
+
+        // SAFETY: `ns_view` is null-checked above and documented as a live
+        // `NSView` outliving the context; hosts call on the main thread.
+        unsafe {
+            gpui_au_create_with(ns_view, width, height, scale, &plugin_type_str, |_, cx| {
+                cx.new(|_| PlaceholderRootView)
+            })
+        }
+    })
 }
 
 /// Destroy a GPUI AU context.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
+/// Each context must be destroyed at most once.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_destroy(context: *mut AuContext) {
-    if !context.is_null() {
-        nslog_verbose(b"SOTF gpui_au_destroy: cleaning up");
-        crate::window::unregister_au_window();
-        // SAFETY: `context` came from `Box::into_raw` in `gpui_au_create`
-        // and the host destroys each context at most once.
-        unsafe {
-            drop(Box::from_raw(context));
-        };
-        nslog_verbose(b"SOTF gpui_au_destroy: done");
-    }
+pub unsafe extern "C" fn gpui_au_destroy(context: *mut AuContext) {
+    ffi_boundary((), || {
+        if !context.is_null() {
+            nslog_verbose(b"SOTF gpui_au_destroy: cleaning up");
+            crate::window::unregister_au_window();
+            // SAFETY: `context` came from `Box::into_raw` in `gpui_au_create`
+            // and the host destroys each context at most once.
+            let context = unsafe { Box::from_raw(context) };
+            // The context pins the AppCell keeping the window box alive;
+            // defer its drop past any window lease active in a reentrant
+            // callback so the window outlives that borrow.
+            crate::window::defer_until_idle(move || {
+                drop(context);
+                nslog_verbose(b"SOTF gpui_au_destroy: done");
+            });
+        }
+    });
 }
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
 /// Request one frame of GPUI rendering.
 /// Call from a timer/CVDisplayLink callback on the main thread.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_request_frame(context: *mut AuContext) {
-    if context.is_null() {
-        return;
-    }
-    with_au_window(|window| window.request_frame());
+pub unsafe extern "C" fn gpui_au_request_frame(context: *mut AuContext) {
+    ffi_boundary((), || {
+        if context.is_null() {
+            return;
+        }
+        with_au_window(|window| window.request_frame());
+    });
 }
 
 /// Handle view resize from the host.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_resize(context: *mut AuContext, width: f32, height: f32, scale: f32) {
-    if context.is_null() {
-        return;
-    }
-    with_au_window(|window| {
-        window.handle_resize(width, height, scale);
+pub unsafe extern "C" fn gpui_au_resize(
+    context: *mut AuContext,
+    width: f32,
+    height: f32,
+    scale: f32,
+) {
+    ffi_boundary((), || {
+        if context.is_null() {
+            return;
+        }
+        with_au_window(|window| {
+            window.handle_resize(width, height, scale);
+        });
     });
 }
 
 /// Report AU host focus changes for GPUI window activation state.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_set_active(context: *mut AuContext, is_active: bool) {
-    if context.is_null() {
-        return;
-    }
-    with_au_window(|window| window.update_active_status(is_active));
+pub unsafe extern "C" fn gpui_au_set_active(context: *mut AuContext, is_active: bool) {
+    ffi_boundary((), || {
+        if context.is_null() {
+            return;
+        }
+        with_au_window(|window| window.update_active_status(is_active));
+    });
 }
 
 /// Report whether the pointer is currently inside the AU view.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_set_hovered(context: *mut AuContext, is_hovered: bool) {
-    if context.is_null() {
-        return;
-    }
-    with_au_window(|window| window.update_hover_status(is_hovered));
+pub unsafe extern "C" fn gpui_au_set_hovered(context: *mut AuContext, is_hovered: bool) {
+    ffi_boundary((), || {
+        if context.is_null() {
+            return;
+        }
+        with_au_window(|window| window.update_hover_status(is_hovered));
+    });
 }
 
 // ── Mouse Events ──────────────────────────────────────────────────────────────
 
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_mouse_down(
+pub unsafe extern "C" fn gpui_au_mouse_down(
     context: *mut AuContext,
     x: f32,
     y: f32,
@@ -272,89 +328,113 @@ pub extern "C" fn gpui_au_mouse_down(
     click_count: i32,
     modifier_flags: u32,
 ) {
-    if context.is_null() {
-        return;
-    }
-    let mouse_button = match button {
-        1 => MouseButton::Right,
-        2 => MouseButton::Middle,
-        _ => MouseButton::Left,
-    };
-    dispatch_to_window(PlatformInput::MouseDown(gpui::MouseDownEvent {
-        button: mouse_button,
-        position: point(px(x), px(y)),
-        modifiers: modifiers_from_ns_event(modifier_flags),
-        click_count: click_count as usize,
-        first_mouse: false,
-    }));
+    ffi_boundary((), || {
+        if context.is_null() {
+            return;
+        }
+        let mouse_button = match button {
+            1 => MouseButton::Right,
+            2 => MouseButton::Middle,
+            _ => MouseButton::Left,
+        };
+        dispatch_to_window(PlatformInput::MouseDown(gpui::MouseDownEvent {
+            button: mouse_button,
+            position: point(px(x), px(y)),
+            modifiers: modifiers_from_ns_event(modifier_flags),
+            click_count: click_count as usize,
+            first_mouse: false,
+        }));
+    });
 }
 
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_mouse_up(
+pub unsafe extern "C" fn gpui_au_mouse_up(
     context: *mut AuContext,
     x: f32,
     y: f32,
     button: i32,
     modifier_flags: u32,
 ) {
-    if context.is_null() {
-        return;
-    }
-    let mouse_button = match button {
-        1 => MouseButton::Right,
-        2 => MouseButton::Middle,
-        _ => MouseButton::Left,
-    };
-    dispatch_to_window(PlatformInput::MouseUp(gpui::MouseUpEvent {
-        button: mouse_button,
-        position: point(px(x), px(y)),
-        modifiers: modifiers_from_ns_event(modifier_flags),
-        click_count: 1,
-    }));
+    ffi_boundary((), || {
+        if context.is_null() {
+            return;
+        }
+        let mouse_button = match button {
+            1 => MouseButton::Right,
+            2 => MouseButton::Middle,
+            _ => MouseButton::Left,
+        };
+        dispatch_to_window(PlatformInput::MouseUp(gpui::MouseUpEvent {
+            button: mouse_button,
+            position: point(px(x), px(y)),
+            modifiers: modifiers_from_ns_event(modifier_flags),
+            click_count: 1,
+        }));
+    });
 }
 
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_mouse_moved(
+pub unsafe extern "C" fn gpui_au_mouse_moved(
     context: *mut AuContext,
     x: f32,
     y: f32,
     modifier_flags: u32,
 ) {
-    if context.is_null() {
-        return;
-    }
-    dispatch_to_window(PlatformInput::MouseMove(gpui::MouseMoveEvent {
-        position: point(px(x), px(y)),
-        pressed_button: None,
-        modifiers: modifiers_from_ns_event(modifier_flags),
-    }));
+    ffi_boundary((), || {
+        if context.is_null() {
+            return;
+        }
+        dispatch_to_window(PlatformInput::MouseMove(gpui::MouseMoveEvent {
+            position: point(px(x), px(y)),
+            pressed_button: None,
+            modifiers: modifiers_from_ns_event(modifier_flags),
+        }));
+    });
 }
 
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_mouse_dragged(
+pub unsafe extern "C" fn gpui_au_mouse_dragged(
     context: *mut AuContext,
     x: f32,
     y: f32,
     button: i32,
     modifier_flags: u32,
 ) {
-    if context.is_null() {
-        return;
-    }
-    let mouse_button = match button {
-        1 => MouseButton::Right,
-        2 => MouseButton::Middle,
-        _ => MouseButton::Left,
-    };
-    dispatch_to_window(PlatformInput::MouseMove(gpui::MouseMoveEvent {
-        position: point(px(x), px(y)),
-        pressed_button: Some(mouse_button),
-        modifiers: modifiers_from_ns_event(modifier_flags),
-    }));
+    ffi_boundary((), || {
+        if context.is_null() {
+            return;
+        }
+        let mouse_button = match button {
+            1 => MouseButton::Right,
+            2 => MouseButton::Middle,
+            _ => MouseButton::Left,
+        };
+        dispatch_to_window(PlatformInput::MouseMove(gpui::MouseMoveEvent {
+            position: point(px(x), px(y)),
+            pressed_button: Some(mouse_button),
+            modifiers: modifiers_from_ns_event(modifier_flags),
+        }));
+    });
 }
 
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_scroll_wheel(
+pub unsafe extern "C" fn gpui_au_scroll_wheel(
     context: *mut AuContext,
     x: f32,
     y: f32,
@@ -362,15 +442,17 @@ pub extern "C" fn gpui_au_scroll_wheel(
     dy: f32,
     modifier_flags: u32,
 ) {
-    if context.is_null() {
-        return;
-    }
-    dispatch_to_window(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
-        position: point(px(x), px(y)),
-        delta: gpui::ScrollDelta::Pixels(point(px(dx), px(dy))),
-        modifiers: modifiers_from_ns_event(modifier_flags),
-        touch_phase: gpui::TouchPhase::Moved,
-    }));
+    ffi_boundary((), || {
+        if context.is_null() {
+            return;
+        }
+        dispatch_to_window(PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
+            position: point(px(x), px(y)),
+            delta: gpui::ScrollDelta::Pixels(point(px(dx), px(dy))),
+            modifiers: modifiers_from_ns_event(modifier_flags),
+            touch_phase: gpui::TouchPhase::Moved,
+        }));
+    });
 }
 
 fn dispatch_to_window(event: PlatformInput) {
@@ -452,8 +534,13 @@ fn key_event(
 }
 
 /// Forward an `NSEvent` keyDown event from the host `NSView`.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
+/// String pointers must be null or valid NUL-terminated C strings.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_key_down(
+pub unsafe extern "C" fn gpui_au_key_down(
     context: *mut AuContext,
     key_code: u16,
     characters: *const c_char,
@@ -461,88 +548,123 @@ pub extern "C" fn gpui_au_key_down(
     modifier_flags: u32,
     is_repeat: bool,
 ) {
-    if context.is_null() {
-        return;
-    }
-    dispatch_to_window(PlatformInput::KeyDown(gpui::KeyDownEvent {
-        keystroke: key_event(
-            key_code,
-            characters,
-            characters_ignoring_modifiers,
-            modifier_flags,
-        ),
-        is_held: is_repeat,
-        prefer_character_input: false,
-    }));
+    ffi_boundary((), || {
+        if context.is_null() {
+            return;
+        }
+        dispatch_to_window(PlatformInput::KeyDown(gpui::KeyDownEvent {
+            keystroke: key_event(
+                key_code,
+                characters,
+                characters_ignoring_modifiers,
+                modifier_flags,
+            ),
+            is_held: is_repeat,
+            prefer_character_input: false,
+        }));
+    });
 }
 
 /// Forward an `NSEvent` keyUp event from the host `NSView`.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
+/// String pointers must be null or valid NUL-terminated C strings.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_key_up(
+pub unsafe extern "C" fn gpui_au_key_up(
     context: *mut AuContext,
     key_code: u16,
     characters: *const c_char,
     characters_ignoring_modifiers: *const c_char,
     modifier_flags: u32,
 ) {
-    if context.is_null() {
-        return;
-    }
-    dispatch_to_window(PlatformInput::KeyUp(gpui::KeyUpEvent {
-        keystroke: key_event(
-            key_code,
-            characters,
-            characters_ignoring_modifiers,
-            modifier_flags,
-        ),
-    }));
+    ffi_boundary((), || {
+        if context.is_null() {
+            return;
+        }
+        dispatch_to_window(PlatformInput::KeyUp(gpui::KeyUpEvent {
+            keystroke: key_event(
+                key_code,
+                characters,
+                characters_ignoring_modifiers,
+                modifier_flags,
+            ),
+        }));
+    });
 }
 
 /// Commit UTF-8 text from `NSTextInputClient::insertText`.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
+/// String pointers must be null or valid NUL-terminated C strings.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_insert_text(context: *mut AuContext, text: *const c_char) {
-    if context.is_null() {
-        return;
-    }
-    // SAFETY: the host passes valid C strings or null; bytes are
-    // copied out immediately.
-    if let Some(text) = unsafe { optional_c_string(text) } {
-        with_au_window(|window| window.insert_text(&text));
-    }
+pub unsafe extern "C" fn gpui_au_insert_text(context: *mut AuContext, text: *const c_char) {
+    ffi_boundary((), || {
+        if context.is_null() {
+            return;
+        }
+        // SAFETY: the host passes valid C strings or null; bytes are
+        // copied out immediately.
+        if let Some(text) = unsafe { optional_c_string(text) } {
+            with_au_window(|window| window.insert_text(&text));
+        }
+    });
 }
 
 /// Forward an in-progress marked-text composition from `AppKit`.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
+/// String pointers must be null or valid NUL-terminated C strings.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_set_marked_text(
+pub unsafe extern "C" fn gpui_au_set_marked_text(
     context: *mut AuContext,
     text: *const c_char,
     selected_location: usize,
     selected_length: usize,
 ) {
-    if context.is_null() {
-        return;
-    }
-    // SAFETY: the host passes valid C strings or null; bytes are
-    // copied out immediately.
-    if let Some(text) = unsafe { optional_c_string(text) } {
-        with_au_window(|window| {
-            window.set_marked_text(&text, selected_location, selected_length);
-        });
-    }
+    ffi_boundary((), || {
+        if context.is_null() {
+            return;
+        }
+        // SAFETY: the host passes valid C strings or null; bytes are
+        // copied out immediately.
+        if let Some(text) = unsafe { optional_c_string(text) } {
+            with_au_window(|window| {
+                window.set_marked_text(&text, selected_location, selected_length);
+            });
+        }
+    });
 }
 
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_unmark_text(context: *mut AuContext) {
-    if !context.is_null() {
-        with_au_window(|window| window.unmark_text());
-    }
+pub unsafe extern "C" fn gpui_au_unmark_text(context: *mut AuContext) {
+    ffi_boundary((), || {
+        if !context.is_null() {
+            with_au_window(|window| window.unmark_text());
+        }
+    });
 }
 
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_delete_backward(context: *mut AuContext) {
-    if !context.is_null() {
-        with_au_window(|window| window.delete_backward());
-    }
+pub unsafe extern "C" fn gpui_au_delete_backward(context: *mut AuContext) {
+    ffi_boundary((), || {
+        if !context.is_null() {
+            with_au_window(|window| window.delete_backward());
+        }
+    });
 }
 
 // ── Parameters & State ─────────────────────────────────────────────────────
@@ -552,46 +674,78 @@ pub extern "C" fn gpui_au_delete_backward(context: *mut AuContext) {
 // to Swift.
 
 /// Number of parameters in the plugin's parameter tree.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_parameter_count(context: *mut AuContext) -> usize {
-    if context.is_null() {
-        return 0;
-    }
-    with_au_window(|window| window.parameter_count()).unwrap_or(0)
+pub unsafe extern "C" fn gpui_au_parameter_count(context: *mut AuContext) -> usize {
+    ffi_boundary(0, || {
+        if context.is_null() {
+            return 0;
+        }
+        with_au_window(|window| window.parameter_count()).unwrap_or(0)
+    })
 }
 
 /// Current value of a parameter; `ok` (when non-null) reports id lookup.
 /// Unknown ids (or a null context) yield `0.0` with `ok` set to false.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
+/// `ok` must be null or writable.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_parameter_value(context: *mut AuContext, id: u32, ok: *mut bool) -> f32 {
-    let value = if context.is_null() {
-        None
-    } else {
-        with_au_window(|window| window.parameter_value(id)).flatten()
-    };
-    if !ok.is_null() {
-        // SAFETY: `ok` is null-checked; the host passes a writable out flag.
-        unsafe {
-            *ok = value.is_some();
+pub unsafe extern "C" fn gpui_au_parameter_value(
+    context: *mut AuContext,
+    id: u32,
+    ok: *mut bool,
+) -> f32 {
+    ffi_boundary(0.0, || {
+        let value = if context.is_null() {
+            None
+        } else {
+            with_au_window(|window| window.parameter_value(id)).flatten()
+        };
+        if !ok.is_null() {
+            // SAFETY: `ok` is null-checked; the host passes a writable out flag.
+            unsafe {
+                *ok = value.is_some();
+            }
         }
-    }
-    value.unwrap_or(0.0)
+        value.unwrap_or(0.0)
+    })
 }
 
 /// Store a (clamped) parameter value. Returns false for a null context or
 /// an unknown id.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_parameter_set(context: *mut AuContext, id: u32, value: f32) -> bool {
-    if context.is_null() {
-        return false;
-    }
-    with_au_window(|window| window.set_parameter_value(id, value)).unwrap_or(false)
+pub unsafe extern "C" fn gpui_au_parameter_set(
+    context: *mut AuContext,
+    id: u32,
+    value: f32,
+) -> bool {
+    ffi_boundary(false, || {
+        if context.is_null() {
+            return false;
+        }
+        with_au_window(|window| window.set_parameter_value(id, value)).unwrap_or(false)
+    })
 }
 
 /// Register a host parameter. A null `name` falls back to `"param-{id}"`.
 /// Returns false for a null context, duplicate ids, or invalid ranges.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
+/// String pointers must be null or valid NUL-terminated C strings.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_parameter_register(
+pub unsafe extern "C" fn gpui_au_parameter_register(
     context: *mut AuContext,
     id: u32,
     min_value: f32,
@@ -599,16 +753,18 @@ pub extern "C" fn gpui_au_parameter_register(
     default_value: f32,
     name: *const c_char,
 ) -> bool {
-    if context.is_null() {
-        return false;
-    }
-    // SAFETY: the host passes valid C strings or null; bytes are
-    // copied out immediately.
-    let name = unsafe { optional_c_string(name) }.unwrap_or_else(|| format!("param-{id}"));
-    with_au_window(|window| {
-        window.register_parameter(id, &name, min_value, max_value, default_value)
+    ffi_boundary(false, || {
+        if context.is_null() {
+            return false;
+        }
+        // SAFETY: the host passes valid C strings or null; bytes are
+        // copied out immediately.
+        let name = unsafe { optional_c_string(name) }.unwrap_or_else(|| format!("param-{id}"));
+        with_au_window(|window| {
+            window.register_parameter(id, &name, min_value, max_value, default_value)
+        })
+        .unwrap_or(false)
     })
-    .unwrap_or(false)
 }
 
 /// Serialize the plugin state (`fullState` analogue).
@@ -617,68 +773,94 @@ pub extern "C" fn gpui_au_parameter_register(
 /// required size is returned. Otherwise up to `capacity` bytes are written,
 /// `*written` receives the count, and the return value is the total required
 /// size (greater than `capacity` means the caller's buffer was too small).
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
+/// `out` must be null or writable for `capacity` bytes.
+/// Out-count pointers must be null or writable.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_save_state(
+pub unsafe extern "C" fn gpui_au_save_state(
     context: *mut AuContext,
     out: *mut u8,
     capacity: usize,
     written: *mut usize,
 ) -> usize {
-    let bytes = if context.is_null() {
-        Vec::new()
-    } else {
-        with_au_window(|window| window.capture_plugin_state()).unwrap_or_default()
-    };
-    // SAFETY: `out` is null or writable for `capacity` bytes and
-    // `written` is null or writable, per the host contract documented
-    // on this function.
-    unsafe { fill_out_buffer(&bytes, out, capacity, written) }
+    ffi_boundary(0, || {
+        let bytes = if context.is_null() {
+            Vec::new()
+        } else {
+            with_au_window(|window| window.capture_plugin_state()).unwrap_or_default()
+        };
+        // SAFETY: `out` is null or writable for `capacity` bytes and
+        // `written` is null or writable, per the host contract documented
+        // on this function.
+        unsafe { fill_out_buffer(&bytes, out, capacity, written) }
+    })
 }
 
 /// Realtime health counters: frames dropped on a busy renderer and
 /// display-link ticks coalesced by the frame throttle. Each out-pointer is
 /// optional; a null context leaves all outputs untouched.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
+/// Out-count pointers must be null or writable.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_frame_stats(
+pub unsafe extern "C" fn gpui_au_frame_stats(
     context: *mut AuContext,
     dropped: *mut usize,
     coalesced: *mut usize,
 ) {
-    if context.is_null() {
-        return;
-    }
-    let (dropped_frames, coalesced_frames) =
-        with_au_window(|window| (window.dropped_frames(), window.coalesced_frames()))
-            .unwrap_or((0, 0));
-    if !dropped.is_null() {
-        // SAFETY: `dropped` is null-checked; the host passes a writable
-        // out counter.
-        unsafe {
-            *dropped = dropped_frames;
+    ffi_boundary((), || {
+        if context.is_null() {
+            return;
         }
-    }
-    if !coalesced.is_null() {
-        // SAFETY: `coalesced` is null-checked; the host passes a writable
-        // out counter.
-        unsafe {
-            *coalesced = coalesced_frames;
+        let (dropped_frames, coalesced_frames) =
+            with_au_window(|window| (window.dropped_frames(), window.coalesced_frames()))
+                .unwrap_or((0, 0));
+        if !dropped.is_null() {
+            // SAFETY: `dropped` is null-checked; the host passes a writable
+            // out counter.
+            unsafe {
+                *dropped = dropped_frames;
+            }
         }
-    }
+        if !coalesced.is_null() {
+            // SAFETY: `coalesced` is null-checked; the host passes a writable
+            // out counter.
+            unsafe {
+                *coalesced = coalesced_frames;
+            }
+        }
+    });
 }
 
 /// Restore plugin state previously produced by `gpui_au_save_state`.
 /// Returns false for a null context, null data, or a corrupt payload.
 ///
 /// `data` must point to `len` readable bytes when non-null.
+/// # Safety
+///
+/// `context` must be null or a live context from `gpui_au_create`;
+/// call on the host main thread.
+/// `data` must be null or readable for `len` bytes.
 #[unsafe(no_mangle)]
-pub extern "C" fn gpui_au_load_state(context: *mut AuContext, data: *const u8, len: usize) -> bool {
-    if context.is_null() || data.is_null() {
-        return false;
-    }
-    // SAFETY: `data` is null-checked and documented as `len` readable
-    // bytes; the slice is only read during validation below.
-    let bytes = unsafe { std::slice::from_raw_parts(data, len) };
-    with_au_window(|window| window.restore_plugin_state(bytes)).unwrap_or(false)
+pub unsafe extern "C" fn gpui_au_load_state(
+    context: *mut AuContext,
+    data: *const u8,
+    len: usize,
+) -> bool {
+    ffi_boundary(false, || {
+        if context.is_null() || data.is_null() {
+            return false;
+        }
+        // SAFETY: `data` is null-checked and documented as `len` readable
+        // bytes; the slice is only read during validation below.
+        let bytes = unsafe { std::slice::from_raw_parts(data, len) };
+        with_au_window(|window| window.restore_plugin_state(bytes)).unwrap_or(false)
+    })
 }
 
 #[cfg(test)]
@@ -728,50 +910,54 @@ mod tests {
 
     #[test]
     fn exported_host_entry_points_are_null_safe() {
-        let context = std::ptr::null_mut();
-        gpui_au_destroy(context);
-        gpui_au_request_frame(context);
-        gpui_au_resize(context, 320.0, 200.0, 2.0);
-        gpui_au_set_active(context, false);
-        gpui_au_set_hovered(context, false);
-        gpui_au_mouse_down(context, 0.0, 0.0, 0, 1, 0);
-        gpui_au_mouse_up(context, 0.0, 0.0, 0, 0);
-        gpui_au_mouse_moved(context, 0.0, 0.0, 0);
-        gpui_au_mouse_dragged(context, 0.0, 0.0, 0, 0);
-        gpui_au_scroll_wheel(context, 0.0, 0.0, 0.0, 0.0, 0);
-        gpui_au_key_down(context, 0, std::ptr::null(), std::ptr::null(), 0, false);
-        gpui_au_key_up(context, 0, std::ptr::null(), std::ptr::null(), 0);
-        gpui_au_insert_text(context, std::ptr::null());
-        gpui_au_set_marked_text(context, std::ptr::null(), 0, 0);
-        gpui_au_unmark_text(context);
-        gpui_au_delete_backward(context);
-        assert_eq!(gpui_au_parameter_count(context), 0);
-        let mut ok = true;
-        assert_eq!(gpui_au_parameter_value(context, 0, &raw mut ok), 0.0);
-        assert!(!ok);
-        assert_eq!(
-            gpui_au_parameter_value(context, 0, std::ptr::null_mut()),
-            0.0
-        );
-        assert!(!gpui_au_parameter_set(context, 0, 0.5));
-        assert!(!gpui_au_parameter_register(
-            context,
-            0,
-            0.0,
-            1.0,
-            0.5,
-            std::ptr::null()
-        ));
-        let mut written = 0usize;
-        assert_eq!(
-            gpui_au_save_state(context, std::ptr::null_mut(), 0, &raw mut written),
-            0
-        );
-        assert_eq!(written, 0);
-        assert!(!gpui_au_load_state(context, std::ptr::null(), 0));
-        let (mut dropped, mut coalesced) = (usize::MAX, usize::MAX);
-        gpui_au_frame_stats(context, &raw mut dropped, &raw mut coalesced);
-        assert_eq!((dropped, coalesced), (usize::MAX, usize::MAX));
-        gpui_au_frame_stats(context, std::ptr::null_mut(), std::ptr::null_mut());
+        // SAFETY: every call below passes only null pointers, which each
+        // export's contract explicitly accepts as a no-op/query.
+        unsafe {
+            let context = std::ptr::null_mut();
+            gpui_au_destroy(context);
+            gpui_au_request_frame(context);
+            gpui_au_resize(context, 320.0, 200.0, 2.0);
+            gpui_au_set_active(context, false);
+            gpui_au_set_hovered(context, false);
+            gpui_au_mouse_down(context, 0.0, 0.0, 0, 1, 0);
+            gpui_au_mouse_up(context, 0.0, 0.0, 0, 0);
+            gpui_au_mouse_moved(context, 0.0, 0.0, 0);
+            gpui_au_mouse_dragged(context, 0.0, 0.0, 0, 0);
+            gpui_au_scroll_wheel(context, 0.0, 0.0, 0.0, 0.0, 0);
+            gpui_au_key_down(context, 0, std::ptr::null(), std::ptr::null(), 0, false);
+            gpui_au_key_up(context, 0, std::ptr::null(), std::ptr::null(), 0);
+            gpui_au_insert_text(context, std::ptr::null());
+            gpui_au_set_marked_text(context, std::ptr::null(), 0, 0);
+            gpui_au_unmark_text(context);
+            gpui_au_delete_backward(context);
+            assert_eq!(gpui_au_parameter_count(context), 0);
+            let mut ok = true;
+            assert_eq!(gpui_au_parameter_value(context, 0, &raw mut ok), 0.0);
+            assert!(!ok);
+            assert_eq!(
+                gpui_au_parameter_value(context, 0, std::ptr::null_mut()),
+                0.0
+            );
+            assert!(!gpui_au_parameter_set(context, 0, 0.5));
+            assert!(!gpui_au_parameter_register(
+                context,
+                0,
+                0.0,
+                1.0,
+                0.5,
+                std::ptr::null()
+            ));
+            let mut written = 0usize;
+            assert_eq!(
+                gpui_au_save_state(context, std::ptr::null_mut(), 0, &raw mut written),
+                0
+            );
+            assert_eq!(written, 0);
+            assert!(!gpui_au_load_state(context, std::ptr::null(), 0));
+            let (mut dropped, mut coalesced) = (usize::MAX, usize::MAX);
+            gpui_au_frame_stats(context, &raw mut dropped, &raw mut coalesced);
+            assert_eq!((dropped, coalesced), (usize::MAX, usize::MAX));
+            gpui_au_frame_stats(context, std::ptr::null_mut(), std::ptr::null_mut());
+        }
     }
 }

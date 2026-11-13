@@ -25,8 +25,8 @@ use gpui_linux::foreign_parent::{
 };
 
 use crate::editor::{
-    ForeignBackend, LinuxForeignContext, LinuxForeignEditor, alloc_editor_id, forward_input,
-    pin_app_cell, register_editor, unpin_app_cell, unregister_editor, with_editor,
+    ForeignBackend, LinuxForeignContext, LinuxForeignEditor, forward_input, pin_app_cell,
+    register_editor, unpin_app_cell, unregister_editor, with_editor,
 };
 use crate::geometry::ForeignBounds;
 use crate::input::{
@@ -80,7 +80,6 @@ pub fn linux_x11_create_with<V: Render + 'static>(
     // pin the app cell for the lifetime of the editor.
     let app_cell = app.clone_app_cell();
 
-    let editor_id = alloc_editor_id();
     let opened = Rc::new(Cell::new(None));
     let opened_capture = Rc::clone(&opened);
     let create_label = label.to_owned();
@@ -112,7 +111,7 @@ pub fn linux_x11_create_with<V: Render + 'static>(
     let platform_capture = Rc::clone(&platform);
     hovered.on_change(move |value| platform_capture.set_foreign_hovered(window, value));
 
-    let editor = Box::new(LinuxForeignEditor {
+    let editor = LinuxForeignEditor {
         platform,
         window,
         backend: ForeignBackend::X11,
@@ -127,9 +126,11 @@ pub fn linux_x11_create_with<V: Render + 'static>(
         last_click_button: Cell::new(None),
         last_click_at: Cell::new((0.0, 0.0)),
         click_count: Cell::new(0),
-    });
-    // SAFETY: ownership moves to the registry until `linux_x11_destroy`.
-    unsafe { register_editor(editor_id, editor) };
+    };
+    // Ownership moves to the owned registry until `linux_x11_destroy`.
+    let Some(editor_id) = register_editor(editor) else {
+        return std::ptr::null_mut();
+    };
     pin_app_cell(editor_id, app_cell);
 
     Box::into_raw(Box::new(LinuxForeignContext::new(editor_id)))

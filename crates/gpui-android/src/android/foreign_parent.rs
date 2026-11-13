@@ -41,6 +41,7 @@ use gpui::{
     App, AppCell, AppContext, Context, Entity, IntoElement, Render, Styled, Window, WindowOptions,
     div,
 };
+use gpui_foreign_parent::ffi_boundary;
 use gpui_foreign_parent::sync::{SyncFrameThrottle, SyncResizeDebounce};
 use jni::objects::JObject;
 use jni::sys::{jfloat, jint, jlong};
@@ -97,6 +98,22 @@ fn lock_editors() -> std::sync::MutexGuard<'static, HashMap<u64, ForeignEditor>>
 }
 
 static NEXT_EDITOR_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Allocate a fresh editor id; `None` when the id space is exhausted
+/// (never wraps to a reused id, and 0 stays invalid).
+fn alloc_editor_id() -> Option<u64> {
+    let mut id = NEXT_EDITOR_ID.load(Ordering::Relaxed);
+    loop {
+        if id == 0 {
+            return None;
+        }
+        let next = id.checked_add(1)?;
+        match NEXT_EDITOR_ID.compare_exchange_weak(id, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return Some(id),
+            Err(current) => id = current,
+        }
+    }
+}
 
 // `AppCell` pins, one per editor. Thread-local because `Rc` is `!Send`;
 // create and destroy for one editor must share a thread.
@@ -175,7 +192,10 @@ pub fn android_foreign_create_with<V: Render + 'static>(
         }
     };
 
-    let editor_id = NEXT_EDITOR_ID.fetch_add(1, Ordering::Relaxed);
+    let Some(editor_id) = alloc_editor_id() else {
+        log::error!("GPUI Android foreign: editor id space exhausted");
+        return 0;
+    };
     PENDING_FOREIGN.with(|pending| {
         *pending.borrow_mut() = Some(PendingForeign {
             editor_id,
@@ -397,7 +417,9 @@ pub fn android_foreign_frame_stats(editor_id: u64) -> (usize, usize) {
 
 // ── JNI entry points ─────────────────────────────────────────────────────────
 // Raw-pointer convention matching the existing `GpuiActivity` bridges.
-// IDs start at 1; 0 (or negative) is always invalid and ignored.
+// IDs start at 1; 0 (or negative) is always invalid and ignored. Every
+// export runs inside `ffi_boundary` so a guest panic cannot unwind
+// into the JVM.
 
 fn valid_editor_id(editor_id: jlong) -> Option<u64> {
     u64::try_from(editor_id).ok().filter(|id| *id != 0)
@@ -419,32 +441,34 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiForeign_nativeCreate(
     scale: jfloat,
     label: jni::sys::jobject,
 ) -> jlong {
-    if env.is_null() || surface.is_null() || label.is_null() {
-        log::error!("GPUI Android foreign: null argument to nativeCreate");
-        return 0;
-    }
-    let label_text = with_env(|env| {
-        // SAFETY: `label` is a JNI call-frame local ref; it is not dropped
-        // here because the frame owns it.
-        let label = unsafe { JObject::from_raw(env, label) };
-        Ok(get_string(env, &label))
-    });
-    let Ok(label_text) = label_text else {
-        log::error!("GPUI Android foreign: label conversion failed");
-        return 0;
-    };
-    // SAFETY: `env` is the valid JNI environment for this call and
-    // `surface` names a live `android.view.Surface`. `from_surface`
-    // acquires an independent native reference, so the editor outlives
-    // the Java object if needed.
-    let surface = unsafe { NativeWindow::from_surface(env.cast::<jni_sys::JNIEnv>(), surface) };
-    let Some(surface) = surface else {
-        log::error!("GPUI Android foreign: Surface had no native window");
-        return 0;
-    };
-    android_foreign_create_with(&label_text, scale, surface, |_, cx| {
-        cx.new(|_| PlaceholderRootView)
-    }) as jlong
+    ffi_boundary(0, || {
+        if env.is_null() || surface.is_null() || label.is_null() {
+            log::error!("GPUI Android foreign: null argument to nativeCreate");
+            return 0;
+        }
+        let label_text = with_env(|env| {
+            // SAFETY: `label` is a JNI call-frame local ref; it is not dropped
+            // here because the frame owns it.
+            let label = unsafe { JObject::from_raw(env, label) };
+            Ok(get_string(env, &label))
+        });
+        let Ok(label_text) = label_text else {
+            log::error!("GPUI Android foreign: label conversion failed");
+            return 0;
+        };
+        // SAFETY: `env` is the valid JNI environment for this call and
+        // `surface` names a live `android.view.Surface`. `from_surface`
+        // acquires an independent native reference, so the editor outlives
+        // the Java object if needed.
+        let surface = unsafe { NativeWindow::from_surface(env.cast::<jni_sys::JNIEnv>(), surface) };
+        let Some(surface) = surface else {
+            log::error!("GPUI Android foreign: Surface had no native window");
+            return 0;
+        };
+        android_foreign_create_with(&label_text, scale, surface, |_, cx| {
+            cx.new(|_| PlaceholderRootView)
+        }) as jlong
+    })
 }
 
 /// Destroy an editor. Unknown ids are ignored.///
@@ -458,9 +482,11 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiForeign_nativeDestroy(
     _class: *mut std::ffi::c_void,
     editor_id: jlong,
 ) {
-    if let Some(editor_id) = valid_editor_id(editor_id) {
-        android_foreign_destroy(editor_id);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = valid_editor_id(editor_id) {
+            android_foreign_destroy(editor_id);
+        }
+    });
 }
 
 /// Request one frame from the host `Choreographer` callback.///
@@ -474,9 +500,11 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiForeign_nativeRequestFrame(
     _class: *mut std::ffi::c_void,
     editor_id: jlong,
 ) {
-    if let Some(editor_id) = valid_editor_id(editor_id) {
-        android_foreign_request_frame(editor_id);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = valid_editor_id(editor_id) {
+            android_foreign_request_frame(editor_id);
+        }
+    });
 }
 
 /// Host-driven resize in physical pixels plus density scale.///
@@ -493,9 +521,11 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiForeign_nativeResize(
     height: jint,
     scale: jfloat,
 ) {
-    if let Some(editor_id) = valid_editor_id(editor_id) {
-        android_foreign_resize(editor_id, width, height, scale);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = valid_editor_id(editor_id) {
+            android_foreign_resize(editor_id, width, height, scale);
+        }
+    });
 }
 
 /// Host focus report.///
@@ -510,9 +540,11 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiForeign_nativeSetActive(
     editor_id: jlong,
     is_active: u8,
 ) {
-    if let Some(editor_id) = valid_editor_id(editor_id) {
-        android_foreign_set_active(editor_id, is_active != 0);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = valid_editor_id(editor_id) {
+            android_foreign_set_active(editor_id, is_active != 0);
+        }
+    });
 }
 
 /// One host pointer action in physical pixels. `action` uses the masked
@@ -539,23 +571,25 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiForeign_nativeTouch(
     tool: jint,
     pressure: jfloat,
 ) {
-    let Some(editor_id) = valid_editor_id(editor_id) else {
-        return;
-    };
-    let Ok(action) = u32::try_from(action) else {
-        log::warn!("GPUI Android foreign: ignoring negative touch action");
-        return;
-    };
-    android_foreign_touch(
-        editor_id,
-        pointer_id,
-        action,
-        x,
-        y,
-        timestamp_ns.max(0) as u64,
-        tool_from_int(tool),
-        (pressure >= 0.0).then_some(pressure),
-    );
+    ffi_boundary((), || {
+        let Some(editor_id) = valid_editor_id(editor_id) else {
+            return;
+        };
+        let Ok(action) = u32::try_from(action) else {
+            log::warn!("GPUI Android foreign: ignoring negative touch action");
+            return;
+        };
+        android_foreign_touch(
+            editor_id,
+            pointer_id,
+            action,
+            x,
+            y,
+            timestamp_ns.max(0) as u64,
+            tool_from_int(tool),
+            (pressure >= 0.0).then_some(pressure),
+        );
+    });
 }
 
 /// One host key action. `action` is 0 (down) or 1 (up).
@@ -574,15 +608,17 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiForeign_nativeKey(
     meta_state: jint,
     unicode_char: jint,
 ) {
-    if let Some(editor_id) = valid_editor_id(editor_id) {
-        android_foreign_key(
-            editor_id,
-            key_code,
-            action,
-            meta_state,
-            unicode_char.max(0) as u32,
-        );
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = valid_editor_id(editor_id) {
+            android_foreign_key(
+                editor_id,
+                key_code,
+                action,
+                meta_state,
+                unicode_char.max(0) as u32,
+            );
+        }
+    });
 }
 
 /// Re-attach after a `Surface` loss without a full re-create.
@@ -600,21 +636,23 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiForeign_nativeSurfaceCreated(
     editor_id: jlong,
     surface: jni_sys::jobject,
 ) {
-    let Some(editor_id) = valid_editor_id(editor_id) else {
-        return;
-    };
-    if env.is_null() || surface.is_null() {
-        log::error!("GPUI Android foreign: null argument to nativeSurfaceCreated");
-        return;
-    }
-    // SAFETY: same contract as create: valid JNI environment and a live
-    // `Surface`; `from_surface` acquires an independent reference.
-    let surface = unsafe { NativeWindow::from_surface(env.cast::<jni_sys::JNIEnv>(), surface) };
-    if let Some(surface) = surface {
-        android_foreign_surface_created(editor_id, surface);
-    } else {
-        log::error!("GPUI Android foreign: re-attached Surface had no native window");
-    }
+    ffi_boundary((), || {
+        let Some(editor_id) = valid_editor_id(editor_id) else {
+            return;
+        };
+        if env.is_null() || surface.is_null() {
+            log::error!("GPUI Android foreign: null argument to nativeSurfaceCreated");
+            return;
+        }
+        // SAFETY: same contract as create: valid JNI environment and a live
+        // `Surface`; `from_surface` acquires an independent reference.
+        let surface = unsafe { NativeWindow::from_surface(env.cast::<jni_sys::JNIEnv>(), surface) };
+        if let Some(surface) = surface {
+            android_foreign_surface_created(editor_id, surface);
+        } else {
+            log::error!("GPUI Android foreign: re-attached Surface had no native window");
+        }
+    });
 }
 
 /// Release the surface ahead of its destruction (rotation/backgrounding).
@@ -629,9 +667,11 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiForeign_nativeSurfaceDestroyed
     _class: *mut std::ffi::c_void,
     editor_id: jlong,
 ) {
-    if let Some(editor_id) = valid_editor_id(editor_id) {
-        android_foreign_surface_destroyed(editor_id);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = valid_editor_id(editor_id) {
+            android_foreign_surface_destroyed(editor_id);
+        }
+    });
 }
 
 /// Frames dropped while headless.///
@@ -645,9 +685,11 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiForeign_nativeDroppedFrames(
     _class: *mut std::ffi::c_void,
     editor_id: jlong,
 ) -> jlong {
-    valid_editor_id(editor_id)
-        .map(|id| android_foreign_frame_stats(id).0 as jlong)
-        .unwrap_or(0)
+    ffi_boundary(0, || {
+        valid_editor_id(editor_id)
+            .map(|id| android_foreign_frame_stats(id).0 as jlong)
+            .unwrap_or(0)
+    })
 }
 
 /// `Choreographer` ticks coalesced by the frame throttle.
@@ -662,9 +704,11 @@ pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiForeign_nativeCoalescedFrames(
     _class: *mut std::ffi::c_void,
     editor_id: jlong,
 ) -> jlong {
-    valid_editor_id(editor_id)
-        .map(|id| android_foreign_frame_stats(id).1 as jlong)
-        .unwrap_or(0)
+    ffi_boundary(0, || {
+        valid_editor_id(editor_id)
+            .map(|id| android_foreign_frame_stats(id).1 as jlong)
+            .unwrap_or(0)
+    })
 }
 
 #[cfg(test)]

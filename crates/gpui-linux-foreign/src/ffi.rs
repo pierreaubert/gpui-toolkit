@@ -3,6 +3,8 @@
 //! One entry point per lifecycle transition, each idempotent and
 //! null-safe: `create` returns null on failure, `destroy` on null is a
 //! no-op, and stats leave out-pointers untouched for null contexts.
+//! Every export runs inside `ffi_boundary`, so a guest panic unwinds to
+//! the ABI fallback (null / no-op) instead of across the C boundary.
 //!
 //! # Host notes
 //!
@@ -38,7 +40,7 @@
 
 use std::ffi::{c_char, c_void};
 
-use gpui_foreign_parent::optional_c_string;
+use gpui_foreign_parent::{ffi_boundary, optional_c_string};
 
 use crate::editor::{LinuxForeignContext, frame_stats};
 use crate::wayland::{
@@ -87,8 +89,10 @@ pub unsafe extern "C" fn gpui_linux_x11_create(
     scale: f32,
     label: *const c_char,
 ) -> *mut LinuxForeignContext {
-    let label = label_text(label);
-    linux_x11_create_placeholder(parent, width, height, scale, &label)
+    ffi_boundary(std::ptr::null_mut(), || {
+        let label = label_text(label);
+        linux_x11_create_placeholder(parent, width, height, scale, &label)
+    })
 }
 
 /// Destroy an editor created by [`gpui_linux_x11_create`]. Null is a no-op;
@@ -100,11 +104,13 @@ pub unsafe extern "C" fn gpui_linux_x11_create(
 /// passed exactly once. Call on the host UI thread.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gpui_linux_x11_destroy(context: *mut LinuxForeignContext) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_x11_destroy(editor_id);
-        // SAFETY: this is the single destroy for the context (see above).
-        drop(unsafe { Box::from_raw(context) });
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_x11_destroy(editor_id);
+            // SAFETY: this is the single destroy for the context (see above).
+            drop(unsafe { Box::from_raw(context) });
+        }
+    });
 }
 
 /// Pump native events and forward one throttled frame request.
@@ -114,9 +120,11 @@ pub unsafe extern "C" fn gpui_linux_x11_destroy(context: *mut LinuxForeignContex
 /// See [`gpui_linux_x11_destroy`], except the context stays live.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gpui_linux_x11_request_frame(context: *mut LinuxForeignContext) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_x11_request_frame(editor_id);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_x11_request_frame(editor_id);
+        }
+    });
 }
 
 /// Host-driven resize in logical pixels plus backing scale.
@@ -131,9 +139,11 @@ pub unsafe extern "C" fn gpui_linux_x11_resize(
     height: u32,
     scale: f32,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_x11_resize(editor_id, width, height, scale);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_x11_resize(editor_id, width, height, scale);
+        }
+    });
 }
 
 /// Report host focus changes (`active` != 0 means focused).
@@ -146,9 +156,11 @@ pub unsafe extern "C" fn gpui_linux_x11_set_active(
     context: *mut LinuxForeignContext,
     active: bool,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_x11_set_active(editor_id, active);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_x11_set_active(editor_id, active);
+        }
+    });
 }
 
 /// Report host pointer enter/leave (`hovered` != 0 means inside).
@@ -161,9 +173,11 @@ pub unsafe extern "C" fn gpui_linux_x11_set_hovered(
     context: *mut LinuxForeignContext,
     hovered: bool,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_x11_set_hovered(editor_id, hovered);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_x11_set_hovered(editor_id, hovered);
+        }
+    });
 }
 
 /// Forwarded pointer motion: logical position plus the X11 state mask.
@@ -178,9 +192,11 @@ pub unsafe extern "C" fn gpui_linux_x11_mouse_move(
     y: f32,
     state_mask: u16,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_x11_mouse_move(editor_id, x, y, state_mask);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_x11_mouse_move(editor_id, x, y, state_mask);
+        }
+    });
 }
 
 /// Forwarded button press/release: X11 detail (1/2/3/8/9), logical
@@ -198,17 +214,19 @@ pub unsafe extern "C" fn gpui_linux_x11_mouse_button(
     y: f32,
     state_mask: u16,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_x11_mouse_button(
-            editor_id,
-            detail,
-            pressed,
-            x,
-            y,
-            state_mask,
-            crate::editor::boot_ms(),
-        );
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_x11_mouse_button(
+                editor_id,
+                detail,
+                pressed,
+                x,
+                y,
+                state_mask,
+                crate::editor::boot_ms(),
+            );
+        }
+    });
 }
 
 /// Forwarded scroll in lines at a logical position, plus the X11 state mask.
@@ -225,9 +243,11 @@ pub unsafe extern "C" fn gpui_linux_x11_scroll(
     delta_y: f32,
     state_mask: u16,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_x11_scroll(editor_id, x, y, delta_x, delta_y, state_mask);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_x11_scroll(editor_id, x, y, delta_x, delta_y, state_mask);
+        }
+    });
 }
 
 /// Forwarded key press/release: X11 keysym, optional commit text, and the
@@ -246,18 +266,20 @@ pub unsafe extern "C" fn gpui_linux_x11_key(
     text: *const c_char,
     state_mask: u16,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        // SAFETY: null or a valid string by contract; copied out immediately.
-        let text = unsafe { optional_c_string(text) };
-        linux_x11_key(
-            editor_id,
-            keysym,
-            pressed,
-            is_repeat,
-            text.as_deref(),
-            state_mask,
-        );
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            // SAFETY: null or a valid string by contract; copied out immediately.
+            let text = unsafe { optional_c_string(text) };
+            linux_x11_key(
+                editor_id,
+                keysym,
+                pressed,
+                is_repeat,
+                text.as_deref(),
+                state_mask,
+            );
+        }
+    });
 }
 
 /// Health counters: frames dropped while windowless and host ticks
@@ -274,21 +296,23 @@ pub unsafe extern "C" fn gpui_linux_x11_frame_stats(
     dropped: *mut usize,
     coalesced: *mut usize,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        let (dropped_frames, coalesced_frames) = frame_stats(editor_id);
-        if !dropped.is_null() {
-            // SAFETY: null-checked; the caller guarantees a writable out count.
-            unsafe {
-                *dropped = dropped_frames;
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            let (dropped_frames, coalesced_frames) = frame_stats(editor_id);
+            if !dropped.is_null() {
+                // SAFETY: null-checked; the caller guarantees a writable out count.
+                unsafe {
+                    *dropped = dropped_frames;
+                }
+            }
+            if !coalesced.is_null() {
+                // SAFETY: null-checked; the caller guarantees a writable out count.
+                unsafe {
+                    *coalesced = coalesced_frames;
+                }
             }
         }
-        if !coalesced.is_null() {
-            // SAFETY: null-checked; the caller guarantees a writable out count.
-            unsafe {
-                *coalesced = coalesced_frames;
-            }
-        }
-    }
+    });
 }
 
 // ── Wayland ──────────────────────────────────────────────────────────────────
@@ -311,11 +335,13 @@ pub unsafe extern "C" fn gpui_linux_wayland_create(
     scale: f32,
     label: *const c_char,
 ) -> *mut LinuxForeignContext {
-    let label = label_text(label);
-    // SAFETY: forwarded from the caller contract above.
-    unsafe {
-        linux_wayland_create_placeholder(display, parent_surface, width, height, scale, &label)
-    }
+    ffi_boundary(std::ptr::null_mut(), || {
+        let label = label_text(label);
+        // SAFETY: forwarded from the caller contract above.
+        unsafe {
+            linux_wayland_create_placeholder(display, parent_surface, width, height, scale, &label)
+        }
+    })
 }
 
 /// Destroy an editor created by [`gpui_linux_wayland_create`]. Null is a
@@ -328,11 +354,13 @@ pub unsafe extern "C" fn gpui_linux_wayland_create(
 /// thread.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gpui_linux_wayland_destroy(context: *mut LinuxForeignContext) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_wayland_destroy(editor_id);
-        // SAFETY: this is the single destroy for the context (see above).
-        drop(unsafe { Box::from_raw(context) });
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_wayland_destroy(editor_id);
+            // SAFETY: this is the single destroy for the context (see above).
+            drop(unsafe { Box::from_raw(context) });
+        }
+    });
 }
 
 /// Pump native events and forward one throttled frame request.
@@ -342,9 +370,11 @@ pub unsafe extern "C" fn gpui_linux_wayland_destroy(context: *mut LinuxForeignCo
 /// See [`gpui_linux_wayland_destroy`], except the context stays live.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gpui_linux_wayland_request_frame(context: *mut LinuxForeignContext) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_wayland_request_frame(editor_id);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_wayland_request_frame(editor_id);
+        }
+    });
 }
 
 /// Host-driven resize in logical pixels plus backing scale.
@@ -359,9 +389,11 @@ pub unsafe extern "C" fn gpui_linux_wayland_resize(
     height: u32,
     scale: f32,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_wayland_resize(editor_id, width, height, scale);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_wayland_resize(editor_id, width, height, scale);
+        }
+    });
 }
 
 /// Report host focus changes (`active` != 0 means focused).
@@ -374,9 +406,11 @@ pub unsafe extern "C" fn gpui_linux_wayland_set_active(
     context: *mut LinuxForeignContext,
     active: bool,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_wayland_set_active(editor_id, active);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_wayland_set_active(editor_id, active);
+        }
+    });
 }
 
 /// Report host pointer enter/leave (`hovered` != 0 means inside).
@@ -389,9 +423,11 @@ pub unsafe extern "C" fn gpui_linux_wayland_set_hovered(
     context: *mut LinuxForeignContext,
     hovered: bool,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_wayland_set_hovered(editor_id, hovered);
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_wayland_set_hovered(editor_id, hovered);
+        }
+    });
 }
 
 /// Forwarded pointer motion at a logical position plus modifier bits
@@ -407,9 +443,11 @@ pub unsafe extern "C" fn gpui_linux_wayland_mouse_move(
     y: f32,
     modifiers: u8,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_wayland_mouse_move(editor_id, x, y, linux_wayland_modifiers(modifiers));
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_wayland_mouse_move(editor_id, x, y, linux_wayland_modifiers(modifiers));
+        }
+    });
 }
 
 /// Forwarded button press/release: evdev code, logical position, and
@@ -427,17 +465,19 @@ pub unsafe extern "C" fn gpui_linux_wayland_mouse_button(
     y: f32,
     modifiers: u8,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_wayland_mouse_button(
-            editor_id,
-            button_code,
-            pressed,
-            x,
-            y,
-            linux_wayland_modifiers(modifiers),
-            crate::editor::boot_ms(),
-        );
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_wayland_mouse_button(
+                editor_id,
+                button_code,
+                pressed,
+                x,
+                y,
+                linux_wayland_modifiers(modifiers),
+                crate::editor::boot_ms(),
+            );
+        }
+    });
 }
 
 /// Forwarded scroll in lines at a logical position, plus modifier bits.
@@ -454,16 +494,18 @@ pub unsafe extern "C" fn gpui_linux_wayland_scroll(
     delta_y: f32,
     modifiers: u8,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        linux_wayland_scroll(
-            editor_id,
-            x,
-            y,
-            delta_x,
-            delta_y,
-            linux_wayland_modifiers(modifiers),
-        );
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            linux_wayland_scroll(
+                editor_id,
+                x,
+                y,
+                delta_x,
+                delta_y,
+                linux_wayland_modifiers(modifiers),
+            );
+        }
+    });
 }
 
 /// Forwarded key press/release: XKB keysym, optional commit text, and
@@ -482,18 +524,20 @@ pub unsafe extern "C" fn gpui_linux_wayland_key(
     text: *const c_char,
     modifiers: u8,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        // SAFETY: null or a valid string by contract; copied out immediately.
-        let text = unsafe { optional_c_string(text) };
-        linux_wayland_key(
-            editor_id,
-            keysym,
-            pressed,
-            is_repeat,
-            text.as_deref(),
-            linux_wayland_modifiers(modifiers),
-        );
-    }
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            // SAFETY: null or a valid string by contract; copied out immediately.
+            let text = unsafe { optional_c_string(text) };
+            linux_wayland_key(
+                editor_id,
+                keysym,
+                pressed,
+                is_repeat,
+                text.as_deref(),
+                linux_wayland_modifiers(modifiers),
+            );
+        }
+    });
 }
 
 /// Health counters: frames dropped while windowless and host ticks
@@ -510,19 +554,21 @@ pub unsafe extern "C" fn gpui_linux_wayland_frame_stats(
     dropped: *mut usize,
     coalesced: *mut usize,
 ) {
-    if let Some(editor_id) = editor_id(context) {
-        let (dropped_frames, coalesced_frames) = frame_stats(editor_id);
-        if !dropped.is_null() {
-            // SAFETY: null-checked; the caller guarantees a writable out count.
-            unsafe {
-                *dropped = dropped_frames;
+    ffi_boundary((), || {
+        if let Some(editor_id) = editor_id(context) {
+            let (dropped_frames, coalesced_frames) = frame_stats(editor_id);
+            if !dropped.is_null() {
+                // SAFETY: null-checked; the caller guarantees a writable out count.
+                unsafe {
+                    *dropped = dropped_frames;
+                }
+            }
+            if !coalesced.is_null() {
+                // SAFETY: null-checked; the caller guarantees a writable out count.
+                unsafe {
+                    *coalesced = coalesced_frames;
+                }
             }
         }
-        if !coalesced.is_null() {
-            // SAFETY: null-checked; the caller guarantees a writable out count.
-            unsafe {
-                *coalesced = coalesced_frames;
-            }
-        }
-    }
+    });
 }

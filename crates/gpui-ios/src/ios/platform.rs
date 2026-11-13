@@ -153,11 +153,7 @@ impl Platform for IosPlatform {
         if let Some(info) = super::window::take_pending_parent() {
             let editor_id = info.editor_id;
             let window = Box::new(IosWindow::new_in_parent_view(handle, options, info)?);
-            // SAFETY: `window` names the live boxed `IosWindow` outliving
-            // registration; the registry asserts the main thread.
-            unsafe {
-                super::ffi::foreign_registry().register(editor_id, (&raw const *window).cast())
-            };
+            super::ffi::register_foreign_window(editor_id, &window);
             window.register_foreign_with_ffi();
             return Ok(window);
         }
