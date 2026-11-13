@@ -17,10 +17,11 @@ name = "gpui_dataset_transformation"
 
 [features]
 default = []
-# GPU compute for flow diagnostics through wgpu: Metal on Apple Silicon
-# (the MLX-class hardware path), Vulkan/CUDA-class adapters on Linux and
-# Windows, WebGPU in browsers with an async host. Native hosts get a
-# synchronous API; the CPU filters remain the golden reference everywhere.
+# GPU compute for flow diagnostics through wgpu: Metal on Apple Silicon,
+# Vulkan/DX12 adapters on Linux and Windows, WebGPU in browsers with an
+# async host. This is the wgpu path only; no CUDA or MLX backend is
+# included. Native hosts get a synchronous API; the CPU filters remain
+# the golden reference everywhere.
 gpu = ["dep:wgpu", "dep:bytemuck", "dep:pollster"]
 
 [dependencies]

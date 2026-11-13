@@ -75,7 +75,8 @@ fn create_device() -> Result<SnapshotDevice, SnapshotError> {
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
+        // No local power policy: the system/host chooses the adapter.
+        power_preference: wgpu::PowerPreference::None,
         compatible_surface: None,
         force_fallback_adapter: false,
     }))

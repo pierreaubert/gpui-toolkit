@@ -1,8 +1,8 @@
 //! GPU compute for flow diagnostics through wgpu.
 //!
-//! The per-tetrahedron Jacobian kernel runs on the host GPU: Metal on
-//! Apple Silicon, Vulkan (including CUDA-class NVIDIA adapters) on Linux,
-//! Direct3D/Vulkan on Windows, and WebGPU in the browser. Point averaging
+//! The per-tetrahedron Jacobian kernel runs on the host GPU through
+//! wgpu: Metal on Apple Silicon, Vulkan/DX12 elsewhere, WebGPU in the
+//! browser. No CUDA or MLX backend is included. Point averaging
 //! and the vorticity/Q/divergence reductions stay on the host in `f64`,
 //! so GPU results agree with the CPU golden reference to `f32` gradient
 //! precision. Positions are centre-rebased before the `f32` conversion,
@@ -18,6 +18,7 @@ use std::sync::Arc;
 pub const GRADIENT_WGSL: &str = r"
 struct GradientUniforms {
     tet_count: u32,
+    grid_stride: u32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: GradientUniforms;
@@ -29,7 +30,7 @@ struct GradientUniforms {
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let tet_index = id.x;
+    let tet_index = id.x + id.y * uniforms.grid_stride;
     if (tet_index >= uniforms.tet_count) {
         return;
     }
@@ -87,9 +88,62 @@ pub enum GpuError {
     /// A GPU buffer could not be read back.
     #[error("GPU readback failed: {0}")]
     Readback(String),
+    /// The problem exceeds a device limit (buffer size or dispatch grid).
+    #[error("GPU problem too large: {0}")]
+    TooLarge(String),
 }
 
 use gpui_mesh::tetrahedra as tetrahedralize;
+
+/// Workgroup grid for `count` invocations of a 64-wide kernel,
+/// partitioned across the x/y dimensions within device limits.
+/// Returns `(workgroups_x, workgroups_y, grid_stride_invocations)`.
+fn dispatch_plan(count: usize, device: &wgpu::Device) -> Result<(u32, u32, u32), GpuError> {
+    dispatch_plan_for(count, device.limits().max_compute_workgroups_per_dimension)
+}
+
+/// Pure grid partitioning (unit-tested without a device).
+fn dispatch_plan_for(count: usize, max_per_dimension: u32) -> Result<(u32, u32, u32), GpuError> {
+    let max_x = max_per_dimension.max(1);
+    let needed = u32::try_from(count.div_ceil(64)).map_err(|_| {
+        GpuError::TooLarge(format!("{count} invocations overflow the dispatch grid"))
+    })?;
+    let workgroups_x = needed.min(max_x);
+    let workgroups_y = needed.div_ceil(workgroups_x.max(1));
+    if workgroups_y > max_x {
+        return Err(GpuError::TooLarge(format!(
+            "{count} invocations need a {needed}-workgroup grid; device allows {max_x} per dimension"
+        )));
+    }
+    let stride = workgroups_x
+        .checked_mul(64)
+        .ok_or_else(|| GpuError::TooLarge("dispatch stride overflow".into()))?;
+    Ok((workgroups_x.max(1), workgroups_y.max(1), stride))
+}
+
+/// Checked storage-buffer byte size against device limits, before any
+/// allocation is attempted.
+fn checked_storage_bytes(
+    elements: usize,
+    element_bytes: usize,
+    device: &wgpu::Device,
+    label: &str,
+) -> Result<u64, GpuError> {
+    let bytes = elements
+        .checked_mul(element_bytes)
+        .and_then(|bytes| u64::try_from(bytes).ok())
+        .ok_or_else(|| GpuError::TooLarge(format!("{label}: size overflow")))?;
+    let limits = device.limits();
+    let limit = limits
+        .max_buffer_size
+        .min(u64::from(limits.max_storage_buffer_binding_size));
+    if bytes > limit {
+        return Err(GpuError::TooLarge(format!(
+            "{label}: {bytes} bytes exceeds the device storage limit {limit}"
+        )));
+    }
+    Ok(bytes.max(4))
+}
 
 fn packed_velocities(field: &Field, vectors: &[[f64; 3]]) -> Result<Vec<[f32; 4]>, TransformError> {
     vectors
@@ -121,7 +175,7 @@ fn packed_velocities(field: &Field, vectors: &[[f64; 3]]) -> Result<Vec<[f32; 4]
 
 fn append_diagnostics(
     dataset: &DataSet,
-    fields: [(Field, &str, &str); 3],
+    fields: Vec<(Field, &str, &str)>,
     supported: impl Fn(usize) -> bool,
 ) -> DataSet {
     let mut result = dataset.clone();
@@ -149,35 +203,80 @@ pub struct GpuFlow {
 }
 
 impl GpuFlow {
-    /// Creates a compute context on the best available adapter.
+    /// Creates a compute context with the system-default power policy.
+    ///
+    /// Hosts with their own device should prefer
+    /// [`from_shared_device`](Self::from_shared_device) so compute and
+    /// rendering share one device (and resident buffers can move
+    /// GPU-to-GPU); hosts with a power policy use
+    /// [`with_power_preference`](Self::with_power_preference).
     ///
     /// # Errors
     ///
     /// Returns [`GpuError::NoAdapter`] when no adapter exists; callers are
     /// expected to fall back to the CPU filters.
     pub fn new() -> Result<Self, GpuError> {
+        Self::with_power_preference(wgpu::PowerPreference::None)
+    }
+
+    /// Creates a compute context on an adapter matching `preference`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError::NoAdapter`] when no adapter exists.
+    pub fn with_power_preference(preference: wgpu::PowerPreference) -> Result<Self, GpuError> {
+        pollster::block_on(Self::new_async(preference))
+    }
+
+    /// Asynchronously creates a compute context (no blocking poll, so
+    /// wasm hosts with an async executor can use it too).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GpuError::NoAdapter`] when no adapter exists.
+    pub async fn new_async(preference: wgpu::PowerPreference) -> Result<Self, GpuError> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        }))
-        .map_err(|_| GpuError::NoAdapter)?;
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: preference,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })
+            .await
+            .map_err(|_| GpuError::NoAdapter)?;
         let backend = format!("{:?}", adapter.get_info().backend);
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("gpui-dataset-transformation compute"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            memory_hints: wgpu::MemoryHints::Performance,
-            trace: wgpu::Trace::Off,
-            experimental_features: wgpu::ExperimentalFeatures::default(),
-        }))
-        .map_err(|e| GpuError::Device(e.to_string()))?;
-        let device = Arc::new(device);
-        let queue = Arc::new(queue);
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("gpui-dataset-transformation compute"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: wgpu::MemoryHints::Performance,
+                trace: wgpu::Trace::Off,
+                experimental_features: wgpu::ExperimentalFeatures::default(),
+            })
+            .await
+            .map_err(|e| GpuError::Device(e.to_string()))?;
+        Ok(Self::with_device(
+            Arc::new(device),
+            Arc::new(queue),
+            backend,
+        ))
+    }
+
+    /// Builds the compute pipelines on a host-owned device/queue.
+    ///
+    /// The host keeps adapter/power policy ownership; buffers created
+    /// by [`PreparedFlow`] on this device can be consumed by other
+    /// passes on the same device without a CPU round trip.
+    #[must_use]
+    pub fn from_shared_device(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+        Self::with_device(device, queue, "shared".into())
+    }
+
+    fn with_device(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>, backend: String) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gradient compute"),
             source: wgpu::ShaderSource::Wgsl(GRADIENT_WGSL.into()),
@@ -206,13 +305,25 @@ impl GpuFlow {
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: None,
         });
-        Ok(Self {
+        Self {
             device,
             queue,
             pipeline,
             layout,
             backend,
-        })
+        }
+    }
+
+    /// The device all compute (and resident buffers) live on.
+    #[must_use]
+    pub fn device(&self) -> &Arc<wgpu::Device> {
+        &self.device
+    }
+
+    /// The queue submissions are made on.
+    #[must_use]
+    pub fn queue(&self) -> &Arc<wgpu::Queue> {
+        &self.queue
     }
 
     /// Computes per-point velocity Jacobians on the GPU.
@@ -346,7 +457,7 @@ impl GpuFlow {
             .collect();
         Ok(append_diagnostics(
             dataset,
-            [
+            vec![
                 (Field::vector("vorticity", vorticity), "Vorticity", "1/s"),
                 (Field::scalar("q_criterion", q), "Q-criterion", "1/s^2"),
                 (Field::scalar("divergence", divergence), "Divergence", "1/s"),
@@ -372,19 +483,27 @@ impl GpuFlow {
             self.queue.write_buffer(&buffer, 0, bytes);
             buffer
         };
+        for (label, elements) in [
+            ("positions", positions.len() * 4),
+            ("velocities", velocities.len() * 4),
+            ("tets", tets.len() * 4),
+        ] {
+            checked_storage_bytes(elements, 4, device, label)?;
+        }
+        let (workgroups_x, workgroups_y, grid_stride) = dispatch_plan(tets.len(), device)?;
         let storage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
         let positions_buffer = make_buffer("positions", bytemuck::cast_slice(positions), storage);
         let velocities_buffer =
             make_buffer("velocities", bytemuck::cast_slice(velocities), storage);
         let tets_buffer = make_buffer("tets", bytemuck::cast_slice(tets), storage);
-        let jacobian_bytes = (tets.len() * 9 * 4) as u64;
+        let jacobian_bytes = checked_storage_bytes(tets.len(), 9 * 4, device, "jacobians")?;
         let jacobians_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("jacobians"),
             size: jacobian_bytes,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
-        let volume_bytes = (tets.len() * 4) as u64;
+        let volume_bytes = checked_storage_bytes(tets.len(), 4, device, "volumes")?;
         let volumes_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("volumes"),
             size: volume_bytes,
@@ -397,8 +516,10 @@ impl GpuFlow {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        self.queue
-            .write_buffer(&uniforms_buffer, 0, &(tets.len() as u32).to_le_bytes());
+        let mut uniform_bytes = Vec::with_capacity(8);
+        uniform_bytes.extend_from_slice(&(tets.len() as u32).to_le_bytes());
+        uniform_bytes.extend_from_slice(&grid_stride.to_le_bytes());
+        self.queue.write_buffer(&uniforms_buffer, 0, &uniform_bytes);
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("gradient bind group"),
@@ -433,7 +554,7 @@ impl GpuFlow {
         });
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups((tets.len() as u32).div_ceil(64), 1, 1);
+        pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         drop(pass);
         encoder.copy_buffer_to_buffer(&jacobians_buffer, 0, &readback_jacobians, 0, jacobian_bytes);
         encoder.copy_buffer_to_buffer(&volumes_buffer, 0, &readback_volumes, 0, volume_bytes);
@@ -507,10 +628,83 @@ fn read_f32_buffer(
     Ok(values)
 }
 
+/// Asynchronous f32 readback: resolves through `map_async` without a
+/// blocking `poll(Wait)`, so wasm hosts (which cannot block) can drive
+/// it from their executor. Native hosts without an executor should use
+/// the synchronous paths, which poll for completion.
+pub async fn read_f32_buffer_async(
+    device: &wgpu::Device,
+    buffer: &wgpu::Buffer,
+    count: usize,
+) -> Result<Vec<f32>, GpuError> {
+    struct MapState {
+        result: Option<Result<(), wgpu::BufferAsyncError>>,
+        waker: Option<std::task::Waker>,
+    }
+    let state = std::sync::Arc::new(std::sync::Mutex::new(MapState {
+        result: None,
+        waker: None,
+    }));
+    let callback_state = state.clone();
+    buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            let mut state = callback_state.lock().expect("map state lock");
+            state.result = Some(result);
+            if let Some(waker) = state.waker.take() {
+                waker.wake();
+            }
+        });
+    std::future::poll_fn(|cx| {
+        // Native wgpu needs polling to deliver map callbacks; browsers
+        // deliver them from the event loop.
+        #[cfg(not(target_family = "wasm"))]
+        let _ = device.poll(wgpu::PollType::Poll);
+        let mut state = state.lock().expect("map state lock");
+        if state.result.is_some() {
+            std::task::Poll::Ready(())
+        } else {
+            state.waker = Some(cx.waker().clone());
+            std::task::Poll::Pending
+        }
+    })
+    .await;
+    let result = state
+        .lock()
+        .expect("map state lock")
+        .result
+        .take()
+        .expect("map completion recorded");
+    result.map_err(|e| GpuError::Readback(e.to_string()))?;
+    let slice = buffer.slice(..);
+    let data = slice.get_mapped_range();
+    let values: Vec<f32> = bytemuck::cast_slice(&data[..count * 4]).to_vec();
+    drop(data);
+    buffer.unmap();
+    Ok(values)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use gpui_mesh::Field;
+
+    #[test]
+    fn dispatch_plan_partitions_beyond_one_dimension() {
+        // 10M invocations at the common 65535-per-dimension limit.
+        let (x, y, stride) = dispatch_plan_for(10_000_000, 65_535).unwrap();
+        assert_eq!(x, 65_535);
+        assert_eq!(stride, 65_535 * 64);
+        assert!((x as u64 * y as u64 * 64) >= 10_000_000);
+        assert!(y <= 65_535);
+        // Small problems stay one-dimensional.
+        assert_eq!(dispatch_plan_for(128, 65_535).unwrap(), (2, 1, 128));
+        // Beyond a 2D grid: a typed error, never a truncated dispatch.
+        assert!(matches!(
+            dispatch_plan_for(usize::MAX / 2, 65_535),
+            Err(GpuError::TooLarge(_))
+        ));
+    }
 
     #[test]
     fn gpu_matches_cpu_on_solid_rotation_when_available() {
@@ -558,36 +752,32 @@ mod tests {
 pub const POINT_DIAGNOSTICS_WGSL: &str = r"
 struct PointUniforms {
     point_count: u32,
+    grid_stride: u32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: PointUniforms;
-@group(0) @binding(1) var<storage, read> positions: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read> velocities: array<vec4<f32>>;
-@group(0) @binding(3) var<storage, read> tets: array<vec4<u32>>;
-@group(0) @binding(4) var<storage, read> point_tet_offsets: array<u32>;
-@group(0) @binding(5) var<storage, read> point_tets: array<u32>;
-@group(0) @binding(6) var<storage, read_write> vorticity: array<vec4<f32>>;
-@group(0) @binding(7) var<storage, read_write> q_values: array<f32>;
-@group(0) @binding(8) var<storage, read_write> divergence: array<f32>;
+@group(0) @binding(1) var<storage, read> velocities: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read> tets: array<vec4<u32>>;
+@group(0) @binding(3) var<storage, read> point_tet_offsets: array<u32>;
+@group(0) @binding(4) var<storage, read> point_tets: array<u32>;
+@group(0) @binding(5) var<storage, read_write> vorticity: array<vec4<f32>>;
+@group(0) @binding(6) var<storage, read_write> q_values: array<f32>;
+@group(0) @binding(7) var<storage, read_write> divergence: array<f32>;
+// Per-tetrahedron geometry cached once at preparation (see
+// TET_GEOMETRY_WGSL): three vec4s per tet holding the inverse-transpose
+// columns, with the tet volume in the first w. Volume 0 = invalid tet.
+@group(0) @binding(8) var<storage, read> tet_geo: array<vec4<f32>>;
 
-fn tet_jacobian(nodes: vec4<u32>, inv_volume_sum: ptr<function, f32>) -> mat3x3<f32> {
-    let p0 = positions[nodes.x].xyz;
-    let p1 = positions[nodes.y].xyz;
-    let p2 = positions[nodes.z].xyz;
-    let p3 = positions[nodes.w].xyz;
-    let m = mat3x3<f32>(p1 - p0, p2 - p0, p3 - p0);
-    let det = determinant(m);
-    *inv_volume_sum = 0.0;
-    if (!(abs(det) >= 1e-20 && abs(det) <= 3.402823e38) ||
+fn tet_jacobian(tet_index: u32, nodes: vec4<u32>, volume_out: ptr<function, f32>) -> mat3x3<f32> {
+    let base = tet_index * 3u;
+    let volume = tet_geo[base].w;
+    *volume_out = 0.0;
+    if (volume == 0.0 ||
         velocities[nodes.x].w == 0.0 || velocities[nodes.y].w == 0.0 ||
         velocities[nodes.z].w == 0.0 || velocities[nodes.w].w == 0.0) {
         return mat3x3<f32>(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
     }
-    let inv_t = mat3x3<f32>(
-        cross(m[1], m[2]) / det,
-        cross(m[2], m[0]) / det,
-        cross(m[0], m[1]) / det,
-    );
+    let inv_t = mat3x3<f32>(tet_geo[base].xyz, tet_geo[base + 1u].xyz, tet_geo[base + 2u].xyz);
     let v0 = velocities[nodes.x].xyz;
     var jac = mat3x3<f32>(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
     for (var component: u32 = 0u; component < 3u; component = component + 1u) {
@@ -602,13 +792,13 @@ fn tet_jacobian(nodes: vec4<u32>, inv_volume_sum: ptr<function, f32>) -> mat3x3<
         }
         jac[component] = g;
     }
-    *inv_volume_sum = abs(det) / 6.0;
+    *volume_out = volume;
     return jac;
 }
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let point = id.x;
+    let point = id.x + id.y * uniforms.grid_stride;
     if (point >= uniforms.point_count) {
         return;
     }
@@ -618,7 +808,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let end = point_tet_offsets[point + 1u];
     for (var i: u32 = start; i < end; i = i + 1u) {
         var volume = 0.0;
-        let jac = tet_jacobian(tets[point_tets[i]], &volume);
+        let tet_index = point_tets[i];
+        let jac = tet_jacobian(tet_index, tets[tet_index], &volume);
         if (volume > 0.0) {
             for (var c: u32 = 0u; c < 3u; c = c + 1u) {
                 accumulated[c] = accumulated[c] + jac[c] * volume;
@@ -659,11 +850,91 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 ";
 
+/// Per-tetrahedron geometry prepass: edge-matrix inverse-transpose and
+/// volume, computed once per prepared problem instead of once per
+/// (point, tet) adjacency entry in the point kernel.
+pub const TET_GEOMETRY_WGSL: &str = r"
+struct TetUniforms {
+    tet_count: u32,
+    grid_stride: u32,
+};
+
+@group(0) @binding(0) var<uniform> uniforms: TetUniforms;
+@group(0) @binding(1) var<storage, read> positions: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read> tets: array<vec4<u32>>;
+@group(0) @binding(3) var<storage, read_write> tet_geo: array<vec4<f32>>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let tet_index = id.x + id.y * uniforms.grid_stride;
+    if (tet_index >= uniforms.tet_count) {
+        return;
+    }
+    let base = tet_index * 3u;
+    let nodes = tets[tet_index];
+    let p0 = positions[nodes.x].xyz;
+    let p1 = positions[nodes.y].xyz;
+    let p2 = positions[nodes.z].xyz;
+    let p3 = positions[nodes.w].xyz;
+    let m = mat3x3<f32>(p1 - p0, p2 - p0, p3 - p0);
+    let det = determinant(m);
+    if (!(abs(det) >= 1e-20 && abs(det) <= 3.402823e38)) {
+        tet_geo[base] = vec4<f32>(0.0);
+        tet_geo[base + 1u] = vec4<f32>(0.0);
+        tet_geo[base + 2u] = vec4<f32>(0.0);
+        return;
+    }
+    let inv_t = mat3x3<f32>(
+        cross(m[1], m[2]) / det,
+        cross(m[2], m[0]) / det,
+        cross(m[0], m[1]) / det,
+    );
+    tet_geo[base] = vec4<f32>(inv_t[0], abs(det) / 6.0);
+    tet_geo[base + 1u] = vec4<f32>(inv_t[1], 0.0);
+    tet_geo[base + 2u] = vec4<f32>(inv_t[2], 0.0);
+}
+";
+
 /// A prepared GPU flow problem: geometry and adjacency uploaded once.
 ///
 /// Per-frame updates replace only the velocity buffer and read back only
 /// per-point results, which is the fast path for time-series movies on
 /// large meshes.
+/// Which diagnostics a [`PreparedFlow`] run materializes on the CPU.
+/// Unselected outputs are neither read back nor appended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FlowOutputs {
+    /// Curl of the averaged Jacobian (`vorticity` vector field).
+    pub vorticity: bool,
+    /// Q-criterion (`q_criterion` scalar field).
+    pub q: bool,
+    /// Divergence (`divergence` scalar field).
+    pub divergence: bool,
+}
+
+impl FlowOutputs {
+    /// All three diagnostics.
+    #[must_use]
+    pub fn all() -> Self {
+        Self {
+            vorticity: true,
+            q: true,
+            divergence: true,
+        }
+    }
+}
+
+impl Default for FlowOutputs {
+    fn default() -> Self {
+        Self::all()
+    }
+}
+
+/// A prepared GPU flow problem: geometry and adjacency uploaded once.
+///
+/// Per-frame updates replace only the velocity buffer; outputs stay
+/// resident in GPU buffers until read back, which is the fast path for
+/// time-series movies on large meshes.
 #[derive(Debug)]
 pub struct PreparedFlow {
     device: Arc<wgpu::Device>,
@@ -675,8 +946,14 @@ pub struct PreparedFlow {
     vorticity_buffer: wgpu::Buffer,
     q_buffer: wgpu::Buffer,
     divergence_buffer: wgpu::Buffer,
+    vorticity_readback: wgpu::Buffer,
+    q_readback: wgpu::Buffer,
+    divergence_readback: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     point_count: usize,
+    dispatch: (u32, u32),
+    readback_bytes: u64,
+    dispatches: u64,
 }
 
 impl PreparedFlow {
@@ -722,19 +999,25 @@ impl PreparedFlow {
                 "dataset holds no volume cells".into(),
             ));
         }
-        // Point -> adjacent tetrahedra CSR.
-        let mut adjacency: Vec<Vec<u32>> = vec![Vec::new(); dataset.point_count()];
-        for (index, tet) in tets.iter().enumerate() {
+        // Point -> adjacent tetrahedra CSR via counts + prefix sum +
+        // cursor fill (no per-point growable vectors).
+        let mut offsets: Vec<u32> = vec![0; dataset.point_count() + 1];
+        for tet in &tets {
             for &node in tet {
-                adjacency[node as usize].push(index as u32);
+                offsets[node as usize + 1] += 1;
             }
         }
-        let mut offsets: Vec<u32> = Vec::with_capacity(dataset.point_count() + 1);
-        let mut flat_adjacency: Vec<u32> = Vec::new();
-        offsets.push(0);
-        for list in &adjacency {
-            flat_adjacency.extend_from_slice(list);
-            offsets.push(flat_adjacency.len() as u32);
+        for point in 0..dataset.point_count() {
+            offsets[point + 1] += offsets[point];
+        }
+        let mut flat_adjacency: Vec<u32> = vec![0; offsets[dataset.point_count()] as usize];
+        let mut cursors = offsets[..dataset.point_count()].to_vec();
+        for (index, tet) in tets.iter().enumerate() {
+            for &node in tet {
+                let slot = &mut cursors[node as usize];
+                flat_adjacency[*slot as usize] = index as u32;
+                *slot += 1;
+            }
         }
         let centre = dataset.bounds().map_or([0.0; 3], |b| b.center());
         let positions: Vec<[f32; 4]> = dataset
@@ -758,6 +1041,21 @@ impl PreparedFlow {
 
         let device = gpu.device.clone();
         let queue = gpu.queue.clone();
+        let point_count = dataset.point_count();
+        let too_large = |e: GpuError| TransformError::Degenerate(e.to_string());
+        for (label, elements) in [
+            ("flow positions", positions.len() * 4),
+            ("flow velocities", velocities.len() * 4),
+            ("flow tets", tets.len() * 4),
+            ("flow tet geometry", tets.len() * 12),
+            ("flow adjacency", flat_adjacency.len()),
+            ("flow vorticity", point_count * 4),
+            ("flow q", point_count),
+        ] {
+            checked_storage_bytes(elements, 4, &device, label).map_err(too_large)?;
+        }
+        let (dispatch_x, dispatch_y, grid_stride) =
+            dispatch_plan(point_count, &device).map_err(too_large)?;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("point diagnostics compute"),
             source: wgpu::ShaderSource::Wgsl(POINT_DIAGNOSTICS_WGSL.into()),
@@ -766,41 +1064,14 @@ impl PreparedFlow {
             label: Some("point diagnostics layout"),
             entries: &[
                 uniform_binding(0),
-                storage_binding(1),
-                storage_binding(2),
-                storage_binding(3),
+                storage_binding_rw(1, true),
+                storage_binding_rw(2, true),
+                storage_binding_rw(3, true),
                 storage_binding_rw(4, true),
-                storage_binding_rw(5, true),
-                wgpu::BindGroupLayoutEntry {
-                    binding: 6,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 7,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 8,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                storage_binding_rw(5, false),
+                storage_binding_rw(6, false),
+                storage_binding_rw(7, false),
+                storage_binding_rw(8, true),
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -845,46 +1116,124 @@ impl PreparedFlow {
             bytemuck::cast_slice(&flat_adjacency),
             storage,
         );
-        let point_count = dataset.point_count();
+        // Per-tet geometry cache, filled once by the prepass below.
+        let tet_geo_bytes = checked_storage_bytes(tets.len(), 12 * 4, &device, "flow tet geometry")
+            .map_err(too_large)?;
+        let tet_geo_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("flow tet geometry"),
+            size: tet_geo_bytes,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        {
+            let (geo_x, geo_y, geo_stride) =
+                dispatch_plan(tets.len(), &device).map_err(too_large)?;
+            let geo_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("tet geometry compute"),
+                source: wgpu::ShaderSource::Wgsl(TET_GEOMETRY_WGSL.into()),
+            });
+            let geo_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("tet geometry layout"),
+                entries: &[
+                    uniform_binding(0),
+                    storage_binding_rw(1, true),
+                    storage_binding_rw(2, true),
+                    storage_binding_rw(3, false),
+                ],
+            });
+            let geo_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("tet geometry pipeline layout"),
+                    bind_group_layouts: &[Some(&geo_layout)],
+                    immediate_size: 0,
+                });
+            let geo_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("tet geometry pipeline"),
+                layout: Some(&geo_pipeline_layout),
+                module: &geo_shader,
+                entry_point: Some("main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
+            let geo_uniforms = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("tet geometry uniforms"),
+                size: 16,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let mut uniform_bytes = Vec::with_capacity(8);
+            uniform_bytes.extend_from_slice(&(tets.len() as u32).to_le_bytes());
+            uniform_bytes.extend_from_slice(&geo_stride.to_le_bytes());
+            queue.write_buffer(&geo_uniforms, 0, &uniform_bytes);
+            let geo_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("tet geometry bind group"),
+                layout: &geo_layout,
+                entries: &[
+                    bind(0, &geo_uniforms),
+                    bind(1, &positions_buffer),
+                    bind(2, &tets_buffer),
+                    bind(3, &tet_geo_buffer),
+                ],
+            });
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("tet geometry encoder"),
+            });
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("tet geometry pass"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&geo_pipeline);
+            pass.set_bind_group(0, &geo_bind_group, &[]);
+            pass.dispatch_workgroups(geo_x, geo_y, 1);
+            drop(pass);
+            queue.submit([encoder.finish()]);
+        }
         let output_usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC;
-        let vorticity_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("flow vorticity"),
-            size: (point_count * 16) as u64,
-            usage: output_usage,
-            mapped_at_creation: false,
-        });
-        let q_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("flow q"),
-            size: (point_count * 4) as u64,
-            usage: output_usage,
-            mapped_at_creation: false,
-        });
-        let divergence_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("flow divergence"),
-            size: (point_count * 4) as u64,
-            usage: output_usage,
-            mapped_at_creation: false,
-        });
+        let make_output = |label: &str, size: u64| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: size.max(4),
+                usage: output_usage,
+                mapped_at_creation: false,
+            })
+        };
+        let vorticity_buffer = make_output("flow vorticity", (point_count * 16) as u64);
+        let q_buffer = make_output("flow q", (point_count * 4) as u64);
+        let divergence_buffer = make_output("flow divergence", (point_count * 4) as u64);
+        let make_readback = |label: &str, size: u64| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: size.max(4),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            })
+        };
+        let vorticity_readback = make_readback("vorticity readback", (point_count * 16) as u64);
+        let q_readback = make_readback("q readback", (point_count * 4) as u64);
+        let divergence_readback = make_readback("divergence readback", (point_count * 4) as u64);
         let uniforms_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("flow uniforms"),
             size: 16,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        queue.write_buffer(&uniforms_buffer, 0, &(point_count as u32).to_le_bytes());
+        let mut uniform_bytes = Vec::with_capacity(8);
+        uniform_bytes.extend_from_slice(&(point_count as u32).to_le_bytes());
+        uniform_bytes.extend_from_slice(&grid_stride.to_le_bytes());
+        queue.write_buffer(&uniforms_buffer, 0, &uniform_bytes);
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("point diagnostics bind group"),
             layout: &layout,
             entries: &[
                 bind(0, &uniforms_buffer),
-                bind(1, &positions_buffer),
-                bind(2, &velocities_buffer),
-                bind(3, &tets_buffer),
-                bind(4, &offsets_buffer),
-                bind(5, &adjacency_buffer),
-                bind(6, &vorticity_buffer),
-                bind(7, &q_buffer),
-                bind(8, &divergence_buffer),
+                bind(1, &velocities_buffer),
+                bind(2, &tets_buffer),
+                bind(3, &offsets_buffer),
+                bind(4, &adjacency_buffer),
+                bind(5, &vorticity_buffer),
+                bind(6, &q_buffer),
+                bind(7, &divergence_buffer),
+                bind(8, &tet_geo_buffer),
             ],
         });
         Ok(Self {
@@ -897,25 +1246,69 @@ impl PreparedFlow {
             vorticity_buffer,
             q_buffer,
             divergence_buffer,
+            vorticity_readback,
+            q_readback,
+            divergence_readback,
             bind_group,
             point_count,
+            dispatch: (dispatch_x, dispatch_y),
+            readback_bytes: 0,
+            dispatches: 0,
         })
     }
 
-    /// Recomputes diagnostics, optionally with a new velocity field.
-    ///
-    /// When `velocities` is provided it replaces the prepared field
-    /// (same point count); the geometry upload is never repeated.
-    /// The prepared validity mask is retained. Masked nodes stay missing until
-    /// a new problem is prepared; updates may contain NaNs only at masked nodes.
+    /// The device resident buffers live on.
+    #[must_use]
+    pub fn device(&self) -> &Arc<wgpu::Device> {
+        &self.device
+    }
+
+    /// The queue dispatches are submitted on.
+    #[must_use]
+    pub fn queue(&self) -> &Arc<wgpu::Queue> {
+        &self.queue
+    }
+
+    /// Resident vorticity output (`vec4` per point; w is the validity flag).
+    #[must_use]
+    pub fn vorticity_buffer(&self) -> &wgpu::Buffer {
+        &self.vorticity_buffer
+    }
+
+    /// Resident Q-criterion output (one `f32` per point).
+    #[must_use]
+    pub fn q_buffer(&self) -> &wgpu::Buffer {
+        &self.q_buffer
+    }
+
+    /// Resident divergence output (one `f32` per point).
+    #[must_use]
+    pub fn divergence_buffer(&self) -> &wgpu::Buffer {
+        &self.divergence_buffer
+    }
+
+    /// Cumulative CPU readback bytes through this prepared problem.
+    #[must_use]
+    pub fn readback_bytes(&self) -> u64 {
+        self.readback_bytes
+    }
+
+    /// Number of resident dispatches issued.
+    #[must_use]
+    pub fn dispatches(&self) -> u64 {
+        self.dispatches
+    }
+
+    /// Runs the point diagnostics kernel, leaving every output resident
+    /// in GPU buffers (zero CPU readback). Hosts sharing this device can
+    /// copy the buffers GPU-to-GPU, or call
+    /// [`readback_diagnostics`](Self::readback_diagnostics) later.
     ///
     /// # Errors
     ///
-    /// Returns an error when GPU execution or readback fails.
-    pub fn diagnostics(
-        &mut self,
-        velocities: Option<&[[f64; 3]]>,
-    ) -> Result<DataSet, TransformError> {
+    /// Returns an error for a wrong-length velocity update. GPU
+    /// execution itself is submitted without waiting.
+    pub fn run_resident(&mut self, velocities: Option<&[[f64; 3]]>) -> Result<(), TransformError> {
         if let Some(values) = velocities {
             if values.len() != self.point_count {
                 return Err(TransformError::Degenerate(format!(
@@ -943,80 +1336,182 @@ impl PreparedFlow {
         });
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
-        pass.dispatch_workgroups((self.point_count as u32).div_ceil(64), 1, 1);
+        pass.dispatch_workgroups(self.dispatch.0, self.dispatch.1, 1);
         drop(pass);
-        let vorticity_readback =
-            self.readback_buffer((self.point_count * 16) as u64, "vorticity readback");
-        let q_readback = self.readback_buffer((self.point_count * 4) as u64, "q readback");
-        let divergence_readback =
-            self.readback_buffer((self.point_count * 4) as u64, "divergence readback");
-        encoder.copy_buffer_to_buffer(
-            &self.vorticity_buffer,
-            0,
-            &vorticity_readback,
-            0,
-            (self.point_count * 16) as u64,
-        );
-        encoder.copy_buffer_to_buffer(
-            &self.q_buffer,
-            0,
-            &q_readback,
-            0,
-            (self.point_count * 4) as u64,
-        );
-        encoder.copy_buffer_to_buffer(
-            &self.divergence_buffer,
-            0,
-            &divergence_readback,
-            0,
-            (self.point_count * 4) as u64,
-        );
         self.queue.submit([encoder.finish()]);
-        let vorticity_flat =
-            read_f32_buffer(&self.device, &vorticity_readback, self.point_count * 4)
-                .map_err(|e| TransformError::Degenerate(e.to_string()))?;
-        let q = read_f32_buffer(&self.device, &q_readback, self.point_count)
-            .map_err(|e| TransformError::Degenerate(e.to_string()))?;
-        let divergence = read_f32_buffer(&self.device, &divergence_readback, self.point_count)
-            .map_err(|e| TransformError::Degenerate(e.to_string()))?;
-        let vorticity: Vec<[f64; 3]> = vorticity_flat
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|c| [f64::from(c[0]), f64::from(c[1]), f64::from(c[2])])
-            .collect();
-        Ok(append_diagnostics(
-            &self.base,
-            [
-                (Field::vector("vorticity", vorticity), "Vorticity", "1/s"),
-                (
-                    Field::scalar(
-                        "q_criterion",
-                        q.iter().map(|v| f64::from(*v)).collect::<Vec<_>>(),
-                    ),
-                    "Q-criterion",
-                    "1/s^2",
-                ),
-                (
-                    Field::scalar(
-                        "divergence",
-                        divergence.iter().map(|v| f64::from(*v)).collect::<Vec<_>>(),
-                    ),
-                    "Divergence",
-                    "1/s",
-                ),
-            ],
-            |point| vorticity_flat[point * 4 + 3] > 0.0,
-        ))
+        self.dispatches = self.dispatches.saturating_add(1);
+        Ok(())
     }
 
-    fn readback_buffer(&self, size: u64, label: &str) -> wgpu::Buffer {
-        self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(label),
-            size,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        })
+    /// Copies the selected resident outputs back and appends them as
+    /// fields. Unselected outputs are neither copied nor appended.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when GPU readback fails.
+    pub fn readback_diagnostics(
+        &mut self,
+        outputs: FlowOutputs,
+    ) -> Result<DataSet, TransformError> {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("point diagnostics readback encoder"),
+            });
+        if outputs.vorticity {
+            encoder.copy_buffer_to_buffer(
+                &self.vorticity_buffer,
+                0,
+                &self.vorticity_readback,
+                0,
+                (self.point_count * 16) as u64,
+            );
+        }
+        if outputs.q {
+            encoder.copy_buffer_to_buffer(
+                &self.q_buffer,
+                0,
+                &self.q_readback,
+                0,
+                (self.point_count * 4) as u64,
+            );
+        }
+        if outputs.divergence {
+            encoder.copy_buffer_to_buffer(
+                &self.divergence_buffer,
+                0,
+                &self.divergence_readback,
+                0,
+                (self.point_count * 4) as u64,
+            );
+        }
+        self.queue.submit([encoder.finish()]);
+        // The validity flag rides in vorticity.w; when vorticity is not
+        // selected it is still needed to mask the other outputs.
+        let vorticity_flat = if outputs.vorticity {
+            Some({
+                let buffer = self.vorticity_readback.clone();
+                let count = self.point_count * 4;
+                self.read_counted(&buffer, count)?
+            })
+        } else {
+            None
+        };
+        let validity_flat;
+        let validity = if let Some(flat) = &vorticity_flat {
+            flat
+        } else {
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("point diagnostics validity encoder"),
+                });
+            encoder.copy_buffer_to_buffer(
+                &self.vorticity_buffer,
+                0,
+                &self.vorticity_readback,
+                0,
+                (self.point_count * 16) as u64,
+            );
+            self.queue.submit([encoder.finish()]);
+            {
+                let buffer = self.vorticity_readback.clone();
+                let count = self.point_count * 4;
+                validity_flat = self.read_counted(&buffer, count)?;
+            }
+            &validity_flat
+        };
+        let mut fields: Vec<(Field, &str, &str)> = Vec::new();
+        if let Some(flat) = &vorticity_flat {
+            fields.push((
+                Field::vector(
+                    "vorticity",
+                    flat.as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|c| [f64::from(c[0]), f64::from(c[1]), f64::from(c[2])])
+                        .collect::<Vec<_>>(),
+                ),
+                "Vorticity",
+                "1/s",
+            ));
+        }
+        if outputs.q {
+            let q = {
+                let buffer = self.q_readback.clone();
+                let count = self.point_count;
+                self.read_counted(&buffer, count)?
+            };
+            fields.push((
+                Field::scalar(
+                    "q_criterion",
+                    q.iter().map(|v| f64::from(*v)).collect::<Vec<_>>(),
+                ),
+                "Q-criterion",
+                "1/s^2",
+            ));
+        }
+        if outputs.divergence {
+            let divergence = {
+                let buffer = self.divergence_readback.clone();
+                let count = self.point_count;
+                self.read_counted(&buffer, count)?
+            };
+            fields.push((
+                Field::scalar(
+                    "divergence",
+                    divergence.iter().map(|v| f64::from(*v)).collect::<Vec<_>>(),
+                ),
+                "Divergence",
+                "1/s",
+            ));
+        }
+        Ok(append_diagnostics(&self.base, fields, |point| {
+            validity[point * 4 + 3] > 0.0
+        }))
+    }
+
+    fn read_counted(
+        &mut self,
+        buffer: &wgpu::Buffer,
+        count: usize,
+    ) -> Result<Vec<f32>, TransformError> {
+        let values = read_f32_buffer(&self.device, buffer, count)
+            .map_err(|e| TransformError::Degenerate(e.to_string()))?;
+        self.readback_bytes = self.readback_bytes.saturating_add((count * 4) as u64);
+        Ok(values)
+    }
+
+    /// Recomputes diagnostics, optionally with a new velocity field.
+    ///
+    /// When `velocities` is provided it replaces the prepared field
+    /// (same point count); the geometry upload is never repeated.
+    /// The prepared validity mask is retained. Masked nodes stay missing until
+    /// a new problem is prepared; updates may contain NaNs only at masked nodes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when GPU execution or readback fails.
+    pub fn diagnostics(
+        &mut self,
+        velocities: Option<&[[f64; 3]]>,
+    ) -> Result<DataSet, TransformError> {
+        self.diagnostics_selected(velocities, FlowOutputs::all())
+    }
+
+    /// Recomputes the selected diagnostics, optionally with a new
+    /// velocity field. Unselected outputs are not read back.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when GPU execution or readback fails.
+    pub fn diagnostics_selected(
+        &mut self,
+        velocities: Option<&[[f64; 3]]>,
+        outputs: FlowOutputs,
+    ) -> Result<DataSet, TransformError> {
+        self.run_resident(velocities)?;
+        self.readback_diagnostics(outputs)
     }
 }
 
@@ -1024,6 +1519,64 @@ impl PreparedFlow {
 mod prepared_tests {
     use super::*;
     use gpui_mesh::Field;
+
+    #[test]
+    fn resident_run_defers_readback_and_selection_limits_it() {
+        let Some(gpu) = test_gpu() else {
+            return;
+        };
+        let mut ds = DataSet::structured_grid("g", [4, 4, 4], [-1.0; 3], [0.5; 3]).unwrap();
+        let velocity: Vec<[f64; 3]> = ds
+            .positions
+            .iter()
+            .map(|p| [-2.0 * p[1], 2.0 * p[0], 0.0])
+            .collect();
+        ds.point_data.push(Field::vector("velocity", velocity));
+        // Resident outputs are consumable on a host-shared device.
+        let shared = GpuFlow::from_shared_device(gpu.device().clone(), gpu.queue().clone());
+        let mut prepared = PreparedFlow::new(&shared, &ds, "velocity").unwrap();
+        prepared.run_resident(None).unwrap();
+        assert_eq!(prepared.dispatches(), 1);
+        assert_eq!(
+            prepared.readback_bytes(),
+            0,
+            "resident run must not read back"
+        );
+        assert_eq!(
+            prepared.q_buffer().size(),
+            (prepared.point_count * 4) as u64
+        );
+        // GPU-to-GPU copy of the resident Q buffer, still zero CPU readback.
+        let copy = prepared.device().create_buffer(&wgpu::BufferDescriptor {
+            label: Some("q copy"),
+            size: prepared.q_buffer().size(),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let mut encoder = prepared
+            .device()
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        encoder.copy_buffer_to_buffer(prepared.q_buffer(), 0, &copy, 0, copy.size());
+        prepared.queue().submit([encoder.finish()]);
+        assert_eq!(prepared.readback_bytes(), 0);
+        // Selected readback materializes only Q.
+        let out = prepared
+            .readback_diagnostics(FlowOutputs {
+                vorticity: false,
+                q: true,
+                divergence: false,
+            })
+            .unwrap();
+        assert!(out.field(Association::Point, "q_criterion").is_some());
+        assert!(out.field(Association::Point, "vorticity").is_none());
+        assert!(out.field(Association::Point, "divergence").is_none());
+        let q_only_bytes = prepared.readback_bytes();
+        assert!(q_only_bytes > 0);
+        // Full diagnostics read back strictly more than Q alone.
+        let out = prepared.diagnostics(None).unwrap();
+        assert!(out.field(Association::Point, "vorticity").is_some());
+        assert!(prepared.readback_bytes() > q_only_bytes);
+    }
 
     #[test]
     fn prepared_flow_matches_cpu_and_updates() {
