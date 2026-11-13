@@ -1746,7 +1746,9 @@ impl SpinoramaApp {
         let Some(symbol) = symbol else {
             return div().w(px(16.0)).h(px(3.0)).bg(color.to_rgba()).into_any_element();
         };
+        let marker_scale = crate::utils::markers::scale(symbol);
         if symbol == d3rs::shape::SymbolType::Circle {
+            let diameter = 9.0 * marker_scale as f32;
             return div()
                 .flex()
                 .items_center()
@@ -1754,9 +1756,9 @@ impl SpinoramaApp {
                 .child(
                     div()
                         .absolute()
-                        .w(px(9.0))
-                        .h(px(9.0))
-                        .rounded(px(4.5))
+                        .w(px(diameter))
+                        .h(px(diameter))
+                        .rounded(px(diameter / 2.0))
                         .bg(color.to_rgba()),
                 )
                 .relative()
@@ -1775,7 +1777,7 @@ impl SpinoramaApp {
                 if let Ok(path) = line.build() {
                     window.paint_path(path, fill);
                 }
-                let marker = d3rs::shape::Symbol::new(symbol, 81.0);
+                let marker = d3rs::shape::Symbol::new(symbol, 81.0 * marker_scale.powi(2));
                 let mut builder = gpui::PathBuilder::fill();
                 let mut any = false;
                 for cmd in marker

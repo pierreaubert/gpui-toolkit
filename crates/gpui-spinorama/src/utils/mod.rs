@@ -1,5 +1,6 @@
 pub mod colors;
 pub mod interpolation;
+pub(crate) mod markers;
 pub mod theme_bridge;
 
 pub use colors::{CEA2034_CURVES, cea2034_colors, interpolate_colors};

@@ -48,10 +48,13 @@ where
         .inset_0()
         .child(render_line(xs, ys, points, &line));
     if config.show_points {
+        let markers = config.clone().point_radius(
+            config.point_radius * crate::utils::markers::scale(config.point_symbol) as f32,
+        );
         for point in marker_points(xs, points) {
             // A single point has no line segments, so symbols never add shortcuts
             // across peaks or dips in the full-resolution measurement curve.
-            layer = layer.child(render_line(xs, ys, &[point], config));
+            layer = layer.child(render_line(xs, ys, &[point], &markers));
         }
     }
     layer
