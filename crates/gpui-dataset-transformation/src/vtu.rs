@@ -75,6 +75,50 @@ impl Default for VtuReadLimits {
     }
 }
 
+/// Structured failures reported by the VTU reader.
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum VtuError {
+    /// A configured read budget (input/array/decoded/count) was exceeded.
+    #[error("VTU {resource} budget exceeded: requested {requested}, limit {limit}")]
+    BudgetExceeded {
+        /// Which budget was exceeded.
+        resource: &'static str,
+        /// Bytes (or count) that would have been needed.
+        requested: usize,
+        /// Configured limit.
+        limit: usize,
+    },
+    /// The file is structurally malformed or uses an unsupported feature.
+    #[error("{0}")]
+    Malformed(String),
+    /// The parsed dataset failed mesh validation.
+    #[error("parsed dataset is invalid: {0}")]
+    InvalidDataSet(#[from] gpui_mesh::MeshError),
+}
+
+impl From<&str> for VtuError {
+    fn from(message: &str) -> Self {
+        Self::Malformed(message.to_string())
+    }
+}
+
+impl From<String> for VtuError {
+    fn from(message: String) -> Self {
+        Self::Malformed(message)
+    }
+}
+
+/// Fallibly collect `count` items: the reservation is attempted before
+/// any element is produced, so allocation failure is an error, not abort.
+fn collect_fallible<T>(iter: impl Iterator<Item = T>, count: usize) -> Result<Vec<T>, VtuError> {
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(count)
+        .map_err(|_| VtuError::Malformed("cannot allocate decoded VTU array".into()))?;
+    values.extend(iter);
+    Ok(values)
+}
+
 struct VtuBudget {
     limits: VtuReadLimits,
     decoded: usize,
@@ -82,21 +126,29 @@ struct VtuBudget {
 }
 
 impl VtuBudget {
-    fn reserve(&mut self, bytes: usize) -> Result<(), String> {
+    fn reserve(&mut self, bytes: usize) -> Result<(), VtuError> {
         let total = self
             .decoded
             .checked_add(bytes)
             .ok_or("decoded VTU size overflow")?;
         if total > self.limits.max_decoded_bytes {
-            return Err("decoded VTU byte budget exceeded".into());
+            return Err(VtuError::BudgetExceeded {
+                resource: "decoded bytes",
+                requested: total,
+                limit: self.limits.max_decoded_bytes,
+            });
         }
         self.decoded = total;
         Ok(())
     }
 
-    fn array(&mut self, bytes: usize) -> Result<(), String> {
+    fn array(&mut self, bytes: usize) -> Result<(), VtuError> {
         if bytes > self.limits.max_array_bytes {
-            return Err("VTU array byte budget exceeded".into());
+            return Err(VtuError::BudgetExceeded {
+                resource: "array bytes",
+                requested: bytes,
+                limit: self.limits.max_array_bytes,
+            });
         }
         self.reserve(bytes)
     }
@@ -149,7 +201,7 @@ fn binary_block(raw: &[u8]) -> String {
 ///
 /// Returns a description when the header is truncated, a block size is
 /// inconsistent, or a zlib stream fails to inflate.
-fn decompress_block(payload: &[u8], budget: &mut VtuBudget) -> Result<Vec<u8>, String> {
+fn decompress_block(payload: &[u8], budget: &mut VtuBudget) -> Result<Vec<u8>, VtuError> {
     use std::io::Read as _;
     if payload.len() < 24 {
         return Err("compressed DataArray shorter than its header".into());
@@ -166,7 +218,11 @@ fn decompress_block(payload: &[u8], budget: &mut VtuBudget) -> Result<Vec<u8>, S
     let block_size = count(1)?;
     let last_size = count(2)?;
     if num_blocks > budget.limits.max_blocks {
-        return Err("compressed VTU block budget exceeded".into());
+        return Err(VtuError::BudgetExceeded {
+            resource: "compressed blocks",
+            requested: num_blocks,
+            limit: budget.limits.max_blocks,
+        });
     }
     let header_end = num_blocks
         .checked_mul(8)
@@ -232,10 +288,10 @@ fn decompress_block(payload: &[u8], budget: &mut VtuBudget) -> Result<Vec<u8>, S
         cursor += size;
     }
     if out.len() != expected {
-        return Err(format!(
+        return Err(VtuError::Malformed(format!(
             "decompressed size {} does not match header ({expected})",
             out.len()
-        ));
+        )));
     }
     Ok(out)
 }
@@ -382,12 +438,19 @@ struct RawArray<'a> {
     offset: Option<usize>,
 }
 
-fn parse_arrays<'a>(section: &'a str, budget: &mut VtuBudget) -> Result<Vec<RawArray<'a>>, String> {
+fn parse_arrays<'a>(
+    section: &'a str,
+    budget: &mut VtuBudget,
+) -> Result<Vec<RawArray<'a>>, VtuError> {
     let mut arrays = Vec::new();
     let mut rest = section;
     while let Some(start) = rest.find("<DataArray") {
         if budget.arrays >= budget.limits.max_arrays {
-            return Err("VTU array count budget exceeded".into());
+            return Err(VtuError::BudgetExceeded {
+                resource: "array count",
+                requested: budget.arrays + 1,
+                limit: budget.limits.max_arrays,
+            });
         }
         budget.arrays += 1;
         let after = &rest[start..];
@@ -443,7 +506,7 @@ fn decode_array(
     appended: Option<&[u8]>,
     compressed: bool,
     budget: &mut VtuBudget,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, VtuError> {
     match array.format.as_str() {
         "binary" => {
             let payload = base64::decode(array.body)?;
@@ -461,10 +524,10 @@ fn decode_array(
             .map_err(|_| "VTU byte count exceeds address space")?;
             let raw = &payload[8..];
             if raw.len() < declared {
-                return Err(format!(
+                return Err(VtuError::Malformed(format!(
                     "binary DataArray truncated: header says {declared} bytes, found {}",
                     raw.len()
-                ));
+                )));
             }
             budget.array(declared)?;
             Ok(raw[..declared].to_vec())
@@ -493,7 +556,9 @@ fn decode_array(
             Ok(raw[..declared].to_vec())
         }
         "ascii" => Err("ascii VTU arrays are not supported by this reader".into()),
-        other => Err(format!("unsupported DataArray format '{other}'")),
+        other => Err(VtuError::Malformed(format!(
+            "unsupported DataArray format '{other}'"
+        ))),
     }
 }
 
@@ -521,12 +586,16 @@ fn array_f64(
     appended: Option<&[u8]>,
     compressed: bool,
     budget: &mut VtuBudget,
-) -> Result<Vec<f64>, String> {
+) -> Result<Vec<f64>, VtuError> {
     let raw = decode_array(array, appended, compressed, budget)?;
     let element_size = match array.ty.as_str() {
         "Float64" | "Double" => 8,
         "Float32" | "Float" => 4,
-        other => return Err(format!("expected a float array, found type '{other}'")),
+        other => {
+            return Err(VtuError::Malformed(format!(
+                "expected a float array, found type '{other}'"
+            )));
+        }
     };
     if !raw.len().is_multiple_of(element_size) {
         return Err("partial VTU numeric element".into());
@@ -536,20 +605,25 @@ fn array_f64(
             .checked_mul(8)
             .ok_or("numeric VTU size overflow")?,
     )?;
+    let count = raw.len() / element_size;
     match array.ty.as_str() {
-        "Float64" | "Double" => Ok(raw
-            .as_chunks::<8>()
-            .0
-            .iter()
-            .map(|c| f64::from_le_bytes(*c))
-            .collect()),
-        "Float32" | "Float" => Ok(raw
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|c| f64::from(f32::from_le_bytes(*c)))
-            .collect()),
-        other => Err(format!("expected a float array, found type '{other}'")),
+        "Float64" | "Double" => collect_fallible(
+            raw.as_chunks::<8>()
+                .0
+                .iter()
+                .map(|c| f64::from_le_bytes(*c)),
+            count,
+        ),
+        "Float32" | "Float" => collect_fallible(
+            raw.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| f64::from(f32::from_le_bytes(*c))),
+            count,
+        ),
+        other => Err(VtuError::Malformed(format!(
+            "expected a float array, found type '{other}'"
+        ))),
     }
 }
 
@@ -558,13 +632,17 @@ fn array_i64(
     appended: Option<&[u8]>,
     compressed: bool,
     budget: &mut VtuBudget,
-) -> Result<Vec<i64>, String> {
+) -> Result<Vec<i64>, VtuError> {
     let raw = decode_array(array, appended, compressed, budget)?;
     let element_size = match array.ty.as_str() {
         "Int64" => 8,
         "Int32" | "UInt32" => 4,
         "UInt8" => 1,
-        other => return Err(format!("expected an integer array, found type '{other}'")),
+        other => {
+            return Err(VtuError::Malformed(format!(
+                "expected an integer array, found type '{other}'"
+            )));
+        }
     };
     if !raw.len().is_multiple_of(element_size) {
         return Err("partial VTU numeric element".into());
@@ -574,27 +652,33 @@ fn array_i64(
             .checked_mul(8)
             .ok_or("numeric VTU size overflow")?,
     )?;
+    let count = raw.len() / element_size;
     match array.ty.as_str() {
-        "Int64" => Ok(raw
-            .as_chunks::<8>()
-            .0
-            .iter()
-            .map(|c| i64::from_le_bytes(*c))
-            .collect()),
-        "Int32" => Ok(raw
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|c| i64::from(i32::from_le_bytes(*c)))
-            .collect()),
-        "UInt32" => Ok(raw
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|c| i64::from(u32::from_le_bytes(*c)))
-            .collect()),
-        "UInt8" => Ok(raw.iter().map(|b| i64::from(*b)).collect()),
-        other => Err(format!("expected an integer array, found type '{other}'")),
+        "Int64" => collect_fallible(
+            raw.as_chunks::<8>()
+                .0
+                .iter()
+                .map(|c| i64::from_le_bytes(*c)),
+            count,
+        ),
+        "Int32" => collect_fallible(
+            raw.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| i64::from(i32::from_le_bytes(*c))),
+            count,
+        ),
+        "UInt32" => collect_fallible(
+            raw.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| i64::from(u32::from_le_bytes(*c))),
+            count,
+        ),
+        "UInt8" => collect_fallible(raw.iter().map(|b| i64::from(*b)), count),
+        other => Err(VtuError::Malformed(format!(
+            "expected an integer array, found type '{other}'"
+        ))),
     }
 }
 
@@ -604,7 +688,7 @@ fn field_from_array(
     compressed: bool,
     association: Association,
     budget: &mut VtuBudget,
-) -> Result<Option<Field>, String> {
+) -> Result<Option<Field>, VtuError> {
     let Some(name) = &array.name else {
         return Ok(None);
     };
@@ -613,9 +697,9 @@ fn field_from_array(
         1 => Field::scalar(name.clone(), values),
         3 => {
             if values.len() % 3 != 0 {
-                return Err(format!(
+                return Err(VtuError::Malformed(format!(
                     "vector field '{name}' length is not a multiple of 3"
-                ));
+                )));
             }
             Field::vector(
                 name.clone(),
@@ -629,9 +713,9 @@ fn field_from_array(
         }
         6 => {
             if values.len() % 6 != 0 {
-                return Err(format!(
+                return Err(VtuError::Malformed(format!(
                     "tensor field '{name}' length is not a multiple of 6"
-                ));
+                )));
             }
             let mut field = Field::scalar(name.clone(), Vec::<f64>::new());
             field.data = FieldData::Tensor(
@@ -647,7 +731,9 @@ fn field_from_array(
         }
         2 => {
             if values.len() % 2 != 0 {
-                return Err(format!("complex field '{name}' length is not even"));
+                return Err(VtuError::Malformed(format!(
+                    "complex field '{name}' length is not even"
+                )));
             }
             let mut field = Field::scalar(name.clone(), Vec::<f64>::new());
             field.data = FieldData::Complex(
@@ -662,9 +748,9 @@ fn field_from_array(
             field
         }
         other => {
-            return Err(format!(
+            return Err(VtuError::Malformed(format!(
                 "field '{name}' has unsupported component count {other}"
-            ));
+            )));
         }
     };
     field.association = association;
@@ -676,7 +762,7 @@ fn field_from_array(
 /// # Errors
 ///
 /// Returns an error for structural problems or exceeded default read limits.
-pub fn read_vtu(xml: &str) -> Result<DataSet, String> {
+pub fn read_vtu(xml: &str) -> Result<DataSet, VtuError> {
     read_vtu_with_limits(xml, VtuReadLimits::default())
 }
 
@@ -685,7 +771,7 @@ pub fn read_vtu(xml: &str) -> Result<DataSet, String> {
 /// # Errors
 ///
 /// Returns an error for malformed input or an exceeded allocation limit.
-pub fn read_vtu_with_limits(xml: &str, limits: VtuReadLimits) -> Result<DataSet, String> {
+pub fn read_vtu_with_limits(xml: &str, limits: VtuReadLimits) -> Result<DataSet, VtuError> {
     read_vtu_bytes_with_limits(xml.as_bytes(), limits)
 }
 
@@ -695,7 +781,7 @@ pub fn read_vtu_with_limits(xml: &str, limits: VtuReadLimits) -> Result<DataSet,
 /// # Errors
 ///
 /// Returns an error for structural problems or exceeded default read limits.
-pub fn read_vtu_bytes(bytes: &[u8]) -> Result<DataSet, String> {
+pub fn read_vtu_bytes(bytes: &[u8]) -> Result<DataSet, VtuError> {
     read_vtu_bytes_with_limits(bytes, VtuReadLimits::default())
 }
 
@@ -704,9 +790,16 @@ pub fn read_vtu_bytes(bytes: &[u8]) -> Result<DataSet, String> {
 /// # Errors
 ///
 /// Returns an error for malformed input, invalid XML encoding, or exceeded limits.
-pub fn read_vtu_bytes_with_limits(bytes: &[u8], limits: VtuReadLimits) -> Result<DataSet, String> {
+pub fn read_vtu_bytes_with_limits(
+    bytes: &[u8],
+    limits: VtuReadLimits,
+) -> Result<DataSet, VtuError> {
     if bytes.len() > limits.max_input_bytes {
-        return Err("VTU input byte budget exceeded".into());
+        return Err(VtuError::BudgetExceeded {
+            resource: "input bytes",
+            requested: bytes.len(),
+            limit: limits.max_input_bytes,
+        });
     }
     // Raw appended data is not XML text and must not be copied/UTF-8-expanded.
     let end = bytes
@@ -726,7 +819,7 @@ fn read_vtu_impl(
     xml: &str,
     appended: Option<&[u8]>,
     budget: &mut VtuBudget,
-) -> Result<DataSet, String> {
+) -> Result<DataSet, VtuError> {
     if !xml.contains("UnstructuredGrid") {
         return Err("not a VTU unstructured-grid file".into());
     }
@@ -797,9 +890,7 @@ fn read_vtu_impl(
     }
     crate::validity::restore_masks(&mut dataset.point_data);
     crate::validity::restore_masks(&mut dataset.cell_data);
-    dataset
-        .validate()
-        .map_err(|e| format!("parsed dataset is invalid: {e}"))?;
+    dataset.validate()?;
     Ok(dataset)
 }
 
@@ -850,7 +941,7 @@ mod tests {
     #[test]
     fn rejects_non_vtu_input() {
         let err = read_vtu("<html></html>").unwrap_err();
-        assert!(err.contains("not a VTU"));
+        assert!(matches!(err, VtuError::Malformed(message) if message.contains("not a VTU")));
     }
 
     fn budget(limits: VtuReadLimits) -> VtuBudget {
@@ -877,11 +968,10 @@ mod tests {
         let mut payload = compress_block(&[42u8; 4096]);
         payload[16..24].copy_from_slice(&8u64.to_le_bytes());
         let mut allowance = budget(VtuReadLimits::default());
-        assert!(
-            decompress_block(&payload, &mut allowance)
-                .unwrap_err()
-                .contains("exceeds its declared size")
-        );
+        assert!(matches!(
+            decompress_block(&payload, &mut allowance).unwrap_err(),
+            VtuError::Malformed(message) if message.contains("exceeds its declared size")
+        ));
         assert_eq!(allowance.decoded, 8);
     }
 
@@ -912,9 +1002,11 @@ mod tests {
                 },
             ] {
                 assert!(
-                    read_vtu_with_limits(&xml, limits)
-                        .unwrap_err()
-                        .contains("budget")
+                    matches!(
+                        read_vtu_with_limits(&xml, limits).unwrap_err(),
+                        VtuError::BudgetExceeded { .. }
+                    ),
+                    "limits {limits:?} must fail with the typed budget variant"
                 );
             }
             assert_eq!(read_vtu(&xml).unwrap().point_count(), 3);
@@ -934,11 +1026,10 @@ mod tests {
             body: &body,
             offset: None,
         };
-        assert!(
-            array_f64(&array, None, false, &mut budget(VtuReadLimits::default()))
-                .unwrap_err()
-                .contains("partial")
-        );
+        assert!(matches!(
+            array_f64(&array, None, false, &mut budget(VtuReadLimits::default())).unwrap_err(),
+            VtuError::Malformed(message) if message.contains("partial")
+        ));
     }
 
     #[test]

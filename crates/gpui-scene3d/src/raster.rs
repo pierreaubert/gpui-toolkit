@@ -1652,4 +1652,49 @@ mod clip_transparency_tests {
         let centre = frame.rgba[((32 * 64 + 32) * 4) as usize];
         assert!(centre > 40 && centre < 200, "centre red channel {centre}");
     }
+
+    #[test]
+    fn intersecting_translucent_quads_blend_in_sorted_order() {
+        // Pin the documented approximation (see
+        // docs/decisions/2026-11-13-transparency-and-gpu-budget.md):
+        // two translucent quads crossing at the view centre blend in
+        // one actor-sorted order on both sides of the crossing, even
+        // though the geometric front/back relation flips there. A
+        // per-pixel-correct order would swap the blend by side.
+        let slanted = DataSet::surface(
+            "slanted",
+            vec![
+                [-1.0, -1.0, 0.8],
+                [1.0, -1.0, -0.8],
+                [1.0, 1.0, -0.8],
+                [-1.0, 1.0, 0.8],
+            ],
+            &[[0, 1, 2], [0, 2, 3]],
+        );
+        let mut scene = Scene::new();
+        scene.background = [0.0, 0.0, 0.0, 1.0];
+        let scene = scene
+            .with_actor(
+                Actor::new(quad(0.0))
+                    .color([1.0, 0.0, 0.0, 1.0])
+                    .opacity(0.5),
+            )
+            .with_actor(Actor::new(slanted).color([0.0, 0.0, 1.0, 1.0]).opacity(0.5));
+        let camera = Camera::fitted(scene.bounds().unwrap());
+        let frame = render(&scene, &camera, 64, 64).unwrap();
+        let pixel = |x: usize| -> [u8; 4] {
+            let idx = (32 * 64 + x) * 4;
+            frame.rgba[idx..idx + 4].try_into().unwrap()
+        };
+        // Symmetric points inside both quads, either side of the crossing.
+        let (left, right) = (pixel(26), pixel(38));
+        // Both layers contribute on both sides...
+        assert!(left[0] > 20 && left[2] > 20, "left not blended: {left:?}");
+        assert!(
+            right[0] > 20 && right[2] > 20,
+            "right not blended: {right:?}"
+        );
+        // ...in the same order: sorted blending cannot flip per pixel.
+        assert_eq!(left, right, "sorted order must not flip at the crossing");
+    }
 }

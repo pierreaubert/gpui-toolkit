@@ -18,54 +18,96 @@ use std::sync::Arc;
 use gpui_mesh::tetrahedra as tetrahedralize;
 
 fn barycentric(tet: [[f64; 3]; 4], p: [f64; 3]) -> Option<[f64; 4]> {
+    let inverse = tet_inverse(tet)?;
+    Some(barycentric_with_inverse(tet[0], inverse, p))
+}
+
+/// Cached per-tetrahedron transform: inverse of the edge matrix
+/// `[b-a, c-a, d-a]` (column-major), so barycentric weights at sample
+/// time are one matrix-vector product instead of a determinant plus
+/// three Cramer solves per sample.
+type TetInverse = [[f64; 3]; 3];
+
+fn tet_inverse(tet: [[f64; 3]; 4]) -> Option<TetInverse> {
     let (a, b, c, d) = (tet[0], tet[1], tet[2], tet[3]);
     let m = [
         [b[0] - a[0], c[0] - a[0], d[0] - a[0]],
         [b[1] - a[1], c[1] - a[1], d[1] - a[1]],
         [b[2] - a[2], c[2] - a[2], d[2] - a[2]],
     ];
-    let rhs = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
     let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
         - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
         + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
     if det.abs() < 1e-300 {
         return None;
     }
-    let solve = |col: usize| -> f64 {
-        let mut mm = m;
-        for row in 0..3 {
-            mm[row][col] = rhs[row];
-        }
-        (mm[0][0] * (mm[1][1] * mm[2][2] - mm[1][2] * mm[2][1])
-            - mm[0][1] * (mm[1][0] * mm[2][2] - mm[1][2] * mm[2][0])
-            + mm[0][2] * (mm[1][0] * mm[2][1] - mm[1][1] * mm[2][0]))
-            / det
-    };
-    let w = [solve(0), solve(1), solve(2)];
-    let weights = [1.0 - w[0] - w[1] - w[2], w[0], w[1], w[2]];
-    weights.iter().all(|&x| x >= -1e-9).then_some(weights)
+    let inv_det = 1.0 / det;
+    // Adjugate transpose (cofactor matrix) scaled by 1/det.
+    Some([
+        [
+            (m[1][1] * m[2][2] - m[1][2] * m[2][1]) * inv_det,
+            (m[0][2] * m[2][1] - m[0][1] * m[2][2]) * inv_det,
+            (m[0][1] * m[1][2] - m[0][2] * m[1][1]) * inv_det,
+        ],
+        [
+            (m[1][2] * m[2][0] - m[1][0] * m[2][2]) * inv_det,
+            (m[0][0] * m[2][2] - m[0][2] * m[2][0]) * inv_det,
+            (m[0][2] * m[1][0] - m[0][0] * m[1][2]) * inv_det,
+        ],
+        [
+            (m[1][0] * m[2][1] - m[1][1] * m[2][0]) * inv_det,
+            (m[0][1] * m[2][0] - m[0][0] * m[2][1]) * inv_det,
+            (m[0][0] * m[1][1] - m[0][1] * m[1][0]) * inv_det,
+        ],
+    ])
+}
+
+fn barycentric_with_inverse(a: [f64; 3], inverse: TetInverse, p: [f64; 3]) -> [f64; 4] {
+    let rhs = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+    let w = [
+        inverse[0][0] * rhs[0] + inverse[0][1] * rhs[1] + inverse[0][2] * rhs[2],
+        inverse[1][0] * rhs[0] + inverse[1][1] * rhs[1] + inverse[1][2] * rhs[2],
+        inverse[2][0] * rhs[0] + inverse[2][1] * rhs[1] + inverse[2][2] * rhs[2],
+    ];
+    [1.0 - w[0] - w[1] - w[2], w[0], w[1], w[2]]
 }
 
 /// Uniform grid indexing tetrahedra by their bounds, for fast sampling.
+///
+/// Buckets are packed CSR-style (`offsets` + flat `entries`) instead of
+/// one `Vec` per cell, and each tetrahedron's inverse transform is
+/// cached at build time.
 #[derive(Debug)]
 struct TetGrid {
     tets: Vec<[u32; 4]>,
+    inverses: Vec<TetInverse>,
     origin: [f64; 3],
     cell: [f64; 3],
     dims: [usize; 3],
-    entries: Vec<Vec<u32>>,
+    offsets: Vec<u32>,
+    entries: Vec<u32>,
 }
 
 impl TetGrid {
     fn build(dataset: &DataSet, field: &Field, bounds: gpui_mesh::Bounds) -> Self {
         let mut tets = Vec::new();
+        let mut inverses = Vec::new();
         for cell in 0..dataset.cell_count() {
             let kind = dataset.cells.types[cell];
             if kind.is_volume() {
                 let nodes = dataset.cells.cell(cell).unwrap_or(&[]);
-                tets.extend(tetrahedralize(kind, nodes).filter(|tet| {
-                    field.valid.is_none() || tet.iter().all(|&node| field.is_valid(node as usize))
-                }));
+                for tet in tetrahedralize(kind, nodes) {
+                    if field.valid.is_some()
+                        && !tet.iter().all(|&node| field.is_valid(node as usize))
+                    {
+                        continue;
+                    }
+                    let corners = tet.map(|node| dataset.positions[node as usize]);
+                    if let Some(inverse) = tet_inverse(corners) {
+                        tets.push(tet);
+                        inverses.push(inverse);
+                    }
+                }
             }
         }
         // About 8 grid cells per axis per 1000 tets, clamped to sane sizes.
@@ -80,37 +122,63 @@ impl TetGrid {
                 1.0
             };
         }
-        let mut entries: Vec<Vec<u32>> = vec![Vec::new(); dims[0] * dims[1] * dims[2]];
-        for (index, tet) in tets.iter().enumerate() {
+        let cell_index = |axis: usize, p: [f64; 3]| {
+            (((p[axis] - bounds.min[axis]) / cell[axis]) as usize).min(dims[axis] - 1)
+        };
+        let range_of = |tet: &[u32; 4]| {
             let mut lo = [usize::MAX; 3];
             let mut hi = [0usize; 3];
             for &node in tet {
                 let p = dataset.positions[node as usize];
                 for axis in 0..3 {
-                    let c =
-                        (((p[axis] - bounds.min[axis]) / cell[axis]) as usize).min(dims[axis] - 1);
+                    let c = cell_index(axis, p);
                     lo[axis] = lo[axis].min(c);
                     hi[axis] = hi[axis].max(c);
                 }
             }
+            (lo, hi)
+        };
+        // CSR counts + prefix sum + cursor fill.
+        let bucket_count = dims[0] * dims[1] * dims[2];
+        let mut offsets: Vec<u32> = vec![0; bucket_count + 1];
+        let ranges: Vec<([usize; 3], [usize; 3])> = tets.iter().map(range_of).collect();
+        for (lo, hi) in &ranges {
             for k in lo[2]..=hi[2] {
                 for j in lo[1]..=hi[1] {
                     for i in lo[0]..=hi[0] {
-                        entries[k * dims[1] * dims[0] + j * dims[0] + i].push(index as u32);
+                        offsets[k * dims[1] * dims[0] + j * dims[0] + i + 1] += 1;
+                    }
+                }
+            }
+        }
+        for bucket in 0..bucket_count {
+            offsets[bucket + 1] += offsets[bucket];
+        }
+        let mut entries: Vec<u32> = vec![0; offsets[bucket_count] as usize];
+        let mut cursors = offsets[..bucket_count].to_vec();
+        for (index, (lo, hi)) in ranges.iter().enumerate() {
+            for k in lo[2]..=hi[2] {
+                for j in lo[1]..=hi[1] {
+                    for i in lo[0]..=hi[0] {
+                        let bucket = k * dims[1] * dims[0] + j * dims[0] + i;
+                        entries[cursors[bucket] as usize] = index as u32;
+                        cursors[bucket] += 1;
                     }
                 }
             }
         }
         Self {
             tets,
+            inverses,
             origin: bounds.min,
             cell,
             dims,
+            offsets,
             entries,
         }
     }
 
-    fn sample(&self, positions: &[[f64; 3]], scalars: &[f64], point: [f64; 3]) -> Option<f64> {
+    fn bucket_index(&self, point: [f64; 3]) -> Option<([usize; 3], usize)> {
         let mut grid_index = [0usize; 3];
         for axis in 0..3 {
             let c = ((point[axis] - self.origin[axis]) / self.cell[axis]).floor();
@@ -119,18 +187,49 @@ impl TetGrid {
             }
             grid_index[axis] = c as usize;
         }
-        let bucket = &self.entries[grid_index[2] * self.dims[1] * self.dims[0]
+        let bucket = grid_index[2] * self.dims[1] * self.dims[0]
             + grid_index[1] * self.dims[0]
-            + grid_index[0]];
-        for &tet_index in bucket {
+            + grid_index[0];
+        Some((grid_index, bucket))
+    }
+
+    fn bucket(&self, index: usize) -> &[u32] {
+        &self.entries[self.offsets[index] as usize..self.offsets[index + 1] as usize]
+    }
+
+    /// Distance along `dir` to exit the current grid cell, when that
+    /// cell's bucket is empty (empty-space skipping); `None` when the
+    /// point is outside the grid or the cell has candidates.
+    fn empty_exit(&self, point: [f64; 3], dir: [f64; 3]) -> Option<f64> {
+        let (grid_index, bucket) = self.bucket_index(point)?;
+        if !self.bucket(bucket).is_empty() {
+            return None;
+        }
+        let mut exit = f64::INFINITY;
+        for axis in 0..3 {
+            if dir[axis].abs() < 1e-300 {
+                continue;
+            }
+            let boundary = if dir[axis] > 0.0 {
+                self.origin[axis] + (grid_index[axis] + 1) as f64 * self.cell[axis]
+            } else {
+                self.origin[axis] + grid_index[axis] as f64 * self.cell[axis]
+            };
+            exit = exit.min((boundary - point[axis]) / dir[axis]);
+        }
+        exit.is_finite().then_some(exit.max(0.0))
+    }
+
+    fn sample(&self, positions: &[[f64; 3]], scalars: &[f64], point: [f64; 3]) -> Option<f64> {
+        let (_, bucket) = self.bucket_index(point)?;
+        for &tet_index in self.bucket(bucket) {
             let tet = self.tets[tet_index as usize];
-            let corners = [
+            let w = barycentric_with_inverse(
                 positions[tet[0] as usize],
-                positions[tet[1] as usize],
-                positions[tet[2] as usize],
-                positions[tet[3] as usize],
-            ];
-            if let Some(w) = barycentric(corners, point) {
+                self.inverses[tet_index as usize],
+                point,
+            );
+            if w.iter().all(|&x| x >= -1e-9) {
                 let value: f64 = w
                     .iter()
                     .enumerate()
@@ -152,6 +251,10 @@ pub struct VolumeOptions {
     pub clip_planes: Vec<ClipPlane>,
     /// Background RGBA in `[0,1]`.
     pub background: [f32; 4],
+    /// Optional total scalar-sample budget for the frame. Pixels past
+    /// the budget render as background, bounding worst-case march cost
+    /// (progressive refinement hosts raise it across frames).
+    pub sample_budget: Option<u64>,
 }
 
 impl Default for VolumeOptions {
@@ -160,6 +263,7 @@ impl Default for VolumeOptions {
             step_fraction: 0.01,
             clip_planes: Vec::new(),
             background: [0.08, 0.09, 0.11, 1.0],
+            sample_budget: None,
         }
     }
 }
@@ -175,6 +279,10 @@ impl Default for VolumeOptions {
 pub struct VolumeRenderer {
     positions: Arc<[[f64; 3]]>,
     scalars: Arc<[f64]>,
+    /// Per-point validity the grid was built with (tet indexing filter).
+    validity: Vec<bool>,
+    /// Allocation identities of the cell arrays the grid was built from.
+    cells_identity: (usize, usize, usize),
     bounds: gpui_mesh::Bounds,
     grid: TetGrid,
 }
@@ -203,13 +311,63 @@ impl VolumeRenderer {
                 dataset.id
             )));
         }
+        let validity = (0..dataset.point_count())
+            .map(|point| field.is_valid(point))
+            .collect();
         let grid = TetGrid::build(dataset, field, bounds);
         Ok(Self {
             positions: dataset.positions.clone(),
             scalars: scalars.clone(),
+            validity,
+            cells_identity: (
+                Arc::as_ptr(&dataset.cells.types).cast::<gpui_mesh::CellType>() as usize,
+                Arc::as_ptr(&dataset.cells.offsets).cast::<u64>() as usize,
+                Arc::as_ptr(&dataset.cells.connectivity).cast::<u32>() as usize,
+            ),
             bounds,
             grid,
         })
+    }
+
+    /// Replace the scalar field, reusing the retained grid when the
+    /// dataset geometry (positions and cells allocations) and the
+    /// field's validity pattern are unchanged.
+    ///
+    /// Returns `true` when only scalars were swapped. Otherwise the
+    /// grid (and cached tet transforms) are rebuilt for the new field.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`new`](Self::new).
+    pub fn update_field(
+        &mut self,
+        dataset: &DataSet,
+        field_name: &str,
+    ) -> Result<bool, SceneError> {
+        dataset.validate()?;
+        let field = dataset
+            .field(Association::Point, field_name)
+            .ok_or_else(|| SceneError::FieldNotFound(field_name.to_string()))?;
+        let FieldData::Scalar(scalars) = &field.data else {
+            return Err(SceneError::FieldNotFound(field_name.to_string()));
+        };
+        let same_geometry = Arc::ptr_eq(&dataset.positions, &self.positions)
+            && dataset.bounds() == Some(self.bounds)
+            && self.cells_identity
+                == (
+                    Arc::as_ptr(&dataset.cells.types).cast::<gpui_mesh::CellType>() as usize,
+                    Arc::as_ptr(&dataset.cells.offsets).cast::<u64>() as usize,
+                    Arc::as_ptr(&dataset.cells.connectivity).cast::<u32>() as usize,
+                );
+        if same_geometry
+            && scalars.len() == self.scalars.len()
+            && (0..dataset.point_count()).all(|point| field.is_valid(point) == self.validity[point])
+        {
+            self.scalars = scalars.clone();
+            return Ok(true);
+        }
+        *self = Self::new(dataset, field_name)?;
+        Ok(false)
     }
 
     /// Raycasts one frame from a camera.
@@ -251,6 +409,47 @@ impl VolumeRenderer {
         options: &VolumeOptions,
         limits: crate::RenderLimits,
     ) -> Result<Frame, SceneError> {
+        self.render_inner(transfer, camera, width, height, options, limits, None)
+    }
+
+    /// Raycasts a frame that stops early when `cancel` is set (checked
+    /// per row). Cancelled rows keep the background, so callers get a
+    /// usable partial frame instead of waiting for a full march.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`render_with_limits`](Self::render_with_limits).
+    pub fn render_cancellable(
+        &self,
+        transfer: &TransferFunction,
+        camera: &Camera,
+        width: u32,
+        height: u32,
+        options: &VolumeOptions,
+        limits: crate::RenderLimits,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> Result<Frame, SceneError> {
+        self.render_inner(
+            transfer,
+            camera,
+            width,
+            height,
+            options,
+            limits,
+            Some(cancel),
+        )
+    }
+
+    fn render_inner(
+        &self,
+        transfer: &TransferFunction,
+        camera: &Camera,
+        width: u32,
+        height: u32,
+        options: &VolumeOptions,
+        limits: crate::RenderLimits,
+        cancel: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<Frame, SceneError> {
         let transfer = transfer.prepare()?;
         crate::scene::validate_rgba(options.background)?;
         let pixels = limits.pixel_count(width, height, 4)?;
@@ -281,7 +480,14 @@ impl VolumeRenderer {
                 rgba,
             });
         }
+        let mut samples_used: u64 = 0;
         for y in 0..height {
+            if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed)) {
+                for index in (y as usize * width as usize * 4..rgba.len()).step_by(4) {
+                    write_pixel(&mut rgba, index, bg);
+                }
+                break;
+            }
             for x in 0..width {
                 let idx = (y as usize * width as usize + x as usize) * 4;
                 // Analytic near/far-plane rays preserve both orthographic
@@ -306,29 +512,37 @@ impl VolumeRenderer {
                 let mut accumulated = [0.0f32; 4];
                 let mut t = t_enter;
                 while t < t_exit && accumulated[3] < 0.98 {
+                    if options
+                        .sample_budget
+                        .is_some_and(|budget| samples_used >= budget)
+                    {
+                        break;
+                    }
                     let point = [
                         near_point[0] + dir[0] * t,
                         near_point[1] + dir[1] * t,
                         near_point[2] + dir[2] * t,
                     ];
+                    let dataset_point = std::array::from_fn(|axis| point[axis] + origin[axis]);
+                    // Empty-space skipping: jump over grid cells with no
+                    // candidate tetrahedra instead of stepping through.
+                    if let Some(exit) = grid.empty_exit(dataset_point, dir) {
+                        t += exit.max(step);
+                        continue;
+                    }
                     t += step;
                     if planes.iter().any(|plane| plane.distance(point) < 0.0) {
                         continue;
                     }
-                    let Some(value) = grid.sample(
-                        positions,
-                        scalars,
-                        std::array::from_fn(|axis| point[axis] + origin[axis]),
-                    ) else {
+                    samples_used = samples_used.saturating_add(1);
+                    let Some(value) = grid.sample(positions, scalars, dataset_point) else {
                         continue;
                     };
                     let colour = transfer.map(value);
                     if colour[3] <= 0.0 {
                         continue;
                     }
-                    // Opacity corrected for step length relative to the diagonal.
-                    let alpha =
-                        (f64::from(colour[3]) * (step / diagonal) * 64.0).clamp(0.0, 1.0) as f32;
+                    let alpha = step_opacity(f64::from(colour[3]), step, diagonal);
                     let weight = (1.0 - accumulated[3]) * alpha;
                     accumulated[0] += weight * colour[0];
                     accumulated[1] += weight * colour[1];
@@ -375,6 +589,25 @@ pub fn raycast_volume(
     options: &VolumeOptions,
 ) -> Result<Frame, SceneError> {
     VolumeRenderer::new(dataset, field_name)?.render(transfer, camera, width, height, options)
+}
+
+/// Exponential step-length opacity correction.
+///
+/// The transfer alpha is defined per reference step
+/// (`diagonal / 64`, the historical step the linear correction was
+/// calibrated at); a march step of length `step` absorbs
+/// `1 - (1 - alpha)^(step / reference)`, so a homogeneous slab renders
+/// (nearly) step-size independent instead of only converging as the
+/// step shrinks.
+fn step_opacity(alpha: f64, step: f64, diagonal: f64) -> f32 {
+    let reference = diagonal / 64.0;
+    if !(reference > 0.0) || alpha <= 0.0 {
+        return 0.0;
+    }
+    if alpha >= 1.0 {
+        return 1.0;
+    }
+    (1.0 - (1.0 - alpha).powf(step / reference)).clamp(0.0, 1.0) as f32
 }
 
 fn write_pixel(rgba: &mut [u8], idx: usize, colour: [f32; 4]) {
@@ -459,6 +692,114 @@ mod tests {
     use super::*;
     use crate::camera::multiply;
     use gpui_mesh::Field;
+
+    fn constant_volume() -> (DataSet, VolumeRenderer) {
+        let dataset = DataSet::structured_grid("slab", [3, 3, 3], [0.0; 3], [1.0; 3])
+            .unwrap()
+            .with_field(Field::scalar("p", vec![0.5; 27]));
+        let renderer = VolumeRenderer::new(&dataset, "p").unwrap();
+        (dataset, renderer)
+    }
+
+    #[test]
+    fn step_opacity_is_exponential_and_step_independent() {
+        // Doubling the step must compose to the same absorption.
+        let one = step_opacity(0.5, 0.02, 1.0);
+        let two = step_opacity(0.5, 0.01, 1.0);
+        let composed = 1.0 - (1.0 - two) * (1.0 - two);
+        assert!((f64::from(one) - f64::from(composed)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn homogeneous_slab_render_converges_across_step_sizes() {
+        let (dataset, renderer) = constant_volume();
+        let camera = Camera::fitted(dataset.bounds().unwrap());
+        let center = |frame: &Frame| -> [u8; 4] {
+            let idx = ((frame.height / 2 * frame.width + frame.width / 2) * 4) as usize;
+            frame.rgba[idx..idx + 4].try_into().unwrap()
+        };
+        let render_at = |step_fraction: f64| {
+            renderer
+                .render(
+                    &TransferFunction::viridis([0.0, 1.0]),
+                    &camera,
+                    16,
+                    16,
+                    &VolumeOptions {
+                        step_fraction,
+                        ..Default::default()
+                    },
+                )
+                .unwrap()
+        };
+        let coarse = center(&render_at(0.04));
+        let mid = center(&render_at(0.01));
+        let fine = center(&render_at(0.0025));
+        let drift = |a: [u8; 4], b: [u8; 4]| {
+            (0..3)
+                .map(|c| (i32::from(a[c]) - i32::from(b[c])).unsigned_abs())
+                .max()
+                .unwrap()
+        };
+        // Exponential correction: refinement changes shrink and the
+        // coarse render is already close to the fine limit.
+        assert!(
+            drift(mid, fine) <= drift(coarse, mid),
+            "not converging: {coarse:?} {mid:?} {fine:?}"
+        );
+        assert!(
+            drift(coarse, fine) <= 6,
+            "step dependence too large: {coarse:?} vs {fine:?}"
+        );
+    }
+
+    #[test]
+    fn field_update_reuses_grid_only_for_same_validity_pattern() {
+        let (mut dataset, mut renderer) = constant_volume();
+        dataset.point_data[0] = Field::scalar("p", vec![0.9; 27]);
+        assert!(renderer.update_field(&dataset, "p").unwrap());
+        // Masking changes which tets are indexed: full rebuild.
+        dataset.point_data[0].valid = Some(vec![false; 27].into());
+        assert!(!renderer.update_field(&dataset, "p").unwrap());
+        assert!(renderer.grid.tets.is_empty());
+    }
+
+    #[test]
+    fn sample_budget_and_cancellation_bound_the_march() {
+        let (dataset, renderer) = constant_volume();
+        let camera = Camera::fitted(dataset.bounds().unwrap());
+        let background = [0.2, 0.4, 0.6, 1.0];
+        let frame = renderer
+            .render(
+                &TransferFunction::viridis([0.0, 1.0]),
+                &camera,
+                16,
+                16,
+                &VolumeOptions {
+                    background,
+                    sample_budget: Some(0),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(frame.rgba.chunks_exact(4).all(|p| p == [51, 102, 153, 255]));
+        let cancel = std::sync::atomic::AtomicBool::new(true);
+        let frame = renderer
+            .render_cancellable(
+                &TransferFunction::viridis([0.0, 1.0]),
+                &camera,
+                16,
+                16,
+                &VolumeOptions {
+                    background,
+                    ..Default::default()
+                },
+                crate::RenderLimits::default(),
+                &cancel,
+            )
+            .unwrap();
+        assert!(frame.rgba.chunks_exact(4).all(|p| p == [51, 102, 153, 255]));
+    }
 
     #[test]
     fn missing_volume_support_excludes_finite_placeholders_and_masked_nans() {

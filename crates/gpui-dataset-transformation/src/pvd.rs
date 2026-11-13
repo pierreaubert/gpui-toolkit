@@ -116,7 +116,7 @@ pub fn read_pvd(
             let entry = &entries[index];
             let bytes = resolve(&entry.file)
                 .ok_or_else(|| format!("cannot resolve PVD file '{}'", entry.file))?;
-            let dataset = read_vtu_bytes(&bytes)?;
+            let dataset = read_vtu_bytes(&bytes).map_err(|e| e.to_string())?;
             merged = Some(match merged {
                 None => dataset,
                 Some(acc) => {
