@@ -77,7 +77,8 @@ where
     XS: Scale<f64, f64> + Clone + 'static,
     YS: Scale<f64, f64> + Clone + 'static,
 {
-    let element = HeatmapElement::new(data, x_scale.clone(), y_scale.clone()).config(config.clone());
+    let element =
+        HeatmapElement::new(data, x_scale.clone(), y_scale.clone()).config(config.clone());
     match config.value_range {
         Some((min, max)) => element.value_range(min, max),
         None => element,
@@ -507,7 +508,12 @@ where
             // which reads as a fine mesh over smooth fields. Later
             // cells simply paint over the overlap.
             scene.fill_rect(
-                Rect::new(xa.min(xb) - 0.5, ya.min(yb) - 0.5, xa.max(xb) + 0.5, ya.max(yb) + 0.5),
+                Rect::new(
+                    xa.min(xb) - 0.5,
+                    ya.min(yb) - 0.5,
+                    xa.max(xb) + 0.5,
+                    ya.max(yb) + 0.5,
+                ),
                 Brush::Solid(Color::new([
                     rgba.r,
                     rgba.g,
