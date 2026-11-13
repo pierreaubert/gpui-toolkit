@@ -4,6 +4,11 @@
 //! mesher remains the tool for generating and repairing such meshes;
 //! these readers/writers move them in and out of the toolkit). STL facet
 //! normals are recomputed on read; OBJ/PLY keep indexed vertices.
+//!
+//! These formats are geometry-only here: writers export boundary
+//! triangles and positions only, so point/cell fields and their validity
+//! masks are not written (use VTK/VTU/XDMF for field-bearing export) and
+//! readers produce datasets without fields.
 
 // Rust guideline compliant 2026-02-21
 

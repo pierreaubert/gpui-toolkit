@@ -1,9 +1,12 @@
 //! Legacy VTK (`.vtk`) ASCII unstructured-grid read and write.
 //!
 //! This is the interchange subset: points, cells with VTK type codes, and
-//! scalar/vector point and cell data. It covers the files most solvers
-//! still export for quick inspection; binary and XML (`.vtu`) formats are
-//! separate concerns and are not silently approximated here.
+//! scalar/vector point and cell data (tensor/complex fields are not
+//! written). It covers the files most solvers still export for quick
+//! inspection; binary and XML (`.vtu`) formats are separate concerns and
+//! are not silently approximated here. Validity masks follow the shared
+//! IO convention in `validity.rs`: masked entries are written as NaN with
+//! a `<name>__valid` companion, and readers restore masks from it.
 
 // Rust guideline compliant 2026-02-21
 
@@ -93,21 +96,35 @@ fn write_fields(out: &mut String, header: &str, count: usize, fields: &[Field]) 
     }
     let _ = writeln!(out, "{header} {count}");
     for field in writable {
+        // Masked entries are exported as NaN plus a `<name>__valid`
+        // companion (see validity.rs), never as placeholder measurements.
+        let flat = crate::validity::canonical_flat(field);
         match &field.data {
-            FieldData::Scalar(values) => {
+            FieldData::Scalar(_) => {
                 let _ = writeln!(out, "SCALARS {} double 1", field.name);
                 let _ = writeln!(out, "LOOKUP_TABLE default");
-                for value in values.iter() {
+                for value in &flat {
                     let _ = writeln!(out, "{value}");
                 }
             }
-            FieldData::Vector(values) => {
+            FieldData::Vector(_) => {
                 let _ = writeln!(out, "VECTORS {} double", field.name);
-                for value in values.iter() {
+                for value in flat.as_chunks::<3>().0 {
                     let _ = writeln!(out, "{} {} {}", value[0], value[1], value[2]);
                 }
             }
             _ => {}
+        }
+        if let Some(mask) = crate::validity::active_mask(field) {
+            let _ = writeln!(
+                out,
+                "SCALARS {} double 1",
+                crate::validity::mask_name(&field.name)
+            );
+            let _ = writeln!(out, "LOOKUP_TABLE default");
+            for valid in mask {
+                let _ = writeln!(out, "{}", if *valid { 1.0 } else { 0.0 });
+            }
         }
     }
 }
@@ -198,6 +215,8 @@ pub fn read_vtk(text: &str) -> Result<DataSet, String> {
             }
         }
     }
+    crate::validity::restore_masks(&mut point_data);
+    crate::validity::restore_masks(&mut cell_data);
     let mut dataset = DataSet::new(title, positions, cells);
     dataset.point_data = point_data;
     dataset.cell_data = cell_data;

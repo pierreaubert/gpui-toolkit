@@ -596,6 +596,9 @@ fn sample_pair(a: &DataSet, b: &DataSet, plan: &PairPlan, t: f64) -> DataSet {
             let data = if plan.data_shared {
                 // Keep payload identity stable across the interval even when
                 // the later step stores an equal independent allocation.
+                // Note: the intersected mask may mask entries whose shared
+                // payload stays finite; validity is defined by the mask
+                // (`Field::is_valid`), not by the raw payload.
                 a.data.clone()
             } else {
                 match (&a.data, &b.data) {
@@ -714,6 +717,38 @@ mod tests {
         assert_eq!(series.locate(-1.0).unwrap(), (0, 0, 0.0));
         assert_eq!(series.locate(1.0).unwrap(), (0, 1, 0.5));
         assert_eq!(series.locate(9.0).unwrap(), (1, 1, 0.0));
+    }
+
+    #[test]
+    fn masked_steps_sample_to_intersected_mask_and_nan_rows() {
+        // Finite placeholders (99) under masks in either step must never
+        // blend into a sampled measurement: sampled validity is the mask
+        // intersection and blended rows under it are NaN.
+        let mut a = step(0.0, 0.0);
+        a.point_data[0] = Field::scalar("pressure", vec![0.0, 99.0, 0.0]);
+        a.point_data[0].valid = Some(vec![true, false, true].into());
+        let mut b = step(1.0, 10.0);
+        b.point_data[0] = Field::scalar("pressure", vec![10.0, 10.0, 99.0]);
+        b.point_data[0].valid = Some(vec![true, true, false].into());
+        let series = TimeSeries::new(vec![a, b], vec![0.0, 1.0]).unwrap();
+        for sampler_output in [
+            series.sample(0.5).unwrap(),
+            series.sampler().unwrap().sample(0.5).unwrap(),
+            series.clone().prepare().unwrap().sample(0.5).unwrap(),
+        ] {
+            let field = sampler_output
+                .field(Association::Point, "pressure")
+                .unwrap();
+            assert_eq!(
+                field.valid.as_deref(),
+                Some([true, false, false].as_slice())
+            );
+            let values = field.as_scalar().unwrap();
+            assert_eq!(values[0], 5.0);
+            assert!(values[1].is_nan() && values[2].is_nan());
+            assert!(field.is_valid(0) && !field.is_valid(1) && !field.is_valid(2));
+            assert_eq!(sampler_output.validate(), Ok(()));
+        }
     }
 
     #[test]

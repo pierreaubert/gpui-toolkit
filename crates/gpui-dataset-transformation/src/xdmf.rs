@@ -140,12 +140,15 @@ pub fn write_xdmf(dataset: &DataSet) -> XdmfBundle {
             Association::Cell => "Cell",
         };
         for field in fields {
-            let (attribute_type, components, flat): (&str, usize, Vec<f64>) = match &field.data {
-                FieldData::Scalar(v) => ("Scalar", 1, v.to_vec()),
-                FieldData::Vector(v) => ("Vector", 3, v.iter().flatten().copied().collect()),
-                FieldData::Tensor(v) => ("Tensor6", 6, v.iter().flatten().copied().collect()),
-                FieldData::Complex(v) => ("Scalar", 2, v.iter().flatten().copied().collect()),
+            // Masked entries are exported as NaN plus a `<name>__valid`
+            // companion attribute (see validity.rs).
+            let attribute_type = match &field.data {
+                FieldData::Scalar(_) | FieldData::Complex(_) => "Scalar",
+                FieldData::Vector(_) => "Vector",
+                FieldData::Tensor(_) => "Tensor6",
             };
+            let components = field.data.components();
+            let flat = crate::validity::canonical_flat(field);
             let file = format!("{base}_{}.bin", field.name.replace(['/', '\\', ' '], "_"));
             let count = flat.len() / components.max(1);
             binaries.push((file.clone(), f64_bytes(&flat)));
@@ -162,6 +165,30 @@ pub fn write_xdmf(dataset: &DataSet) -> XdmfBundle {
                 &file,
             );
             xml.push_str("</Attribute>");
+            if let Some(mask) = crate::validity::active_mask(field) {
+                let companion_name = crate::validity::mask_name(&field.name);
+                let companion: Vec<f64> = mask
+                    .iter()
+                    .map(|valid| if *valid { 1.0 } else { 0.0 })
+                    .collect();
+                let file = format!(
+                    "{base}_{}.bin",
+                    companion_name.replace(['/', '\\', ' '], "_")
+                );
+                binaries.push((file.clone(), f64_bytes(&companion)));
+                let _ = write!(
+                    xml,
+                    "<Attribute Name=\"{companion_name}\" AttributeType=\"Scalar\" Center=\"{center}\">"
+                );
+                data_item(
+                    &mut xml,
+                    &companion_name,
+                    &format!("{} 1", companion.len()),
+                    "Float",
+                    &file,
+                );
+                xml.push_str("</Attribute>");
+            }
         }
     }
     xml.push_str("</Grid></Domain></Xdmf>");
@@ -281,6 +308,8 @@ pub fn read_xdmf(xml: &str, resolve: impl Fn(&str) -> Option<Vec<u8>>) -> Result
             Association::Cell => dataset.cell_data.push(field),
         }
     }
+    crate::validity::restore_masks(&mut dataset.point_data);
+    crate::validity::restore_masks(&mut dataset.cell_data);
     dataset
         .validate()
         .map_err(|e| format!("parsed dataset is invalid: {e}"))?;

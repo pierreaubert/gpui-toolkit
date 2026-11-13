@@ -1,5 +1,11 @@
 # Audit implementation and evidence
 
+> **Frozen historical record (2026-11-13).** Do not retro-edit the evidence
+> below. Current status and remaining work are tracked in
+> [audit-20261113.md](audit-20261113.md) §9 and Gitea issue #8. The checklist
+> below reflects the state at its last contemporaneous edit (2026-10-19) and
+> is superseded where audit-20261113.md §7.2 says so.
+
 Tracking issue: http://192.168.1.32:3001/pierre/gpui-toolkit/issues/7
 
 Branch: `perf`. The original audit remains the requirements source. A checked

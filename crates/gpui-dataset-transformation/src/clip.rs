@@ -133,6 +133,12 @@ const TET_FACES: [[usize; 3]; 4] = [[0, 2, 1], [0, 1, 3], [1, 2, 3], [2, 0, 3]];
 /// volume kinds are reported as [`TransformError::UnsupportedCell`];
 /// tetrahedralize or extract the surface first for those.
 ///
+/// Validity: geometry is position-only — masked field values never move
+/// or drop vertices. An output point's field value is valid only when
+/// every nonzero-weight contributor is valid (see `interp`); a created
+/// point interpolated from a masked endpoint is a masked NaN, while an
+/// unmodified valid vertex keeps its exact value.
+///
 /// # Errors
 ///
 /// Returns an error when the input is invalid or holds unsupported cells.
@@ -237,7 +243,12 @@ fn angle(p: [f64; 3], centre: [f64; 3], u: [f64; 3], v: [f64; 3]) -> f64 {
 ///
 /// Volume cells produce filled cut polygons triangulated as triangles;
 /// surface cells produce line segments. Point fields are interpolated
-/// onto the cut, so a slice can be coloured by pressure directly.
+/// onto the cut, so a slice can be coloured by pressure directly; cell
+/// fields do not survive.
+///
+/// Validity: same contract as [`clip_halfspace`] — geometry is
+/// position-only, and a cut point interpolated from any masked endpoint
+/// carries a masked NaN instead of a blended placeholder.
 ///
 /// # Errors
 ///
@@ -410,6 +421,48 @@ mod tests {
         let out = clip_halfspace(&ds, &Plane::axis(0, 0.5).unwrap(), true).unwrap();
         assert_eq!(out.cell_count(), 1);
         assert!(out.positions.iter().all(|p| p[0] >= 0.5 - 1e-12));
+        assert_eq!(out.validate(), Ok(()));
+    }
+
+    fn masked_tet_dataset() -> DataSet {
+        let mut dataset = tet_dataset();
+        // Apex value 10 becomes a masked placeholder.
+        dataset.point_data[0].valid = Some(vec![true, true, true, false].into());
+        dataset
+    }
+
+    #[test]
+    fn slice_from_masked_endpoint_is_masked_nan_not_blended_placeholder() {
+        let out = slice(&masked_tet_dataset(), &Plane::axis(2, 0.5).unwrap()).unwrap();
+        assert_eq!(out.cell_count(), 1, "geometry is position-only");
+        let field = out.field(Association::Point, "p").unwrap();
+        // Every cut point interpolates toward the masked apex.
+        assert!(
+            (0..out.point_count()).all(|index| !field.is_valid(index)),
+            "cut values must be missing, got {:?}",
+            field.as_scalar().unwrap()
+        );
+        assert!(field.as_scalar().unwrap().iter().all(|v| v.is_nan()));
+        assert_eq!(out.validate(), Ok(()));
+    }
+
+    #[test]
+    fn clip_keeps_exact_valid_vertices_and_masks_created_points() {
+        let out =
+            clip_halfspace(&masked_tet_dataset(), &Plane::axis(2, 0.5).unwrap(), false).unwrap();
+        let field = out.field(Association::Point, "p").unwrap();
+        let values = field.as_scalar().unwrap();
+        for (index, position) in out.positions.iter().enumerate() {
+            if position[2] == 0.0 {
+                assert!(field.is_valid(index), "base vertices stay exact");
+                assert_eq!(values[index], 0.0);
+            } else {
+                assert!(
+                    !field.is_valid(index),
+                    "points created toward the masked apex stay missing at {position:?}"
+                );
+            }
+        }
         assert_eq!(out.validate(), Ok(()));
     }
 

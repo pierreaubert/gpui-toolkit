@@ -266,46 +266,28 @@ fn data_array(out: &mut String, ty: &str, name: Option<&str>, components: usize,
 
 fn write_field_arrays(out: &mut String, fields: &[Field], compress: bool) {
     for field in fields {
-        match &field.data {
-            FieldData::Scalar(values) => {
-                data_array(
-                    out,
-                    "Float64",
-                    Some(&field.name),
-                    1,
-                    &f64_block_mode(values, compress),
-                );
-            }
-            FieldData::Vector(values) => {
-                let flat: Vec<f64> = values.iter().flatten().copied().collect();
-                data_array(
-                    out,
-                    "Float64",
-                    Some(&field.name),
-                    3,
-                    &f64_block_mode(&flat, compress),
-                );
-            }
-            FieldData::Tensor(values) => {
-                let flat: Vec<f64> = values.iter().flatten().copied().collect();
-                data_array(
-                    out,
-                    "Float64",
-                    Some(&field.name),
-                    6,
-                    &f64_block_mode(&flat, compress),
-                );
-            }
-            FieldData::Complex(values) => {
-                let flat: Vec<f64> = values.iter().flatten().copied().collect();
-                data_array(
-                    out,
-                    "Float64",
-                    Some(&field.name),
-                    2,
-                    &f64_block_mode(&flat, compress),
-                );
-            }
+        // Masked entries are exported as NaN plus a `<name>__valid`
+        // companion (see validity.rs), never as placeholder measurements.
+        let flat = crate::validity::canonical_flat(field);
+        data_array(
+            out,
+            "Float64",
+            Some(&field.name),
+            field.data.components(),
+            &f64_block_mode(&flat, compress),
+        );
+        if let Some(mask) = crate::validity::active_mask(field) {
+            let companion: Vec<f64> = mask
+                .iter()
+                .map(|valid| if *valid { 1.0 } else { 0.0 })
+                .collect();
+            data_array(
+                out,
+                "Float64",
+                Some(&crate::validity::mask_name(&field.name)),
+                1,
+                &f64_block_mode(&companion, compress),
+            );
         }
     }
 }
@@ -813,6 +795,8 @@ fn read_vtu_impl(
             dataset.cell_data.push(field);
         }
     }
+    crate::validity::restore_masks(&mut dataset.point_data);
+    crate::validity::restore_masks(&mut dataset.cell_data);
     dataset
         .validate()
         .map_err(|e| format!("parsed dataset is invalid: {e}"))?;
@@ -969,19 +953,10 @@ mod tests {
 }
 
 /// Raw bytes of one field array (Float64 payloads, VTK component order).
+/// Masked entries are canonicalized to NaN (see validity.rs).
 fn field_raw_bytes(field: &Field) -> (usize, Vec<u8>) {
-    let flat: Vec<f64> = match &field.data {
-        FieldData::Scalar(values) => values.iter().copied().collect(),
-        FieldData::Vector(values) => values.iter().flatten().copied().collect(),
-        FieldData::Tensor(values) => values.iter().flatten().copied().collect(),
-        FieldData::Complex(values) => values.iter().flatten().copied().collect(),
-    };
-    let components = match &field.data {
-        FieldData::Scalar(_) => 1,
-        FieldData::Vector(_) => 3,
-        FieldData::Tensor(_) => 6,
-        FieldData::Complex(_) => 2,
-    };
+    let flat = crate::validity::canonical_flat(field);
+    let components = field.data.components();
     let mut raw = Vec::with_capacity(flat.len() * 8);
     for v in flat {
         raw.extend_from_slice(&v.to_le_bytes());
@@ -1063,27 +1038,36 @@ pub fn write_vtu_appended(dataset: &DataSet) -> Vec<u8> {
     );
     let cell_tags: Vec<String> = std::mem::take(&mut array_tags);
 
-    let mut point_tags: Vec<String> = Vec::new();
-    for field in &dataset.point_data {
+    fn add_field(blob: &mut Vec<u8>, tags: &mut Vec<String>, field: &Field) {
         let (components, raw) = field_raw_bytes(field);
         let offset = blob.len();
         blob.extend_from_slice(&(raw.len() as u64).to_le_bytes());
         blob.extend_from_slice(&raw);
-        point_tags.push(format!(
+        tags.push(format!(
             "<DataArray type=\"Float64\" Name=\"{}\" NumberOfComponents=\"{components}\" format=\"appended\" offset=\"{offset}\"/>",
             field.name
         ));
+        if let Some(mask) = crate::validity::active_mask(field) {
+            let mut raw = Vec::with_capacity(mask.len() * 8);
+            for valid in mask {
+                raw.extend_from_slice(&(if *valid { 1.0f64 } else { 0.0 }).to_le_bytes());
+            }
+            let offset = blob.len();
+            blob.extend_from_slice(&(raw.len() as u64).to_le_bytes());
+            blob.extend_from_slice(&raw);
+            tags.push(format!(
+                "<DataArray type=\"Float64\" Name=\"{}\" NumberOfComponents=\"1\" format=\"appended\" offset=\"{offset}\"/>",
+                crate::validity::mask_name(&field.name)
+            ));
+        }
+    }
+    let mut point_tags: Vec<String> = Vec::new();
+    for field in &dataset.point_data {
+        add_field(&mut blob, &mut point_tags, field);
     }
     let mut cell_data_tags: Vec<String> = Vec::new();
     for field in &dataset.cell_data {
-        let (components, raw) = field_raw_bytes(field);
-        let offset = blob.len();
-        blob.extend_from_slice(&(raw.len() as u64).to_le_bytes());
-        blob.extend_from_slice(&raw);
-        cell_data_tags.push(format!(
-            "<DataArray type=\"Float64\" Name=\"{}\" NumberOfComponents=\"{components}\" format=\"appended\" offset=\"{offset}\"/>",
-            field.name
-        ));
+        add_field(&mut blob, &mut cell_data_tags, field);
     }
 
     let mut out = String::new();
