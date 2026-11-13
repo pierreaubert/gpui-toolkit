@@ -83,8 +83,12 @@ BENCHMARKS: list[BenchSpec] = [
         groups=["prepare_chunks_*", "render_surface_*", "raycast_volume_*"],
     ),
     BenchSpec(
-        "gpui-dataset-transformation", "flow_bench", [],
-        groups=["vorticity_*", "q_criterion_*", "isosurface_*"],
+        "gpui-dataset-transformation", "flow_bench", ["gpu"],
+        groups=[
+            "vorticity_*", "q_criterion_*", "isosurface_*",
+            "cpu_threshold_*", "gpu_threshold_*", "gpu_jacobians_*",
+            "cpu_vorticity_*", "gpu_prepared_*",
+        ],
     ),
     BenchSpec(
         "gpui-d3rs",
