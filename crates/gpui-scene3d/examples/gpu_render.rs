@@ -1,7 +1,7 @@
 //! GPU-resident rendering demo: upload once, orbit by uniform updates.
 //!
 //! Renders a pressure isosurface at 1080p through `GpuRenderer` (Metal on
-//! Apple Silicon, Vulkan/CUDA-class elsewhere), writes the frame as PNG
+//! Apple Silicon, Vulkan/DX12 elsewhere), writes the frame as PNG
 //! through the QA readback, and reports upload size plus per-frame draw
 //! cost next to the software rasterizer for the same scene.
 //!

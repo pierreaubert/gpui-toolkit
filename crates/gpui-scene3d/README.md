@@ -33,7 +33,7 @@ arrows, tubes, LIC, contours, tensor glyphs, particles, legend).
 `gpu` feature adds `GpuRenderer`: scenes upload their geometry and LUTs
 once and then draw by rewriting only the 288-byte per-actor uniform
 block, so frames never read geometry back to the CPU (Metal on Apple
-Silicon, Vulkan/CUDA-class adapters elsewhere, WebGPU in the browser);
+Silicon, Vulkan/DX12 adapters elsewhere, WebGPU in the browser);
 `gpu_render` is the matching example with a QA readback. Enable the `png`
 feature for PNG frame export, and `mp4` (native only) to mux frames to
 H.264 MP4 through the system `ffmpeg`.

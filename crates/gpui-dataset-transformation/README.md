@@ -28,7 +28,7 @@ tensor field's major axis. Data plumbing: `point_data_to_cell_data` /
 diagnostics, LIC, contours, glyphs) run index-parallel on native
 targets with deterministic, order-preserving output; wasm stays
 sequential; the `gpu` feature runs the same diagnostics through wgpu compute
-(Metal on Apple Silicon, Vulkan/CUDA-class adapters elsewhere), with a
+(Metal on Apple Silicon, Vulkan/DX12 adapters elsewhere), with a
 prepared point-reduction kernel that is about 5x faster than the CPU at
 110k points in local benchmarks. I/O covers legacy VTK text, VTU XML
 (inline binary, appended raw, and zlib-compressed arrays), XDMF with
