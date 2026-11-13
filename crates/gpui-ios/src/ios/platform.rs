@@ -34,7 +34,6 @@ pub(crate) struct IosPlatformState {
     finish_launching: Option<Box<dyn FnOnce()>>,
     quit_callback: Option<Box<dyn FnMut() -> bool>>,
     open_urls_callback: Option<Box<dyn FnMut(Vec<String>)>>,
-    thermal_state_callback: Option<Box<dyn FnMut()>>,
 }
 
 impl Default for IosPlatform {
@@ -58,7 +57,6 @@ impl IosPlatform {
                 finish_launching: None,
                 quit_callback: None,
                 open_urls_callback: None,
-                thermal_state_callback: None,
             }),
             foreign: false,
         }
@@ -349,11 +347,14 @@ impl Platform for IosPlatform {
     }
 
     fn thermal_state(&self) -> ThermalState {
-        ThermalState::Nominal
+        current_thermal_state()
     }
 
     fn on_thermal_state_change(&self, callback: Box<dyn FnMut()>) {
-        self.state.lock().thermal_state_callback = Some(callback);
+        // Same plumbing as the keyboard-layout callback: the Swift
+        // host observes NSProcessInfoThermalStateDidChange and calls
+        // `gpui_ios_notify_thermal_state_changed`, which dispatches here.
+        crate::set_thermal_state_change_callback(Some(callback));
     }
 
     fn keyboard_layout(&self) -> Box<dyn PlatformKeyboardLayout> {
@@ -362,5 +363,30 @@ impl Platform for IosPlatform {
 
     fn keyboard_mapper(&self) -> Rc<dyn PlatformKeyboardMapper> {
         Rc::new(DummyKeyboardMapper)
+    }
+}
+
+/// Map an `NSProcessInfoThermalState` value (0 nominal .. 3 critical).
+pub(crate) fn thermal_state_from_ns(value: isize) -> ThermalState {
+    match value {
+        0 => ThermalState::Nominal,
+        1 => ThermalState::Fair,
+        2 => ThermalState::Serious,
+        _ => ThermalState::Critical,
+    }
+}
+
+/// The live system thermal state from `NSProcessInfo`.
+pub(crate) fn current_thermal_state() -> ThermalState {
+    // SAFETY: `NSProcessInfo.processInfo` and its `thermalState`
+    // property always exist on supported OS versions; the message
+    // takes no arguments and returns an NSInteger.
+    unsafe {
+        let info: *mut Object = msg_send![class!(NSProcessInfo), processInfo];
+        if info.is_null() {
+            return ThermalState::Nominal;
+        }
+        let value: isize = msg_send![info, thermalState];
+        thermal_state_from_ns(value)
     }
 }

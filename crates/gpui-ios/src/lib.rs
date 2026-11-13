@@ -36,12 +36,15 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 type TextInputCallbackFn = Box<dyn FnMut(&str)>;
 type KeyboardLayoutCallbackFn = Box<dyn FnMut()>;
+type ThermalStateCallbackFn = Box<dyn FnMut()>;
 
 pub static TEXT_INPUT_DIRTY: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
     static TEXT_INPUT_CALLBACK: RefCell<Option<TextInputCallbackFn>> = RefCell::new(None);
     static KEYBOARD_LAYOUT_CALLBACK: RefCell<Option<KeyboardLayoutCallbackFn>> = RefCell::new(None);
+    static THERMAL_STATE_CALLBACK: RefCell<Option<ThermalStateCallbackFn>> = RefCell::new(None);
+    static THERMAL_STATE_CALLBACK_GENERATION: Cell<u64> = const { Cell::new(0) };
     static TEXT_INPUT_CALLBACK_GENERATION: Cell<u64> = const { Cell::new(0) };
     static KEYBOARD_LAYOUT_CALLBACK_GENERATION: Cell<u64> = const { Cell::new(0) };
 }
@@ -88,6 +91,32 @@ pub fn dispatch_keyboard_layout_change() -> bool {
         if let Some(handler) = callback.as_mut() {
             handler();
             if KEYBOARD_LAYOUT_CALLBACK_GENERATION.with(Cell::get) == generation {
+                *cb.borrow_mut() = callback;
+            }
+            TEXT_INPUT_DIRTY.store(true, Ordering::Release);
+            true
+        } else {
+            false
+        }
+    })
+}
+
+pub fn set_thermal_state_change_callback(callback: Option<ThermalStateCallbackFn>) {
+    THERMAL_STATE_CALLBACK_GENERATION.with(|generation| {
+        generation.set(generation.get().wrapping_add(1));
+    });
+    THERMAL_STATE_CALLBACK.with(|cb| {
+        *cb.borrow_mut() = callback;
+    });
+}
+
+pub fn dispatch_thermal_state_change() -> bool {
+    THERMAL_STATE_CALLBACK.with(|cb| {
+        let generation = THERMAL_STATE_CALLBACK_GENERATION.with(Cell::get);
+        let mut callback = cb.borrow_mut().take();
+        if let Some(handler) = callback.as_mut() {
+            handler();
+            if THERMAL_STATE_CALLBACK_GENERATION.with(Cell::get) == generation {
                 *cb.borrow_mut() = callback;
             }
             TEXT_INPUT_DIRTY.store(true, Ordering::Release);
@@ -225,6 +254,20 @@ pub use ios::{IosPlatform, current_platform};
 mod tests {
     use super::*;
     use std::{cell::Cell, rc::Rc};
+
+    #[test]
+    fn thermal_state_callback_dispatches_and_clears() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static CALLS: AtomicU32 = AtomicU32::new(0);
+        CALLS.store(0, Ordering::Relaxed);
+        set_thermal_state_change_callback(Some(Box::new(|| {
+            CALLS.fetch_add(1, Ordering::Relaxed);
+        })));
+        assert!(dispatch_thermal_state_change());
+        assert_eq!(CALLS.load(Ordering::Relaxed), 1);
+        set_thermal_state_change_callback(None);
+        assert!(!dispatch_thermal_state_change());
+    }
 
     #[test]
     fn keyboard_layout_callback_dispatches_on_significant_height_changes() {

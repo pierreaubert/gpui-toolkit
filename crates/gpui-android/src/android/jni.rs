@@ -686,9 +686,25 @@ fn event_loop_poll_timeout(
     needs_frame_pump: bool,
     next_delayed_task: Option<Duration>,
 ) -> Option<Duration> {
+    event_loop_poll_timeout_thermal(
+        needs_frame_pump,
+        crate::event_stages::ThermalLevel::Nominal,
+        next_delayed_task,
+    )
+}
+
+fn event_loop_poll_timeout_thermal(
+    needs_frame_pump: bool,
+    thermal: crate::event_stages::ThermalLevel,
+    next_delayed_task: Option<Duration>,
+) -> Option<Duration> {
     // Tested on every host in `crate::event_stages`; kept as a thin alias so
     // the loop reads in domain terms.
-    crate::event_stages::frame_poll_timeout(needs_frame_pump, next_delayed_task)
+    crate::event_stages::frame_poll_timeout_with_interval(
+        needs_frame_pump,
+        thermal.frame_interval(),
+        next_delayed_task,
+    )
 }
 
 /// Drain lifecycle events queued while a deferred handler ran.
@@ -990,8 +1006,13 @@ pub fn run_event_loop(app: &AndroidApp) {
                         .primary_window()
                         .is_some_and(|window| window.needs_frame_pump());
                 (
-                    event_loop_poll_timeout(
+                    event_loop_poll_timeout_thermal(
                         needs_frame_pump,
+                        platform
+                            .primary_window()
+                            .map_or(crate::event_stages::ThermalLevel::Nominal, |window| {
+                                window.thermal_level()
+                            }),
                         platform.next_delayed_task_in(Instant::now()),
                     ),
                     !INIT_WINDOW_DONE.load(Ordering::Relaxed),
@@ -1813,5 +1834,31 @@ mod tests {
     #[test]
     fn platform_returns_none_before_init() {
         assert!(platform().is_none());
+    }
+}
+
+/// Report an Android `PowerManager` thermal-status change.
+/// The Java side registers an `OnThermalStatusChangedListener` and
+/// forwards each status here; the event loop slows the frame pump as
+/// the level rises (see `event_stages::ThermalLevel`).
+///
+/// # Safety
+///
+/// FFI entry point: takes only plain integers and touches shared
+/// state through the initialized platform handle. A no-op before
+/// platform initialization.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Java_dev_gpui_mobile_GpuiActivity_nativeSetThermalStatus(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    status: jni::sys::jint,
+) {
+    if status < 0 {
+        return;
+    }
+    if let Some(platform) = PLATFORM.get()
+        && let Some(window) = platform.primary_window()
+    {
+        window.set_thermal_status(status as u32);
     }
 }

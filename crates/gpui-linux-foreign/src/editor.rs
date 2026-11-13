@@ -24,7 +24,7 @@ use std::thread::{ThreadId, current};
 
 use gpui::{AnyWindowHandle, AppCell, PlatformInput};
 use gpui_foreign_parent::{
-    EditorHandle, FrameThrottle, OwnedEditorRegistry, ResizeDebounce, TransitionCell,
+    EditorHandle, FrameDecision, FrameScheduler, OwnedEditorRegistry, TransitionCell,
 };
 use gpui_linux::foreign_parent::ForeignParentPlatform;
 
@@ -64,8 +64,9 @@ pub(crate) struct LinuxForeignEditor {
     /// Newest host geometry; updated synchronously on every resize while
     /// the surface reconfigure is debounced.
     pub bounds: Cell<ForeignBounds>,
-    pub throttle: FrameThrottle,
-    pub debounce: ResizeDebounce<(u32, u32, f32)>,
+    /// Common frame policy: host pumps invalidate, the scheduler
+    /// throttles/coalesces, resizes debounce through it.
+    pub scheduler: FrameScheduler<(u32, u32, f32)>,
     pub dropped_frames: AtomicUsize,
     pub active: TransitionCell,
     pub hovered: TransitionCell,
@@ -180,7 +181,7 @@ pub(crate) fn frame_stats(id: u64) -> (usize, usize) {
     with_editor(id, |editor| {
         (
             editor.dropped_frames.load(Ordering::Relaxed),
-            editor.throttle.coalesced(),
+            editor.scheduler.coalesced(),
         )
     })
     .unwrap_or((0, 0))

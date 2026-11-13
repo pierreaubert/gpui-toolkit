@@ -18,7 +18,7 @@ use gpui::{
     MouseDownEvent, MouseMoveEvent, PlatformInput, Render, ScrollDelta, ScrollWheelEvent,
     Styled as _, Window, WindowOptions, div, point, px,
 };
-use gpui_foreign_parent::{FrameThrottle, ResizeDebounce, TransitionCell};
+use gpui_foreign_parent::{FrameDecision, FrameScheduler, TransitionCell};
 use gpui_linux::foreign_parent::{
     ForeignParentPlatform, X11ForeignParent, clear_pending_x11_foreign_parent,
     stash_pending_x11_foreign_parent,
@@ -117,8 +117,7 @@ pub fn linux_x11_create_with<V: Render + 'static>(
         backend: ForeignBackend::X11,
         label: label.to_owned(),
         bounds: Cell::new(bounds),
-        throttle: FrameThrottle::default(),
-        debounce: ResizeDebounce::default(),
+        scheduler: FrameScheduler::new(),
         dropped_frames: AtomicUsize::new(0),
         active,
         hovered,
@@ -162,14 +161,17 @@ pub fn linux_x11_request_frame(editor_id: u64) {
             editor.dropped_frames.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        // Converge any debounced resize before drawing.
-        editor.debounce.poll(|(width, height, scale)| {
+        // The host pump is the invalidation; the scheduler decides
+        // whether this tick renders (throttle) after converging any
+        // debounced resize before drawing.
+        editor.scheduler.invalidate();
+        editor.scheduler.poll_resize(|(width, height, scale)| {
             editor
                 .platform
                 .resize_foreign(editor.window, width, height, scale);
             true
         });
-        if !editor.throttle.should_forward() {
+        if editor.scheduler.next_frame() != FrameDecision::RenderNow {
             return;
         }
         editor.platform.request_frame(editor.window);
@@ -185,8 +187,8 @@ pub fn linux_x11_resize(editor_id: u64, width: u32, height: u32, scale: f32) {
     with_editor(editor_id, |editor| {
         editor.bounds.set(bounds);
         editor
-            .debounce
-            .submit((width, height, scale), |(width, height, scale)| {
+            .scheduler
+            .resize((width, height, scale), |(width, height, scale)| {
                 editor
                     .platform
                     .resize_foreign(editor.window, width, height, scale);

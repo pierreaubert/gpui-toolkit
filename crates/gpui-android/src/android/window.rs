@@ -512,6 +512,9 @@ pub struct AndroidWindow {
     /// and dirtying refreshes). Part of the event loop's wake decision so
     /// a one-shot animation cannot stall in an indefinite poll.
     scheduled_frame: crate::event_stages::ScheduledFrame,
+    /// Latest Android thermal status (PowerManager), set from the JNI
+    /// thermal callback; the event loop slows the frame pump as it rises.
+    thermal_status: std::sync::atomic::AtomicU32,
 }
 
 // SAFETY: `WindowState` is protected by a `Mutex`.
@@ -591,6 +594,7 @@ impl AndroidWindow {
             direct_contact_claims: Arc::new(Mutex::new(HashSet::new())),
             momentum: new_momentum_state(),
             scheduled_frame: crate::event_stages::ScheduledFrame::new(),
+            thermal_status: std::sync::atomic::AtomicU32::new(0),
         }))
     }
 
@@ -626,6 +630,7 @@ impl AndroidWindow {
             direct_contact_claims: Arc::new(Mutex::new(HashSet::new())),
             momentum: new_momentum_state(),
             scheduled_frame: crate::event_stages::ScheduledFrame::new(),
+            thermal_status: std::sync::atomic::AtomicU32::new(0),
         })
     }
 
@@ -927,6 +932,20 @@ impl AndroidWindow {
         }
         let momentum = self.momentum.lock();
         momentum.has_pending_scroll || momentum.scroller.is_active()
+    }
+
+    /// Record the latest Android thermal status (PowerManager).
+    pub fn set_thermal_status(&self, status: u32) {
+        self.thermal_status
+            .store(status, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Thermal band currently in effect for frame-pump cadence.
+    pub fn thermal_level(&self) -> crate::event_stages::ThermalLevel {
+        crate::event_stages::ThermalLevel::from_android_status(
+            self.thermal_status
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )
     }
 
     /// Record GPUI's one-shot frame demand (`PlatformWindow::schedule_frame`).

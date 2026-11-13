@@ -344,3 +344,29 @@ pub extern "C" fn gpui_ios_handle_key_event(
 pub extern "C" fn gpui_ios_run_demo() {
     run_app();
 }
+
+/// Notify Rust that the system thermal state changed.
+///
+/// Swift hosts register for `NSProcessInfoThermalStateDidChange` and
+/// call this from that observer; the GPUI platform callback registered
+/// through `on_thermal_state_change` then fires and re-reads the live
+/// state. Takes no pointers and never unwinds across the boundary.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_ios_notify_thermal_state_changed() {
+    gpui_foreign_parent::ffi_boundary((), || {
+        crate::dispatch_thermal_state_change();
+    });
+}
+
+/// Current system thermal state: 0 nominal, 1 fair, 2 serious, 3 critical.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_ios_thermal_state() -> i32 {
+    gpui_foreign_parent::ffi_boundary(0, || {
+        match super::super::platform::current_thermal_state() {
+            gpui::ThermalState::Nominal => 0,
+            gpui::ThermalState::Fair => 1,
+            gpui::ThermalState::Serious => 2,
+            gpui::ThermalState::Critical => 3,
+        }
+    })
+}

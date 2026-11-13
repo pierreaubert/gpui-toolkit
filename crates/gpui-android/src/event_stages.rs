@@ -70,10 +70,60 @@ pub fn frame_poll_timeout(
     needs_frame_pump: bool,
     next_delayed_task: Option<Duration>,
 ) -> Option<Duration> {
+    frame_poll_timeout_with_interval(needs_frame_pump, FRAME_POLL_INTERVAL, next_delayed_task)
+}
+
+/// [`frame_poll_timeout`] with an explicit pump cadence (thermal slowdown).
+pub fn frame_poll_timeout_with_interval(
+    needs_frame_pump: bool,
+    pump_interval: Duration,
+    next_delayed_task: Option<Duration>,
+) -> Option<Duration> {
     if needs_frame_pump {
-        Some(FRAME_POLL_INTERVAL)
+        Some(pump_interval)
     } else {
         next_delayed_task
+    }
+}
+
+/// Android `PowerManager` thermal status (0 none .. 6 shutdown),
+/// reduced to the bands the frame pump reacts to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum ThermalLevel {
+    /// No thermal constraint (statuses 0-1).
+    #[default]
+    Nominal,
+    /// Moderate throttling (status 2): halve the pump cadence.
+    Moderate,
+    /// Severe throttling (status 3): quarter cadence.
+    Severe,
+    /// Critical or worse (status 4+): minimal cadence.
+    Critical,
+}
+
+impl ThermalLevel {
+    /// Map an Android `PowerManager.THERMAL_STATUS_*` value.
+    #[must_use]
+    pub fn from_android_status(status: u32) -> Self {
+        match status {
+            0 | 1 => Self::Nominal,
+            2 => Self::Moderate,
+            3 => Self::Severe,
+            _ => Self::Critical,
+        }
+    }
+
+    /// Frame-pump cadence under this thermal level. Momentum and
+    /// scheduled frames still run, just less often, so the device can
+    /// shed heat instead of being throttled harder by the OS.
+    #[must_use]
+    pub fn frame_interval(self) -> Duration {
+        match self {
+            Self::Nominal => FRAME_POLL_INTERVAL,
+            Self::Moderate => Duration::from_millis(16),
+            Self::Severe => Duration::from_millis(33),
+            Self::Critical => Duration::from_millis(50),
+        }
     }
 }
 
@@ -270,6 +320,26 @@ mod tests {
         assert!(scheduled.take());
         scheduled.schedule();
         assert!(scheduled.is_pending());
+    }
+
+    #[test]
+    fn thermal_levels_slow_the_frame_pump() {
+        assert_eq!(ThermalLevel::from_android_status(0), ThermalLevel::Nominal);
+        assert_eq!(ThermalLevel::from_android_status(1), ThermalLevel::Nominal);
+        assert_eq!(ThermalLevel::from_android_status(2), ThermalLevel::Moderate);
+        assert_eq!(ThermalLevel::from_android_status(3), ThermalLevel::Severe);
+        assert_eq!(ThermalLevel::from_android_status(6), ThermalLevel::Critical);
+        assert_eq!(ThermalLevel::Nominal.frame_interval(), FRAME_POLL_INTERVAL);
+        assert!(ThermalLevel::Critical.frame_interval() > ThermalLevel::Severe.frame_interval());
+        assert!(ThermalLevel::Severe.frame_interval() > ThermalLevel::Moderate.frame_interval());
+        assert_eq!(
+            frame_poll_timeout_with_interval(
+                true,
+                ThermalLevel::Severe.frame_interval(),
+                Some(Duration::from_secs(1))
+            ),
+            Some(Duration::from_millis(33))
+        );
     }
 
     #[test]

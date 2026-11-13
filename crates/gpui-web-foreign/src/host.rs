@@ -31,7 +31,7 @@ use gpui::{
     TouchPhase, point, px,
 };
 use gpui_foreign_parent::{
-    EditorHandle, FrameThrottle, OwnedEditorRegistry, ResizeDebounce, TransitionCell,
+    EditorHandle, FrameDecision, FrameScheduler, OwnedEditorRegistry, TransitionCell,
 };
 
 use crate::dispatch::SerializedProvider;
@@ -77,8 +77,7 @@ struct WebForeignEditor {
     editor_id: Cell<u32>,
     canvas: web_sys::HtmlCanvasElement,
     input_element: web_sys::HtmlInputElement,
-    throttle: FrameThrottle,
-    debounce: ResizeDebounce<(u32, u32)>,
+    scheduler: FrameScheduler<(u32, u32)>,
     active: TransitionCell,
     hovered: TransitionCell,
     dropped_frames: Cell<usize>,
@@ -134,6 +133,7 @@ impl RendererCall {
 impl WebForeignEditor {
     /// Serializes renderer work; bounded nested work drains after the current call.
     fn with_renderer(&self, command: RendererCall) -> bool {
+        let is_frame = matches!(command, RendererCall::Frame);
         let bytes = command.dynamic_bytes();
         match self
             .renderer
@@ -145,7 +145,13 @@ impl WebForeignEditor {
                 RendererCall::Active(active) => renderer.set_active(active),
                 RendererCall::Hovered(hovered) => renderer.set_hovered(hovered),
             }) {
-            Ok(delivered) => delivered,
+            Ok(delivered) => {
+                if delivered && !is_frame {
+                    self.scheduler.invalidate();
+                    schedule_frame(self.editor_id.get());
+                }
+                delivered
+            }
             Err(error) => {
                 destroy_editor(self.editor_id.get());
                 console_error(&format!(
@@ -305,8 +311,7 @@ fn create_editor_inner(
         editor_id: Cell::new(0),
         canvas: canvas.clone(),
         input_element: input_element.clone(),
-        throttle: FrameThrottle::default(),
-        debounce: ResizeDebounce::default(),
+        scheduler: FrameScheduler::new(),
         active: TransitionCell::new(true),
         hovered: TransitionCell::new(false),
         dropped_frames: Cell::new(0),
@@ -387,7 +392,7 @@ pub fn dropped_frames(editor_id: u32) -> usize {
 /// `requestAnimationFrame` ticks coalesced by the frame throttle.
 #[wasm_bindgen]
 pub fn coalesced_frames(editor_id: u32) -> usize {
-    with_editor(editor_id, |editor| editor.throttle.coalesced()).unwrap_or(0)
+    with_editor(editor_id, |editor| editor.scheduler.coalesced()).unwrap_or(0)
 }
 
 /// Attach one canvas listener, keeping the closure alive on the editor.
@@ -734,8 +739,9 @@ fn install_resize_observer(
                 if let Some(size) = physical_size_from_entry(&entry, window.device_pixel_ratio()) {
                     with_editor(editor_id, |editor| {
                         editor
-                            .debounce
-                            .submit(size, |size| forward_resize(editor_id, size));
+                            .scheduler
+                            .resize(size, |size| forward_resize(editor_id, size));
+                        schedule_frame(editor_id);
                     });
                 }
             });
@@ -763,7 +769,14 @@ fn schedule_frame(editor_id: u32) {
         if editor.raf_closure.borrow().is_none() {
             let closure = Closure::<dyn Fn()>::new(move || {
                 tick_frame(editor_id);
-                schedule_frame(editor_id);
+                // Stop the rAF loop while clean: the next invalidation
+                // (input, resize, composition) restarts it. Browsers
+                // otherwise wake this editor 60-120x/s forever.
+                let dirty =
+                    with_editor(editor_id, |editor| editor.scheduler.is_dirty()).unwrap_or(false);
+                if dirty {
+                    schedule_frame(editor_id);
+                }
             });
             editor.raf_closure.replace(Some(closure));
         }
@@ -782,8 +795,10 @@ fn schedule_frame(editor_id: u32) {
 fn tick_frame(editor_id: u32) {
     with_editor(editor_id, |editor| {
         editor.raf_id.take();
-        editor.debounce.poll(|size| forward_resize(editor_id, size));
-        if !editor.throttle.should_forward() {
+        editor
+            .scheduler
+            .poll_resize(|size| forward_resize(editor_id, size));
+        if editor.scheduler.next_frame() != FrameDecision::RenderNow {
             return;
         }
         if !editor.with_renderer(RendererCall::Frame) {

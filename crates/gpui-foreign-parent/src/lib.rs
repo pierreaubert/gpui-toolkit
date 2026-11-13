@@ -6,6 +6,8 @@
 //! editors, embedded panels, foreign canvases).
 //!
 //! Contents:
+//! - [`FrameScheduler`]: the common dirty/throttle/resize frame policy
+//!   every binding's host pump drives (clean ticks render nothing).
 //! - [`OwnedEditorRegistry`]: owned editor instances under non-reused
 //!   checked tokens, UI-thread confined with callback leases. (The old
 //!   borrowed-pointer `EditorRegistry` was removed once every binding
@@ -25,6 +27,7 @@
 mod debounce;
 mod ffi;
 mod owned_registry;
+mod scheduler;
 mod slot;
 pub mod sync;
 mod throttle;
@@ -35,6 +38,8 @@ pub use debounce::{DEFAULT_RESIZE_DEBOUNCE_INTERVAL, ResizeDebounce};
 pub use ffi::{ffi_boundary, fill_out_buffer, optional_c_string};
 #[doc(inline)]
 pub use owned_registry::{EditorHandle, EditorHandleExhausted, OwnedEditorRegistry};
+#[doc(inline)]
+pub use scheduler::{FrameDecision, FrameScheduler};
 #[doc(inline)]
 pub use slot::{CallbackSlot, TransitionCell};
 #[doc(inline)]
