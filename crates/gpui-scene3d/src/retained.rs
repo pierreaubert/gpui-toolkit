@@ -38,7 +38,39 @@ pub(crate) fn selected_field(actor: &Actor) -> Result<Option<(Association, &Fiel
         .transpose()
 }
 
+/// FNV-style signature of a scalar field's validity pattern (mask +
+/// finiteness per entry). Triangle survival in preparation depends
+/// only on this pattern, so an equal signature under equal topology
+/// makes a scalar-only rebuild sound.
+fn scalar_pattern(field: &Field) -> u64 {
+    let FieldData::Scalar(values) = &field.data else {
+        return 0;
+    };
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for (index, value) in values.iter().enumerate() {
+        let valid = field.valid.as_ref().is_none_or(|mask| mask[index]) && value.is_finite();
+        hash ^= u64::from(valid);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
 impl GeometryIdentity {
+    /// Topology identity: everything except the selected scalar source
+    /// and its transport. Equal topology under an equal scalar pattern
+    /// is the scalar-only-update precondition.
+    pub(crate) fn same_topology(self, other: Self) -> bool {
+        self.positions == other.positions
+            && self.cell_types == other.cell_types
+            && self.offsets == other.offsets
+            && self.connectivity == other.connectivity
+            && self.wireframe == other.wireframe
+    }
+
+    pub(crate) fn scalar_association(self) -> Option<Association> {
+        self.scalar.map(|(association, _, _)| association)
+    }
+
     fn source_identity(mut self) -> Self {
         self.scalar_transport = crate::scalar::ScalarIdentity::Flat;
         self
@@ -98,7 +130,7 @@ impl GeometrySource {
 /// Pins canonical source allocations without retaining derived CPU buffers.
 #[cfg(any(feature = "gpu", feature = "gpui", test))]
 pub(crate) struct SceneRevision {
-    actors: Vec<Option<(GeometryIdentity, GeometrySource)>>,
+    actors: Vec<Option<(GeometryIdentity, GeometrySource, u64)>>,
 }
 
 #[cfg(any(feature = "gpu", feature = "gpui", test))]
@@ -113,6 +145,7 @@ impl SceneRevision {
                     Ok(Some((
                         GeometryIdentity::of(actor)?,
                         GeometrySource::of(actor)?,
+                        selected_field(actor)?.map_or(0, |(_, field)| scalar_pattern(field)),
                     )))
                 } else {
                     Ok(None)
@@ -128,7 +161,11 @@ impl SceneRevision {
             actors: prepared
                 .actors
                 .iter()
-                .map(|geometry| geometry.as_ref().map(|g| (g.identity, g.source.clone())))
+                .map(|geometry| {
+                    geometry
+                        .as_ref()
+                        .map(|g| (g.identity, g.source.clone(), g.scalar_pattern))
+                })
                 .collect(),
         }
     }
@@ -141,11 +178,40 @@ impl SceneRevision {
         for (prepared, actor) in self.actors.iter().zip(&scene.actors) {
             match (prepared, actor.visible) {
                 (None, false) => {}
-                (Some((identity, _)), true) if identity.matches_buffers(actor)? => {}
+                (Some((identity, _, _)), true) if identity.matches_buffers(actor)? => {}
                 _ => return Ok(false),
             }
         }
         Ok(true)
+    }
+
+    /// Whether `prepared` differs from this revision only by packed
+    /// point-scalar values: same topology, transport, and validity
+    /// pattern per actor, with no line/point primitives (their vertex
+    /// buffers embed scalars and still need a full upload).
+    #[cfg(feature = "gpu")]
+    pub(crate) fn scalar_only_matches(&self, prepared: &PreparedScene) -> bool {
+        if self.actors.len() != prepared.actors.len() {
+            return false;
+        }
+        for (previous, next) in self.actors.iter().zip(&prepared.actors) {
+            match (previous, next) {
+                (None, None) => {}
+                (Some((identity, _, pattern)), Some(geometry)) => {
+                    if !identity.same_topology(geometry.identity)
+                        || identity.scalar_transport != geometry.identity.scalar_transport
+                        || identity.scalar_association() != Some(Association::Point)
+                        || *pattern != geometry.scalar_pattern
+                        || !geometry.primitives.lines.len() == 0
+                        || !geometry.primitives.points.len() == 0
+                    {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
+        true
     }
 
     #[cfg(any(feature = "gpui", test))]
@@ -156,7 +222,8 @@ impl SceneRevision {
         for (prepared, actor) in self.actors.iter().zip(&scene.actors) {
             match (prepared, actor.visible) {
                 (None, false) => {}
-                (Some((identity, _source)), true) if *identity == GeometryIdentity::of(actor)? => {}
+                (Some((identity, _source, _)), true)
+                    if *identity == GeometryIdentity::of(actor)? => {}
                 _ => return Ok(false),
             }
         }
@@ -166,6 +233,10 @@ impl SceneRevision {
 
 pub(crate) struct PreparedGeometry {
     identity: GeometryIdentity,
+    /// Global point ids per chunk, retained for scalar-only rebuilds.
+    point_ids: Vec<Arc<[u32]>>,
+    /// Validity-pattern signature of the selected scalar field.
+    scalar_pattern: u64,
     #[cfg_attr(
         not(feature = "gpu"),
         expect(dead_code, reason = "pins allocations used by cache identities")
@@ -180,6 +251,77 @@ pub(crate) struct PreparedGeometry {
 impl PreparedGeometry {
     pub(crate) fn scalar_transport(&self) -> crate::scalar::ScalarTransport {
         self.identity.scalar_transport.transport()
+    }
+
+    pub(crate) fn identity(&self) -> GeometryIdentity {
+        self.identity
+    }
+
+    pub(crate) fn scalar_pattern(&self) -> u64 {
+        self.scalar_pattern
+    }
+
+    pub(crate) fn byte_len(&self) -> u64 {
+        self.bytes
+    }
+
+    /// Rebuild only packed scalars from `actor`'s current field,
+    /// reusing this geometry's positions/normals/indices/edges.
+    /// Callers must have verified equal topology and scalar pattern.
+    fn with_updated_scalars(
+        &self,
+        actor: &Actor,
+        identity: GeometryIdentity,
+    ) -> Result<Self, SceneError> {
+        let field = selected_field(actor)?.map(|(_, field)| field);
+        let values = field.and_then(|field| field.as_scalar());
+        let valid = field.and_then(|field| field.valid.as_deref());
+        let transport = crate::scalar::ScalarTransport::of(actor)?;
+        let mut chunks = Vec::with_capacity(self.chunks.len());
+        for (chunk, point_ids) in self.chunks.iter().zip(&self.point_ids) {
+            let mut scalars = vec![0.0f32; point_ids.len()];
+            if let Some(values) = values {
+                for (local, &point) in point_ids.iter().enumerate() {
+                    let invalid = valid.is_some_and(|mask| !mask[point as usize]);
+                    let value = values[point as usize];
+                    scalars[local] = if invalid || !value.is_finite() {
+                        f32::NAN
+                    } else {
+                        transport.pack(value)?
+                    };
+                }
+            }
+            chunks.push(GpuChunk {
+                origin: chunk.origin,
+                positions: chunk.positions.clone(),
+                normals: chunk.normals.clone(),
+                scalars,
+                scalar_domain: transport.domain(),
+                indices: chunk.indices.clone(),
+                edges: chunk.edges.clone(),
+            });
+        }
+        let primitives = crate::primitives::PrimitiveCells::prepare(
+            &actor.dataset,
+            selected_field(actor)?.map(|(_, field)| field),
+        );
+        let bytes = chunks.iter().map(GpuChunk::byte_len).sum::<u64>()
+            + primitives.byte_len()
+            + self
+                .point_ids
+                .iter()
+                .map(|ids| (ids.len() * 4) as u64)
+                .sum::<u64>();
+        Ok(Self {
+            identity,
+            point_ids: self.point_ids.clone(),
+            scalar_pattern: self.scalar_pattern,
+            source: GeometrySource::of(actor)?,
+            chunks,
+            primitives,
+            bounds: self.bounds,
+            bytes,
+        })
     }
 }
 
@@ -241,6 +383,8 @@ pub struct PreparationStats {
     pub cache_hits: u64,
     /// Current cached derived-buffer payload bytes.
     pub retained_bytes: u64,
+    /// Scalar-only rebuilds that reused topology buffers.
+    pub scalar_updates: u64,
 }
 
 #[derive(Debug, Default)]
@@ -283,19 +427,48 @@ impl PreparationCache {
                 continue;
             }
             let identity = GeometryIdentity::of(actor)?;
-            let entries = reusable.entry(identity.source_identity()).or_default();
             let mut compatible = None;
-            for geometry in entries.iter() {
-                if geometry.identity.matches_buffers(actor)? {
-                    compatible = Some(geometry.clone());
-                    break;
+            if let Some(existing) = reusable.get(&identity.source_identity()) {
+                for geometry in existing.iter() {
+                    if geometry.identity.matches_buffers(actor)? {
+                        compatible = Some(geometry.clone());
+                        break;
+                    }
                 }
             }
+            // Scalar-only fast path: same topology, same transport,
+            // point-associated field, and an unchanged validity pattern
+            // mean only packed scalars can differ. Cell-associated
+            // fields fall through (their splits depend on values).
+            // Search every reusable geometry, not just this identity's
+            // bucket: the bucket key still contains the old scalar Arc.
+            let scalar_reuse = compatible
+                .is_none()
+                .then(|| {
+                    reusable.values().flatten().find(|geometry| {
+                        geometry.identity.same_topology(identity)
+                            && geometry.identity.scalar_transport == identity.scalar_transport
+                            && identity.scalar_association() == Some(Association::Point)
+                            && selected_field(actor).is_ok_and(|selected| {
+                                selected.is_some_and(|(_, field)| {
+                                    scalar_pattern(field) == geometry.scalar_pattern
+                                })
+                            })
+                    })
+                })
+                .flatten()
+                .cloned();
+            let entries = reusable.entry(identity.source_identity()).or_default();
             let geometry = if let Some(geometry) = compatible {
+                geometry
+            } else if let Some(previous) = scalar_reuse {
+                let geometry = Arc::new(previous.with_updated_scalars(actor, identity)?);
+                entries.push(geometry.clone());
+                self.stats.scalar_updates += 1;
                 geometry
             } else {
                 // Preparation validates once per geometry revision before indexing.
-                let (bounds, chunks) = prepare_chunks_with_bounds_and_limits(
+                let (bounds, chunks, point_ids) = prepare_chunks_with_bounds_and_limits(
                     actor,
                     DEFAULT_MAX_TRIANGLES,
                     scene.surface_limits,
@@ -304,10 +477,17 @@ impl PreparationCache {
                     &actor.dataset,
                     selected_field(actor)?.map(|(_, field)| field),
                 );
-                let bytes =
-                    chunks.iter().map(GpuChunk::byte_len).sum::<u64>() + primitives.byte_len();
+                let bytes = chunks.iter().map(GpuChunk::byte_len).sum::<u64>()
+                    + primitives.byte_len()
+                    + point_ids
+                        .iter()
+                        .map(|ids| (ids.len() * 4) as u64)
+                        .sum::<u64>();
                 let geometry = Arc::new(PreparedGeometry {
                     identity,
+                    point_ids,
+                    scalar_pattern: selected_field(actor)?
+                        .map_or(0, |(_, field)| scalar_pattern(field)),
                     source: GeometrySource::of(actor)?,
                     chunks,
                     primitives,
@@ -371,6 +551,30 @@ mod tests {
         assert!(Arc::ptr_eq(&encoded, &scene.prepare().unwrap()));
         scene.actors[0].transfer.as_mut().unwrap().range = [1e100, 3e100];
         assert!(Arc::ptr_eq(&encoded, &scene.prepare().unwrap()));
+        assert_eq!(scene.preparation_stats().geometry_builds, 2);
+    }
+
+    #[test]
+    fn scalar_only_changes_rebuild_scalars_without_geometry_build() {
+        let mut scene = scene();
+        let first = scene.prepare().unwrap();
+        assert_eq!(scene.preparation_stats().geometry_builds, 1);
+        // New scalar allocation, same topology and validity pattern.
+        scene.actors[0].dataset.point_data[0].data =
+            gpui_mesh::FieldData::Scalar(vec![0.75; 64].into());
+        let updated = scene.prepare().unwrap();
+        let stats = scene.preparation_stats();
+        assert_eq!(stats.geometry_builds, 1, "no surface extraction ran");
+        assert_eq!(stats.scalar_updates, 1);
+        let first_chunk = &first.actors[0].as_ref().unwrap().chunks[0];
+        let updated_chunk = &updated.actors[0].as_ref().unwrap().chunks[0];
+        assert_eq!(updated_chunk.positions, first_chunk.positions);
+        assert_eq!(updated_chunk.normals, first_chunk.normals);
+        assert_eq!(updated_chunk.indices, first_chunk.indices);
+        assert!(updated_chunk.scalars.iter().all(|v| *v == 0.75));
+        // A validity-pattern change (masking) falls back to full build.
+        scene.actors[0].dataset.point_data[0].valid = Some(vec![false; 64].into());
+        scene.prepare().unwrap();
         assert_eq!(scene.preparation_stats().geometry_builds, 2);
     }
 

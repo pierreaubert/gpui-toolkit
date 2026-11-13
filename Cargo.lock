@@ -3029,6 +3029,7 @@ dependencies = [
  "gpui-dataset-transformation",
  "gpui-mesh",
  "gpui-miniapp",
+ "gpui-profiler",
  "image",
  "pollster",
  "smallvec",

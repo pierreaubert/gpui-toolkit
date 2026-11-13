@@ -124,14 +124,18 @@ fn mixed_actor_updates_retain_each_compatible_encoding() {
     scene.actors[0].transfer.as_mut().unwrap().range = RANGES[0];
     scene.actors[1].dataset.point_data[0] = Field::scalar("p", vec![1.5e100; 4]);
     scene.prepare().unwrap();
+    // Since scalar-only updates (audit-20261113 step 6), the replaced
+    // scalar field rebuilds packed scalars without surface extraction:
+    // neither actor costs a geometry build.
     assert_eq!(
         scene.preparation_stats().geometry_builds,
-        2,
-        "unrelated source update rebuilt compatible actor"
+        1,
+        "scalar source update must not rebuild geometry"
     );
+    assert_eq!(scene.preparation_stats().scalar_updates, 1);
     scene.actors.swap(0, 1);
     scene.prepare().unwrap();
-    assert_eq!(scene.preparation_stats().geometry_builds, 2);
+    assert_eq!(scene.preparation_stats().geometry_builds, 1);
 }
 #[test]
 #[cfg(all(feature = "gpu", not(target_family = "wasm")))]

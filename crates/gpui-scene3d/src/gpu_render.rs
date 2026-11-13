@@ -3,10 +3,17 @@
 //! A [`GpuScene`] uploads every actor's prepared chunks (positions,
 //! normals, scalars, indices) and colour LUT once. Afterwards, drawing a
 //! frame only rewrites the 192-byte per-actor uniform block (camera and
-//! clip planes): geometry never returns to the CPU, which is the whole
-//! point on Metal / CUDA-class adapters. Hosts present the target texture
-//! themselves (surface or GPUI custom draw); the native `read_rgba` method
-//! exists only for headless QA and movie export.
+//! clip planes): geometry never returns to the CPU. Hosts present the
+//! target texture themselves (surface or GPUI custom draw); the native
+//! `read_rgba` method exists only for headless QA and movie export.
+//!
+//! Transparency uses sorted source-over blending, exactly like the CPU
+//! rasterizer: opaque geometry is z-buffered, transparent actors draw
+//! afterwards back-to-front by bounds-centre distance with depth writes
+//! off. Sorted transparency remains an approximation for intersecting
+//! surfaces — intersecting translucent triangles may blend in the
+//! wrong order where they cross (see
+//! `docs/decisions/2026-11-13-transparency-and-gpu-budget.md`).
 
 // Rust guideline compliant 2026-02-21
 
@@ -44,6 +51,8 @@ pub enum GpuRenderError {
 }
 
 struct GpuChunkBuffers {
+    /// Rebased-space AABB [min_xyz, max_xyz] for frustum culling.
+    bounds: [[f32; 3]; 2],
     vertices: [wgpu::Buffer; 3],
     index: wgpu::Buffer,
     index_count: u32,
@@ -152,6 +161,66 @@ fn checked_resource_sum(current: u64, additional: u64, limit: u64) -> Result<u64
     Ok(requested)
 }
 
+fn chunk_bounds(positions: &[f32]) -> [[f32; 3]; 2] {
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+    for vertex in positions.as_chunks::<3>().0 {
+        for axis in 0..3 {
+            min[axis] = min[axis].min(vertex[axis]);
+            max[axis] = max[axis].max(vertex[axis]);
+        }
+    }
+    if !min[0].is_finite() {
+        return [[0.0; 3], [0.0; 3]];
+    }
+    [min, max]
+}
+
+/// Whether an AABB is fully outside the clip frustum of a column-major
+/// view-projection matrix (wgpu clip depth `0..=w`).
+fn frustum_culls(view_projection: &[f32; 16], bounds: [[f32; 3]; 2]) -> bool {
+    let row = |r: usize| {
+        [
+            view_projection[r],
+            view_projection[4 + r],
+            view_projection[8 + r],
+            view_projection[12 + r],
+        ]
+    };
+    let (r0, r1, r2, r3) = (row(0), row(1), row(2), row(3));
+    let add = |a: [f32; 4], b: [f32; 4]| [a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]];
+    let sub = |a: [f32; 4], b: [f32; 4]| [a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3]];
+    let planes = [
+        add(r3, r0),
+        sub(r3, r0),
+        add(r3, r1),
+        sub(r3, r1),
+        r2,
+        sub(r3, r2),
+    ];
+    planes.iter().any(|plane| {
+        // Positive vertex: farthest corner along the plane normal.
+        let p = [
+            if plane[0] >= 0.0 {
+                bounds[1][0]
+            } else {
+                bounds[0][0]
+            },
+            if plane[1] >= 0.0 {
+                bounds[1][1]
+            } else {
+                bounds[0][1]
+            },
+            if plane[2] >= 0.0 {
+                bounds[1][2]
+            } else {
+                bounds[0][2]
+            },
+        ];
+        plane[0] * p[0] + plane[1] * p[1] + plane[2] * p[2] + plane[3] < 0.0
+    })
+}
+
 fn upload_plan(
     prepared: &crate::PreparedScene,
     buffer_limit: u64,
@@ -246,9 +315,32 @@ pub struct GpuScene {
     resource_bytes: u64,
     order: Vec<usize>,
     prepared: SceneRevision,
+    pending: Option<Box<PendingUpload>>,
+}
+
+/// One in-progress budgeted upload: prepared geometry waiting to be
+/// paged into GPU buffers across several `sync_with_budget` calls.
+struct PendingUpload {
+    prepared: std::sync::Arc<crate::PreparedScene>,
+    visible: Vec<usize>,
+    next: usize,
+    resource_bytes: u64,
+    geometry_bytes: u64,
+    /// Whether the previous scene has been replaced yet. Until the
+    /// first staged batch succeeds, the old uploaded scene stays
+    /// intact so a rejected update changes nothing.
+    committed: bool,
 }
 
 impl GpuScene {
+    /// Whether a budgeted incremental upload has finished paging in
+    /// every actor. While incomplete, rendering shows the actors
+    /// uploaded so far.
+    #[must_use]
+    pub fn upload_complete(&self) -> bool {
+        self.pending.is_none()
+    }
+
     /// Requested geometry/material storage retained by this uploaded scene.
     ///
     /// Excludes targets, pipelines, driver overhead and externally retained
@@ -294,8 +386,53 @@ pub struct GpuAttachments<'a> {
     pub load: wgpu::LoadOp<wgpu::Color>,
 }
 
+/// Cumulative GPU activity counters for a renderer (Phase A contract):
+/// topology uploads, scalar-only replacements, material (LUT) uploads,
+/// uniform writes, readback bytes, device-wait time, draw/cull counts,
+/// and in-flight submissions. Hosts use these to prove residency
+/// instead of inferring it from timing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GpuStats {
+    /// Full geometry uploads (topology revisions).
+    pub uploads: u64,
+    /// Scalar-buffer-only replacements (field revisions).
+    pub scalar_replacements: u64,
+    /// Colour LUT creations (material revisions).
+    pub material_uploads: u64,
+    /// Bytes created through buffer initialization.
+    pub upload_bytes: u64,
+    /// Bytes copied back to the CPU by `read_rgba`.
+    pub readback_bytes: u64,
+    /// Nanoseconds spent in `device.poll(Wait)` readback waits.
+    pub wait_ns: u64,
+    /// Uniform staging buffers written by `encode` (camera revisions).
+    pub uniform_writes: u64,
+    /// Chunks drawn across encoded frames.
+    pub chunks_drawn: u64,
+    /// Chunks skipped by frustum culling.
+    pub chunks_culled: u64,
+    /// Peak submissions in flight (submitted, not yet completed).
+    pub max_in_flight: u64,
+}
+
+#[derive(Debug, Default)]
+struct GpuStatsInner {
+    stats: std::sync::Mutex<GpuStats>,
+    in_flight: std::sync::atomic::AtomicU64,
+}
+
+impl GpuStatsInner {
+    fn update(&self, f: impl FnOnce(&mut GpuStats)) {
+        f(&mut self.stats.lock().expect("gpu stats lock"));
+    }
+    fn snapshot(&self) -> GpuStats {
+        *self.stats.lock().expect("gpu stats lock")
+    }
+}
+
 /// wgpu surface renderer: one device, pipelines per colour format.
 pub struct GpuRenderer {
+    stats: std::sync::Arc<GpuStatsInner>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     pipeline_opaque: wgpu::RenderPipeline,
@@ -501,6 +638,7 @@ impl GpuRenderer {
             ..Default::default()
         });
         Self {
+            stats: std::sync::Arc::new(GpuStatsInner::default()),
             pipeline_opaque: make_pipeline(true, None, false),
             pipeline_transparent: make_pipeline(
                 false,
@@ -518,6 +656,12 @@ impl GpuRenderer {
             sampler,
             format,
         }
+    }
+
+    /// Cumulative activity counters (uploads, readbacks, culling, waits).
+    #[must_use]
+    pub fn stats(&self) -> GpuStats {
+        self.stats.snapshot()
     }
 
     /// The underlying device, for hosts sharing the wgpu context.
@@ -576,108 +720,7 @@ impl GpuRenderer {
             .enumerate()
             .filter(|(_, actor)| actor.visible)
         {
-            let geometry = prepared.actors[index]
-                .as_ref()
-                .expect("visible actor prepared");
-            let chunks = &geometry.chunks;
-            let origin = geometry.bounds.map_or([0.0; 3], |bounds| bounds.center());
-            let clip_coefficients = packed_clip_planes(&actor.clip_planes, origin)?;
-            let mut gpu_chunks = Vec::with_capacity(chunks.len());
-            for chunk in chunks {
-                if chunk.indices.is_empty() {
-                    continue;
-                }
-                let (index_count, edge_count, _) =
-                    chunk_layout(chunk, self.device.limits().max_buffer_size)?;
-                let make = |data: &[f32], label: &str| {
-                    self.device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some(label),
-                            contents: bytemuck::cast_slice(data),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        })
-                };
-                gpu_chunks.push(GpuChunkBuffers {
-                    vertices: [
-                        make(&chunk.positions, "positions"),
-                        make(&chunk.normals, "normals"),
-                        make(&chunk.scalars, "scalars"),
-                    ],
-                    index: self
-                        .device
-                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("indices"),
-                            contents: bytemuck::cast_slice(&chunk.indices),
-                            usage: wgpu::BufferUsages::INDEX,
-                        }),
-                    index_count,
-                    edges: (!chunk.edges.is_empty()).then(|| {
-                        (
-                            self.device
-                                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                    label: Some("wireframe edges"),
-                                    contents: bytemuck::cast_slice(&chunk.edges),
-                                    usage: wgpu::BufferUsages::INDEX,
-                                }),
-                            edge_count,
-                        )
-                    }),
-                });
-            }
-            let primitives = self.upload_primitives(
-                actor,
-                &geometry.primitives,
-                geometry.scalar_transport(),
-                origin,
-                scene.gpu_upload_limits,
-            )?;
-            // Colour LUT: the actor's transfer function, or a flat ramp.
-            let scalar_transport = geometry.scalar_transport();
-            let (lut_bytes, scalar_range) = material_lut(actor, scalar_transport)?;
-            let lut = self.device.create_texture_with_data(
-                &self.queue,
-                &wgpu::TextureDescriptor {
-                    label: Some("gpui-scene3d lut"),
-                    size: wgpu::Extent3d {
-                        width: 256,
-                        height: 1,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D1,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                    view_formats: &[],
-                },
-                wgpu::wgt::TextureDataOrder::LayerMajor,
-                &lut_bytes,
-            );
-            let uniform = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("gpui-scene3d uniforms"),
-                size: SCENE_UNIFORM_SIZE as u64,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-            let bind_group = self.actor_bind_group(&uniform, &lut);
-            actors.push(GpuActor {
-                chunks: gpu_chunks,
-                primitives,
-                uniform,
-                bind_group,
-                scalar_range,
-                scalar_transport,
-                opacity: actor.opacity,
-                clip_planes: actor.clip_planes.clone(),
-                clip_coefficients,
-                origin,
-                transparent: actor.is_transparent(),
-                distance: 0.0,
-                view_projection: [0.0; 16],
-                lut,
-                transfer: actor.active_transfer().cloned(),
-                color: actor.effective_color(),
-            });
+            actors.push(self.upload_actor(scene, &prepared, index, actor)?);
         }
         Ok(GpuScene {
             order: (0..actors.len()).collect(),
@@ -686,6 +729,119 @@ impl GpuRenderer {
             geometry_bytes: plan.geometry_bytes,
             resource_bytes: plan.resource_bytes,
             prepared: SceneRevision::from_prepared(&prepared),
+            pending: None,
+        })
+    }
+
+    fn upload_actor(
+        &self,
+        scene: &Scene,
+        prepared: &crate::PreparedScene,
+        index: usize,
+        actor: &crate::Actor,
+    ) -> Result<GpuActor, GpuRenderError> {
+        let geometry = prepared.actors[index]
+            .as_ref()
+            .expect("visible actor prepared");
+        let chunks = &geometry.chunks;
+        let origin = geometry.bounds.map_or([0.0; 3], |bounds| bounds.center());
+        let clip_coefficients = packed_clip_planes(&actor.clip_planes, origin)?;
+        let mut gpu_chunks = Vec::with_capacity(chunks.len());
+        for chunk in chunks {
+            if chunk.indices.is_empty() {
+                continue;
+            }
+            let (index_count, edge_count, _) =
+                chunk_layout(chunk, self.device.limits().max_buffer_size)?;
+            let make = |data: &[f32], label: &str| {
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some(label),
+                        contents: bytemuck::cast_slice(data),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    })
+            };
+            gpu_chunks.push(GpuChunkBuffers {
+                bounds: chunk_bounds(&chunk.positions),
+                vertices: [
+                    make(&chunk.positions, "positions"),
+                    make(&chunk.normals, "normals"),
+                    make(&chunk.scalars, "scalars"),
+                ],
+                index: self
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("indices"),
+                        contents: bytemuck::cast_slice(&chunk.indices),
+                        usage: wgpu::BufferUsages::INDEX,
+                    }),
+                index_count,
+                edges: (!chunk.edges.is_empty()).then(|| {
+                    (
+                        self.device
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("wireframe edges"),
+                                contents: bytemuck::cast_slice(&chunk.edges),
+                                usage: wgpu::BufferUsages::INDEX,
+                            }),
+                        edge_count,
+                    )
+                }),
+            });
+        }
+        let primitives = self.upload_primitives(
+            actor,
+            &geometry.primitives,
+            geometry.scalar_transport(),
+            origin,
+            scene.gpu_upload_limits,
+        )?;
+        // Colour LUT: the actor's transfer function, or a flat ramp.
+        let scalar_transport = geometry.scalar_transport();
+        let (lut_bytes, scalar_range) = material_lut(actor, scalar_transport)?;
+        let lut = self.device.create_texture_with_data(
+            &self.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("gpui-scene3d lut"),
+                size: wgpu::Extent3d {
+                    width: 256,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D1,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::wgt::TextureDataOrder::LayerMajor,
+            &lut_bytes,
+        );
+        let uniform = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("gpui-scene3d uniforms"),
+            size: SCENE_UNIFORM_SIZE as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group = self.actor_bind_group(&uniform, &lut);
+        Ok(GpuActor {
+            chunks: gpu_chunks,
+            primitives,
+            uniform,
+            bind_group,
+            scalar_range,
+            scalar_transport,
+            opacity: actor.opacity,
+            clip_planes: actor.clip_planes.clone(),
+            clip_coefficients,
+            origin,
+            transparent: actor.is_transparent(),
+            distance: 0.0,
+            view_projection: [0.0; 16],
+            lut,
+            transfer: actor.active_transfer().cloned(),
+            color: actor.effective_color(),
         })
     }
 
@@ -840,6 +996,26 @@ impl GpuRenderer {
     /// replacement cannot fit both. Unchanged geometry is checked against the
     /// current allowance without allocating/repacking it.
     pub fn sync(&self, uploaded: &mut GpuScene, scene: &Scene) -> Result<bool, GpuRenderError> {
+        self.sync_with_budget(uploaded, scene, u64::MAX)
+    }
+
+    /// Synchronizes with a per-call geometry upload budget.
+    ///
+    /// Material and scalar-only updates are always applied. A geometry
+    /// replacement larger than `max_upload_bytes` pages actors in over
+    /// successive calls (at least one actor per call, so progress is
+    /// guaranteed); rendering shows the actors uploaded so far until
+    /// [`GpuScene::upload_complete`] is true.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`sync`](Self::sync).
+    pub fn sync_with_budget(
+        &self,
+        uploaded: &mut GpuScene,
+        scene: &Scene,
+        max_upload_bytes: u64,
+    ) -> Result<bool, GpuRenderError> {
         checked_resource_sum(
             uploaded.resource_bytes,
             0,
@@ -851,9 +1027,22 @@ impl GpuRenderer {
                 crate::scalar::ScalarTransport::of(actor)?;
             }
         }
+        let mut uploaded_scalars = false;
         if !uploaded.prepared.matches_buffers(scene)? {
-            *uploaded = self.upload_replacement(scene, uploaded.resource_bytes)?;
-            return Ok(true);
+            // Scalar-only path: when topology, transport, and the
+            // validity pattern are unchanged, replace only the scalar
+            // buffers. New buffers (not queue writes) keep passes the
+            // host already encoded against the old buffers immutable.
+            let prepared = scene.prepare()?;
+            if uploaded.prepared.scalar_only_matches(&prepared)
+                && self.replace_scalar_buffers(uploaded, &prepared)
+            {
+                uploaded.prepared = SceneRevision::from_prepared(&prepared);
+                uploaded_scalars = true;
+            } else {
+                self.advance_pending_upload(uploaded, scene, max_upload_bytes)?;
+                return Ok(true);
+            }
         }
         if scene
             .actors
@@ -926,7 +1115,66 @@ impl GpuRenderer {
             }
             gpu.transparent = actor.is_transparent();
         }
-        Ok(false)
+        Ok(uploaded_scalars)
+    }
+
+    /// Replace only scalar vertex buffers from `prepared`, when every
+    /// uploaded chunk lines up with a prepared chunk of the same shape.
+    /// Returns false (changing nothing) when shapes differ.
+    fn replace_scalar_buffers(
+        &self,
+        uploaded: &mut GpuScene,
+        prepared: &crate::PreparedScene,
+    ) -> bool {
+        let visible: Vec<&std::sync::Arc<crate::retained::PreparedGeometry>> =
+            prepared.actors.iter().flatten().collect();
+        if visible.len() != uploaded.actors.len() {
+            return false;
+        }
+        // Shape preflight first: no buffer is touched unless all match.
+        for (gpu, geometry) in uploaded.actors.iter().zip(&visible) {
+            let live_chunks: Vec<&crate::GpuChunk> = geometry
+                .chunks
+                .iter()
+                .filter(|chunk| !chunk.indices.is_empty())
+                .collect();
+            if live_chunks.len() != gpu.chunks.len() {
+                return false;
+            }
+            for (gpu_chunk, chunk) in gpu.chunks.iter().zip(&live_chunks) {
+                if gpu_chunk.vertices[2].size() != (chunk.scalars.len() * 4) as u64
+                    || gpu_chunk.vertices[0].size() != (chunk.positions.len() * 4) as u64
+                    || gpu_chunk.index_count as usize != chunk.indices.len()
+                {
+                    return false;
+                }
+            }
+            if !gpu.primitives.is_empty() {
+                return false;
+            }
+        }
+        let mut replaced_bytes: u64 = 0;
+        for (gpu, geometry) in uploaded.actors.iter_mut().zip(&visible) {
+            for (gpu_chunk, chunk) in gpu
+                .chunks
+                .iter_mut()
+                .zip(geometry.chunks.iter().filter(|c| !c.indices.is_empty()))
+            {
+                gpu_chunk.vertices[2] =
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("scalars"),
+                            contents: bytemuck::cast_slice(&chunk.scalars),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        });
+                replaced_bytes = replaced_bytes.saturating_add((chunk.scalars.len() * 4) as u64);
+            }
+        }
+        self.stats.update(|stats| {
+            stats.scalar_replacements = stats.scalar_replacements.saturating_add(1);
+            stats.upload_bytes = stats.upload_bytes.saturating_add(replaced_bytes);
+        });
+        true
     }
 
     fn actor_bind_group(&self, uniform: &wgpu::Buffer, lut: &wgpu::Texture) -> wgpu::BindGroup {
@@ -1033,6 +1281,20 @@ impl GpuRenderer {
                 label: Some("gpui-scene3d frame"),
             });
         self.encode(&mut encoder, scene, camera, target)?;
+        let in_flight = self
+            .stats
+            .in_flight
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+        self.stats.update(|stats| {
+            stats.max_in_flight = stats.max_in_flight.max(in_flight);
+        });
+        let stats = self.stats.clone();
+        self.queue.on_submitted_work_done(move || {
+            stats
+                .in_flight
+                .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        });
         self.queue.submit([encoder.finish()]);
         Ok(())
     }
@@ -1154,6 +1416,8 @@ impl GpuRenderer {
                 })
                 .then_with(|| left.cmp(&right))
         });
+        let mut drawn: u64 = 0;
+        let mut culled: u64 = 0;
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("gpui-scene3d pass"),
@@ -1187,6 +1451,11 @@ impl GpuRenderer {
                 });
                 pass.set_bind_group(0, &actor.bind_group, &[]);
                 for chunk in &actor.chunks {
+                    if frustum_culls(&actor.view_projection, chunk.bounds) {
+                        culled = culled.saturating_add(1);
+                        continue;
+                    }
+                    drawn = drawn.saturating_add(1);
                     for (slot, buffer) in chunk.vertices.iter().enumerate() {
                         pass.set_vertex_buffer(slot as u32, buffer.slice(..));
                     }
@@ -1196,6 +1465,9 @@ impl GpuRenderer {
                 if actor.chunks.iter().any(|chunk| chunk.edges.is_some()) {
                     pass.set_pipeline(&self.pipeline_wireframe);
                     for chunk in &actor.chunks {
+                        if frustum_culls(&actor.view_projection, chunk.bounds) {
+                            continue;
+                        }
                         if let Some((edges, count)) = &chunk.edges {
                             for (slot, buffer) in chunk.vertices.iter().enumerate() {
                                 pass.set_vertex_buffer(slot as u32, buffer.slice(..));
@@ -1212,6 +1484,150 @@ impl GpuRenderer {
                 }
             }
         }
+        self.stats.update(|stats| {
+            stats.chunks_drawn = stats.chunks_drawn.saturating_add(drawn);
+            stats.chunks_culled = stats.chunks_culled.saturating_add(culled);
+            stats.uniform_writes = stats
+                .uniform_writes
+                .saturating_add(scene.actors.len() as u64);
+        });
+        Ok(())
+    }
+
+    fn advance_pending_upload(
+        &self,
+        uploaded: &mut GpuScene,
+        scene: &Scene,
+        budget: u64,
+    ) -> Result<(), GpuRenderError> {
+        if uploaded
+            .pending
+            .as_ref()
+            .is_some_and(|pending| !pending.prepared.matches(scene).unwrap_or(false))
+        {
+            uploaded.pending = None;
+        }
+        if uploaded.pending.is_none() {
+            scene.validate_render_state()?;
+            let prepared = scene.prepare()?;
+            let device_limits = self.device.limits();
+            let plan = upload_plan(
+                &prepared,
+                device_limits.max_buffer_size,
+                device_limits.max_texture_dimension_1d,
+                scene.gpu_upload_limits,
+                uploaded.resource_bytes,
+            )?;
+            uploaded.pending = Some(Box::new(PendingUpload {
+                visible: scene
+                    .actors
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, actor)| actor.visible)
+                    .map(|(index, _)| index)
+                    .collect(),
+                prepared,
+                next: 0,
+                resource_bytes: plan.resource_bytes,
+                geometry_bytes: plan.geometry_bytes,
+                committed: false,
+            }));
+        }
+        // Stage this call's actors first: if any upload fails before
+        // the first commit, the previously uploaded scene is untouched
+        // (rejected updates stay atomic, as full replacement was).
+        let staged = {
+            let pending = uploaded.pending.as_ref().expect("pending upload started");
+            let mut staged = Vec::new();
+            let mut spent: u64 = 0;
+            let mut next = pending.next;
+            let mut failure: Option<GpuRenderError> = None;
+            while next < pending.visible.len() {
+                let index = pending.visible[next];
+                let cost = pending.prepared.actors[index]
+                    .as_ref()
+                    .expect("visible actor prepared")
+                    .byte_len();
+                if spent > 0 && spent.saturating_add(cost) > budget {
+                    break;
+                }
+                match self.upload_actor(scene, &pending.prepared, index, &scene.actors[index]) {
+                    Ok(actor) => {
+                        staged.push(actor);
+                        spent = spent.saturating_add(cost);
+                        next += 1;
+                    }
+                    Err(error) => {
+                        failure = Some(error);
+                        break;
+                    }
+                }
+            }
+            match failure {
+                Some(error) => Err((staged, next, error)),
+                None => Ok((staged, next)),
+            }
+        };
+        let (staged, next) = match staged {
+            Ok(staged) => staged,
+            Err((_staged, _next, error)) => {
+                if !uploaded.pending.as_ref().expect("pending upload").committed {
+                    uploaded.pending = None;
+                }
+                return Err(error);
+            }
+        };
+        let pending = uploaded.pending.as_mut().expect("pending upload started");
+        if !pending.committed {
+            uploaded.actors.clear();
+            uploaded.order.clear();
+            uploaded.background = scene.background;
+            uploaded.geometry_bytes = 0;
+            uploaded.resource_bytes = 0;
+            pending.committed = true;
+        }
+        for actor in staged {
+            uploaded.actors.push(actor);
+            uploaded.order.push(uploaded.actors.len() - 1);
+        }
+        pending.next = next;
+        if pending.next >= pending.visible.len() {
+            let pending = uploaded.pending.take().expect("pending upload");
+            uploaded.prepared = SceneRevision::from_prepared(&pending.prepared);
+            uploaded.resource_bytes = pending.resource_bytes;
+            uploaded.geometry_bytes = pending.geometry_bytes;
+            self.stats.update(|stats| {
+                stats.uploads = stats.uploads.saturating_add(1);
+                stats.upload_bytes = stats.upload_bytes.saturating_add(pending.resource_bytes);
+                stats.material_uploads = stats
+                    .material_uploads
+                    .saturating_add(uploaded.actors.len() as u64);
+            });
+        }
+        Ok(())
+    }
+
+    /// Resizes a target in place, reusing its textures when the size is
+    /// unchanged. When the size changes the textures are recreated, so
+    /// hosts must re-fetch [`GpuTarget::color_view`] afterwards.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`create_target`](Self::create_target).
+    pub fn resize_target(
+        &self,
+        target: &mut GpuTarget,
+        width: u32,
+        height: u32,
+    ) -> Result<(), GpuRenderError> {
+        if target.width == width && target.height == height {
+            return Ok(());
+        }
+        #[cfg(not(target_family = "wasm"))]
+        let limits = target.limits;
+        #[cfg(target_family = "wasm")]
+        let limits = RenderLimits::default();
+        *target = self.create_target_with_limits(width, height, limits)?;
         Ok(())
     }
 
@@ -1272,12 +1688,20 @@ impl GpuRenderer {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = sender.send(result);
         });
+        let wait_start = std::time::Instant::now();
         self.device
             .poll(wgpu::PollType::Wait {
                 submission_index: None,
                 timeout: Some(std::time::Duration::from_secs(10)),
             })
             .map_err(|e| GpuRenderError::Device(e.to_string()))?;
+        let waited = wait_start.elapsed();
+        self.stats.update(|stats| {
+            stats.wait_ns = stats
+                .wait_ns
+                .saturating_add(u64::try_from(waited.as_nanos()).unwrap_or(u64::MAX));
+            stats.readback_bytes = stats.readback_bytes.saturating_add(layout.buffer_bytes);
+        });
         receiver
             .recv()
             .map_err(|e| GpuRenderError::Device(e.to_string()))?
@@ -1454,6 +1878,142 @@ mod tests {
             assert_eq!(renderer.read_rgba(&reference).unwrap(), after);
             assert_ne!(before.rgba, after.rgba);
         }
+    }
+
+    #[test]
+    fn scalar_only_sync_replaces_only_scalar_buffers() {
+        let Some(renderer) = renderer() else {
+            return;
+        };
+        let data = DataSet::surface(
+            "scalar sync",
+            vec![[-0.8, -0.8, 0.0], [0.8, -0.8, 0.0], [0.0, 0.8, 0.0]],
+            &[[0, 1, 2]],
+        )
+        .with_field(Field::scalar("p", vec![0.0, 0.5, 1.0]));
+        let mut scene = Scene::new()
+            .with_actor(Actor::new(data).coloured_by("p", TransferFunction::viridis([0.0, 1.0])));
+        let camera = Camera::fitted(scene.bounds().unwrap());
+        let mut uploaded = renderer.upload(&scene).unwrap();
+        let reference = renderer.create_target(32, 32).unwrap();
+        renderer.render(&mut uploaded, &camera, &reference).unwrap();
+        let before = renderer.read_rgba(&reference).unwrap();
+        let positions_before = uploaded.actors[0].chunks[0].vertices[0].clone();
+        let normals_before = uploaded.actors[0].chunks[0].vertices[1].clone();
+        let scalars_before = uploaded.actors[0].chunks[0].vertices[2].clone();
+
+        // Encode a pass against the old buffers, then change only the
+        // scalar field values (new allocation, same validity pattern).
+        let old_target = renderer.create_target(32, 32).unwrap();
+        let new_target = renderer.create_target(32, 32).unwrap();
+        let mut encoder = renderer.device.create_command_encoder(&Default::default());
+        renderer
+            .encode(&mut encoder, &mut uploaded, &camera, &old_target)
+            .unwrap();
+        scene.actors[0].dataset.point_data[0].data =
+            gpui_mesh::FieldData::Scalar(vec![1.0, 0.5, 0.0].into());
+        assert!(renderer.sync(&mut uploaded, &scene).unwrap());
+        assert_eq!(
+            uploaded.actors[0].chunks[0].vertices[0], positions_before,
+            "positions buffer must not be re-uploaded"
+        );
+        assert_eq!(
+            uploaded.actors[0].chunks[0].vertices[1], normals_before,
+            "normals buffer must not be re-uploaded"
+        );
+        assert_ne!(
+            uploaded.actors[0].chunks[0].vertices[2], scalars_before,
+            "scalar buffer is replaced, not written in place"
+        );
+        renderer
+            .encode(&mut encoder, &mut uploaded, &camera, &new_target)
+            .unwrap();
+        renderer.queue.submit([encoder.finish()]);
+        assert_eq!(
+            renderer.read_rgba(&old_target).unwrap(),
+            before,
+            "previously encoded pass keeps old scalars"
+        );
+        let after = renderer.read_rgba(&new_target).unwrap();
+        assert_ne!(before.rgba, after.rgba, "new scalars change the render");
+        assert_eq!(scene.preparation_stats().scalar_updates, 1);
+    }
+
+    #[test]
+    fn budgeted_sync_pages_actors_in_and_culls_offscreen_chunks() {
+        let Some(renderer) = renderer() else {
+            return;
+        };
+        let quad_at = |x: f64| {
+            DataSet::surface(
+                "quad",
+                vec![
+                    [x - 0.4, -0.4, 0.0],
+                    [x + 0.4, -0.4, 0.0],
+                    [x + 0.4, 0.4, 0.0],
+                    [x - 0.4, 0.4, 0.0],
+                ],
+                &[[0, 1, 2], [0, 2, 3]],
+            )
+        };
+        let scene = Scene::new()
+            .with_actor(Actor::new(quad_at(0.0)).color([1.0, 0.0, 0.0, 1.0]))
+            .with_actor(Actor::new(quad_at(50.0)).color([0.0, 1.0, 0.0, 1.0]))
+            .with_actor(Actor::new(quad_at(100.0)).color([0.0, 0.0, 1.0, 1.0]));
+        let mut uploaded = renderer.upload(&Scene::new()).unwrap();
+        // One byte of budget still pages in exactly one actor per sync.
+        assert!(renderer.sync_with_budget(&mut uploaded, &scene, 1).unwrap());
+        assert!(!uploaded.upload_complete());
+        assert_eq!(uploaded.actors.len(), 1);
+        assert!(renderer.sync_with_budget(&mut uploaded, &scene, 1).unwrap());
+        assert_eq!(uploaded.actors.len(), 2);
+        assert!(
+            renderer
+                .sync_with_budget(&mut uploaded, &scene, u64::MAX)
+                .unwrap()
+        );
+        assert!(uploaded.upload_complete());
+        assert_eq!(uploaded.actors.len(), 3);
+        // Camera fitted to the first quad only: the far quads' chunks
+        // are frustum-culled, and resize to the same size reuses.
+        let first_bounds = quad_at(0.0).bounds().unwrap();
+        let camera = Camera::fitted(first_bounds);
+        let mut target = renderer.create_target(32, 32).unwrap();
+        let culled_before = renderer.stats().chunks_culled;
+        renderer.render(&mut uploaded, &camera, &target).unwrap();
+        assert!(
+            renderer.stats().chunks_culled > culled_before,
+            "offscreen chunks must be culled: {:?}",
+            renderer.stats()
+        );
+        let color_view = target.color_view().clone();
+        renderer.resize_target(&mut target, 32, 32).unwrap();
+        assert_eq!(
+            *target.color_view(),
+            color_view,
+            "same-size resize reuses textures"
+        );
+        renderer.resize_target(&mut target, 48, 48).unwrap();
+        assert_eq!((target.width, target.height), (48, 48));
+    }
+
+    #[test]
+    fn frustum_culling_keeps_visible_and_rejects_behind() {
+        let bounds = gpui_mesh::Bounds {
+            min: [-1.0, -1.0, -1.0],
+            max: [1.0, 1.0, 1.0],
+        };
+        let camera = Camera::fitted(bounds);
+        let frame = camera.gpu_frame(1.0).unwrap();
+        let (vp, _) = frame.project_origin([0.0; 3], false).unwrap();
+        // The fitted volume itself must survive.
+        assert!(!frustum_culls(&vp, [[-1.0; 3], [1.0; 3]]), "vp={vp:?}");
+        // A box far to the side is culled.
+        assert!(frustum_culls(&vp, [[100.0, -1.0, -1.0], [101.0, 1.0, 1.0]]));
+        // A box behind the camera (opposite the view direction) is culled:
+        // fitted cameras look from +offset toward the target, so +Z far
+        // behind the eye is outside.
+        assert!(frustum_culls(&vp, [[-1.0, -1.0, 100.0], [1.0, 1.0, 101.0]]));
     }
 
     #[test]
@@ -1755,6 +2315,35 @@ mod tests {
         let frame = renderer.read_rgba(&target).unwrap();
         let centre = frame.rgba[((48 * 96 + 48) * 4) as usize..][..3].to_vec();
         assert_ne!(centre, vec![20, 23, 28], "centre shows the surface");
+        // Semantic check against the software rasterizer: coverage and
+        // per-pixel colour must agree within LUT-quantization tolerance,
+        // not merely differ from the background.
+        let software = crate::render(&scene, &camera, 96, 96).unwrap();
+        let covered = |frame: &crate::Frame| {
+            // Each backend quantizes the background slightly differently;
+            // measure coverage against the frame's own corner pixel.
+            let background = frame.rgba[..3].to_vec();
+            frame
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|px| px[..3] != background[..])
+                .count()
+        };
+        let (gpu_covered, cpu_covered) = (covered(&frame), covered(&software));
+        assert!(
+            gpu_covered.abs_diff(cpu_covered) * 20 <= cpu_covered.max(1),
+            "coverage gpu {gpu_covered} vs cpu {cpu_covered}"
+        );
+        let mean_diff: f64 = frame
+            .rgba
+            .iter()
+            .zip(software.rgba.iter())
+            .map(|(a, b)| f64::from(a.abs_diff(*b)))
+            .sum::<f64>()
+            / frame.rgba.len() as f64;
+        assert!(mean_diff < 6.0, "gpu/cpu mean channel diff {mean_diff}");
 
         // Orbit and re-render: same buffers, different picture.
         let mut orbited = camera;

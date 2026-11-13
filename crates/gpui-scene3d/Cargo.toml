@@ -30,12 +30,14 @@ gpui-gpu = ["gpui", "gpu", "dep:gpui_wgpu"]
 # located at runtime, so builds never depend on it.
 mp4 = ["png"]
 # GPU-resident surface rendering through wgpu (Metal on Apple Silicon,
-# Vulkan/CUDA-class adapters elsewhere, WebGPU in the browser).
+# Vulkan/DX12 adapters elsewhere, WebGPU in the browser). This is the
+# wgpu path only; no CUDA or MLX backend is included.
 gpu = ["dep:wgpu", "dep:bytemuck", "dep:pollster"]
 
 [dev-dependencies]
 gpui-dataset-transformation = { workspace = true }
 gpui-miniapp = { workspace = true }
+gpui-profiler = { path = "../gpui-profiler", version = "0.11", features = ["global-allocator"] }
 
 # Metal headless harness for the macOS-only viewer interaction tests.
 # Kept off every other target so the wasm demo graph stays browser-safe.
@@ -97,7 +99,10 @@ required-features = ["png", "mp4"]
 [[example]]
 name = "interactive_viewer"
 path = "examples/interactive_viewer.rs"
-required-features = ["gpui"]
+# The shipped viewer exercises the host-GPU element (`gpui-gpu`), with
+# its software fallback, so the GPU presentation path always has an
+# in-repo consumer. CI also runs its tests in this configuration.
+required-features = ["gpui-gpu"]
 
 # The demo app is an example target (not a bin) so it can use the
 # dev-dependency shell crates (gpui-miniapp) — keeping them out of
