@@ -21,8 +21,9 @@ each crate's own CHANGELOG for details.
   typed VTU errors, volume bounds, GPU compute residency and
   threshold pipeline, common frame scheduler with thermal policy,
   and the Q1/QA gates (allocation-aware perf schema, fuzz targets,
-  Miri coverage). The four crates that inherited the workspace
-  version now carry explicit versions so only affected crates bump.
+  Miri coverage). Release versions stay lockstep on the workspace
+  version, as the release tooling (sync_versions.py, packaging
+  tests) requires.
 
 ### gpui-spinorama 0.11.2
 

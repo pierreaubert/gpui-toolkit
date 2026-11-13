@@ -25,9 +25,9 @@ jobs:
             platform_tag: manylinux_2_39_x86_64
             host: target/release/gpui-python-host
             build_fallback: true
-          - os: macos-14
+          - os: macos-15
             platform: macos-arm64
-            platform_tag: macosx_14_0_arm64
+            platform_tag: macosx_15_0_arm64
             host: target/release/gpui-python-host
             build_fallback: false
           - os: macos-15-intel
