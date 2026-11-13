@@ -26,6 +26,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE_VERSION = 2
+ALLOCATION_BYTE_NOISE = 4096
+ALLOCATION_CALL_NOISE = 8
 
 DEFAULT_BASELINE = "qa/perf/baseline.json"
 DEFAULT_CURRENT = "target/qa/perf/current.json"
@@ -51,6 +53,9 @@ class Record:
     mean_ns: float
     unit: str
     raw: dict[str, Any]
+    alloc_calls: int | None = None
+    alloc_bytes: int | None = None
+    retained_bytes: int | None = None
 
 
 def load_json(path: Path) -> Any:
@@ -95,6 +100,7 @@ def comparable_environment(data: dict[str, Any]) -> dict[str, str]:
         "system": str(environment.get("system", "unknown")),
         "machine": str(environment.get("machine", "unknown")),
         "cpu_model": str(environment.get("cpu_model", "unknown")),
+        "gpu_model": str(environment.get("gpu_model", "unknown")),
         "rustc_release": str(rustc.get("release", "unknown")) if isinstance(rustc, dict) else "unknown",
         "rustc_host": str(rustc.get("host", "unknown")) if isinstance(rustc, dict) else "unknown",
     }
@@ -142,8 +148,13 @@ def require_comparable_environments(
 ) -> None:
     baseline_environment = comparable_environment(baseline_data)
     current_environment = comparable_environment(current_data)
+    gpu_comparable = (
+        baseline_environment["gpu_model"] == current_environment["gpu_model"]
+        or "unknown" in (baseline_environment["gpu_model"], current_environment["gpu_model"])
+    )
     comparable = (
-        baseline_environment["system"] == current_environment["system"]
+        gpu_comparable
+        and baseline_environment["system"] == current_environment["system"]
         and baseline_environment["machine"] == current_environment["machine"]
         and baseline_environment["rustc_host"] == current_environment["rustc_host"]
         and _cpu_models_comparable(baseline_environment, current_environment)
@@ -189,6 +200,14 @@ def parse_record(raw: dict[str, Any], path: Path) -> Record:
     if raw["unit"] != "ns":
         raise InputError(f"{path}: expected timing unit 'ns'")
 
+    def optional_count(name: str) -> int | None:
+        value = raw.get(name)
+        if value is None:
+            return None
+        if not isinstance(value, int) or value < 0:
+            raise InputError(f"{path}: record field {name} must be a non-negative int")
+        return value
+
     return Record(
         key=RecordKey(
             crate=raw["crate"],
@@ -200,6 +219,9 @@ def parse_record(raw: dict[str, Any], path: Path) -> Record:
         mean_ns=mean_ns,
         unit=raw["unit"],
         raw=raw,
+        alloc_calls=optional_count("alloc_calls"),
+        alloc_bytes=optional_count("alloc_bytes"),
+        retained_bytes=optional_count("retained_bytes"),
     )
 
 
@@ -234,6 +256,7 @@ def compare(
     skipped: list[tuple[RecordKey, Record, Record, float]] = []
     missing: list[RecordKey] = []
     regressed: list[tuple[RecordKey, float]] = []
+    allocation_regressed: list[tuple[RecordKey, str, int, int]] = []
 
     for key, base_rec in baseline.items():
         cur_rec = current.get(key)
@@ -242,6 +265,16 @@ def compare(
             continue
 
         slowdown = compute_slowdown(base_rec, cur_rec)
+        for field, base_value, cur_value, noise in (
+            ("alloc_calls", base_rec.alloc_calls, cur_rec.alloc_calls, ALLOCATION_CALL_NOISE),
+            ("alloc_bytes", base_rec.alloc_bytes, cur_rec.alloc_bytes, ALLOCATION_BYTE_NOISE),
+            ("retained_bytes", base_rec.retained_bytes, cur_rec.retained_bytes, ALLOCATION_BYTE_NOISE),
+        ):
+            if base_value is None or cur_value is None or base_value <= 0:
+                continue
+            growth = cur_value - base_value
+            if growth > noise and growth * 100.0 / base_value > threshold:
+                allocation_regressed.append((key, field, base_value, cur_value))
         if base_rec.median_ns < noise_floor_ns:
             skipped.append((key, base_rec, cur_rec, slowdown))
         else:
@@ -262,7 +295,8 @@ def compare(
         raise InputError(f"required benchmarks disappeared: {unexpected_missing}")
     if not matched:
         raise InputError("no matched benchmarks above the noise floor")
-    return matched, skipped, missing, newly_added, regressed
+    allocation_regressed.sort(key=lambda item: item[0])
+    return matched, skipped, missing, newly_added, regressed, allocation_regressed
 
 
 def build_report(
@@ -271,13 +305,14 @@ def build_report(
     missing: list[RecordKey],
     newly_added: list[RecordKey],
     regressed: list[tuple[RecordKey, float]],
+    allocation_regressed: list[tuple[RecordKey, str, int, int]],
     threshold: float,
     noise_floor_ns: float,
     warn_only: bool,
     baseline_path: Path,
     current_path: Path,
 ) -> str:
-    failed = bool(regressed) and not warn_only
+    failed = bool(regressed or allocation_regressed) and not warn_only
     status = "FAILED" if failed else "PASSED"
     warn_note = " (WARN-ONLY: regressions are reported but do not fail the suite)" if warn_only else ""
 
@@ -297,6 +332,7 @@ def build_report(
         f"| Matched benchmarks | {len(matched)} |",
         f"| Skipped (noisy) benchmarks | {len(skipped)} |",
         f"| Regressed benchmarks | {len(regressed)} |",
+        f"| Allocation-regressed benchmarks | {len(allocation_regressed)} |",
         f"| Missing benchmarks | {len(missing)} |",
         f"| New benchmarks | {len(newly_added)} |",
         "",
@@ -351,6 +387,21 @@ def build_report(
         for key, slowdown in regressed:
             lines.append(
                 f"| {key.crate} | {key.bench} | {key.group} | {key.function} | {format_slowdown(slowdown)} |"
+            )
+        lines.append("")
+
+    if allocation_regressed:
+        lines.extend(
+            [
+                "## Allocation-Regressed Benchmarks",
+                "",
+                "| Crate | Bench | Group | Function | Field | Baseline | Current |",
+                "|-------|-------|-------|----------|-------|----------|---------|",
+            ]
+        )
+        for key, field, base_value, cur_value in allocation_regressed:
+            lines.append(
+                f"| {key.crate} | {key.bench} | {key.group} | {key.function} | {field} | {base_value} | {cur_value} |"
             )
         lines.append("")
 
@@ -426,7 +477,7 @@ def main(argv: list[str]) -> int:
         return 2
 
     try:
-        matched, skipped, missing, newly_added, regressed = compare(
+        matched, skipped, missing, newly_added, regressed, allocation_regressed = compare(
             baseline, current, args.threshold, args.noise_floor_ns,
             frozenset(args.allow_removed_benchmark),
         )
@@ -435,7 +486,7 @@ def main(argv: list[str]) -> int:
         return 2
 
     report = build_report(
-        matched, skipped, missing, newly_added, regressed,
+        matched, skipped, missing, newly_added, regressed, allocation_regressed,
         args.threshold, args.noise_floor_ns, args.warn_only, args.baseline, args.current,
     )
 
@@ -487,10 +538,16 @@ def main(argv: list[str]) -> int:
         print(f"ERROR: failed to write report to {args.output}: {exc}", file=sys.stderr)
         return 2
 
-    if regressed and args.warn_only:
+    if allocation_regressed:
+        print("")
+        print(f"Allocation-regressed beyond {args.threshold}% (+noise) threshold:")
+        for key, field, base_value, cur_value in allocation_regressed:
+            print(f"- {key.crate}/{key.bench}/{key.group}/{key.function}: {field} {base_value} -> {cur_value}")
+
+    if (regressed or allocation_regressed) and args.warn_only:
         print("\nNOTE: --warn-only is set; regressions are reported but the suite exits successfully.")
         return 0
-    return 1 if regressed else 0
+    return 1 if (regressed or allocation_regressed) else 0
 
 
 if __name__ == "__main__":

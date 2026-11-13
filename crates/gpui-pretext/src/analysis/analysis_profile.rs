@@ -151,11 +151,35 @@ fn build_merged_segmentation(
         if merged_kinds[i] == SegmentBreakKind::Text
             && !merged_word_like[i]
             && is_escaped_quote_cluster_segment(&merged_texts[i])
-            && merged_kinds[i - 1] == SegmentBreakKind::Text
         {
+            // Merge into the previous *non-empty* text segment: an
+            // earlier cluster in this same pass may already have emptied
+            // the immediate predecessor, and resurrecting that slot with
+            // this segment's text would keep the predecessor's start
+            // offset for text that lives later in the source.
+            // Skip only slots this pass already emptied; a non-Text
+            // segment (space, glue) still blocks the merge.
+            let mut target = i;
+            loop {
+                if target == 0 {
+                    target = usize::MAX;
+                    break;
+                }
+                target -= 1;
+                if merged_kinds[target] != SegmentBreakKind::Text {
+                    target = usize::MAX;
+                    break;
+                }
+                if !merged_texts[target].is_empty() {
+                    break;
+                }
+            }
+            if target == usize::MAX {
+                continue;
+            }
             let text = std::mem::take(&mut merged_texts[i]);
-            merged_texts[i - 1].push_str(&text);
-            merged_word_like[i - 1] = merged_word_like[i - 1] || merged_word_like[i];
+            merged_texts[target].push_str(&text);
+            merged_word_like[target] = merged_word_like[target] || merged_word_like[i];
         }
     }
 

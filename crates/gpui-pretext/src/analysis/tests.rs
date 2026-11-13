@@ -247,3 +247,27 @@ fn test_analyze_arabic_no_space_punctuation_merge() {
     let result = analyze_text("مرحبا؟", &profile, WhiteSpaceMode::Normal);
     assert!(!result.is_empty());
 }
+
+#[test]
+fn fuzz_crash_segmentation_starts_stay_in_storage() {
+    // Regression: fuzz/artifacts/pretext-layout crash input
+    // [39, 44, 0, 254, 92, 92, 38, 92, 39, 92, 39, 44, 172] produced a
+    // segment whose (start, text) range did not match the normalized
+    // storage, tripping SegmentTexts' debug assertion.
+    let bytes: [u8; 13] = [39, 44, 0, 254, 92, 92, 38, 92, 39, 92, 39, 44, 172];
+    let text = String::from_utf8_lossy(&bytes);
+    let analysis = analyze_text(
+        &text,
+        &AnalysisProfile {
+            carry_cjk_after_closing_quote: false,
+        },
+        WhiteSpaceMode::Normal,
+    );
+    for (start, segment) in analysis.starts.iter().zip(analysis.texts.iter()) {
+        assert_eq!(
+            analysis.normalized.get(*start..start + segment.len()),
+            Some(segment),
+            "segment at {start} must slice the normalized storage"
+        );
+    }
+}

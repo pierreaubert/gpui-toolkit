@@ -4,10 +4,21 @@ use d3rs::mesh::{ScalarField, TriangleMesh};
 use std::env;
 use std::sync::Arc;
 
+/// Adapter acquisition honoring mandatory-GPU CI: with
+/// GPUI_REQUIRE_GPU set, a missing adapter fails the test instead of
+/// silently skipping (scene3d uses the same convention).
+fn require_compute() -> Option<MeshCompute> {
+    let compute = MeshCompute::try_new();
+    if compute.is_none() && env::var_os("GPUI_REQUIRE_GPU").is_some() {
+        panic!("GPUI_REQUIRE_GPU is set but no GPU adapter is available");
+    }
+    compute
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn adapter_compute_differential_path_reports_metal_on_macos() {
-    let Some(compute) = MeshCompute::try_new() else {
+    let Some(compute) = require_compute() else {
         return;
     };
     let Some(backend) = compute.adapter_backend() else {
@@ -21,7 +32,7 @@ fn adapter_compute_timestamp_queries_recover_gpu_duration_when_opted_in() {
     if env::var_os("SOTF_GPU_TIMESTAMPS").as_deref() != Some(std::ffi::OsStr::new("1")) {
         return;
     }
-    let Some(compute) = MeshCompute::try_new() else {
+    let Some(compute) = require_compute() else {
         return;
     };
     if !compute.adapter_backed() || !compute.adapter_gpu_timing_enabled() {
@@ -98,7 +109,7 @@ fn assert_bands_match_cpu(expected: &[ContourBand], actual: &[ContourBand]) {
 
 #[test]
 fn adapter_isolines_match_cpu_golden_order_and_geometry() {
-    let Some(compute) = MeshCompute::try_new() else {
+    let Some(compute) = require_compute() else {
         return;
     };
     if !compute.adapter_backed() {
@@ -137,7 +148,7 @@ fn adapter_isolines_match_cpu_golden_order_and_geometry() {
 
 #[test]
 fn on_level_tie_break_matches_cpu_zero_length_segment() {
-    let Some(compute) = MeshCompute::try_new() else {
+    let Some(compute) = require_compute() else {
         return;
     };
     let mesh = TriangleMesh {
@@ -172,7 +183,7 @@ fn on_level_tie_break_matches_cpu_zero_length_segment() {
 
 #[test]
 fn adapter_field_min_max_matches_cpu_scan() {
-    let Some(compute) = MeshCompute::try_new() else {
+    let Some(compute) = require_compute() else {
         return;
     };
     if !compute.adapter_backed() {
@@ -184,7 +195,7 @@ fn adapter_field_min_max_matches_cpu_scan() {
 
 #[test]
 fn projected_axis_isolines_match_cpu_with_or_without_an_adapter() {
-    let Some(compute) = MeshCompute::try_new() else {
+    let Some(compute) = require_compute() else {
         return;
     };
     let mesh = TriangleMesh {
@@ -243,7 +254,7 @@ fn projected_axis_isolines_match_cpu_with_or_without_an_adapter() {
 
 #[test]
 fn masked_vertex_isolines_match_cpu_with_or_without_an_adapter() {
-    let Some(compute) = MeshCompute::try_new() else {
+    let Some(compute) = require_compute() else {
         return;
     };
     let (mesh, mut field, topology) = square_fixture();
@@ -284,7 +295,7 @@ fn masked_vertex_isolines_match_cpu_with_or_without_an_adapter() {
 
 #[test]
 fn adapter_filled_bands_match_cpu_golden_area_and_boundaries() {
-    let Some(compute) = MeshCompute::try_new() else {
+    let Some(compute) = require_compute() else {
         return;
     };
     if !compute.adapter_backed() {
@@ -314,7 +325,7 @@ fn adapter_filled_bands_match_cpu_golden_area_and_boundaries() {
 
 #[test]
 fn projected_and_masked_filled_bands_match_cpu_with_or_without_an_adapter() {
-    let Some(compute) = MeshCompute::try_new() else {
+    let Some(compute) = require_compute() else {
         return;
     };
     let mut mesh = square_fixture().0;
@@ -353,7 +364,7 @@ fn projected_and_masked_filled_bands_match_cpu_with_or_without_an_adapter() {
 
 #[test]
 fn multilevel_on_vertex_and_masked_neighbor_bands_match_cpu_with_finite_output() {
-    let Some(compute) = MeshCompute::try_new() else {
+    let Some(compute) = require_compute() else {
         return;
     };
     let (mesh, mut field, topology) = square_fixture();

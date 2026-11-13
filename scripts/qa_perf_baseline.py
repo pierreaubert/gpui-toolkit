@@ -14,7 +14,7 @@ Baseline JSON schema (version 2):
   "metadata": {"criterion_flags": "...", "generator": "scripts/qa_perf_baseline.py"},
   "records": [
     {"crate": "...", "bench": "...", "group": "...", "function": "...",
-     "median_ns": float, "mean_ns": float, "unit": "ns"}
+     "median_ns": float, "mean_ns": float, "unit": "ns",\n     optional "alloc_calls"/"alloc_bytes"/"retained_bytes": int}
   ]
 }
 """
@@ -267,17 +267,28 @@ def discover_records(criterion_dir: Path | None = None) -> list[dict[str, Any]]:
         if value_str:
             function_name = f"{function_name}/{value_str}" if function_name else value_str
 
-        records.append(
-            {
-                "crate": "",  # filled in later
-                "bench": "",
-                "group": group_name,
-                "function": function_name,
-                "median_ns": median_ns,
-                "mean_ns": mean_ns,
-                "unit": "ns",
-            }
-        )
+        record: dict[str, Any] = {
+            "crate": "",  # filled in later
+            "bench": "",
+            "group": group_name,
+            "function": function_name,
+            "median_ns": median_ns,
+            "mean_ns": mean_ns,
+            "unit": "ns",
+        }
+        # Optional allocation sidecar written by allocation-aware benches
+        # next to Criterion estimates; absent means "not measured".
+        allocations = new_dir / "allocations.json"
+        if allocations.exists():
+            try:
+                sidecar = json.loads(allocations.read_text())
+                for field in ("alloc_calls", "alloc_bytes", "retained_bytes"):
+                    value = sidecar.get(field)
+                    if isinstance(value, int) and value >= 0:
+                        record[field] = value
+            except (json.JSONDecodeError, OSError) as exc:
+                print(f"WARNING: could not read {allocations}: {exc}", file=sys.stderr)
+        records.append(record)
     return records
 
 
@@ -443,6 +454,29 @@ def cpu_model() -> str:
     return platform.processor() or "unknown"
 
 
+def gpu_model() -> str:
+    """Best-effort GPU identity for provenance; "unknown" stays comparable."""
+    if sys.platform == "darwin":
+        try:
+            result = subprocess.run(
+                resolve_command(["/usr/sbin/system_profiler", "-json", "SPDisplaysDataType"]),
+                cwd=ROOT, capture_output=True, text=True, timeout=15, check=True,
+            )
+            for display in json.loads(result.stdout).get("SPDisplaysDataType", []):
+                model = display.get("sppci_model") or display.get("_name")
+                if model:
+                    return str(model)
+        except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+            pass
+        return "unknown"
+    if sys.platform.startswith("linux"):
+        output = command_output(["lspci"])
+        for marker in ("VGA compatible controller:", "3D controller:"):
+            if marker in output:
+                return output.split(marker, 1)[1].split(" (rev", 1)[0].strip() or "unknown"
+    return "unknown"
+
+
 def rustc_metadata() -> dict[str, str]:
     output = command_output(["rustc", "-Vv"])
     release = re.search(r"(?:^| )release: ([^ ]+)", output)
@@ -464,6 +498,7 @@ def environment_metadata() -> dict[str, Any]:
         "release": platform.release(),
         "machine": platform.machine(),
         "cpu_model": cpu_model(),
+        "gpu_model": gpu_model(),
         "rustc": rustc_metadata(),
         "cargo": command_output(["cargo", "-V"]),
         "source_revision": command_output(["git", "rev-parse", "HEAD"]),

@@ -11,11 +11,26 @@ cargo-fuzz = true
 
 [dependencies]
 gpui-pretext = { path = "../crates/gpui-pretext" }
+gpui-dataset-transformation = { path = "../crates/gpui-dataset-transformation" }
 libfuzzer-sys = "0.4"
 
 [[bin]]
 name = "pretext-layout"
 path = "fuzz_targets/pretext_layout.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vtu-parse"
+path = "fuzz_targets/vtu_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vtk-parse"
+path = "fuzz_targets/vtk_parse.rs"
 test = false
 doc = false
 bench = false

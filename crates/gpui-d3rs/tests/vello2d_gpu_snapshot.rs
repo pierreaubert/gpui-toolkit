@@ -118,7 +118,13 @@ fn compare_shape(name: &str, scene: &ChartScene) -> Option<ShapeStats> {
     );
     let gpu_pixels = match snapshot_scene_gpu(scene, PHYS, PHYS, SCALE) {
         Ok(pixels) => pixels,
-        Err(SnapshotError::NoAdapter) => return None,
+        Err(SnapshotError::NoAdapter) => {
+            assert!(
+                std::env::var_os("GPUI_REQUIRE_GPU").is_none(),
+                "GPUI_REQUIRE_GPU is set but no GPU adapter is available"
+            );
+            return None;
+        }
         Err(err) => panic!("GPU snapshot failed: {err}"),
     };
     let std = compare_rgba(&cpu_pixels, &gpu_pixels, 8).expect("same-shape buffers compare");

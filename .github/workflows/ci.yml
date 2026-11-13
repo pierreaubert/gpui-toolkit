@@ -411,7 +411,7 @@ jobs:
         run: cargo nextest run --profile ci --no-fail-fast --workspace --exclude gpui-scaffolder --features autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding
 
   miri-pretext:
-    name: Miri (gpui-pretext)
+    name: Miri (gpui-pretext, gpui-foreign-parent)
     runs-on: ubuntu-latest
     needs: check-and-test
     steps:
@@ -427,6 +427,28 @@ jobs:
 
       - name: Exercise portable text layout under Miri
         run: cargo +nightly miri test -p gpui-pretext --lib --tests
+
+      - name: Exercise foreign-parent ownership core under Miri
+        run: cargo +nightly miri test -p gpui-foreign-parent --lib --tests
+
+  fuzz-check:
+    name: Fuzz targets (compile + corpus replay)
+    runs-on: ubuntu-latest
+    needs: check-and-test
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@cargo-fuzz
+
+      - name: Compile fuzz targets and replay seed corpora
+        env:
+          QA_REQUIRE_FUZZ: "1"
+          QA_FUZZ_SECONDS: "15"
+        run: bash scripts/qa_fuzz_check.sh
 
   dependency-policy:
     name: Dependency, license and source policy
@@ -679,7 +701,11 @@ jobs:
         env:
           GPUI_REQUIRE_GPU: "1"
         run: |
-          cargo test -p gpui-scene3d -p gpui-dataset-transformation --features gpu,gpui-scene3d/gpui-gpu --lib
+          # --lib --tests: integration GPU tests are mandatory too, not
+          # just unit tests. Executed/skipped counts come from the test
+          # binaries' own summaries in this log; a silently-skipped GPU
+          # suite fails here because GPUI_REQUIRE_GPU makes NoAdapter fatal.
+          cargo test -p gpui-scene3d -p gpui-dataset-transformation -p gpui-d3rs --features gpu,gpui-scene3d/gpui-gpu,gpui-d3rs/gpu-3d,gpui-d3rs/gpu-2d,gpui-d3rs/gpu-compute --lib --tests
           cargo test -p gpui-scene3d --features gpui-gpu --example interactive_viewer -- --test-threads=1
 
       - name: Upload Metal captures, diffs, reports, and contact sheets
@@ -793,8 +819,18 @@ jobs:
           BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
           git worktree add "$RUNNER_TEMP/gpui-perf-base" "$BASE_SHA"
+          # Manifest-compat rule: the base is collected with the base's
+          # own collector/manifest when it has one, so a candidate that
+          # adds a benchmark binary cannot break base collection on old
+          # bases. Very old bases without the collector fall back to the
+          # candidate's script. Keep this in sync with
+          # scripts/qa_perf_baseline.py's BENCHMARKS contract.
+          collector="scripts/qa_perf_baseline.py"
+          if [ -f "$RUNNER_TEMP/gpui-perf-base/scripts/qa_perf_baseline.py" ]; then
+            collector="$RUNNER_TEMP/gpui-perf-base/scripts/qa_perf_baseline.py"
+          fi
           CARGO_TARGET_DIR="$RUNNER_TEMP/gpui-perf-base-target" \
-            python3 scripts/qa_perf_baseline.py \
+            python3 "$collector" \
               --workspace-root "$RUNNER_TEMP/gpui-perf-base" \
               --output "$GITHUB_WORKSPACE/target/qa/perf/base-current-runner.json"
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Compile the checked-in cargo-fuzz target. Running fuzzing itself remains an
-# explicit, time-bounded developer/release action (for example, `cargo fuzz
-# run pretext-layout -- -max_total_time=60`).
+# Compile every checked-in cargo-fuzz target and replay its seed corpus
+# under libFuzzer for a bounded time. QA_FUZZ_SECONDS bounds each target
+# (default 10s); CI sets QA_REQUIRE_FUZZ=1 so a missing cargo-fuzz fails
+# instead of silently skipping.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -15,4 +16,12 @@ if ! command -v cargo-fuzz >/dev/null 2>&1; then
     exit 0
 fi
 
-cargo fuzz check pretext-layout
+seconds="${QA_FUZZ_SECONDS:-10}"
+for target in pretext-layout vtu-parse vtk-parse; do
+    cargo fuzz check "$target"
+    if [ -d "fuzz/corpus/$target" ] && [ -n "$(ls -A "fuzz/corpus/$target")" ]; then
+        cargo fuzz run "$target" "fuzz/corpus/$target" -- -max_total_time="$seconds"
+    else
+        cargo fuzz run "$target" -- -max_total_time="$seconds"
+    fi
+done

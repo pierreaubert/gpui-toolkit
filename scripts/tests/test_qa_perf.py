@@ -142,6 +142,47 @@ class PerformanceEnvironmentTests(unittest.TestCase):
         ):
             self.assertEqual(qa_perf_baseline.cpu_model(), "Apple M4 Pro | Mac16,8")
 
+    def test_gpu_identity_is_recorded_and_gates_comparability(self) -> None:
+        baseline = qa_perf_baseline.build_baseline([])
+        environment = baseline["metadata"]["environment"]
+        self.assertIn("gpu_model", environment)
+        base = fixture({**environment, "gpu_model": "GPU A"})
+        same = fixture({**environment, "gpu_model": "GPU A"})
+        other = fixture({**environment, "gpu_model": "GPU B"})
+        unknown = fixture({**environment, "gpu_model": "unknown"})
+        path = Path("synthetic.json")
+        qa_perf_check.require_comparable_environments(base, same, path, path)
+        qa_perf_check.require_comparable_environments(base, unknown, path, path)
+        with self.assertRaises(qa_perf_check.InputError):
+            qa_perf_check.require_comparable_environments(base, other, path, path)
+
+    def test_allocation_growth_fails_the_gate_on_a_synthetic_probe(self) -> None:
+        def record(alloc_bytes: int) -> qa_perf_check.Record:
+            raw = {
+                "crate": "c", "bench": "b", "group": "g", "function": "f",
+                "median_ns": 1000.0, "mean_ns": 1000.0, "unit": "ns",
+                "alloc_bytes": alloc_bytes, "alloc_calls": 100,
+                "retained_bytes": 4096,
+            }
+            return qa_perf_check.parse_record(raw, Path("synthetic.json"))
+
+        base = record(100_000)
+        grown = record(200_000)
+        key = base.key
+        _, _, _, _, regressed, allocation_regressed = qa_perf_check.compare(
+            {key: base}, {key: grown}, 20.0, 150.0
+        )
+        self.assertEqual(regressed, [])
+        self.assertEqual(
+            allocation_regressed, [(key, "alloc_bytes", 100_000, 200_000)]
+        )
+        # Within threshold/noise: no allocation regression.
+        calm = record(100_500)
+        *_, allocation_regressed = qa_perf_check.compare(
+            {key: base}, {key: calm}, 20.0, 150.0
+        )
+        self.assertEqual(allocation_regressed, [])
+
     def test_generated_baseline_records_comparable_environment(self) -> None:
         baseline = qa_perf_baseline.build_baseline([])
         self.assertEqual(baseline["version"], 2)
