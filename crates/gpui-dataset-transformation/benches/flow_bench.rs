@@ -3,7 +3,7 @@
 // Rust guideline compliant 2026-02-21
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use gpui_dataset_transformation::{isosurface, q_criterion, vorticity};
+use gpui_dataset_transformation::{ThresholdMode, isosurface, q_criterion, threshold, vorticity};
 use gpui_mesh::{DataSet, Field};
 
 fn rotating_grid(cells: usize) -> DataSet {
@@ -40,6 +40,18 @@ fn bench_flow(c: &mut Criterion) {
     c.bench_function("isosurface_24cubed", |b| {
         b.iter(|| isosurface(&ds, "radius", 0.8));
     });
+    c.bench_function("cpu_threshold_24cubed", |b| {
+        b.iter(|| {
+            threshold(
+                &ds,
+                "radius",
+                gpui_mesh::Association::Point,
+                0.2,
+                0.9,
+                ThresholdMode::All,
+            )
+        });
+    });
 }
 
 criterion_group!(benches, bench_flow);
@@ -64,6 +76,31 @@ fn bench_gpu(c: &mut Criterion) {
     });
     c.bench_function("cpu_vorticity_48cubed", |b| {
         b.iter(|| vorticity(&large, "velocity", "vorticity"));
+    });
+    c.bench_function("gpu_threshold_48cubed", |b| {
+        b.iter(|| {
+            gpui_dataset_transformation::threshold_gpu(
+                &gpu,
+                &large,
+                "radius",
+                gpui_mesh::Association::Point,
+                0.2,
+                0.9,
+                ThresholdMode::All,
+            )
+        });
+    });
+    c.bench_function("cpu_threshold_48cubed", |b| {
+        b.iter(|| {
+            threshold(
+                &large,
+                "radius",
+                gpui_mesh::Association::Point,
+                0.2,
+                0.9,
+                ThresholdMode::All,
+            )
+        });
     });
     let mut prepared =
         gpui_dataset_transformation::gpu::PreparedFlow::new(&gpu, &large, "velocity").unwrap();

@@ -37,6 +37,10 @@ mod geometry;
 mod glyph;
 #[cfg(feature = "gpu")]
 pub mod gpu;
+#[cfg(feature = "gpu")]
+mod gpu_threshold;
+#[cfg(feature = "gpu")]
+pub use gpu_threshold::threshold_gpu;
 mod interp;
 mod isosurface;
 mod lic;
