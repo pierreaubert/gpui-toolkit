@@ -57,7 +57,7 @@ fn make_columns() -> Vec<Column<BenchRow>> {
 }
 
 struct TableBenchView {
-    rows: Vec<BenchRow>,
+    rows: Arc<[BenchRow]>,
     page: usize,
     page_size: usize,
     selected: HashSet<usize>,
@@ -67,7 +67,7 @@ struct TableBenchView {
 impl TableBenchView {
     fn new(rows: Vec<BenchRow>) -> Self {
         Self {
-            rows,
+            rows: rows.into(),
             page: 0,
             page_size: usize::MAX,
             selected: HashSet::new(),
@@ -78,16 +78,17 @@ impl TableBenchView {
 
 impl Render for TableBenchView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        // Mirror the showcase data flow: the app slices (and clones) the page
-        // on every render; the table displays what it is given.
-        let page_rows = if self.page_size == usize::MAX {
-            self.rows.clone()
+        // Shared rows: rebuilding the table per frame clones only the
+        // Arc. The paged bench still slices per page (that cost is the
+        // app-side paging being measured), everything else shares.
+        let mut table = if self.page_size == usize::MAX {
+            Table::with_shared_rows("bench-table", self.rows.clone())
         } else {
             let start = (self.page * self.page_size).min(self.rows.len());
             let end = (start + self.page_size).min(self.rows.len());
-            self.rows[start..end].to_vec()
+            Table::new("bench-table", self.rows[start..end].to_vec())
         };
-        let mut table = Table::new("bench-table", page_rows)
+        let mut table = table
             .columns(make_columns())
             .selection_mode(SelectionMode::Multiple)
             .selected_indices(self.selected.clone())
@@ -254,7 +255,7 @@ fn bench_sort(c: &mut Criterion) {
                 }
                 window
                     .update(&mut cx, |view, _, cx| {
-                        view.rows = rows;
+                        view.rows = rows.into();
                         view.selected.clear();
                         cx.notify();
                     })

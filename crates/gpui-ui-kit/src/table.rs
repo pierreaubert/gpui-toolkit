@@ -39,7 +39,16 @@ pub use types::{SelectionMode, SortState, TableTheme};
 pub struct Table<T> {
     id: ElementId,
     columns: Vec<Column<T>>,
-    rows: Vec<T>,
+    /// Shared row storage: rebuilding the table element per frame
+    /// clones the `Arc`, never the rows. Build with
+    /// [`with_shared_rows`](Self::with_shared_rows) to share an
+    /// existing allocation across renders.
+    rows: Arc<[T]>,
+    /// Stable per-row identity (see [`keyed_by`](Self::keyed_by)).
+    row_key: Option<Arc<dyn Fn(&T) -> u64 + 'static>>,
+    selected_ids: HashSet<u64>,
+    focused_id: Option<u64>,
+    on_selection_ids_change: Option<Box<dyn Fn(&HashSet<u64>, &mut Window, &mut App) + 'static>>,
     sort_state: Option<SortState>,
     on_sort: Option<Box<dyn Fn(&SortState, &mut Window, &mut App) + 'static>>,
     selection_mode: SelectionMode,
@@ -64,10 +73,23 @@ pub struct Table<T> {
 impl<T: 'static> Table<T> {
     /// Create a new table
     pub fn new(id: impl Into<ElementId>, rows: Vec<T>) -> Self {
+        Self::with_shared_rows(id, Arc::from(rows))
+    }
+
+    /// Create a new table over already-shared row storage.
+    ///
+    /// The caller keeps the allocation; per-frame rebuilds clone only
+    /// the `Arc`, so warmed scrolling scales with the visible window
+    /// instead of copying every row into the table each render.
+    pub fn with_shared_rows(id: impl Into<ElementId>, rows: Arc<[T]>) -> Self {
         Self {
             id: id.into(),
             columns: Vec::new(),
             rows,
+            row_key: None,
+            selected_ids: HashSet::new(),
+            focused_id: None,
+            on_selection_ids_change: None,
             sort_state: None,
             on_sort: None,
             selection_mode: SelectionMode::None,
@@ -186,6 +208,40 @@ impl<T: 'static> Table<T> {
         self
     }
 
+    /// Give rows a stable identity independent of position.
+    ///
+    /// Row element ids, [`selected_ids`](Self::selected_ids), and
+    /// [`focused_id`](Self::focused_id) then survive sorting, paging,
+    /// and window movement — index-based identity silently rebinds to
+    /// a different row after any of those.
+    pub fn keyed_by(mut self, key: impl Fn(&T) -> u64 + 'static) -> Self {
+        self.row_key = Some(Arc::new(key));
+        self
+    }
+
+    /// Set selected row ids (requires [`keyed_by`](Self::keyed_by)).
+    pub fn selected_ids(mut self, ids: HashSet<u64>) -> Self {
+        self.selected_ids = ids;
+        self
+    }
+
+    /// Set the keyboard-focused row by stable id.
+    pub fn focused_id(mut self, id: Option<u64>) -> Self {
+        self.focused_id = id;
+        self
+    }
+
+    /// Set the stable-id selection change handler. Fired (in addition
+    /// to any index handler) with the selected row ids mapped through
+    /// the [`keyed_by`](Self::keyed_by) function.
+    pub fn on_selection_ids_change(
+        mut self,
+        handler: impl Fn(&HashSet<u64>, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_selection_ids_change = Some(Box::new(handler));
+        self
+    }
+
     /// Set selection change handler
     pub fn on_selection_change(
         mut self,
@@ -277,7 +333,25 @@ impl<T: 'static> Table<T> {
             .clone()
             .unwrap_or_else(|| cx.focus_handle());
         let row_count = self.rows.len();
-        let focused_index = self.focused_index.filter(|index| *index < row_count);
+        // Resolve stable-id focus/selection to indices for this build.
+        let focused_index = self
+            .focused_id
+            .and_then(|id| {
+                self.row_key
+                    .as_ref()
+                    .and_then(|key| self.rows.iter().position(|row| key(row) == id))
+            })
+            .or_else(|| self.focused_index.filter(|index| *index < row_count));
+        let mut selected_indices = self.selected_indices.clone();
+        if let Some(key) = &self.row_key
+            && !self.selected_ids.is_empty()
+        {
+            for (index, row) in self.rows.iter().enumerate() {
+                if self.selected_ids.contains(&key(row)) {
+                    selected_indices.insert(index);
+                }
+            }
+        }
         let mut container = div()
             .id(table_id.clone())
             .flex()
@@ -291,9 +365,11 @@ impl<T: 'static> Table<T> {
         // remaining fields (disjoint from the moved ones).
         let on_sort = self.on_sort.map(std::rc::Rc::new);
         let selection_mode = self.selection_mode;
-        let selected_indices = std::rc::Rc::new(self.selected_indices);
+        let selected_indices = std::rc::Rc::new(selected_indices);
         let on_focus_change = self.on_focus_change.map(std::rc::Rc::new);
         let on_selection_change = self.on_selection_change.map(std::rc::Rc::new);
+        let on_selection_ids_change = self.on_selection_ids_change.map(std::rc::Rc::new);
+        let row_key = self.row_key.clone();
         let on_page_change = self.on_page_change.map(std::rc::Rc::new);
 
         let header = build_header_row(
@@ -312,9 +388,11 @@ impl<T: 'static> Table<T> {
                 columns: &self.columns,
                 table_id: &self.id,
                 selection_mode,
-                focused_index: self.focused_index.filter(|index| *index < self.rows.len()),
+                focused_index,
                 selected_indices: &selected_indices,
                 on_selection_change: &on_selection_change,
+                on_selection_ids_change: &on_selection_ids_change,
+                row_key: row_key.as_deref(),
                 alternating_rows: self.alternating_rows,
                 virtual_window: self
                     .virtual_window
@@ -342,9 +420,15 @@ impl<T: 'static> Table<T> {
         });
         container = container.child(header);
 
-        if on_focus_change.is_some() || on_selection_change.is_some() {
+        if on_focus_change.is_some()
+            || on_selection_change.is_some()
+            || on_selection_ids_change.is_some()
+        {
             let on_focus_change_for_key = on_focus_change.clone();
             let on_selection_change_for_key = on_selection_change.clone();
+            let on_selection_ids_change_for_key = on_selection_ids_change.clone();
+            let row_key_for_key = row_key.clone();
+            let rows_for_key = self.rows.clone();
             let selected_indices_for_key = selected_indices.clone();
             let focus_handle_for_key = focus_handle.clone();
             container = container.on_key_down(
@@ -376,7 +460,8 @@ impl<T: 'static> Table<T> {
                         DataNavigationAction::Activate => {
                             if let Some(index) = focused_index
                                 && selection_mode != SelectionMode::None
-                                && let Some(ref handler) = on_selection_change_for_key
+                                && (on_selection_change_for_key.is_some()
+                                    || on_selection_ids_change_for_key.is_some())
                             {
                                 let mut next_selected = (*selected_indices_for_key).clone();
                                 match selection_mode {
@@ -394,7 +479,18 @@ impl<T: 'static> Table<T> {
                                     SelectionMode::None => {}
                                 }
                                 cx.stop_propagation();
-                                handler(&next_selected, window, cx);
+                                if let Some(ref handler) = on_selection_change_for_key {
+                                    handler(&next_selected, window, cx);
+                                }
+                                if let Some(ref handler) = on_selection_ids_change_for_key
+                                    && let Some(key) = &row_key_for_key
+                                {
+                                    let ids: HashSet<u64> = next_selected
+                                        .iter()
+                                        .filter_map(|&i| rows_for_key.get(i).map(|row| key(row)))
+                                        .collect();
+                                    handler(&ids, window, cx);
+                                }
                             }
                         }
                         _ => {}
@@ -463,7 +559,24 @@ fn virtual_spacer_height(row_height: Option<f32>, row_count: usize) -> Option<Pi
 #[cfg(test)]
 mod tests {
     use super::{DataVirtualWindow, SelectionMode, Table, virtual_spacer_height};
+    use std::collections::HashSet;
     use gpui::px;
+
+    #[test]
+    fn shared_rows_and_stable_keys_are_recorded() {
+        let rows: std::sync::Arc<[u64]> = vec![10, 20, 30].into();
+        let table = Table::with_shared_rows("rows", rows.clone())
+            .keyed_by(|row: &u64| *row)
+            .selected_ids(HashSet::from([20]))
+            .focused_id(Some(30));
+        assert!(std::sync::Arc::ptr_eq(&table.rows, &rows));
+        assert_eq!(table.selected_ids, HashSet::from([20]));
+        assert_eq!(table.focused_id, Some(30));
+        assert!(table.row_key.is_some());
+        // Vec construction shares the same storage type.
+        let owned = Table::new("rows", vec![1u64, 2]);
+        assert_eq!(&*owned.rows, &[1, 2]);
+    }
 
     #[test]
     fn table_builder_records_keyboard_navigation_state() {

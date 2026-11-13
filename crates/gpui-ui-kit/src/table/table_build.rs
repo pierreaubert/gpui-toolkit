@@ -157,6 +157,11 @@ pub(super) struct TableBodyParams<'a, T: 'static> {
     pub selected_indices: &'a Rc<HashSet<usize>>,
     pub on_selection_change:
         &'a Option<Rc<Box<dyn Fn(&HashSet<usize>, &mut Window, &mut App) + 'static>>>,
+    pub on_selection_ids_change:
+        &'a Option<Rc<Box<dyn Fn(&HashSet<u64>, &mut Window, &mut App) + 'static>>>,
+    /// Stable row identity, when keyed: element ids and id-selection
+    /// mapping use it instead of the row index.
+    pub row_key: Option<&'a (dyn Fn(&T) -> u64 + 'static)>,
     pub alternating_rows: bool,
     pub virtual_window: DataVirtualWindow,
     pub virtual_row_height: Option<f32>,
@@ -177,6 +182,8 @@ pub(super) fn build_body<T: 'static>(
         focused_index,
         selected_indices,
         on_selection_change,
+        on_selection_ids_change,
+        row_key,
         alternating_rows,
         virtual_window,
         virtual_row_height,
@@ -195,6 +202,12 @@ pub(super) fn build_body<T: 'static>(
     // Hoisted: one format per frame instead of one per row. The per-row clone
     // below is an Rc bump, not an allocation.
     let table_name: SharedString = table_id.to_string().into();
+    // Owned row keys for 'static mouse handlers (computed once per build,
+    // only when an id-selection handler is installed).
+    let row_keys: Option<std::rc::Rc<Vec<u64>>> = match (on_selection_ids_change, row_key) {
+        (Some(_), Some(key)) => Some(std::rc::Rc::new(rows.iter().map(key).collect())),
+        _ => None,
+    };
     for (row_idx, row_data) in rows
         .iter()
         .enumerate()
@@ -202,8 +215,13 @@ pub(super) fn build_body<T: 'static>(
         .take(virtual_window.len())
     {
         let is_selected = !selected_indices.is_empty() && selected_indices.contains(&row_idx);
+        // Keyed tables identify rows by stable id so GPUI element state
+        // follows the row across sorts and window moves; unkeyed tables
+        // keep positional ids. (u64 keys truncate on 32-bit targets;
+        // keys are expected to be small durable ids.)
+        let element_key = row_key.map_or(row_idx, |key| key(row_data) as usize);
         let mut row_el = div()
-            .id(ElementId::named_usize(table_name.clone(), row_idx))
+            .id(ElementId::named_usize(table_name.clone(), element_key))
             .flex()
             .w_full()
             .border_b_1()
@@ -227,8 +245,10 @@ pub(super) fn build_body<T: 'static>(
         // Selection handler
         if selection_mode != SelectionMode::None {
             row_el = row_el.cursor_pointer();
-            if let Some(handler) = on_selection_change {
-                let handler = handler.clone();
+            if on_selection_change.is_some() || on_selection_ids_change.is_some() {
+                let handler = on_selection_change.clone();
+                let ids_handler = on_selection_ids_change.clone();
+                let row_keys = row_keys.clone();
                 let current_selected = selected_indices.clone();
                 row_el = row_el.on_mouse_down(MouseButton::Left, move |_event, window, cx| {
                     let mut next_selected = (*current_selected).clone();
@@ -246,7 +266,18 @@ pub(super) fn build_body<T: 'static>(
                         }
                         SelectionMode::None => {}
                     }
-                    handler(&next_selected, window, cx);
+                    if let Some(handler) = &handler {
+                        handler(&next_selected, window, cx);
+                    }
+                    if let Some(handler) = &ids_handler
+                        && let Some(keys) = &row_keys
+                    {
+                        let ids: HashSet<u64> = next_selected
+                            .iter()
+                            .filter_map(|&i| keys.get(i).copied())
+                            .collect();
+                        handler(&ids, window, cx);
+                    }
                 });
             }
         }

@@ -94,6 +94,12 @@ pub struct DataVirtualWindow {
 }
 
 impl DataVirtualWindow {
+    /// Overscan used when callers do not specify one.
+    pub const DEFAULT_OVERSCAN: usize = 16;
+    /// Hard overscan ceiling: larger requests are clamped so a caller
+    /// cannot silently re-materialize the whole list through overscan.
+    pub const MAX_OVERSCAN: usize = 64;
+
     pub const fn full(total_items: usize) -> Self {
         Self {
             total_items,
@@ -132,6 +138,7 @@ impl DataVirtualWindow {
             return Self::full(total_items);
         }
 
+        let overscan = overscan.min(Self::MAX_OVERSCAN);
         let first_visible = (scroll_offset.max(0.0) / item_extent).floor() as usize;
         let visible_count = (viewport_extent / item_extent).ceil().max(1.0) as usize;
         let start = first_visible.saturating_sub(overscan);
@@ -201,6 +208,23 @@ pub fn move_key<T: PartialEq + Clone>(
 #[cfg(test)]
 mod tests {
     use super::{DataNavigationAction, DataNavigationState, DataVirtualWindow, move_key};
+
+    #[test]
+    fn viewport_overscan_is_clamped_to_the_bound() {
+        let window = DataVirtualWindow::from_viewport(10_000, 0.0, 32.0, 320.0, 100_000);
+        assert!(
+            window.len() <= 10 + 2 * DataVirtualWindow::MAX_OVERSCAN + 1,
+            "{window:?}"
+        );
+        let exact = DataVirtualWindow::from_viewport(
+            10_000,
+            0.0,
+            32.0,
+            320.0,
+            DataVirtualWindow::DEFAULT_OVERSCAN,
+        );
+        assert_eq!(exact.end, 10 + DataVirtualWindow::DEFAULT_OVERSCAN);
+    }
 
     #[test]
     fn data_navigation_maps_common_keys() {
