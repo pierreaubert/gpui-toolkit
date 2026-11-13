@@ -16,10 +16,52 @@ use std::time::Duration;
 /// continuous frames. Mirrors `android::jni::FRAME_POLL_INTERVAL`.
 pub const FRAME_POLL_INTERVAL: Duration = Duration::from_millis(8);
 
+/// One-shot frame demand registered by GPUI's `schedule_frame`.
+///
+/// `Window::on_next_frame` (and any dirtying refresh) ends in
+/// `PlatformWindow::schedule_frame`; without recording that here, the
+/// event loop has no wake source for a one-shot animation and can block
+/// in the poll indefinitely. The flag is one-shot, not a polling mode:
+/// [`take`](Self::take) at frame delivery clears it, so the loop wakes
+/// at frame cadence for a single frame unless the frame's own callback
+/// schedules another (continuous animation).
+#[derive(Debug, Default)]
+pub struct ScheduledFrame {
+    pending: std::sync::atomic::AtomicBool,
+}
+
+impl ScheduledFrame {
+    /// Create an empty (no frame demanded) schedule flag.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record one demanded frame (idempotent until delivered).
+    pub fn schedule(&self) {
+        self.pending
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether a demanded frame is still undelivered.
+    #[must_use]
+    pub fn is_pending(&self) -> bool {
+        self.pending.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Consume the demand at frame delivery; returns whether one was pending.
+    pub fn take(&self) -> bool {
+        self.pending
+            .swap(false, std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 /// Decide how long the event loop may block waiting for OS events.
 ///
-/// * `needs_frame_pump` — momentum scroll / fling animation is active, so the
-///   loop must wake at frame cadence.
+/// * `needs_frame_pump` — momentum scroll / fling animation is active or a
+///   [`ScheduledFrame`] is pending (GPUI `schedule_frame` demand, e.g. a
+///   one-shot `on_next_frame` animation), so the loop must wake at frame
+///   cadence instead of blocking indefinitely.
 /// * `next_delayed_task` — how long until the next delayed main-thread task is
 ///   due, if any.
 ///
@@ -41,7 +83,8 @@ pub fn frame_poll_timeout(
 /// app is foregrounded (`active`), and at least one wake source fired:
 /// `force_frame` (first frame after poll), `event_woke` (an OS event arrived),
 /// `main_wake` (a main-thread task was dispatched), or `needs_pump`
-/// (momentum scroll / fling animation in progress).
+/// (momentum scroll / fling animation in progress, or a pending
+/// [`ScheduledFrame`]).
 // The flags are independent wake conditions with no natural grouping;
 // bundling them would churn the platform event-loop call sites.
 #[allow(clippy::fn_params_excessive_bools)]
@@ -193,6 +236,40 @@ mod tests {
             Some(FRAME_POLL_INTERVAL)
         );
         assert_eq!(frame_poll_timeout(true, None), Some(FRAME_POLL_INTERVAL));
+    }
+
+    #[test]
+    fn scheduled_frame_is_a_one_shot_wake_source() {
+        let scheduled = ScheduledFrame::new();
+        assert!(!scheduled.is_pending());
+        assert_eq!(frame_poll_timeout(scheduled.is_pending(), None), None);
+        // A one-shot animation registers demand with no input, momentum,
+        // or delayed task: the poll must wake at frame cadence.
+        scheduled.schedule();
+        scheduled.schedule();
+        assert!(scheduled.is_pending());
+        assert_eq!(
+            frame_poll_timeout(scheduled.is_pending(), None),
+            Some(FRAME_POLL_INTERVAL)
+        );
+        assert!(should_pump_frame(
+            true,
+            true,
+            false,
+            false,
+            false,
+            scheduled.is_pending()
+        ));
+        // Delivery consumes the demand: the loop may block again.
+        assert!(scheduled.take());
+        assert!(!scheduled.take());
+        assert_eq!(frame_poll_timeout(scheduled.is_pending(), None), None);
+        // A callback that re-schedules during its frame (continuous
+        // animation) keeps exactly one frame of demand outstanding.
+        scheduled.schedule();
+        assert!(scheduled.take());
+        scheduled.schedule();
+        assert!(scheduled.is_pending());
     }
 
     #[test]

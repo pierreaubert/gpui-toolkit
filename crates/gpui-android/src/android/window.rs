@@ -508,6 +508,10 @@ pub struct AndroidWindow {
     /// Shared scroll state read by the native event loop to decide whether it
     /// must pump another animation frame.
     momentum: Arc<Mutex<MomentumState>>,
+    /// One-shot frame demand from GPUI's `schedule_frame` (`on_next_frame`
+    /// and dirtying refreshes). Part of the event loop's wake decision so
+    /// a one-shot animation cannot stall in an indefinite poll.
+    scheduled_frame: crate::event_stages::ScheduledFrame,
 }
 
 // SAFETY: `WindowState` is protected by a `Mutex`.
@@ -586,6 +590,7 @@ impl AndroidWindow {
             active: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             direct_contact_claims: Arc::new(Mutex::new(HashSet::new())),
             momentum: new_momentum_state(),
+            scheduled_frame: crate::event_stages::ScheduledFrame::new(),
         }))
     }
 
@@ -620,6 +625,7 @@ impl AndroidWindow {
             active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             direct_contact_claims: Arc::new(Mutex::new(HashSet::new())),
             momentum: new_momentum_state(),
+            scheduled_frame: crate::event_stages::ScheduledFrame::new(),
         })
     }
 
@@ -912,14 +918,26 @@ impl AndroidWindow {
     /// callback runs layout → paint → `PlatformWindow::draw` →
     /// `AndroidWindow::draw`, which needs to acquire the same `state` lock
     /// to access the renderer.
-    /// Whether the event loop must continue polling at the frame cadence to
-    /// deliver a coalesced scroll or decelerating fling.
+    /// Whether the event loop must continue polling at the frame cadence:
+    /// a coalesced scroll or decelerating fling is in flight, or GPUI has
+    /// a scheduled frame (`on_next_frame`/refresh) awaiting delivery.
     pub fn needs_frame_pump(&self) -> bool {
+        if self.scheduled_frame.is_pending() {
+            return true;
+        }
         let momentum = self.momentum.lock();
         momentum.has_pending_scroll || momentum.scroller.is_active()
     }
 
+    /// Record GPUI's one-shot frame demand (`PlatformWindow::schedule_frame`).
+    pub fn schedule_frame(&self) {
+        self.scheduled_frame.schedule();
+    }
+
     pub fn request_frame(&self) {
+        // Delivering a frame consumes the scheduled demand; a callback
+        // that re-schedules (continuous animation) sets it again below.
+        self.scheduled_frame.take();
         // Take the callback out of the lock so it can be invoked without
         // holding it.  This lets `draw()` (called from inside the callback)
         // acquire the lock for the renderer.
@@ -1339,6 +1357,90 @@ struct MainThreadInputHandler(Option<PlatformInputHandler>);
 // callback registry uses a Send bound for all callbacks.
 unsafe impl Send for MainThreadInputHandler {}
 
+/// The GPUI main (event-loop) thread, pinned by the first confined
+/// callback construction (all `PlatformWindow::on_*` registrations run
+/// there by GPUI's construction contract).
+fn main_thread_id() -> std::thread::ThreadId {
+    static MAIN_THREAD: std::sync::LazyLock<std::thread::ThreadId> =
+        std::sync::LazyLock::new(|| std::thread::current().id());
+    *MAIN_THREAD
+}
+
+/// A `!Send` GPUI callback confined to the Android main thread.
+///
+/// GPUI hands `PlatformWindow` callbacks as `Box<dyn FnMut>` without a
+/// `Send` bound, while `AndroidWindow`'s callback registry requires
+/// `Send` because the window is shared through `Arc`. The old code
+/// transmuted the boxes to add `Send` at six call sites. This wrapper
+/// makes the claim once, auditable: the callback is only ever invoked
+/// through [`lock`](Self::lock), which asserts the main thread in
+/// every profile, and storage in the registry never invokes it.
+///
+/// Residual, documented: dropping the wrapper off the main thread
+/// drops the callback's captures there. GPUI window teardown is
+/// main-thread by construction (the registry owner is dropped from
+/// destroy paths on the event loop); a typed-command main-thread owner
+/// remains the long-term replacement (audit-20261113 step 3).
+struct MainThreadCallback<I, R> {
+    callback: Mutex<Box<dyn FnMut(I) -> R>>,
+}
+
+// SAFETY: see the type docs — invocation is main-thread asserted in
+// `lock`, and the mutex only serializes storage access.
+unsafe impl<I, R> Send for MainThreadCallback<I, R> {}
+// SAFETY: same confinement as `Send`; shared references can only call
+// `lock`, which asserts the main thread before touching the callback.
+unsafe impl<I, R> Sync for MainThreadCallback<I, R> {}
+
+impl<I, R> MainThreadCallback<I, R> {
+    fn new(callback: Box<dyn FnMut(I) -> R>) -> Self {
+        // Construction pins the main thread on first use.
+        let _ = main_thread_id();
+        Self {
+            callback: Mutex::new(callback),
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Box<dyn FnMut(I) -> R>> {
+        assert_eq!(
+            std::thread::current().id(),
+            main_thread_id(),
+            "GPUI callbacks must be invoked on the Android main thread"
+        );
+        self.callback.lock()
+    }
+}
+
+/// `FnOnce` twin of [`MainThreadCallback`] (close callbacks).
+struct MainThreadFnOnce {
+    callback: Mutex<Option<Box<dyn FnOnce()>>>,
+}
+
+// SAFETY: same main-thread confinement as `MainThreadCallback`.
+unsafe impl Send for MainThreadFnOnce {}
+// SAFETY: same main-thread confinement as `MainThreadCallback`.
+unsafe impl Sync for MainThreadFnOnce {}
+
+impl MainThreadFnOnce {
+    fn new(callback: Box<dyn FnOnce()>) -> Self {
+        let _ = main_thread_id();
+        Self {
+            callback: Mutex::new(Some(callback)),
+        }
+    }
+
+    fn call_once(&self) {
+        assert_eq!(
+            std::thread::current().id(),
+            main_thread_id(),
+            "GPUI callbacks must be invoked on the Android main thread"
+        );
+        if let Some(callback) = self.callback.lock().take() {
+            callback();
+        }
+    }
+}
+
 impl AndroidPlatformWindow {
     /// Create a new `AndroidPlatformWindow` wrapping an existing `AndroidWindow`.
     pub fn new(window: Arc<AndroidWindow>, display: Option<Rc<dyn PlatformDisplay>>) -> Self {
@@ -1522,14 +1624,12 @@ impl PlatformWindow for AndroidPlatformWindow {
         true
     }
 
+    fn schedule_frame(&self) {
+        self.window.schedule_frame();
+    }
+
     fn on_request_frame(&self, callback: Box<dyn FnMut(RequestFrameOptions)>) {
-        // PlatformWindow gives us Box<dyn FnMut(...)> (not Send).
-        // AndroidWindow::on_request_frame requires Send.  On Android the
-        // request-frame callback is always invoked on the main thread, so
-        // this transmute is safe in practice.
-        let send_callback: Box<dyn FnMut(RequestFrameOptions) + Send> =
-            unsafe { std::mem::transmute(callback) };
-        let send_callback = Mutex::new(send_callback);
+        let send_callback = MainThreadCallback::new(callback);
 
         // Also capture the input callback so we can emit momentum scroll
         // events before the GPUI render pass.  The input_callback is stored
@@ -1687,6 +1787,7 @@ impl PlatformWindow for AndroidPlatformWindow {
             cb(RequestFrameOptions {
                 require_presentation: true,
                 force_render: text_dirty,
+                signal_at: None,
             });
         });
     }
@@ -1694,13 +1795,7 @@ impl PlatformWindow for AndroidPlatformWindow {
     fn on_input(&self, callback: Box<dyn FnMut(gpui::PlatformInput) -> DispatchEventResult>) {
         // Bridge AndroidWindow touch/key callbacks → gpui::PlatformInput.
         //
-        // PlatformWindow gives us Box<dyn FnMut(...)> (not Send).
-        // AndroidWindow callbacks require Send.  On Android the input
-        // callbacks are always invoked on the main thread, so this
-        // transmute is safe in practice.
-        let send_callback: Box<dyn FnMut(gpui::PlatformInput) -> DispatchEventResult + Send> =
-            unsafe { std::mem::transmute(callback) };
-        let input_cb = Arc::new(Mutex::new(send_callback));
+        let input_cb = Arc::new(MainThreadCallback::new(callback));
 
         // Store a clone for the momentum pump in on_request_frame.
         *self.momentum_input_cb.lock() = {
@@ -2086,11 +2181,7 @@ impl PlatformWindow for AndroidPlatformWindow {
 
     fn on_active_status_change(&self, callback: Box<dyn FnMut(bool)>) {
         // Wire the callback to AndroidWindow's active status change.
-        // PlatformWindow gives us Box<dyn FnMut(bool)> (not Send).
-        // AndroidWindow::on_active_status_change requires Send.
-        // On Android, this callback is always invoked on the main thread.
-        let send_callback: Box<dyn FnMut(bool) + Send> = unsafe { std::mem::transmute(callback) };
-        let send_callback = Mutex::new(send_callback);
+        let send_callback = MainThreadCallback::new(callback);
         self.window.on_active_status_change(move |active| {
             let mut cb = send_callback.lock();
             cb(active);
@@ -2103,21 +2194,21 @@ impl PlatformWindow for AndroidPlatformWindow {
     }
 
     fn on_resize(&self, callback: Box<dyn FnMut(gpui::Size<gpui::Pixels>, f32)>) {
-        // PlatformWindow::on_resize gives us Box<dyn FnMut(...)> (not Send).
-        // AndroidWindow::on_resize requires Send.  On Android the resize
-        // callback is always invoked on the main thread, so this is safe.
-        let send_callback: Box<dyn FnMut(gpui::Size<gpui::Pixels>, f32) + Send> =
-            unsafe { std::mem::transmute(callback) };
-        let send_callback = Arc::new(Mutex::new(send_callback));
+        // Adapt the two-argument GPUI callback to the wrapper's
+        // single-argument shape at construction.
+        let mut callback = callback;
+        let send_callback = Arc::new(MainThreadCallback::new(Box::new(
+            move |(size, scale): (gpui::Size<gpui::Pixels>, f32)| callback(size, scale),
+        )));
         self.window.on_resize(move |device_size, scale| {
             let mut cb = send_callback.lock();
-            cb(
+            cb((
                 gpui::size(
                     gpui::px(device_size.width.0 as f32 / scale),
                     gpui::px(device_size.height.0 as f32 / scale),
                 ),
                 scale,
-            );
+            ));
         });
     }
 
@@ -2134,22 +2225,13 @@ impl PlatformWindow for AndroidPlatformWindow {
     }
 
     fn on_close(&self, callback: Box<dyn FnOnce()>) {
-        // PlatformWindow gives us Box<dyn FnOnce()> (not Send).
-        // AndroidWindow::on_close requires Send.  On Android, the close
-        // callback is always invoked on the main thread, so this transmute
-        // is safe in practice.
-        let send_callback: Box<dyn FnOnce() + Send + 'static> =
-            unsafe { std::mem::transmute::<Box<dyn FnOnce()>, Box<dyn FnOnce() + Send>>(callback) };
-        self.window.on_close(send_callback);
+        let send_callback = MainThreadFnOnce::new(callback);
+        self.window.on_close(move || send_callback.call_once());
     }
 
     fn on_appearance_changed(&self, callback: Box<dyn FnMut()>) {
         // Wire to system dark mode changes via Configuration.
-        // PlatformWindow gives us Box<dyn FnMut()> (not Send).
-        // AndroidWindow::on_appearance_changed requires Send.
-        // On Android, this callback is always invoked on the main thread.
-        let send_callback: Box<dyn FnMut() + Send> = unsafe { std::mem::transmute(callback) };
-        let send_callback = Mutex::new(send_callback);
+        let send_callback = MainThreadCallback::new(callback);
         self.window.on_appearance_changed(move |_appearance| {
             let mut cb = send_callback.lock();
             cb();
@@ -2689,6 +2771,26 @@ mod tests {
         let events = received.lock();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].key_code, 29);
+    }
+
+    #[test]
+    fn scheduled_frame_wakes_the_pump_until_delivered() {
+        let w = AndroidWindow::headless(1080, 1920, 2.0);
+        assert!(!w.needs_frame_pump());
+        w.schedule_frame();
+        assert!(
+            w.needs_frame_pump(),
+            "one-shot animation must wake the poll"
+        );
+        w.request_frame();
+        assert!(!w.needs_frame_pump(), "delivery consumes the demand");
+        // Re-scheduling from inside the delivered frame keeps demand.
+        let w2 = AndroidWindow::headless(1080, 1920, 2.0);
+        let w2_capture = w2.clone();
+        w2.on_request_frame(move || w2_capture.schedule_frame());
+        w2.schedule_frame();
+        w2.request_frame();
+        assert!(w2.needs_frame_pump());
     }
 
     #[test]
