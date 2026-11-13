@@ -432,11 +432,13 @@ pub fn render_generic_freq_chart(
             .map(|a| a.title.clone())
             .unwrap_or_default();
         // Title must be 'static for AxisConfig; leak is avoided by using
-        // the two known secondary titles, falling back to "DI (dB)".
+        // the known secondary titles, falling back to "DI (dB)".
         let title2: &'static str = match title2.as_str() {
             "" => "DI (dB)",
             other => {
-                if other.contains("DI") {
+                if other.starts_with("Phase") {
+                    "Phase (deg)"
+                } else if other.contains("DI") {
                     "DI (dB)"
                 } else {
                     "Secondary"
@@ -447,7 +449,7 @@ pub fn render_generic_freq_chart(
             &y2_scale,
             &AxisConfig::right()
                 .with_ticks_inside(true)
-                .with_tick_values(ticks(y2_domain, nice_step(y2_domain.1 - y2_domain.0)))
+                .with_tick_values(ticks(y2_domain, if title2 == "Phase (deg)" { 90.0 } else { nice_step(y2_domain.1 - y2_domain.0) }))
                 .with_formatter(fmt)
                 .with_title(title2)
                 .with_label_font_size(label_size)
@@ -539,11 +541,9 @@ fn add_lines<XS: Scale<f64, f64>, YS: Scale<f64, f64>>(
         if trace.mode == TraceMode::None {
             continue;
         }
-        let points: Vec<LinePoint> = trace
-            .points()
-            .iter()
-            .map(|&(x, y)| LinePoint::new(x, y))
-            .collect();
+        // Null/NaN samples break wrapped phase traces into finite runs.
+        let points: Vec<LinePoint> = trace.x.iter().zip(&trace.y)
+            .map(|(&x, &y)| LinePoint::new(x, y)).collect();
         if points.is_empty() {
             continue;
         }
@@ -565,7 +565,11 @@ fn add_lines<XS: Scale<f64, f64>, YS: Scale<f64, f64>>(
         } else {
             ys
         };
-        area = area.child(super::render_marked_line(xs, scale_y, &points, &config));
+        for segment in points.split(|p| !p.x.is_finite() || !p.y.is_finite()) {
+            if !segment.is_empty() {
+                area = area.child(super::render_marked_line(xs, scale_y, segment, &config));
+            }
+        }
     }
     area
 }

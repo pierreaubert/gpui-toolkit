@@ -339,6 +339,21 @@ fn numbers(value: &Value) -> Result<Vec<f64>, String> {
     Ok(values)
 }
 
+// Plotly scatter nulls are line breaks, not malformed measurement data.
+fn line_numbers(value: &Value) -> Result<Vec<f64>, String> {
+    if let Some(array) = value.as_array() {
+        array.iter().map(|sample| {
+            if sample.is_null() {
+                Ok(f64::NAN)
+            } else {
+                sample.as_f64().ok_or_else(|| "Non-numeric line sample".to_owned())
+            }
+        }).collect()
+    } else {
+        numbers(value)
+    }
+}
+
 /// Maps a Plotly `marker.symbol` name to a d3rs symbol type.
 pub fn plotly_symbol(name: &str) -> Option<d3rs::shape::SymbolType> {
     match name {
@@ -844,8 +859,8 @@ pub fn parse_plot(plot: &Value) -> Result<crate::types::PlotData, String> {
             }
             _ => {
                 generic.kind = crate::types::TraceKind::Scatter;
-                generic.x = numbers(&trace["x"]).unwrap_or_default();
-                generic.y = numbers(&trace["y"]).unwrap_or_default();
+                generic.x = line_numbers(&trace["x"]).unwrap_or_default();
+                generic.y = line_numbers(&trace["y"]).unwrap_or_default();
             }
         }
         out.traces.push(generic);
@@ -861,6 +876,17 @@ fn d3rs_color_from_hex(hex: u32) -> d3rs::color::D3Color {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn phase_null_samples_preserve_plot_gaps() {
+        let plot = serde_json::json!({"data": [{"name": "Phase (deg)", "type": "scatter",
+            "x": [100.0, 200.0, 200.0], "y": [-170.0, null, 170.0], "yaxis": "y2"}],
+            "layout": {"yaxis2": {"range": [-180.0, 360.0], "title": {"text": "Phase (deg)"}}}});
+        let parsed = parse_plot(&plot).unwrap();
+        assert_eq!(parsed.traces[0].y.len(), 3);
+        assert!(parsed.traces[0].y[1].is_nan());
+        assert!(parsed.traces[0].secondary_axis);
+    }
 
     #[test]
     fn real_api_fixture_preserves_samples_and_energy_weighted_pir() {

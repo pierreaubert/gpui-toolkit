@@ -1,5 +1,10 @@
 # Unreleased
 
+## Fixed
+
+- Preserve null samples as line breaks in scatter plots, including phase wraps.
+- Label phase secondary axes in degrees.
+
 # 0.11.1
 
 ## Changed
