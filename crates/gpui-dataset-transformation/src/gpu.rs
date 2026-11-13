@@ -98,7 +98,10 @@ use gpui_mesh::tetrahedra as tetrahedralize;
 /// Workgroup grid for `count` invocations of a 64-wide kernel,
 /// partitioned across the x/y dimensions within device limits.
 /// Returns `(workgroups_x, workgroups_y, grid_stride_invocations)`.
-fn dispatch_plan(count: usize, device: &wgpu::Device) -> Result<(u32, u32, u32), GpuError> {
+pub(crate) fn dispatch_plan(
+    count: usize,
+    device: &wgpu::Device,
+) -> Result<(u32, u32, u32), GpuError> {
     dispatch_plan_for(count, device.limits().max_compute_workgroups_per_dimension)
 }
 
@@ -123,7 +126,7 @@ fn dispatch_plan_for(count: usize, max_per_dimension: u32) -> Result<(u32, u32, 
 
 /// Checked storage-buffer byte size against device limits, before any
 /// allocation is attempted.
-fn checked_storage_bytes(
+pub(crate) fn checked_storage_bytes(
     elements: usize,
     element_bytes: usize,
     device: &wgpu::Device,
@@ -198,6 +201,7 @@ pub struct GpuFlow {
     queue: Arc<wgpu::Queue>,
     pipeline: wgpu::ComputePipeline,
     layout: wgpu::BindGroupLayout,
+    pub(crate) threshold: crate::gpu_threshold::ThresholdPipelines,
     /// Backend name reported by the adapter (for diagnostics).
     pub backend: String,
 }
@@ -305,11 +309,13 @@ impl GpuFlow {
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: None,
         });
+        let threshold = crate::gpu_threshold::ThresholdPipelines::new(&device);
         Self {
             device,
             queue,
             pipeline,
             layout,
+            threshold,
             backend,
         }
     }
