@@ -277,7 +277,7 @@ fn mux_mp4_to_command(
         let stdout_thread = scope.spawn(move || {
             let mut prefix = [0u8; 8];
             let mut total = 0usize;
-            let mut chunk = [0u8; 64 * 1024];
+            let mut chunk = vec![0u8; 64 * 1024];
             loop {
                 match stdout.read(&mut chunk) {
                     Ok(0) => break,
