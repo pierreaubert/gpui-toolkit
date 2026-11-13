@@ -565,7 +565,7 @@ fn add_lines<XS: Scale<f64, f64>, YS: Scale<f64, f64>>(
         } else {
             ys
         };
-        area = area.child(render_line(xs, scale_y, &points, &config));
+        area = area.child(super::render_marked_line(xs, scale_y, &points, &config));
     }
     area
 }

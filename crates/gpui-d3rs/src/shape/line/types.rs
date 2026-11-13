@@ -164,7 +164,7 @@ where
               (rel_points, segments_to_draw, width, height, origin_x, origin_y): LinePaintInputs,
               window,
               _cx| {
-            if segments_to_draw.is_empty() {
+            if segments_to_draw.is_empty() && !show_points {
                 return;
             }
 

@@ -1,7 +1,7 @@
 use d3rs::axis::{AxisConfig, render_axis};
 use d3rs::grid::{GridConfig, render_grid};
-use d3rs::scale::{LinearScale, LogScale};
-use d3rs::shape::{CurveType, LineConfig, render_line};
+use d3rs::scale::{LinearScale, LogScale, Scale};
+use d3rs::shape::{CurveType, LineConfig, LinePoint, render_line};
 use gpui::prelude::FluentBuilder;
 use gpui::prelude::IntoElement;
 use gpui::{Div, ParentElement, Styled, div, px};
@@ -11,6 +11,51 @@ use super::types::{BrushOverlay, PlotCurve, SecondaryAxisConfig};
 use super::utils::ChartTheme;
 
 pub mod generic;
+
+/// Leaves roughly two dozen symbols across a typical frequency plot.
+/// Selection happens in screen space so linear and log grids behave alike.
+const MARKER_SPACING_PX: f64 = 40.0;
+
+fn marker_points<XS: Scale<f64, f64>>(xs: &XS, points: &[LinePoint]) -> Vec<LinePoint> {
+    let (a, b) = xs.range();
+    let mut last = None;
+    points
+        .iter()
+        .copied()
+        .filter(|point| {
+            let x = xs.scale(point.x);
+            if !x.is_finite() || !point.y.is_finite() || x < a.min(b) || x > a.max(b) {
+                return false;
+            }
+            if last.is_some_and(|previous: f64| (x - previous).abs() < MARKER_SPACING_PX) {
+                return false;
+            }
+            last = Some(x);
+            true
+        })
+        .collect()
+}
+
+/// Draws the complete curve and a sparse overlay of measurement symbols.
+fn render_marked_line<XS, YS>(xs: &XS, ys: &YS, points: &[LinePoint], config: &LineConfig) -> Div
+where
+    XS: Scale<f64, f64>,
+    YS: Scale<f64, f64>,
+{
+    let line = config.clone().show_points(false);
+    let mut layer = div()
+        .absolute()
+        .inset_0()
+        .child(render_line(xs, ys, points, &line));
+    if config.show_points {
+        for point in marker_points(xs, points) {
+            // A single point has no line segments, so symbols never add shortcuts
+            // across peaks or dips in the full-resolution measurement curve.
+            layer = layer.child(render_line(xs, ys, &[point], config));
+        }
+    }
+    layer
+}
 
 /// Padding between a vertical axis title and its tick values.
 ///
@@ -341,7 +386,7 @@ pub fn render_freq_spl_plot(
                                     .point_symbol(symbol)
                                     .point_radius((curve.marker_size / 2.0).max(1.5));
                             }
-                            Some(render_line(
+                            Some(render_marked_line(
                                 &freq_scale,
                                 &spl_scale,
                                 &curve.points,
@@ -367,7 +412,7 @@ pub fn render_freq_spl_plot(
                                     .point_symbol(symbol)
                                     .point_radius((curve.marker_size / 2.0).max(1.5));
                             }
-                            Some(render_line(
+                            Some(render_marked_line(
                                 &freq_scale,
                                 sec_scale,
                                 &curve.points,
@@ -496,5 +541,54 @@ mod tests {
 
         assert!(wide.left_axis_width > narrow.left_axis_width);
         assert!(wide.right_axis_width > narrow.right_axis_width);
+    }
+}
+
+#[cfg(test)]
+mod marker_tests {
+    use super::*;
+
+    #[test]
+    fn markers_use_screen_spacing_without_changing_curve_samples() {
+        let xs = LogScale::new().domain(20.0, 20000.0).range(0.0, 960.0);
+        for count in [301, 3001] {
+            let points: Vec<_> = (0..count)
+                .map(|i| {
+                    LinePoint::new(
+                        20.0 * 1000_f64.powf(f64::from(i) / f64::from(count - 1)),
+                        f64::from(i),
+                    )
+                })
+                .collect();
+            let markers = marker_points(&xs, &points);
+            assert!((23..=25).contains(&markers.len()));
+            assert!(
+                markers
+                    .windows(2)
+                    .all(|w| xs.scale(w[1].x) - xs.scale(w[0].x) >= MARKER_SPACING_PX)
+            );
+            assert_eq!(points.len(), count as usize);
+            assert!(
+                markers
+                    .iter()
+                    .all(|m| points.iter().any(|p| p.x == m.x && p.y == m.y))
+            );
+        }
+    }
+
+    #[test]
+    fn markers_skip_offscreen_points_and_handle_reversed_axes() {
+        let points: Vec<_> = (-1..=11)
+            .map(|i| LinePoint::new(f64::from(i), 0.0))
+            .collect();
+        for range in [(0.0, 100.0), (100.0, 0.0)] {
+            let xs = LinearScale::new().domain(0.0, 10.0).range(range.0, range.1);
+            let markers = marker_points(&xs, &points);
+            assert_eq!(
+                markers.iter().map(|p| p.x).collect::<Vec<_>>(),
+                [0.0, 4.0, 8.0]
+            );
+        }
+        assert!(marker_points(&LinearScale::new(), &[]).is_empty());
     }
 }

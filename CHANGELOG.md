@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 2026-11-13
+
+### gpui-spinorama 0.11.2
+
+- Space frequency-plot markers at least 40 logical pixels apart. Curves retain
+  their full measurement detail and legends keep their symbols.
+
+### gpui-d3rs 0.11.1
+
+- Render isolated line-chart markers even when there are no connecting segments.
+
 ## 0.11.0
 
 ### Changed
