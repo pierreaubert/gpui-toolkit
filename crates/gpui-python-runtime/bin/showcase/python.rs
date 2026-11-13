@@ -27,6 +27,135 @@ type SharedResult<T> = Arc<Mutex<Option<Result<T, Box<dyn Error + Send + Sync>>>
 const MAX_OUTBOUND_MESSAGES: usize = 128;
 const MAX_OUTBOUND_BYTES: usize = 2 * 1024 * 1024;
 
+/// Inbound (child → host) queue bounds. The message count alone let 256
+/// queued multi-MiB frames be retained; the aggregate byte budget is
+/// the binding constraint. It must exceed the largest single frame
+/// (16 MiB dataset/mesh frames) or a lone frame could never be queued.
+const MAX_INBOUND_MESSAGES: usize = 256;
+const MAX_INBOUND_BYTES: usize = 32 * 1024 * 1024;
+
+/// Aggregate inbound byte budget shared by the reader thread (acquires
+/// before queueing) and the session consumer (releases on receive).
+/// Acquisition blocks the reader thread — never the GPUI thread — so a
+/// chatty child back-pressures on its stdout pipe instead of growing
+/// host memory.
+struct InboundBudget {
+    state: Mutex<InboundBudgetState>,
+    freed: std::sync::Condvar,
+}
+
+struct InboundBudgetState {
+    outstanding_bytes: usize,
+    high_water_bytes: usize,
+    max_bytes: usize,
+    closed: bool,
+}
+
+impl InboundBudget {
+    fn new(max_bytes: usize) -> Self {
+        Self {
+            state: Mutex::new(InboundBudgetState {
+                outstanding_bytes: 0,
+                high_water_bytes: 0,
+                max_bytes,
+                closed: false,
+            }),
+            freed: std::sync::Condvar::new(),
+        }
+    }
+
+    /// Block until `bytes` fit the budget. A single message larger than
+    /// the budget is admitted when nothing else is outstanding, so a
+    /// per-type-capped frame can never deadlock the reader. Returns
+    /// false once the session is closed.
+    fn acquire(&self, bytes: usize) -> bool {
+        let mut state = self.state.lock().expect("inbound budget lock");
+        loop {
+            if state.closed {
+                return false;
+            }
+            if state.outstanding_bytes == 0
+                || state.outstanding_bytes.saturating_add(bytes) <= state.max_bytes
+            {
+                state.outstanding_bytes = state.outstanding_bytes.saturating_add(bytes);
+                state.high_water_bytes = state.high_water_bytes.max(state.outstanding_bytes);
+                return true;
+            }
+            state = self.freed.wait(state).expect("inbound budget lock");
+        }
+    }
+
+    fn release(&self, bytes: usize) {
+        let mut state = self.state.lock().expect("inbound budget lock");
+        state.outstanding_bytes = state.outstanding_bytes.saturating_sub(bytes);
+        drop(state);
+        self.freed.notify_all();
+    }
+
+    fn close(&self) {
+        let mut state = self.state.lock().expect("inbound budget lock");
+        state.closed = true;
+        drop(state);
+        self.freed.notify_all();
+    }
+
+    fn outstanding_bytes(&self) -> usize {
+        self.state
+            .lock()
+            .expect("inbound budget lock")
+            .outstanding_bytes
+    }
+
+    fn high_water_bytes(&self) -> usize {
+        self.state
+            .lock()
+            .expect("inbound budget lock")
+            .high_water_bytes
+    }
+}
+
+/// Retained-byte charge for one inbound message: control line + binary
+/// payload + fixed envelope overhead.
+fn inbound_charge(line_bytes: usize, payload_bytes: usize) -> usize {
+    line_bytes.saturating_add(payload_bytes).saturating_add(256)
+}
+
+type InboundMessage = (usize, Result<PythonMessage, String>);
+
+/// Acquire budget, queue `message` with its charge, and wake the
+/// consumer. Returns false when the session/channel is gone.
+fn send_inbound(
+    tx: &SyncSender<InboundMessage>,
+    budget: &InboundBudget,
+    wake: &PythonSessionWake,
+    charge: usize,
+    message: Result<PythonMessage, String>,
+) -> bool {
+    if !budget.acquire(charge) {
+        return false;
+    }
+    match tx.send((charge, message)) {
+        Ok(()) => {
+            wake.notify();
+            true
+        }
+        Err(_) => {
+            budget.release(charge);
+            false
+        }
+    }
+}
+
+fn send_inbound_err(
+    tx: &SyncSender<InboundMessage>,
+    budget: &InboundBudget,
+    wake: &PythonSessionWake,
+    message: String,
+) -> bool {
+    let charge = inbound_charge(message.len(), 0);
+    send_inbound(tx, budget, wake, charge, Err(message))
+}
+
 // Diagnostics must not retain arbitrary child output for the session lifetime.
 const MAX_STDERR_LINE_BYTES: usize = 8192;
 const MAX_STDERR_BYTES: usize = 256 * 1024;
@@ -448,11 +577,13 @@ struct MmapSessionConfig {
 pub(super) struct PythonSession {
     child: Arc<Mutex<std::process::Child>>,
     outbound: PythonOutboundWriter,
-    messages: Receiver<Result<PythonMessage, String>>,
+    messages: Receiver<InboundMessage>,
+    inbound: Arc<InboundBudget>,
     /// Messages emitted by `on_session_ready` can legally precede the initial
     /// snapshot (for example restored job updates). Keep them until the host
     /// entity has been constructed instead of treating ordering as fatal.
-    pending: Arc<Mutex<VecDeque<PythonMessage>>>,
+    /// Charges stay attached so the aggregate budget covers this queue too.
+    pending: Arc<Mutex<VecDeque<InboundMessage>>>,
     stderr: Arc<Mutex<StderrLog>>,
     wake: PythonSessionWake,
     /// Owns and crash-cleans all mmap publication files for this session.
@@ -577,11 +708,15 @@ impl PythonSession {
 
     pub fn try_recv(&self) -> Option<Result<PythonMessage, String>> {
         if let Ok(mut pending) = self.pending.lock()
-            && let Some(message) = pending.pop_front()
+            && let Some((charge, message)) = pending.pop_front()
         {
-            return Some(Ok(message));
+            self.inbound.release(charge);
+            return Some(message);
         }
-        self.messages.try_recv().ok()
+        self.messages.try_recv().ok().map(|(charge, message)| {
+            self.inbound.release(charge);
+            message
+        })
     }
 
     pub fn stderr_diagnostics(&self) -> String {
@@ -596,6 +731,14 @@ impl PythonSession {
     }
 
     fn recv(&self) -> Result<PythonMessage, Box<dyn Error + Send + Sync>> {
+        let (charge, message) = self.recv_charged()?;
+        self.inbound.release(charge);
+        message.map_err(Into::into)
+    }
+
+    /// Receive with the inbound charge still attached (startup replay
+    /// keeps charges so `pending` stays inside the aggregate budget).
+    fn recv_charged(&self) -> Result<InboundMessage, Box<dyn Error + Send + Sync>> {
         if let Ok(mut pending) = self.pending.lock()
             && let Some(message) = pending.pop_front()
         {
@@ -603,11 +746,10 @@ impl PythonSession {
         }
         self.messages
             .recv()
-            .map_err(|error| -> Box<dyn Error + Send + Sync> { error.to_string().into() })?
-            .map_err(Into::into)
+            .map_err(|error| -> Box<dyn Error + Send + Sync> { error.to_string().into() })
     }
 
-    fn prepend_messages(&self, messages: Vec<PythonMessage>) {
+    fn prepend_messages(&self, messages: Vec<InboundMessage>) {
         if let Ok(mut pending) = self.pending.lock() {
             for message in messages.into_iter().rev() {
                 pending.push_front(message);
@@ -648,6 +790,8 @@ impl PythonSession {
 impl Drop for PythonSession {
     fn drop(&mut self) {
         self.wake.notify();
+        // Unblock a reader thread waiting on the inbound byte budget.
+        self.inbound.close();
         let child = self.child.clone();
         let outbound = self.outbound.clone();
         let resource_directory = self.resource_directory.clone();
@@ -767,11 +911,19 @@ fn spawn_python_session_for_script(
         .ok_or("failed to capture Python stderr")?;
     // Keep the render thread decoupled from a chatty child while bounding host
     // memory. Backpressure is applied on this reader thread, never in GPUI.
-    let (tx, rx) = mpsc::sync_channel(256);
+    let (tx, rx) = mpsc::sync_channel(MAX_INBOUND_MESSAGES);
+    let inbound = Arc::new(InboundBudget::new(MAX_INBOUND_BYTES));
+    let reader_budget = inbound.clone();
     let wake = PythonSessionWake::new();
     let reader_wake = wake.clone();
     std::thread::spawn(move || {
-        read_python_messages_with_mmap(BufReader::new(stdout), tx, reader_wake, Some(mmap_config));
+        read_python_messages_with_mmap(
+            BufReader::new(stdout),
+            tx,
+            reader_budget,
+            reader_wake,
+            Some(mmap_config),
+        );
     });
     let stderr_lines = Arc::new(Mutex::new(StderrLog::default()));
     let stderr_sink = stderr_lines.clone();
@@ -794,6 +946,7 @@ fn spawn_python_session_for_script(
         child: Arc::new(Mutex::new(child)),
         outbound,
         messages: rx,
+        inbound,
         pending: Arc::new(Mutex::new(VecDeque::new())),
         stderr: stderr_lines,
         wake,
@@ -804,10 +957,16 @@ fn spawn_python_session_for_script(
 #[cfg(test)]
 fn read_python_messages<R: BufRead>(
     reader: R,
-    tx: SyncSender<Result<PythonMessage, String>>,
+    tx: SyncSender<InboundMessage>,
     reader_wake: PythonSessionWake,
 ) {
-    read_python_messages_with_mmap(reader, tx, reader_wake, None);
+    read_python_messages_with_mmap(
+        reader,
+        tx,
+        Arc::new(InboundBudget::new(MAX_INBOUND_BYTES)),
+        reader_wake,
+        None,
+    );
 }
 
 fn prepare_mapped_frame(
@@ -899,7 +1058,8 @@ fn read_control_line<R: BufRead>(
 
 fn read_python_messages_with_mmap<R: BufRead>(
     mut reader: R,
-    tx: SyncSender<Result<PythonMessage, String>>,
+    tx: SyncSender<InboundMessage>,
+    budget: Arc<InboundBudget>,
     reader_wake: PythonSessionWake,
     mmap_config: Option<MmapSessionConfig>,
 ) {
@@ -907,24 +1067,28 @@ fn read_python_messages_with_mmap<R: BufRead>(
     loop {
         match read_control_line(&mut reader, &mut line, DEFAULT_MAX_SESSION_MESSAGE_BYTES) {
             Ok(ControlLine::End) => {
-                let _ = tx.send(Err("Python process closed its session stream".into()));
-                reader_wake.notify();
+                send_inbound_err(
+                    &tx,
+                    &budget,
+                    &reader_wake,
+                    "Python process closed its session stream".into(),
+                );
                 return;
             }
             Ok(ControlLine::Message) => {}
             Ok(ControlLine::Oversized) => {
-                if tx
-                    .send(Err("Python session message exceeds maximum size".into()))
-                    .is_err()
-                {
+                if !send_inbound_err(
+                    &tx,
+                    &budget,
+                    &reader_wake,
+                    "Python session message exceeds maximum size".into(),
+                ) {
                     return;
                 }
-                reader_wake.notify();
                 continue;
             }
             Err(error) => {
-                let _ = tx.send(Err(error.to_string()));
-                reader_wake.notify();
+                send_inbound_err(&tx, &budget, &reader_wake, error.to_string());
                 return;
             }
         }
@@ -938,8 +1102,12 @@ fn read_python_messages_with_mmap<R: BufRead>(
             continue;
         }
         if line.len() > DEFAULT_MAX_SESSION_MESSAGE_BYTES {
-            let _ = tx.send(Err("Python session message exceeds maximum size".into()));
-            reader_wake.notify();
+            send_inbound_err(
+                &tx,
+                &budget,
+                &reader_wake,
+                "Python session message exceeds maximum size".into(),
+            );
             // The bounded reader consumed the complete control line, so the
             // newline-delimited stream is still synchronized. Keep the
             // child alive and allow a later valid patch or heartbeat to
@@ -949,8 +1117,7 @@ fn read_python_messages_with_mmap<R: BufRead>(
         let mut parsed = match parse_python_message(&line, DEFAULT_MAX_SESSION_MESSAGE_BYTES) {
             Ok(message) => message,
             Err(error) => {
-                let _ = tx.send(Err(error.to_string()));
-                reader_wake.notify();
+                send_inbound_err(&tx, &budget, &reader_wake, error.to_string());
                 // JSON/control-message failures are line-local. The
                 // reader has consumed the delimiter, unlike a malformed
                 // binary frame whose payload length can desynchronize the
@@ -960,84 +1127,142 @@ fn read_python_messages_with_mmap<R: BufRead>(
         };
         if let PythonMessage::ResourceFrame(frame) = &mut parsed {
             if frame.byte_length > gpui_python_runtime::audio_stream::MAX_AUDIO_FRAME_BYTES {
-                let _ = tx.send(Err("Python audio frame exceeds maximum size".into()));
-                reader_wake.notify();
+                send_inbound_err(
+                    &tx,
+                    &budget,
+                    &reader_wake,
+                    "Python audio frame exceeds maximum size".into(),
+                );
                 return;
             }
             frame.payload.resize(frame.byte_length, 0);
             if let Err(error) = reader.read_exact(&mut frame.payload) {
-                let _ = tx.send(Err(format!("truncated Python audio frame: {error}")));
-                reader_wake.notify();
+                send_inbound_err(
+                    &tx,
+                    &budget,
+                    &reader_wake,
+                    format!("truncated Python audio frame: {error}"),
+                );
                 return;
             }
             let mut delimiter = [0_u8; 1];
             if reader.read_exact(&mut delimiter).is_err() || delimiter[0] != b'\n' {
-                let _ = tx.send(Err("Python audio frame is missing its delimiter".into()));
-                reader_wake.notify();
+                send_inbound_err(
+                    &tx,
+                    &budget,
+                    &reader_wake,
+                    "Python audio frame is missing its delimiter".into(),
+                );
                 return;
             }
         } else if let PythonMessage::DatasetFrame(frame) = &mut parsed {
             if frame.byte_length > gpui_python_runtime::dataset_frames::MAX_DATASET_FRAME_BYTES {
-                let _ = tx.send(Err("Python dataset frame exceeds maximum size".into()));
-                reader_wake.notify();
+                send_inbound_err(
+                    &tx,
+                    &budget,
+                    &reader_wake,
+                    "Python dataset frame exceeds maximum size".into(),
+                );
                 return;
             }
             frame.payload.resize(frame.byte_length, 0);
             if let Err(error) = reader.read_exact(&mut frame.payload) {
-                let _ = tx.send(Err(format!("truncated Python dataset frame: {error}")));
-                reader_wake.notify();
+                send_inbound_err(
+                    &tx,
+                    &budget,
+                    &reader_wake,
+                    format!("truncated Python dataset frame: {error}"),
+                );
                 return;
             }
             let mut delimiter = [0_u8; 1];
             if reader.read_exact(&mut delimiter).is_err() || delimiter[0] != b'\n' {
-                let _ = tx.send(Err("Python dataset frame missing its delimiter".into()));
-                reader_wake.notify();
+                send_inbound_err(
+                    &tx,
+                    &budget,
+                    &reader_wake,
+                    "Python dataset frame missing its delimiter".into(),
+                );
                 return;
             }
             if let Err(error) = frame.validate() {
-                let _ = tx.send(Err(format!("invalid Python dataset frame: {error}")));
-                reader_wake.notify();
+                send_inbound_err(
+                    &tx,
+                    &budget,
+                    &reader_wake,
+                    format!("invalid Python dataset frame: {error}"),
+                );
             }
         } else if let PythonMessage::MappedDatasetFrame(frame) = &mut parsed {
             if let Err(error) = prepare_mapped_frame(frame, mmap_config.as_ref()) {
-                let _ = tx.send(Err(error));
-                reader_wake.notify();
+                send_inbound_err(&tx, &budget, &reader_wake, error);
             }
         } else if let PythonMessage::MeshFrame(frame) = &mut parsed {
             let byte_length = frame.payload.len();
             if byte_length > gpui_python_runtime::mesh_frames::MAX_MESH_FRAME_BYTES {
-                let _ = tx.send(Err("Python mesh frame exceeds maximum size".into()));
-                reader_wake.notify();
+                send_inbound_err(
+                    &tx,
+                    &budget,
+                    &reader_wake,
+                    "Python mesh frame exceeds maximum size".into(),
+                );
                 return;
             }
             frame.payload.resize(byte_length, 0);
             if let Err(error) = reader.read_exact(&mut frame.payload) {
-                let _ = tx.send(Err(format!("truncated Python mesh frame: {error}")));
-                reader_wake.notify();
+                send_inbound_err(
+                    &tx,
+                    &budget,
+                    &reader_wake,
+                    format!("truncated Python mesh frame: {error}"),
+                );
                 return;
             }
             let mut delimiter = [0_u8; 1];
             if reader.read_exact(&mut delimiter).is_err() || delimiter[0] != b'\n' {
-                let _ = tx.send(Err("Python mesh frame is missing its delimiter".into()));
-                reader_wake.notify();
+                send_inbound_err(
+                    &tx,
+                    &budget,
+                    &reader_wake,
+                    "Python mesh frame is missing its delimiter".into(),
+                );
                 return;
             }
             if let Err(error) = frame.validate() {
-                let _ = tx.send(Err(format!("invalid Python mesh frame: {error}")));
-                reader_wake.notify();
+                send_inbound_err(
+                    &tx,
+                    &budget,
+                    &reader_wake,
+                    format!("invalid Python mesh frame: {error}"),
+                );
                 // The payload and delimiter have both been consumed, so the
                 // newline-delimited stream is still synchronized. Keep the
                 // session alive and allow a later generation or heartbeat to
                 // recover after a frame-local validation error.
             }
         }
-        if tx.send(Ok(parsed)).is_err() {
+        let payload_bytes = match &parsed {
+            PythonMessage::ResourceFrame(frame) => frame.payload.len(),
+            PythonMessage::DatasetFrame(frame) => frame.payload.len(),
+            PythonMessage::MeshFrame(frame) => frame.payload.len(),
+            _ => 0,
+        };
+        if !send_inbound(
+            &tx,
+            &budget,
+            &reader_wake,
+            inbound_charge(line.len(), payload_bytes),
+            Ok(parsed),
+        ) {
             break;
         }
-        reader_wake.notify();
     }
-    let _ = tx.send(Err("Python session stdout closed unexpectedly".into()));
-    reader_wake.notify();
+    send_inbound_err(
+        &tx,
+        &budget,
+        &reader_wake,
+        "Python session stdout closed unexpectedly".into(),
+    );
 }
 
 pub(super) fn load_python_session_blocking()
@@ -1073,12 +1298,16 @@ pub(super) fn load_python_session_blocking()
     }
     let mut before_snapshot = Vec::new();
     let app_ir = loop {
-        match session.recv()? {
+        // Keep charges attached: replayed messages stay inside the
+        // aggregate inbound budget while they wait in `pending`.
+        let (charge, message) = session.recv_charged()?;
+        match message? {
             PythonMessage::Snapshot { app_ir } => {
+                session.inbound.release(charge);
                 app_ir.validate()?;
                 break app_ir;
             }
-            message => before_snapshot.push(message),
+            message => before_snapshot.push((charge, Ok(message))),
         }
     };
     // Re-play startup effects, commands, jobs, and diagnostics through the
@@ -1151,6 +1380,15 @@ pub(super) fn python_path(script: &Path) -> OsString {
 
 #[cfg(test)]
 mod tests {
+    /// Receive one inbound message, discarding its budget charge.
+    fn recv_message(
+        rx: &std::sync::mpsc::Receiver<InboundMessage>,
+    ) -> Result<PythonMessage, String> {
+        rx.recv()
+            .map(|(_, message)| message)
+            .expect("inbound channel open")
+    }
+
     use super::*;
     use serde_json::Value;
     use std::io::Cursor;
@@ -1503,6 +1741,56 @@ for line in sys.stdin:
     }
 
     #[test]
+    fn inbound_aggregate_budget_bounds_queued_bytes_not_just_count() {
+        // 100 small messages through a 256-slot channel: the count bound
+        // alone would queue all of them; the byte budget must apply
+        // backpressure to the reader thread instead.
+        let budget = Arc::new(InboundBudget::new(1024));
+        let (tx, rx) = mpsc::sync_channel(MAX_INBOUND_MESSAGES);
+        let wake = PythonSessionWake::new();
+        let stream = (0..100)
+            .map(|index| format!("{{\"type\":\"heartbeat\",\"id\":\"hb-{index}\"}}\n"))
+            .collect::<String>()
+            .into_bytes();
+        let reader_budget = budget.clone();
+        let reader = std::thread::spawn(move || {
+            read_python_messages_with_mmap(Cursor::new(stream), tx, reader_budget, wake, None);
+        });
+        // Wait for the reader to fill the budget, then verify it is
+        // blocked (not finished) with bytes plateaued at the budget.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while budget.outstanding_bytes() == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(
+            budget.outstanding_bytes() <= 1024,
+            "outstanding {} exceeds the byte budget",
+            budget.outstanding_bytes()
+        );
+        assert!(budget.high_water_bytes() <= 1024);
+        assert!(
+            !reader.is_finished(),
+            "reader must block on the byte budget"
+        );
+        // Drain: releasing charges lets the reader finish all 100.
+        let mut received = 0;
+        while received < 100 {
+            let (charge, message) = rx.recv().expect("heartbeat");
+            budget.release(charge);
+            assert!(matches!(message, Ok(PythonMessage::Heartbeat { .. })));
+            received += 1;
+        }
+        reader.join().expect("reader finishes after drain");
+        // The reader's final stream-close diagnostic is still queued;
+        // draining it returns the budget to zero.
+        let (charge, message) = rx.recv().expect("stream-close diagnostic");
+        budget.release(charge);
+        assert!(matches!(message, Err(_)));
+        assert_eq!(budget.outstanding_bytes(), 0);
+    }
+
+    #[test]
     fn reader_recovers_after_malformed_patch() {
         let (tx, rx) = mpsc::sync_channel(8);
         let wake = PythonSessionWake::new();
@@ -1514,19 +1802,19 @@ for line in sys.stdin:
             wake,
         );
 
-        let malformed = rx.recv().expect("malformed message diagnostic");
+        let malformed = recv_message(&rx);
         assert!(matches!(
             malformed,
             Err(message) if message.contains("malformed session message")
         ));
         assert_eq!(
-            rx.recv().expect("message after malformed line"),
+            recv_message(&rx),
             Ok(PythonMessage::Heartbeat {
                 id: "after-malformed".into()
             })
         );
         assert!(matches!(
-            rx.recv().expect("stream-close diagnostic"),
+            recv_message(&rx),
             Err(message) if message.contains("Python process closed its session stream")
         ));
     }
@@ -1601,8 +1889,8 @@ for line in sys.stdin:
         );
 
         let mut state = gpui_python_runtime::session::SessionState::new(vec!["patches".into()]);
-        let first = rx.recv().expect("first patch").expect("valid first patch");
-        let second = rx.recv().expect("stale patch").expect("parsed stale patch");
+        let first = recv_message(&rx).expect("valid first patch");
+        let second = recv_message(&rx).expect("parsed stale patch");
         let PythonMessage::Patch(first) = first else {
             panic!("expected first patch");
         };
@@ -1617,7 +1905,7 @@ for line in sys.stdin:
             Err(gpui_python_runtime::session::SessionError::StaleRevision { .. })
         ));
         assert_eq!(
-            rx.recv().expect("message after stale patch"),
+            recv_message(&rx),
             Ok(PythonMessage::Heartbeat {
                 id: "after-stale".into()
             })
@@ -1646,18 +1934,18 @@ for line in sys.stdin:
 
         read_python_messages(Cursor::new(stream), tx, wake);
 
-        let malformed = rx.recv().expect("invalid frame diagnostic");
+        let malformed = recv_message(&rx);
         assert!(matches!(
             malformed,
             Err(message) if message.contains("invalid Python mesh frame")
         ));
-        let forwarded = rx.recv().expect("rejected frame forwarding");
+        let forwarded = recv_message(&rx);
         assert!(matches!(
             forwarded,
             Ok(PythonMessage::MeshFrame(frame)) if frame.validate().is_err()
         ));
         assert_eq!(
-            rx.recv().expect("message after invalid frame"),
+            recv_message(&rx),
             Ok(PythonMessage::Heartbeat {
                 id: "after-frame".into()
             })
@@ -1694,14 +1982,14 @@ for line in sys.stdin:
 
         read_python_messages(Cursor::new(stream), tx, wake);
 
-        let Ok(PythonMessage::ResourceFrame(frame)) = rx.recv().expect("audio frame") else {
+        let Ok(PythonMessage::ResourceFrame(frame)) = recv_message(&rx) else {
             panic!("expected audio resource frame");
         };
         assert_eq!(frame.resource_id, "meter");
         assert_eq!(frame.generation, 3);
         assert_eq!(frame.payload, 1.25_f32.to_le_bytes());
         assert_eq!(
-            rx.recv().expect("drop resource after audio frame"),
+            recv_message(&rx),
             Ok(PythonMessage::DropResource {
                 resource_id: "meter".into(),
                 generation: 3,
@@ -1742,12 +2030,12 @@ for line in sys.stdin:
         read_python_messages_with_mmap(
             Cursor::new(stream),
             tx,
+            Arc::new(InboundBudget::new(MAX_INBOUND_BYTES)),
             PythonSessionWake::new(),
             Some(config),
         );
 
-        let Ok(PythonMessage::MappedDatasetFrame(frame)) = rx.recv().expect("mapped dataset frame")
-        else {
+        let Ok(PythonMessage::MappedDatasetFrame(frame)) = recv_message(&rx) else {
             panic!("expected mapped dataset frame");
         };
         assert_eq!(
@@ -1778,6 +2066,7 @@ for line in sys.stdin:
         read_python_messages_with_mmap(
             Cursor::new(stream),
             tx,
+            Arc::new(InboundBudget::new(MAX_INBOUND_BYTES)),
             PythonSessionWake::new(),
             Some(MmapSessionConfig {
                 directory: directory.path().to_path_buf(),
@@ -1785,11 +2074,11 @@ for line in sys.stdin:
             }),
         );
         assert!(matches!(
-            rx.recv().expect("session token diagnostic"),
+            recv_message(&rx),
             Err(message) if message.contains("session token does not match")
         ));
         assert!(matches!(
-            rx.recv().expect("rejected frame forwarded for acknowledgement"),
+            recv_message(&rx),
             Ok(PythonMessage::MappedDatasetFrame(frame)) if frame.payload.is_none()
         ));
     }

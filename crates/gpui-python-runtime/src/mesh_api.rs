@@ -771,7 +771,7 @@ pub fn mesh_read_pvd(request_json: &str) -> Result<String, String> {
 
 fn read_dataset_bytes(bytes: &[u8], format: &str) -> Result<DataSet, String> {
     match format {
-        "vtu" => gpui_dataset_transformation::read_vtu_bytes(bytes),
+        "vtu" => gpui_dataset_transformation::read_vtu_bytes(bytes).map_err(|e| e.to_string()),
         "stl" => gpui_dataset_transformation::read_stl(bytes),
         "obj" => gpui_dataset_transformation::read_obj(
             std::str::from_utf8(bytes).map_err(|_| "OBJ document is not UTF-8".to_string())?,

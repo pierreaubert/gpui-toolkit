@@ -13,7 +13,13 @@ use std::{
     sync::Arc,
 };
 
+use crate::util::bucket_cache::{BucketCache, GlyphCacheStats};
+
 const GLYPH_RASTER_CACHE_CAPACITY: usize = 512;
+/// Maximum retained raster bytes (RGBA payloads + key/overhead charge).
+const GLYPH_RASTER_CACHE_MAX_BYTES: usize = 32 * 1024 * 1024;
+/// Maximum retained chart-text layout bytes (SVG payloads + key charge).
+const CHART_TEXT_LAYOUT_CACHE_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct GlyphRasterKey {
@@ -131,14 +137,53 @@ fn cache_hash(value: &impl Hash) -> u64 {
     hasher.finish()
 }
 
-type ChartTextLayoutCache = HashMap<u64, Vec<(ChartTextKey, Arc<ChartTextLayout>)>>;
+type ChartTextLayoutCache = BucketCache<ChartTextKey, Arc<ChartTextLayout>>;
+type GlyphRasterCache = BucketCache<GlyphRasterKey, CachedRaster>;
+
+fn raster_charge(key: &GlyphRasterKey, raster: &CachedRaster) -> usize {
+    // RGBA payload + owned key text + entry overhead.
+    (raster.width as usize)
+        .saturating_mul(raster.height as usize)
+        .saturating_mul(4)
+        .saturating_add(key.text.len())
+        .saturating_add(128)
+}
+
+fn layout_charge(key: &ChartTextKey, layout: &Arc<ChartTextLayout>) -> usize {
+    layout
+        .svg
+        .len()
+        .saturating_add(layout.cache_key.len())
+        .saturating_add(key.raster.text.len())
+        .saturating_add(128)
+}
 
 thread_local! {
     /// GPUI paints on one UI thread. Keeping the cache thread-local avoids a
     /// lock in tick-heavy axis and legend painting while retaining the image
     /// allocation across ordinary rerenders.
-    static GLYPH_RASTER_CACHE: RefCell<HashMap<u64, Vec<(GlyphRasterKey, CachedRaster)>>> = RefCell::default();
-    static CHART_TEXT_LAYOUT_CACHE: RefCell<ChartTextLayoutCache> = RefCell::default();
+    static GLYPH_RASTER_CACHE: RefCell<GlyphRasterCache> = RefCell::new(
+        BucketCache::with_budgets(GLYPH_RASTER_CACHE_CAPACITY, GLYPH_RASTER_CACHE_MAX_BYTES),
+    );
+    static CHART_TEXT_LAYOUT_CACHE: RefCell<ChartTextLayoutCache> = RefCell::new(
+        BucketCache::with_budgets(GLYPH_RASTER_CACHE_CAPACITY, CHART_TEXT_LAYOUT_CACHE_MAX_BYTES),
+    );
+}
+
+/// Statistics of the glyph raster cache.
+pub(crate) fn glyph_raster_cache_stats() -> GlyphCacheStats {
+    GLYPH_RASTER_CACHE.with(|cache| cache.borrow().stats())
+}
+
+/// Statistics of the chart-text layout cache.
+pub(crate) fn chart_text_layout_cache_stats() -> GlyphCacheStats {
+    CHART_TEXT_LAYOUT_CACHE.with(|cache| cache.borrow().stats())
+}
+
+/// Release every retained glyph raster and layout (memory-pressure hook).
+pub(crate) fn trim_glyph_caches() {
+    GLYPH_RASTER_CACHE.with(|cache| cache.borrow_mut().trim());
+    CHART_TEXT_LAYOUT_CACHE.with(|cache| cache.borrow_mut().trim());
 }
 
 #[allow(
@@ -181,25 +226,24 @@ fn cached_chart_text_layout(
     CHART_TEXT_LAYOUT_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if let Some(layout) = cache
+            .buckets
             .get(&hash)
             .and_then(|entries| entries.iter().find(|(key, _)| key.matches(&lookup)))
             .map(|(_, layout)| Arc::clone(layout))
         {
+            cache.hits = cache.hits.saturating_add(1);
             return layout;
         }
+        cache.misses = cache.misses.saturating_add(1);
         let layout = Arc::new(chart_text_layout(
             text,
             config,
             horizontal_anchor,
             vertical_anchor,
         ));
-        if cache.len() >= GLYPH_RASTER_CACHE_CAPACITY {
-            cache.clear();
-        }
-        cache
-            .entry(hash)
-            .or_default()
-            .push((ChartTextKey::from_lookup(lookup), Arc::clone(&layout)));
+        let key = ChartTextKey::from_lookup(lookup);
+        let charge = layout_charge(&key, &layout);
+        cache.insert(hash, key, Arc::clone(&layout), charge, layout_charge);
         layout
     })
 }
@@ -210,12 +254,15 @@ fn cached_raster(text: &str, config: &GlyphTextConfig) -> CachedRaster {
     GLYPH_RASTER_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if let Some(raster) = cache
+            .buckets
             .get(&hash)
             .and_then(|entries| entries.iter().find(|(key, _)| key.matches(&lookup)))
             .map(|(_, raster)| raster.clone())
         {
+            cache.hits = cache.hits.saturating_add(1);
             return raster;
         }
+        cache.misses = cache.misses.saturating_add(1);
 
         let raster = rasterize_rotated_text(
             text,
@@ -232,13 +279,9 @@ fn cached_raster(text: &str, config: &GlyphTextConfig) -> CachedRaster {
                     .expect("glyph raster dimensions match its pixel buffer"),
             )])),
         };
-        if cache.len() >= GLYPH_RASTER_CACHE_CAPACITY {
-            cache.clear();
-        }
-        cache
-            .entry(hash)
-            .or_default()
-            .push((GlyphRasterKey::from_lookup(lookup), entry.clone()));
+        let key = GlyphRasterKey::from_lookup(lookup);
+        let charge = raster_charge(&key, &entry);
+        cache.insert(hash, key, entry.clone(), charge, raster_charge);
         entry
     })
 }

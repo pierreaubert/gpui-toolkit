@@ -9,19 +9,51 @@ type TickLabelCacheKey = (u64, Option<fn(f64) -> String>);
 const MAX_LABELS: usize = 512;
 const MAX_LABEL_BYTES: usize = 64 * 1024;
 
+/// Retained-byte and activity counters for the tick-label cache.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct TickLabelCacheStats {
+    pub entries: usize,
+    pub retained_bytes: usize,
+    pub high_water_bytes: usize,
+    pub hits: u64,
+    pub misses: u64,
+    pub evictions: u64,
+}
+
 #[derive(Default)]
 struct TickLabelCache {
     labels: HashMap<TickLabelCacheKey, (SharedString, bool)>,
     order: VecDeque<TickLabelCacheKey>,
     bytes: usize,
+    high_water_bytes: usize,
+    hits: u64,
+    misses: u64,
+    evictions: u64,
 }
 
 impl TickLabelCache {
     fn get(&mut self, key: &TickLabelCacheKey) -> Option<SharedString> {
-        self.labels.get_mut(key).map(|(label, referenced)| {
+        let label = self.labels.get_mut(key).map(|(label, referenced)| {
             *referenced = true;
             label.clone()
-        })
+        });
+        if label.is_some() {
+            self.hits = self.hits.saturating_add(1);
+        } else {
+            self.misses = self.misses.saturating_add(1);
+        }
+        label
+    }
+
+    fn stats(&self) -> TickLabelCacheStats {
+        TickLabelCacheStats {
+            entries: self.labels.len(),
+            retained_bytes: self.bytes,
+            high_water_bytes: self.high_water_bytes,
+            hits: self.hits,
+            misses: self.misses,
+            evictions: self.evictions,
+        }
     }
 
     fn insert(&mut self, key: TickLabelCacheKey, label: SharedString) {
@@ -40,9 +72,11 @@ impl TickLabelCache {
                 self.order.push_back(oldest);
             } else if let Some((removed, _)) = self.labels.remove(&oldest) {
                 self.bytes -= removed.len();
+                self.evictions = self.evictions.saturating_add(1);
             }
         }
         self.bytes += label.len();
+        self.high_water_bytes = self.high_water_bytes.max(self.bytes);
         self.labels.insert(key, (label, false));
         self.order.push_back(key);
     }
@@ -77,6 +111,17 @@ pub(super) fn clear_tick_label_cache() {
     TICK_LABEL_CACHE.with(|cache| *cache.borrow_mut() = TickLabelCache::default());
 }
 
+/// Current retained-byte/activity counters of the tick-label cache.
+pub(crate) fn tick_label_cache_stats() -> TickLabelCacheStats {
+    TICK_LABEL_CACHE.with(|cache| cache.borrow().stats())
+}
+
+/// Release every retained tick label and its container capacity
+/// (memory-pressure hook; counters reset with the cache).
+pub(crate) fn trim_tick_label_cache() {
+    clear_tick_label_cache();
+}
+
 fn format_tick_uncached(value: f64, formatter: Option<&fn(f64) -> String>) -> SharedString {
     match formatter {
         Some(f) => f(value).into(),
@@ -98,6 +143,24 @@ fn format_tick_uncached(value: f64, formatter: Option<&fn(f64) -> String>) -> Sh
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tick_label_cache_reports_stats_and_plateaus() {
+        clear_tick_label_cache();
+        for i in 0..2000 {
+            let _ = format_tick(i as f64 * 0.37, None);
+        }
+        let stats = tick_label_cache_stats();
+        assert!(stats.entries <= MAX_LABELS, "{stats:?}");
+        assert!(stats.retained_bytes <= MAX_LABEL_BYTES, "{stats:?}");
+        assert!(stats.evictions > 0, "{stats:?}");
+        assert!(stats.misses >= 2000, "{stats:?}");
+        let hits = stats.hits;
+        let _ = format_tick(1999.0 * 0.37, None);
+        assert_eq!(tick_label_cache_stats().hits, hits + 1);
+        trim_tick_label_cache();
+        assert_eq!(tick_label_cache_stats().entries, 0);
+    }
 
     #[test]
     fn test_format_tick_default() {

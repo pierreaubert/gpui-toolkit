@@ -7,12 +7,18 @@ use gpui::{
 };
 use image::Frame;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::panic;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
+/// Maximum fallback images retained at once.
 const OFFSCREEN_CACHE_CAPACITY: usize = 32;
+/// Maximum retained RGBA bytes across all fallback images (64 MiB).
+///
+/// The count cap alone admitted 32 x 2048x2048 RGBA8 images (~512 MiB);
+/// the byte budget is the binding constraint for large viewports.
+const OFFSCREEN_CACHE_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone, PartialEq)]
 struct OffscreenCacheKey {
@@ -30,11 +36,136 @@ struct OffscreenCacheEntry {
     image: Arc<RenderImage>,
 }
 
+/// Retained-byte and activity counters for the offscreen fallback cache.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct OffscreenCacheStats {
+    pub entries: usize,
+    pub retained_bytes: usize,
+    pub high_water_bytes: usize,
+    pub hits: u64,
+    pub misses: u64,
+    pub evictions: u64,
+}
+
+/// Byte-budgeted LRU of software fallback images (pretext pattern):
+/// hits move to the back, admission evicts least-recently-used entries
+/// until count and byte budgets hold, and a single image larger than
+/// the byte budget is returned without retention.
+#[derive(Default)]
+struct OffscreenCache {
+    entries: HashMap<usize, OffscreenCacheEntry>,
+    order: VecDeque<usize>,
+    retained_bytes: usize,
+    high_water_bytes: usize,
+    hits: u64,
+    misses: u64,
+    evictions: u64,
+}
+
+fn image_bytes(key: &OffscreenCacheKey) -> usize {
+    (key.width as usize)
+        .saturating_mul(key.height as usize)
+        .saturating_mul(4)
+}
+
+impl OffscreenCache {
+    fn get(&mut self, scene_id: usize, key: &OffscreenCacheKey) -> Option<Arc<RenderImage>> {
+        let entry = self.entries.get(&scene_id)?;
+        if entry.key != *key {
+            return None;
+        }
+        let image = Arc::clone(&entry.image);
+        self.hits = self.hits.saturating_add(1);
+        self.order.retain(|id| *id != scene_id);
+        self.order.push_back(scene_id);
+        Some(image)
+    }
+
+    fn insert(&mut self, scene_id: usize, entry: OffscreenCacheEntry) {
+        let bytes = image_bytes(&entry.key);
+        if bytes > OFFSCREEN_CACHE_MAX_BYTES {
+            self.evictions = self.evictions.saturating_add(1);
+            return;
+        }
+        if let Some(old) = self.entries.remove(&scene_id) {
+            self.retained_bytes = self.retained_bytes.saturating_sub(image_bytes(&old.key));
+            self.order.retain(|id| *id != scene_id);
+        }
+        while !self.entries.is_empty()
+            && (self.entries.len() >= OFFSCREEN_CACHE_CAPACITY
+                || self.retained_bytes.saturating_add(bytes) > OFFSCREEN_CACHE_MAX_BYTES)
+        {
+            let Some(victim) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(evicted) = self.entries.remove(&victim) {
+                self.retained_bytes = self
+                    .retained_bytes
+                    .saturating_sub(image_bytes(&evicted.key));
+                self.evictions = self.evictions.saturating_add(1);
+            }
+        }
+        self.retained_bytes = self.retained_bytes.saturating_add(bytes);
+        self.high_water_bytes = self.high_water_bytes.max(self.retained_bytes);
+        self.entries.insert(scene_id, entry);
+        self.order.push_back(scene_id);
+    }
+
+    fn retain_live(&mut self) {
+        let dead: Vec<usize> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.state.upgrade().is_none())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in dead {
+            if let Some(entry) = self.entries.remove(&id) {
+                self.retained_bytes = self.retained_bytes.saturating_sub(image_bytes(&entry.key));
+                self.evictions = self.evictions.saturating_add(1);
+            }
+            self.order.retain(|candidate| *candidate != id);
+        }
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+        self.retained_bytes = 0;
+    }
+
+    fn trim(&mut self) {
+        self.clear();
+        self.entries.shrink_to_fit();
+        self.order.shrink_to_fit();
+    }
+
+    fn stats(&self) -> OffscreenCacheStats {
+        OffscreenCacheStats {
+            entries: self.entries.len(),
+            retained_bytes: self.retained_bytes,
+            high_water_bytes: self.high_water_bytes,
+            hits: self.hits,
+            misses: self.misses,
+            evictions: self.evictions,
+        }
+    }
+}
+
 thread_local! {
     /// Element values are rebuilt by GPUI, while their retained scene state is
     /// stable. Keep fallback images beside that state without extending its
     /// lifetime or retaining stale scenes indefinitely.
-    static OFFSCREEN_CACHE: RefCell<HashMap<usize, OffscreenCacheEntry>> = RefCell::default();
+    static OFFSCREEN_CACHE: RefCell<OffscreenCache> = RefCell::default();
+}
+
+/// Current retained-byte/activity counters of the fallback cache.
+pub(crate) fn offscreen_cache_stats() -> OffscreenCacheStats {
+    OFFSCREEN_CACHE.with(|cache| cache.borrow().stats())
+}
+
+/// Release every retained fallback image (memory-pressure hook).
+pub(crate) fn trim_offscreen_cache() {
+    OFFSCREEN_CACHE.with(|cache| cache.borrow_mut().trim());
 }
 
 fn cached_offscreen_image(
@@ -57,12 +188,11 @@ fn cached_offscreen_image(
 
     OFFSCREEN_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        cache.retain(|_, entry| entry.state.upgrade().is_some());
-        if let Some(entry) = cache.get(&scene_id)
-            && entry.key == key
-        {
-            return Arc::clone(&entry.image);
+        cache.retain_live();
+        if let Some(image) = cache.get(scene_id, &key) {
+            return image;
         }
+        cache.misses = cache.misses.saturating_add(1);
 
         let image = {
             let state = scene.borrow();
@@ -73,9 +203,6 @@ fn cached_offscreen_image(
                 height,
             ))]))
         };
-        if cache.len() >= OFFSCREEN_CACHE_CAPACITY {
-            cache.clear();
-        }
         cache.insert(
             scene_id,
             OffscreenCacheEntry {
@@ -289,7 +416,9 @@ fn make_proxy(
 #[cfg(test)]
 mod tests {
     use super::{
-        FieldRevision, MeshLodController, MeshSceneState, OFFSCREEN_CACHE, cached_offscreen_image,
+        FieldRevision, GeometryRevision, MeshColorConfig, MeshLodController, MeshSceneState,
+        OFFSCREEN_CACHE, OFFSCREEN_CACHE_MAX_BYTES, OffscreenCache, OffscreenCacheEntry,
+        OffscreenCacheKey, cached_offscreen_image, offscreen_cache_stats, trim_offscreen_cache,
     };
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -323,6 +452,76 @@ mod tests {
             cell_ids: None,
         }
     }
+    fn cache_entry(
+        state: &Rc<RefCell<MeshSceneState>>,
+        width: u32,
+        height: u32,
+    ) -> OffscreenCacheEntry {
+        OffscreenCacheEntry {
+            state: Rc::downgrade(state),
+            key: OffscreenCacheKey {
+                geometry_revision: GeometryRevision(0),
+                field_revision: FieldRevision(0),
+                width,
+                height,
+                view_transform: [[0.0; 4]; 4],
+                color: MeshColorConfig::default(),
+            },
+            image: Arc::new(gpui::RenderImage::new(vec![image::Frame::new(
+                image::RgbaImage::new(1, 1),
+            )])),
+        }
+    }
+
+    #[test]
+    fn offscreen_cache_plateaus_under_churn_and_bypasses_oversized() {
+        let state = Rc::new(RefCell::new(MeshSceneState::default()));
+        let mut cache = OffscreenCache::default();
+        // 512x512 RGBA = 1 MiB per entry; 200 inserts must plateau at
+        // the byte budget, not grow to 200 MiB.
+        for id in 0..200 {
+            cache.insert(id, cache_entry(&state, 512, 512));
+        }
+        let stats = cache.stats();
+        assert!(
+            stats.retained_bytes <= OFFSCREEN_CACHE_MAX_BYTES,
+            "{stats:?}"
+        );
+        assert!(stats.entries <= 32, "{stats:?}");
+        assert!(stats.evictions > 0, "{stats:?}");
+        assert_eq!(stats.high_water_bytes, stats.retained_bytes.max(0));
+        assert!(stats.high_water_bytes <= OFFSCREEN_CACHE_MAX_BYTES);
+        // LRU: the oldest ids are gone, the newest survives and hits.
+        let key = cache_entry(&state, 512, 512).key;
+        assert!(cache.get(0, &key).is_none());
+        assert!(cache.get(199, &key).is_some());
+        assert_eq!(cache.stats().hits, 1);
+        // A single image larger than the whole budget is not retained.
+        let before = cache.stats().entries;
+        cache.insert(10_000, cache_entry(&state, 8192, 8192));
+        assert_eq!(cache.stats().entries, before);
+        assert!(
+            cache
+                .get(10_000, &cache_entry(&state, 8192, 8192).key)
+                .is_none()
+        );
+        cache.trim();
+        assert_eq!(cache.stats().retained_bytes, 0);
+        assert_eq!(cache.stats().entries, 0);
+    }
+
+    #[test]
+    fn global_offscreen_cache_stats_and_trim() {
+        trim_offscreen_cache();
+        let state = Rc::new(RefCell::new(MeshSceneState::default()));
+        let _image = cached_offscreen_image(&state, 16, 16);
+        let stats = offscreen_cache_stats();
+        assert_eq!(stats.entries, 1);
+        assert_eq!(stats.retained_bytes, 16 * 16 * 4);
+        trim_offscreen_cache();
+        assert_eq!(offscreen_cache_stats().entries, 0);
+    }
+
     #[test]
     fn lod_controller_restores_full_mesh_after_drag() {
         let mesh = mesh();

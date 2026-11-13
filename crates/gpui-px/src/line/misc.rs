@@ -69,29 +69,128 @@ pub(super) fn format_log_tick(value: f64) -> String {
     })
 }
 
+/// Maximum retained log-tick vectors.
+const MAX_LOG_TICK_CACHE_ENTRIES: usize = 256;
+/// Maximum retained bytes (tick payloads plus key/map overhead charge).
+const MAX_LOG_TICK_CACHE_BYTES: usize = 256 * 1024;
+
+/// Retained-byte and activity counters for the log-tick cache.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct LogTickCacheStats {
+    pub entries: usize,
+    pub retained_bytes: usize,
+    pub high_water_bytes: usize,
+    pub hits: u64,
+    pub misses: u64,
+    pub evictions: u64,
+}
+
+/// Byte-budgeted LRU for generated log tick vectors. Previously the
+/// cache cleared wholesale at 256 entries, so a working set just over
+/// the cap re-generated every vector on every render.
+#[derive(Default)]
+struct LogTickCache {
+    entries: HashMap<(u64, u64), Vec<f64>>,
+    order: std::collections::VecDeque<(u64, u64)>,
+    retained_bytes: usize,
+    high_water_bytes: usize,
+    hits: u64,
+    misses: u64,
+    evictions: u64,
+}
+
+fn log_tick_charge(ticks: &[f64]) -> usize {
+    // Key (16) + Vec header (24) + map slot slack (32) + payload.
+    72 + ticks.len() * std::mem::size_of::<f64>()
+}
+
+impl LogTickCache {
+    fn get(&mut self, key: &(u64, u64)) -> Option<Vec<f64>> {
+        let ticks = self.entries.get(key)?.clone();
+        self.hits = self.hits.saturating_add(1);
+        self.order.retain(|candidate| candidate != key);
+        self.order.push_back(*key);
+        Some(ticks)
+    }
+
+    fn insert(&mut self, key: (u64, u64), ticks: Vec<f64>) {
+        let charge = log_tick_charge(&ticks);
+        if charge > MAX_LOG_TICK_CACHE_BYTES {
+            self.evictions = self.evictions.saturating_add(1);
+            return;
+        }
+        if let Some(old) = self.entries.remove(&key) {
+            self.retained_bytes = self.retained_bytes.saturating_sub(log_tick_charge(&old));
+            self.order.retain(|candidate| *candidate != key);
+        }
+        while !self.entries.is_empty()
+            && (self.entries.len() >= MAX_LOG_TICK_CACHE_ENTRIES
+                || self.retained_bytes.saturating_add(charge) > MAX_LOG_TICK_CACHE_BYTES)
+        {
+            let Some(victim) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(evicted) = self.entries.remove(&victim) {
+                self.retained_bytes = self
+                    .retained_bytes
+                    .saturating_sub(log_tick_charge(&evicted));
+                self.evictions = self.evictions.saturating_add(1);
+            }
+        }
+        self.retained_bytes = self.retained_bytes.saturating_add(charge);
+        self.high_water_bytes = self.high_water_bytes.max(self.retained_bytes);
+        self.entries.insert(key, ticks);
+        self.order.push_back(key);
+    }
+
+    fn stats(&self) -> LogTickCacheStats {
+        LogTickCacheStats {
+            entries: self.entries.len(),
+            retained_bytes: self.retained_bytes,
+            high_water_bytes: self.high_water_bytes,
+            hits: self.hits,
+            misses: self.misses,
+            evictions: self.evictions,
+        }
+    }
+
+    fn trim(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+        self.retained_bytes = 0;
+        self.entries.shrink_to_fit();
+        self.order.shrink_to_fit();
+    }
+}
+
 thread_local! {
     /// Cache for generated log tick vectors keyed by (min_bits, max_bits).
     /// Log scales require strictly positive domains, so NaN/infinity are not
     /// expected here; the bit pattern is stable for finite positive values.
-    static LOG_TICK_CACHE: RefCell<HashMap<(u64, u64), Vec<f64>>> = RefCell::new(HashMap::new());
+    static LOG_TICK_CACHE: RefCell<LogTickCache> = RefCell::new(LogTickCache::default());
 }
 
-const MAX_LOG_TICK_CACHE_ENTRIES: usize = 256;
+/// Current retained-byte/activity counters of the log-tick cache.
+pub(crate) fn log_tick_cache_stats() -> LogTickCacheStats {
+    LOG_TICK_CACHE.with(|cache| cache.borrow().stats())
+}
+
+/// Release every retained log-tick vector (memory-pressure hook).
+pub(crate) fn trim_log_tick_cache() {
+    LOG_TICK_CACHE.with(|cache| cache.borrow_mut().trim());
+}
 
 /// Generate smart tick values for log scales to prevent label collision
 /// Shows 1,2,3,4,5,10,20,30,40,50,100,... pattern
 pub(super) fn generate_log_ticks(min: f64, max: f64) -> Vec<f64> {
     let key = (min.to_bits(), max.to_bits());
     LOG_TICK_CACHE.with(|cache| {
-        if let Some(cached) = cache.borrow().get(&key) {
-            return cached.clone();
+        if let Some(cached) = cache.borrow_mut().get(&key) {
+            return cached;
         }
-
         let ticks = generate_log_ticks_uncached(min, max);
         let mut cache = cache.borrow_mut();
-        if cache.len() >= MAX_LOG_TICK_CACHE_ENTRIES {
-            cache.clear();
-        }
+        cache.misses = cache.misses.saturating_add(1);
         cache.insert(key, ticks.clone());
         ticks
     })
@@ -131,6 +230,27 @@ fn generate_log_ticks_uncached(min: f64, max: f64) -> Vec<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_tick_cache_plateaus_and_keeps_recent_vectors() {
+        trim_log_tick_cache();
+        for i in 0..1000 {
+            let _ = generate_log_ticks(1.0 + i as f64 * 0.001, 1000.0);
+        }
+        let stats = log_tick_cache_stats();
+        assert!(stats.entries <= MAX_LOG_TICK_CACHE_ENTRIES, "{stats:?}");
+        assert!(
+            stats.retained_bytes <= MAX_LOG_TICK_CACHE_BYTES,
+            "{stats:?}"
+        );
+        assert!(stats.evictions > 0, "{stats:?}");
+        // The newest vector still hits (no wholesale-clear thrash).
+        let hits = stats.hits;
+        let _ = generate_log_ticks(1.0 + 999.0 * 0.001, 1000.0);
+        assert_eq!(log_tick_cache_stats().hits, hits + 1);
+        trim_log_tick_cache();
+        assert_eq!(log_tick_cache_stats().entries, 0);
+    }
 
     #[test]
     fn test_format_log_tick_zero() {
@@ -199,15 +319,13 @@ mod tests {
 
     #[test]
     fn log_tick_cache_has_a_bounded_number_of_domains() {
-        LOG_TICK_CACHE.with(|cache| cache.borrow_mut().clear());
+        trim_log_tick_cache();
 
         for index in 0..=MAX_LOG_TICK_CACHE_ENTRIES {
             let min = 1.0 + index as f64;
             let _ = generate_log_ticks(min, min * 10.0);
         }
 
-        LOG_TICK_CACHE.with(|cache| {
-            assert!(cache.borrow().len() <= MAX_LOG_TICK_CACHE_ENTRIES);
-        });
+        assert!(log_tick_cache_stats().entries <= MAX_LOG_TICK_CACHE_ENTRIES);
     }
 }

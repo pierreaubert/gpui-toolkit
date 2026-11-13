@@ -21,6 +21,17 @@ use std::sync::Arc;
 /// retained across calls, [`TextMeasure::cache_key`](gpui_pretext::TextMeasure::cache_key)
 /// must be a semantic identity that changes when metrics do; the pointer-based
 /// trait default is suitable only for a single solve call.
+/// Retained-byte and activity counters for [`TextMeasureCache`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TextMeasureCacheStats {
+    /// Charged retained bytes (estimated; see `prepared_charge`).
+    pub retained_bytes: usize,
+    /// Peak charged retained bytes since creation.
+    pub high_water_bytes: usize,
+    /// Entries dropped by capacity/byte eviction.
+    pub evictions: u64,
+}
+
 #[derive(Debug)]
 pub struct TextMeasureCache {
     /// `measure_key` → `text` → prepared text without segment strings.
@@ -30,6 +41,9 @@ pub struct TextMeasureCache {
     /// `(measure_key, cross_size, line_height, axis)` → `text` → computed size.
     sizes: HashMap<TextSizeKey, TextSizeMap>,
     solve_epoch: u64,
+    retained_bytes: usize,
+    high_water_bytes: usize,
+    evictions: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -44,6 +58,22 @@ pub(crate) type TextSizeMap = HashMap<Arc<str>, f32>;
 const TEXT_MEASURE_CACHE_MEASURE_CAPACITY: usize = 64;
 const TEXT_MEASURE_CACHE_TEXT_CAPACITY: usize = 128;
 const TEXT_MEASURE_CACHE_SIZE_KEY_CAPACITY: usize = 128;
+/// Byte budget across all retained prepared texts and sizes. The count
+/// caps alone left one huge `PreparedText` (or 64 measures x 128 of
+/// them) unbounded in bytes.
+const TEXT_MEASURE_CACHE_MAX_BYTES: usize = 4 * 1024 * 1024;
+
+/// Charged bytes for one prepared entry: key text plus pretext's
+/// per-segment storage, estimated at 8 bytes per source byte
+/// (segment strings + f64 widths scale with grapheme count) plus a
+/// fixed entry overhead. Conservative by design.
+fn prepared_charge(text: &str) -> usize {
+    text.len().saturating_mul(8).saturating_add(256)
+}
+
+/// Charged bytes for one computed-size entry (the `Arc<str>` key is
+/// shared with the prepared maps, so only entry overhead is charged).
+const SIZE_ENTRY_CHARGE: usize = 64;
 
 impl TextMeasureCache {
     /// Create a new, empty text-measurement cache.
@@ -53,6 +83,9 @@ impl TextMeasureCache {
             prepared_horizontal: HashMap::new(),
             sizes: HashMap::new(),
             solve_epoch: 0,
+            retained_bytes: 0,
+            high_water_bytes: 0,
+            evictions: 0,
         }
     }
 
@@ -61,6 +94,85 @@ impl TextMeasureCache {
         self.prepared_vertical.clear();
         self.prepared_horizontal.clear();
         self.sizes.clear();
+        self.retained_bytes = 0;
+    }
+
+    /// Drop all cached data and release map capacity (memory-pressure hook).
+    pub fn trim(&mut self) {
+        self.clear();
+        self.prepared_vertical.shrink_to_fit();
+        self.prepared_horizontal.shrink_to_fit();
+        self.sizes.shrink_to_fit();
+    }
+
+    /// Current retained-byte/activity counters.
+    #[must_use]
+    pub fn stats(&self) -> TextMeasureCacheStats {
+        TextMeasureCacheStats {
+            retained_bytes: self.retained_bytes,
+            high_water_bytes: self.high_water_bytes,
+            evictions: self.evictions,
+        }
+    }
+
+    fn charge(&mut self, bytes: usize) {
+        self.retained_bytes = self.retained_bytes.saturating_add(bytes);
+        self.high_water_bytes = self.high_water_bytes.max(self.retained_bytes);
+    }
+
+    fn uncharge(&mut self, bytes: usize) {
+        self.uncharge_many(bytes, 1);
+    }
+
+    fn uncharge_many(&mut self, bytes: usize, entries: u64) {
+        self.retained_bytes = self.retained_bytes.saturating_sub(bytes);
+        self.evictions = self.evictions.saturating_add(entries);
+    }
+
+    /// Evict prepared entries (largest charges first by construction)
+    /// and then size entries until the byte budget holds.
+    fn enforce_byte_budget(&mut self) {
+        while self.retained_bytes > TEXT_MEASURE_CACHE_MAX_BYTES {
+            if let Some((&key, map)) = self.prepared_vertical.iter().next()
+                && let Some(text) = map.keys().next().cloned()
+            {
+                let charge = prepared_charge(&text);
+                if let Some(map) = self.prepared_vertical.get_mut(&key) {
+                    map.remove(&text);
+                    if map.is_empty() {
+                        self.prepared_vertical.remove(&key);
+                    }
+                }
+                self.uncharge(charge);
+                continue;
+            }
+            if let Some((&key, map)) = self.prepared_horizontal.iter().next()
+                && let Some(text) = map.keys().next().cloned()
+            {
+                let charge = prepared_charge(&text);
+                if let Some(map) = self.prepared_horizontal.get_mut(&key) {
+                    map.remove(&text);
+                    if map.is_empty() {
+                        self.prepared_horizontal.remove(&key);
+                    }
+                }
+                self.uncharge(charge);
+                continue;
+            }
+            if let Some((&key, map)) = self.sizes.iter().next()
+                && let Some(text) = map.keys().next().cloned()
+            {
+                if let Some(map) = self.sizes.get_mut(&key) {
+                    map.remove(&text);
+                    if map.is_empty() {
+                        self.sizes.remove(&key);
+                    }
+                }
+                self.uncharge(SIZE_ENTRY_CHARGE);
+                continue;
+            }
+            break;
+        }
     }
 
     pub(super) fn begin_solve(&mut self) {
@@ -147,24 +259,41 @@ pub(super) fn compute_text_size(
 
     // Size is not cached; prepare the text (reusing any cached `PreparedText`).
     let text_arc: Arc<str> = Arc::from(input.text);
+    // Charges for entries inserted below; applied after the prepared
+    // borrows end (the counter lives on the same cache struct).
+    let mut inserted_charge = 0usize;
+    // Evictions that happen while a map entry borrow is live are
+    // accumulated here and applied with `inserted_charge` below.
+    let mut evicted_charge = 0usize;
+    let mut evicted_entries = 0u64;
     let size = match input.axis {
         Axis::Vertical => {
             if !cache.prepared_vertical.contains_key(&measure_key)
                 && cache.prepared_vertical.len() >= TEXT_MEASURE_CACHE_MEASURE_CAPACITY
                 && let Some(evicted_key) = cache.prepared_vertical.keys().next().copied()
             {
-                cache.prepared_vertical.remove(&evicted_key);
+                if let Some(evicted) = cache.prepared_vertical.remove(&evicted_key) {
+                    for text in evicted.keys() {
+                        cache.uncharge(prepared_charge(text));
+                    }
+                }
             }
             let prepared = cache.prepared_vertical.entry(measure_key).or_default();
-            if !prepared.contains_key(input.text)
+            let is_new = !prepared.contains_key(input.text);
+            if is_new
                 && prepared.len() >= TEXT_MEASURE_CACHE_TEXT_CAPACITY
                 && let Some(evicted_text) = prepared.keys().next().cloned()
             {
                 prepared.remove(&evicted_text);
+                evicted_charge = evicted_charge.saturating_add(prepared_charge(&evicted_text));
+                evicted_entries = evicted_entries.saturating_add(1);
             }
             let prepared = prepared.entry(Arc::clone(&text_arc)).or_insert_with(|| {
                 prepare(input.text, input.measure, input.profile, input.options)
             });
+            if is_new {
+                inserted_charge = inserted_charge.saturating_add(prepared_charge(input.text));
+            }
             layout(
                 prepared,
                 f64::from(input.cross_size),
@@ -178,18 +307,28 @@ pub(super) fn compute_text_size(
                 && cache.prepared_horizontal.len() >= TEXT_MEASURE_CACHE_MEASURE_CAPACITY
                 && let Some(evicted_key) = cache.prepared_horizontal.keys().next().copied()
             {
-                cache.prepared_horizontal.remove(&evicted_key);
+                if let Some(evicted) = cache.prepared_horizontal.remove(&evicted_key) {
+                    for text in evicted.keys() {
+                        cache.uncharge(prepared_charge(text));
+                    }
+                }
             }
             let prepared = cache.prepared_horizontal.entry(measure_key).or_default();
-            if !prepared.contains_key(input.text)
+            let is_new = !prepared.contains_key(input.text);
+            if is_new
                 && prepared.len() >= TEXT_MEASURE_CACHE_TEXT_CAPACITY
                 && let Some(evicted_text) = prepared.keys().next().cloned()
             {
                 prepared.remove(&evicted_text);
+                evicted_charge = evicted_charge.saturating_add(prepared_charge(&evicted_text));
+                evicted_entries = evicted_entries.saturating_add(1);
             }
             let prepared = prepared.entry(Arc::clone(&text_arc)).or_insert_with(|| {
                 prepare_with_segments(input.text, input.measure, input.profile, input.options)
             });
+            if is_new {
+                inserted_charge = inserted_charge.saturating_add(prepared_charge(input.text));
+            }
             let mut max_width = 0.0_f64;
             walk_line_ranges(prepared, f64::MAX, input.profile, |line| {
                 max_width = max_width.max(line.width);
@@ -202,16 +341,32 @@ pub(super) fn compute_text_size(
         && cache.sizes.len() >= TEXT_MEASURE_CACHE_SIZE_KEY_CAPACITY
         && let Some(evicted_key) = cache.sizes.keys().next().copied()
     {
-        cache.sizes.remove(&evicted_key);
+        if let Some(evicted) = cache.sizes.remove(&evicted_key) {
+            for _ in evicted.values() {
+                cache.uncharge(SIZE_ENTRY_CHARGE);
+            }
+        }
     }
+    let is_new_size = !cache
+        .sizes
+        .get(&params_key)
+        .is_some_and(|sizes| sizes.contains_key(input.text));
     let sizes = cache.sizes.entry(params_key).or_default();
-    if !sizes.contains_key(input.text)
+    if is_new_size
         && sizes.len() >= TEXT_MEASURE_CACHE_TEXT_CAPACITY
         && let Some(evicted_text) = sizes.keys().next().cloned()
     {
         sizes.remove(&evicted_text);
+        evicted_charge = evicted_charge.saturating_add(SIZE_ENTRY_CHARGE);
+        evicted_entries = evicted_entries.saturating_add(1);
     }
     sizes.insert(text_arc, size);
+    if is_new_size {
+        inserted_charge = inserted_charge.saturating_add(SIZE_ENTRY_CHARGE);
+    }
+    cache.uncharge_many(evicted_charge, evicted_entries);
+    cache.charge(inserted_charge);
+    cache.enforce_byte_budget();
     size.max(input.min)
 }
 
@@ -233,6 +388,61 @@ mod tests {
         fn cache_key_is_stable(&self) -> bool {
             true
         }
+    }
+
+    #[test]
+    fn retained_text_cache_respects_byte_budget() {
+        let cache = RefCell::new(TextMeasureCache::new());
+        let profile = EngineProfile::default();
+        let options = PrepareOptions::default();
+        let measure = FixedMeasure(4242);
+        // One huge text: charged above the whole byte budget, so its
+        // prepared entry must be evicted right after use.
+        let huge = "x".repeat(1_000_000);
+        compute_text_size(
+            TextSizeInput {
+                text: &huge,
+                measure: &measure,
+                line_height: 16.0,
+                min: 0.0,
+                axis: Axis::Vertical,
+                cross_size: 300.0,
+                profile: &profile,
+                options: &options,
+            },
+            &cache,
+        );
+        let stats = cache.borrow().stats();
+        assert!(
+            stats.retained_bytes <= TEXT_MEASURE_CACHE_MAX_BYTES,
+            "{stats:?}"
+        );
+        assert!(stats.high_water_bytes >= stats.retained_bytes, "{stats:?}");
+        assert!(stats.evictions > 0, "{stats:?}");
+        // Many moderate texts plateau under the budget as well.
+        for index in 0..400 {
+            let text = "y".repeat(20_000) + &index.to_string();
+            compute_text_size(
+                TextSizeInput {
+                    text: &text,
+                    measure: &measure,
+                    line_height: 16.0,
+                    min: 0.0,
+                    axis: Axis::Vertical,
+                    cross_size: 300.0,
+                    profile: &profile,
+                    options: &options,
+                },
+                &cache,
+            );
+        }
+        let stats = cache.borrow().stats();
+        assert!(
+            stats.retained_bytes <= TEXT_MEASURE_CACHE_MAX_BYTES,
+            "{stats:?}"
+        );
+        cache.borrow_mut().trim();
+        assert_eq!(cache.borrow().stats().retained_bytes, 0);
     }
 
     #[test]
