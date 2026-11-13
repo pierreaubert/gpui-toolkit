@@ -125,3 +125,51 @@ fn external_values_update_active_edits_without_erasing_uncommitted_typing() {
     state.sync_external_value("é", "é");
     assert_eq!(state.selection_anchor, Some(0));
 }
+
+#[test]
+fn ime_composition_sequence_retains_marked_range_until_commit() {
+    // Simulates the EntityInputHandler composition flow with the same
+    // associated functions the handler calls: replace_and_mark (twice,
+    // as the IME refines), then a plain replace as the commit.
+    let mut state = EditState::new("");
+    state.clear_selection();
+    state.cursor = 0;
+
+    // First composition update: insert "n" and mark it.
+    InputEntity::replace_char_range(&mut state, 0..0, "n");
+    state.set_marked_range(Some((0, state.cursor)));
+    assert_eq!(state.marked_range, Some((0, 1)));
+    assert_eq!(
+        InputEntity::char_to_utf16(&state.text, 0)..InputEntity::char_to_utf16(&state.text, 1),
+        0..1
+    );
+
+    // Refinement: the platform replaces the marked UTF-16 range.
+    let (marked_start, marked_end) = state.marked_range.unwrap();
+    let utf16_range = InputEntity::char_to_utf16(&state.text, marked_start)
+        ..InputEntity::char_to_utf16(&state.text, marked_end);
+    let char_range = InputEntity::utf16_to_char(&state.text, utf16_range.start)
+        ..InputEntity::utf16_to_char(&state.text, utf16_range.end);
+    InputEntity::replace_char_range(&mut state, char_range, "に");
+    let end = state.cursor;
+    state.set_marked_range(Some((end - 1, end)));
+    assert_eq!(state.text, "に");
+    assert_eq!(state.marked_range, Some((0, 1)));
+
+    // Commit: a plain replace clears the mark (handler does this first).
+    state.set_marked_range(None);
+    InputEntity::replace_char_range(&mut state, 0..1, "日");
+    assert_eq!(state.text, "日");
+    assert_eq!(state.marked_range, None);
+}
+
+#[test]
+fn utf16_positions_snap_into_graphemes_for_cursor_placement() {
+    // "é" as e + combining acute: UTF-16 index 1 sits mid-cluster.
+    let mut state = EditState::new("e\u{301}x");
+    let char_pos = InputEntity::utf16_to_char(&state.text, 1);
+    assert_eq!(char_pos, 1);
+    assert_eq!(state.snap_to_grapheme(char_pos), 0);
+    state.start_selection(char_pos);
+    assert_eq!(state.cursor, 0, "cursor must not rest inside a cluster");
+}

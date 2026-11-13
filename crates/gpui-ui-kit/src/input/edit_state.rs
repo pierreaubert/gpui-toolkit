@@ -1,3 +1,20 @@
+//! Text-editing state with grapheme-cluster cursor semantics.
+//!
+//! Cursor and selection positions are character indices (the contract
+//! with the rest of `input.rs`), but every movement, extension, and
+//! deletion lands on extended grapheme cluster boundaries
+//! (`unicode_segmentation`): combining sequences, ZWJ emoji, flags, and
+//! keycaps move and delete as one unit. Positions handed in from
+//! outside (mouse, platform UTF-16 ranges) are snapped down to the
+//! nearest grapheme boundary.
+//!
+//! Movement is logical-order: `move_forward` always advances toward the
+//! end of the string. Bidi visual-order movement is an explicit
+//! non-goal for this state machine; renderers that shape bidirectional
+//! text must map visual directions to logical movement themselves.
+
+use unicode_segmentation::UnicodeSegmentation;
+
 /// An internal point-in-time text state for undo/redo.
 #[derive(Clone)]
 struct EditSnapshot {
@@ -17,6 +34,10 @@ pub struct EditState {
     pub(super) cursor: usize,
     /// Selection anchor (where selection started). If Some, selection is from anchor to cursor.
     pub(super) selection_anchor: Option<usize>,
+    /// IME marked (composition) range in character indices, while a
+    /// platform input method is composing. Retained across
+    /// `replace_and_mark_text_in_range` calls until commit/unmark.
+    pub(super) marked_range: Option<(usize, usize)>,
     /// Whether currently dragging to select
     pub(super) is_dragging: bool,
     /// Previous text states. This is intentionally not exposed through Debug:
@@ -34,6 +55,7 @@ impl std::fmt::Debug for EditState {
             .field("text_char_count", &self.text.chars().count())
             .field("cursor", &self.cursor)
             .field("selection_anchor", &self.selection_anchor)
+            .field("marked_range", &self.marked_range)
             .field("is_dragging", &self.is_dragging)
             .field("undo_depth", &self.undo_stack.len())
             .field("redo_depth", &self.redo_stack.len())
@@ -50,6 +72,7 @@ impl EditState {
         if previous != current && self.editing && self.text != current {
             current.clone_into(&mut self.text);
             self.cursor = self.cursor.min(self.text.chars().count());
+            self.marked_range = None;
             self.clear_selection();
         }
     }
@@ -66,6 +89,7 @@ impl EditState {
         self.text = snapshot.text;
         self.cursor = snapshot.cursor;
         self.selection_anchor = snapshot.selection_anchor;
+        self.marked_range = None;
         self.is_dragging = false;
     }
 
@@ -112,6 +136,7 @@ impl EditState {
     /// thread-local widget state after focus leaves the field.
     pub(super) fn finish_edit(&mut self) -> String {
         self.editing = false;
+        self.marked_range = None;
         self.clear_selection();
         self.is_dragging = false;
         self.undo_stack.clear();
@@ -123,6 +148,7 @@ impl EditState {
     /// Discard an uncommitted edit without retaining its raw text or history.
     pub(super) fn abandon_edit(&mut self) {
         self.editing = false;
+        self.marked_range = None;
         self.clear_selection();
         self.is_dragging = false;
         self.undo_stack.clear();
@@ -137,6 +163,7 @@ impl EditState {
             text: value.to_string(),
             cursor: len,
             selection_anchor: Some(0), // Select all by default
+            marked_range: None,
             is_dragging: false,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -150,6 +177,73 @@ impl EditState {
             .char_indices()
             .nth(char_idx)
             .map_or(self.text.len(), |(i, _)| i)
+    }
+
+    /// Convert a byte index to a character index (single pass).
+    fn byte_to_char_index(&self, byte_idx: usize) -> usize {
+        self.text[..byte_idx.min(self.text.len())].chars().count()
+    }
+
+    /// Grapheme boundaries (character indices) around `char_idx`:
+    /// `(previous, next)` cluster boundaries on either side.
+    ///
+    /// One pass over the text with the extended-grapheme iterator; no
+    /// allocation. `previous` is the start of the cluster ending at or
+    /// containing `char_idx`; `next` is the end of the cluster starting
+    /// at or containing it. Both clamp to the text ends.
+    fn grapheme_around(&self, char_idx: usize) -> (usize, usize) {
+        let byte = self.char_index_to_byte(char_idx);
+        let mut char_pos = 0usize;
+        let mut previous_start = 0usize;
+        for (grapheme_byte, grapheme) in self.text.grapheme_indices(true) {
+            let grapheme_chars = grapheme.chars().count();
+            if grapheme_byte == byte {
+                // Exactly on this cluster's start: previous is the prior
+                // cluster's start, next is this cluster's end.
+                return (previous_start, char_pos + grapheme_chars);
+            }
+            if grapheme_byte + grapheme.len() > byte {
+                // char_idx sits inside this cluster.
+                return (char_pos, char_pos + grapheme_chars);
+            }
+            previous_start = char_pos;
+            char_pos += grapheme_chars;
+        }
+        (previous_start, char_pos)
+    }
+
+    /// Start of the grapheme cluster at or before `char_idx`.
+    ///
+    /// A `char_idx` already on a cluster boundary returns itself.
+    pub(super) fn snap_to_grapheme(&self, char_idx: usize) -> usize {
+        let byte = self.char_index_to_byte(char_idx);
+        let mut char_pos = 0usize;
+        for (grapheme_byte, grapheme) in self.text.grapheme_indices(true) {
+            if grapheme_byte + grapheme.len() > byte {
+                return char_pos;
+            }
+            char_pos += grapheme.chars().count();
+        }
+        char_pos
+    }
+
+    /// Character index one grapheme cluster after `char_idx`.
+    fn next_grapheme(&self, char_idx: usize) -> usize {
+        self.grapheme_around(char_idx).1
+    }
+
+    /// Character index one grapheme cluster before `char_idx`.
+    fn prev_grapheme(&self, char_idx: usize) -> usize {
+        self.grapheme_around(char_idx).0
+    }
+
+    /// Set the IME marked (composition) range, clamped and grapheme-snapped.
+    pub(super) fn set_marked_range(&mut self, range: Option<(usize, usize)>) {
+        self.marked_range = range.map(|(start, end)| {
+            let start = self.snap_to_grapheme(start);
+            let end = self.snap_to_grapheme(end).max(start);
+            (start, end)
+        });
     }
 
     /// Return the character immediately before `byte_pos`, along with its starting byte index.
@@ -231,17 +325,12 @@ impl EditState {
     }
 
     pub fn move_forward(&mut self) {
-        let len = self.text.chars().count();
-        if self.cursor < len {
-            self.cursor += 1;
-        }
+        self.cursor = self.next_grapheme(self.cursor);
         self.clear_selection();
     }
 
     pub fn move_backward(&mut self) {
-        if self.cursor > 0 {
-            self.cursor -= 1;
-        }
+        self.cursor = self.prev_grapheme(self.cursor);
         self.clear_selection();
     }
 
@@ -351,16 +440,16 @@ impl EditState {
         if self.selection_anchor.is_none() {
             self.selection_anchor = Some(self.cursor);
         }
-        self.cursor = new_cursor;
+        self.cursor = self.snap_to_grapheme(new_cursor);
     }
 
     pub fn extend_backward(&mut self) {
-        let new = if self.cursor > 0 { self.cursor - 1 } else { 0 };
+        let new = self.prev_grapheme(self.cursor);
         self.extend_selection_to(new);
     }
 
     pub fn extend_forward(&mut self) {
-        let new = (self.cursor + 1).min(self.text.chars().count());
+        let new = self.next_grapheme(self.cursor);
         self.extend_selection_to(new);
     }
 
@@ -420,19 +509,12 @@ impl EditState {
         }
         if self.cursor > 0 {
             self.begin_text_edit();
-            // Find byte positions for character before cursor
-            let byte_pos = self
-                .text
-                .char_indices()
-                .nth(self.cursor - 1)
-                .map_or(0, |(i, _)| i);
-            let next_byte = self
-                .text
-                .char_indices()
-                .nth(self.cursor)
-                .map_or(self.text.len(), |(i, _)| i);
-            self.text.replace_range(byte_pos..next_byte, "");
-            self.cursor -= 1;
+            // Delete the whole grapheme cluster before the cursor.
+            let start = self.prev_grapheme(self.cursor);
+            let start_byte = self.char_index_to_byte(start);
+            let end_byte = self.char_index_to_byte(self.cursor);
+            self.text.replace_range(start_byte..end_byte, "");
+            self.cursor = start;
         }
     }
 
@@ -448,18 +530,11 @@ impl EditState {
         let len = self.text.chars().count();
         if self.cursor < len {
             self.begin_text_edit();
-            // Find byte positions for character at cursor
-            let byte_pos = self
-                .text
-                .char_indices()
-                .nth(self.cursor)
-                .map_or(self.text.len(), |(i, _)| i);
-            let next_byte = self
-                .text
-                .char_indices()
-                .nth(self.cursor + 1)
-                .map_or(self.text.len(), |(i, _)| i);
-            self.text.replace_range(byte_pos..next_byte, "");
+            // Delete the whole grapheme cluster at the cursor.
+            let end = self.next_grapheme(self.cursor);
+            let start_byte = self.char_index_to_byte(self.cursor);
+            let end_byte = self.char_index_to_byte(end);
+            self.text.replace_range(start_byte..end_byte, "");
         }
     }
 
@@ -492,6 +567,7 @@ impl EditState {
 
     /// Start a selection at the given position
     pub fn start_selection(&mut self, pos: usize) {
+        let pos = self.snap_to_grapheme(pos);
         self.cursor = pos;
         self.selection_anchor = Some(pos);
         self.is_dragging = true;
@@ -500,72 +576,55 @@ impl EditState {
     /// Select word at the given position
     #[allow(dead_code)]
     pub fn select_word_at(&mut self, pos: usize) {
-        let len = self.text.chars().count();
-        if len == 0 {
+        if self.text.is_empty() {
             return;
         }
-        let pos = pos.min(len);
-
-        // Helper to check if char is part of a word (alphanumeric or underscore)
+        // Byte-stepping scans (char_before_byte/char_after_byte are O(1)
+        // per step): the whole selection is O(text) for the two index
+        // conversions plus O(word) of scanning, never O(n^2) `nth` calls.
         let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
+        let pos_byte = self.char_index_to_byte(pos);
+        let char_at_pos = self.text[pos_byte..].chars().next();
+        let char_before_pos = self.char_before_byte(pos_byte);
 
-        // Find char at pos and char at pos - 1
-        let char_at_pos = self.text.chars().nth(pos);
-        let char_before_pos = if pos > 0 {
-            self.text.chars().nth(pos - 1)
-        } else {
-            None
-        };
-
-        let mut start = pos;
+        let mut start_byte = pos_byte;
         if let Some(curr) = char_at_pos
             && !is_word_char(curr)
-            && start > 0
-            && let Some(prev) = char_before_pos
+            && let Some((prev_byte, prev)) = char_before_pos
             && is_word_char(prev)
         {
-            start -= 1;
+            start_byte = prev_byte;
         }
 
-        // If we are on a non-word char (like whitespace), select the run of whitespace/symbols?
-        // Standard behavior: double click on whitespace selects whitespace run.
-        let target_is_word = self.text.chars().nth(start).is_some_and(is_word_char);
+        // On a non-word char (like whitespace), select the run of
+        // whitespace/symbols, matching standard double-click behavior.
+        let target_is_word = self.text[start_byte..]
+            .chars()
+            .next()
+            .is_some_and(is_word_char);
 
-        // Find start of word
-        let mut scan_start = start;
-        while scan_start > 0 {
-            let prev = self.text.chars().nth(scan_start - 1).unwrap();
+        while let Some((prev_byte, prev)) = self.char_before_byte(start_byte) {
             if is_word_char(prev) != target_is_word {
                 break;
             }
-            scan_start -= 1;
-        }
-        start = scan_start;
-
-        // Find end of word
-        let mut end = pos;
-        // Ensure we start searching from at least 'start'
-        if end < start {
-            end = start;
+            start_byte = prev_byte;
         }
 
-        let mut scan_end = end;
-        while scan_end < len {
-            let curr = self.text.chars().nth(scan_end).unwrap();
+        let mut end_byte = pos_byte.max(start_byte);
+        while let Some((next_byte, curr)) = self.char_after_byte(end_byte) {
             if is_word_char(curr) != target_is_word {
                 break;
             }
-            scan_end += 1;
+            end_byte = next_byte;
         }
-        end = scan_end;
 
-        self.selection_anchor = Some(start);
-        self.cursor = end;
+        self.selection_anchor = Some(self.byte_to_char_index(start_byte));
+        self.cursor = self.byte_to_char_index(end_byte);
     }
 
     /// Update selection during drag
     pub fn update_selection(&mut self, pos: usize) {
-        self.cursor = pos;
+        self.cursor = self.snap_to_grapheme(pos);
     }
 
     /// End selection drag
@@ -583,6 +642,99 @@ impl EditState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grapheme_clusters_move_and_delete_as_units() {
+        // "a" + "e\u{301}" (combining) + family ZWJ emoji + flag + keycap.
+        let text = "ae\u{301}👨\u{200d}👩\u{200d}👧🇫🇷1\u{fe0f}\u{20e3}z";
+        let mut state = EditState::new(text);
+        state.clear_selection();
+        state.move_to_start();
+        // Five clusters: a | é | family | flag | keycap, then z.
+        for expected in [1, 3, 8, 10, 13, 14] {
+            state.move_forward();
+            assert_eq!(state.cursor, expected, "forward over {text:?}");
+        }
+        state.move_forward();
+        assert_eq!(state.cursor, 14, "clamped at end");
+        for expected in [13, 10, 8, 3, 1, 0] {
+            state.move_backward();
+            assert_eq!(state.cursor, expected, "backward over {text:?}");
+        }
+
+        // Backspace from the end removes whole clusters only.
+        state.move_to_end();
+        state.do_backspace();
+        assert_eq!(
+            state.text,
+            "ae\u{301}👨\u{200d}👩\u{200d}👧🇫🇷1\u{fe0f}\u{20e3}"
+        );
+        state.do_backspace();
+        assert_eq!(state.text, "ae\u{301}👨\u{200d}👩\u{200d}👧🇫🇷");
+        state.do_backspace();
+        assert_eq!(state.text, "ae\u{301}👨\u{200d}👩\u{200d}👧");
+        state.do_backspace();
+        assert_eq!(state.text, "ae\u{301}");
+        state.do_backspace();
+        assert_eq!(state.text, "a");
+        assert_eq!(state.cursor, 1);
+
+        // Forward delete removes the cluster at the cursor.
+        state.cursor = 0;
+        state.do_delete();
+        assert_eq!(state.text, "");
+    }
+
+    #[test]
+    fn grapheme_snap_and_extend_never_land_inside_clusters() {
+        let mut state = EditState::new("e\u{301}👍🏽x");
+        state.clear_selection();
+        // Skin-tone modifier cluster: chars 2..4.
+        assert_eq!(state.snap_to_grapheme(3), 2);
+        assert_eq!(state.snap_to_grapheme(2), 2);
+        assert_eq!(state.snap_to_grapheme(1), 0);
+        state.cursor = 0;
+        state.extend_forward();
+        assert_eq!(state.cursor, 2);
+        state.extend_forward();
+        assert_eq!(state.cursor, 4);
+        state.extend_backward();
+        assert_eq!(state.cursor, 2);
+        // External positions snap on entry.
+        state.start_selection(3);
+        assert_eq!(state.cursor, 2);
+        state.update_selection(1);
+        assert_eq!(state.cursor, 0);
+        // CRLF is one cluster.
+        let mut crlf = EditState::new("a\r\nb");
+        crlf.clear_selection();
+        crlf.move_to_start();
+        crlf.move_forward();
+        crlf.move_forward();
+        assert_eq!(crlf.cursor, 3);
+        crlf.do_backspace();
+        assert_eq!(crlf.text, "ab");
+    }
+
+    #[test]
+    fn select_word_at_scales_to_long_inputs() {
+        let text = "word ".repeat(4000); // 20k chars
+        let mut state = EditState::new(&text);
+        state.select_word_at(10_002);
+        assert_eq!(state.selection_range(), Some((10_000, 10_004)));
+    }
+
+    #[test]
+    fn marked_range_is_retained_clamped_and_cleared() {
+        let mut state = EditState::new("ae\u{301}b");
+        state.set_marked_range(Some((1, 3)));
+        assert_eq!(state.marked_range, Some((1, 3)));
+        // Mid-cluster ends snap to the cluster start.
+        state.set_marked_range(Some((2, 99)));
+        assert_eq!(state.marked_range, Some((1, 4)));
+        state.finish_edit();
+        assert_eq!(state.marked_range, None);
+    }
 
     #[test]
     fn unicode_insert_delete_backspace() {

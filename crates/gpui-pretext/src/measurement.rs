@@ -269,6 +269,13 @@ pub struct MeasureCache {
     max_bytes: usize,
     payload_bytes: usize,
     measurement_key: Option<(bool, u64)>,
+    /// Construction-time provider identity (`bound_to`); `None` is the
+    /// legacy unbound cache that follows whichever provider it sees.
+    bound_key: Option<(bool, u64)>,
+    /// Whether the provider selected by the latest lookup may read and
+    /// write retained entries. Foreign providers on a bound cache are
+    /// measured fresh and retain nothing.
+    retain_current: bool,
     high_water_bytes: usize,
     hits: u64,
     misses: u64,
@@ -326,11 +333,52 @@ impl MeasureCache {
             max_bytes,
             payload_bytes: 0,
             measurement_key: None,
+            bound_key: None,
+            retain_current: true,
             high_water_bytes: 0,
             hits: 0,
             misses: 0,
             evictions: 0,
         }
+    }
+
+    /// Creates a cache bound at construction to one provider identity.
+    ///
+    /// The bound identity is the provider's current
+    /// `(cache_key_is_stable, cache_key)` pair. Lookups with any other
+    /// provider are measured fresh every time, retain nothing, and do
+    /// not evict the bound provider's entries — a stale or foreign
+    /// metric can never be served from retention. Because the key also
+    /// carries the revision, a provider that bumps its key after a
+    /// font/scale/locale change must be re-bound with [`Self::rebind`]
+    /// (which clears retained metrics).
+    pub fn bound_to(measure: &dyn TextMeasure) -> Self {
+        Self::bound_to_with_budgets(
+            measure,
+            DEFAULT_MEASURE_CACHE_CAPACITY,
+            DEFAULT_MEASURE_CACHE_MAX_BYTES,
+        )
+    }
+
+    /// [`Self::bound_to`] with explicit entry/byte budgets.
+    pub fn bound_to_with_budgets(
+        measure: &dyn TextMeasure,
+        capacity: usize,
+        max_bytes: usize,
+    ) -> Self {
+        let mut cache = Self::with_budgets(capacity, max_bytes);
+        cache.rebind(measure);
+        cache
+    }
+
+    /// Rebinds this cache to `measure`'s current identity, clearing
+    /// retained metrics. Use after a provider revision (`cache_key`)
+    /// change on a bound cache.
+    pub fn rebind(&mut self, measure: &dyn TextMeasure) {
+        self.clear();
+        self.bound_key = Some((measure.cache_key_is_stable(), measure.cache_key()));
+        self.measurement_key = self.bound_key;
+        self.retain_current = true;
     }
 
     pub fn len(&self) -> usize {
@@ -405,6 +453,13 @@ impl MeasureCache {
 
     fn select_measure(&mut self, measure: &dyn TextMeasure, scoped: bool) {
         let key = (measure.cache_key_is_stable(), measure.cache_key());
+        if self.bound_key.is_some_and(|bound| bound != key) {
+            // Foreign provider on a bound cache: fresh measurements
+            // only, bound entries untouched.
+            self.retain_current = false;
+            return;
+        }
+        self.retain_current = true;
         if (!key.0 && !scoped) || self.measurement_key != Some(key) {
             self.clear();
             self.measurement_key = Some(key);
@@ -460,6 +515,9 @@ impl MeasureCache {
         metrics: &SegmentMetrics,
         existing: Option<(Arc<str>, CacheEntry)>,
     ) {
+        if !self.retain_current {
+            return;
+        }
         if let Some((key, entry)) = &existing {
             self.payload_bytes = self
                 .payload_bytes
@@ -498,7 +556,9 @@ impl MeasureCache {
     }
 
     fn segment_metrics(&mut self, seg: &str, measure: &dyn TextMeasure) -> SegmentMetrics {
-        if let Some(entry) = self.cache.get_mut(seg) {
+        if self.retain_current
+            && let Some(entry) = self.cache.get_mut(seg)
+        {
             entry.referenced = true;
             self.hits = self.hits.saturating_add(1);
             return entry.metrics.clone();
@@ -526,7 +586,9 @@ impl MeasureCache {
     }
 
     fn width(&mut self, seg: &str, measure: &dyn TextMeasure) -> f64 {
-        if let Some(entry) = self.cache.get_mut(seg) {
+        if self.retain_current
+            && let Some(entry) = self.cache.get_mut(seg)
+        {
             entry.referenced = true;
             self.hits = self.hits.saturating_add(1);
             return entry.metrics.width;
@@ -545,7 +607,8 @@ impl MeasureCache {
     }
 
     fn grapheme_widths(&mut self, seg: &str, measure: &dyn TextMeasure) -> Option<Arc<[f64]>> {
-        if let Some(entry) = self.cache.get_mut(seg)
+        if self.retain_current
+            && let Some(entry) = self.cache.get_mut(seg)
             && let Some(widths) = &entry.metrics.grapheme_widths
         {
             entry.referenced = true;
@@ -570,7 +633,10 @@ impl MeasureCache {
             })
         });
         metrics.grapheme_widths = Some(widths.clone());
-        let existing = self.cache.remove_entry(seg);
+        let existing = self
+            .retain_current
+            .then(|| self.cache.remove_entry(seg))
+            .flatten();
         self.store(seg, &metrics, existing);
         (!widths.is_empty()).then_some(widths)
     }
@@ -590,7 +656,8 @@ impl MeasureCache {
         seg: &str,
         measure: &dyn TextMeasure,
     ) -> Option<Arc<[f64]>> {
-        if let Some(entry) = self.cache.get_mut(seg)
+        if self.retain_current
+            && let Some(entry) = self.cache.get_mut(seg)
             && let Some(widths) = &entry.metrics.grapheme_prefix_widths
         {
             entry.referenced = true;
@@ -614,7 +681,10 @@ impl MeasureCache {
         // without remaining in the map. Its ownership still belongs to the result.
         metrics.grapheme_widths = Some(widths.unwrap_or_else(|| Arc::from([])));
         metrics.grapheme_prefix_widths = Some(prefix.clone());
-        let existing = self.cache.remove_entry(seg);
+        let existing = self
+            .retain_current
+            .then(|| self.cache.remove_entry(seg))
+            .flatten();
         self.store(seg, &metrics, existing);
         (!prefix.is_empty()).then_some(prefix)
     }
@@ -934,6 +1004,62 @@ mod tests {
             session.get_grapheme_prefix_widths("ab").unwrap().as_ref(),
             &[3.0, 6.0]
         );
+    }
+
+    #[test]
+    fn bound_cache_serves_foreign_providers_fresh_and_keeps_bound_entries() {
+        struct Keyed {
+            key: u64,
+            width: f64,
+            calls: std::cell::Cell<usize>,
+        }
+        impl Keyed {
+            fn new(key: u64, width: f64) -> Self {
+                Self {
+                    key,
+                    width,
+                    calls: std::cell::Cell::new(0),
+                }
+            }
+        }
+        impl TextMeasure for Keyed {
+            fn measure_width(&self, text: &str) -> f64 {
+                self.calls.set(self.calls.get() + 1);
+                self.width * text.graphemes(true).count() as f64
+            }
+            fn cache_key(&self) -> u64 {
+                self.key
+            }
+            fn cache_key_is_stable(&self) -> bool {
+                true
+            }
+        }
+        let bound = Keyed::new(1, 2.0);
+        let foreign = Keyed::new(2, 5.0);
+        let mut cache = MeasureCache::bound_to(&bound);
+        assert_eq!(cache.get_width("ab", &bound), 4.0);
+        assert_eq!(cache.get_width("ab", &bound), 4.0);
+        assert_eq!(bound.calls.get(), 1, "bound provider hits retention");
+        // Foreign provider: fresh metrics, nothing retained or evicted.
+        assert_eq!(cache.get_width("ab", &foreign), 10.0);
+        assert_eq!(cache.get_width("ab", &foreign), 10.0);
+        assert_eq!(foreign.calls.get(), 2, "foreign provider never caches");
+        assert_eq!(
+            cache.get_grapheme_widths("ab", &foreign).unwrap().as_ref(),
+            &[5.0, 5.0]
+        );
+        assert_eq!(cache.len(), 1, "only the bound entry is retained");
+        // Bound entries survive foreign lookups untouched.
+        let hits = cache.stats().hits;
+        assert_eq!(cache.get_width("ab", &bound), 4.0);
+        assert_eq!(cache.stats().hits, hits + 1);
+        assert_eq!(bound.calls.get(), 1);
+        // Rebind adopts the new identity and clears.
+        cache.rebind(&foreign);
+        assert!(cache.is_empty());
+        assert_eq!(cache.get_width("ab", &foreign), 10.0);
+        assert_eq!(cache.get_width("ab", &foreign), 10.0);
+        assert_eq!(foreign.calls.get(), 6, "one new retained measurement");
     }
 
     struct FixedWidthMeasure {

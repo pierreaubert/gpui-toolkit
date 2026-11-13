@@ -3201,6 +3201,7 @@ dependencies = [
  "sotf-gpui-toolkit-gpui",
  "sotf-gpui-toolkit-gpui-wgpu",
  "sotf-objc",
+ "unicode-segmentation",
  "uuid",
  "web-time",
 ]

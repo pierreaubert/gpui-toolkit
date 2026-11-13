@@ -505,16 +505,7 @@ impl InputEntity {
         let char_len = state.text.chars().count();
         let start = range.start.min(char_len);
         let end = range.end.min(char_len).max(start);
-        let start_byte = state
-            .text
-            .char_indices()
-            .nth(start)
-            .map_or(state.text.len(), |(idx, _)| idx);
-        let end_byte = state
-            .text
-            .char_indices()
-            .nth(end)
-            .map_or(state.text.len(), |(idx, _)| idx);
+        let (start_byte, end_byte) = Self::char_range_byte_offsets(&state.text, start, end);
 
         state.text.replace_range(start_byte..end_byte, text);
         state.cursor = start + text.chars().count();
@@ -1223,10 +1214,14 @@ impl EntityInputHandler for InputEntity {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<Range<usize>> {
-        None
+        let state = self.edit_state.borrow();
+        let (start, end) = state.marked_range?;
+        Some(Self::char_to_utf16(&state.text, start)..Self::char_to_utf16(&state.text, end))
     }
 
-    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {}
+    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
+        self.edit_state.borrow_mut().set_marked_range(None);
+    }
 
     fn replace_text_in_range(
         &mut self,
@@ -1241,6 +1236,8 @@ impl EntityInputHandler for InputEntity {
 
         self.ensure_editing_state();
         let mut state = self.edit_state.borrow_mut();
+        // A plain replace commits any composition in flight.
+        state.set_marked_range(None);
         let range = range.map_or_else(
             || Self::current_selected_char_range(&state),
             |range| {
@@ -1269,10 +1266,18 @@ impl EntityInputHandler for InputEntity {
         }
 
         self.replace_text_in_range(range, new_text, window, cx);
+        // Retain the composition range: the text just inserted, ending
+        // at the cursor replace_text_in_range left behind.
+        let end = self.edit_state.borrow().cursor;
+        let inserted = new_text.chars().count();
+        self.edit_state
+            .borrow_mut()
+            .set_marked_range(Some((end.saturating_sub(inserted), end)));
         if let Some(selected_range) = new_selected_range {
             let mut state = self.edit_state.borrow_mut();
-            let start = Self::utf16_to_char(&state.text, selected_range.start);
-            let end = Self::utf16_to_char(&state.text, selected_range.end);
+            let start =
+                state.snap_to_grapheme(Self::utf16_to_char(&state.text, selected_range.start));
+            let end = state.snap_to_grapheme(Self::utf16_to_char(&state.text, selected_range.end));
             state.selection_anchor = Some(start);
             state.cursor = end;
             let selection = Self::selection_from_state(&state);
