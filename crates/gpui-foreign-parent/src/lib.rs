@@ -6,8 +6,10 @@
 //! editors, embedded panels, foreign canvases).
 //!
 //! Contents:
-//! - [`EditorRegistry`]: keyed editor-instance slots with removal
-//!   semantics (generalizes the single global slot), UI-thread gated.
+//! - [`OwnedEditorRegistry`]: owned editor instances under non-reused
+//!   checked tokens, UI-thread confined with callback leases. (The old
+//!   borrowed-pointer `EditorRegistry` was removed once every binding
+//!   migrated; see audit-20261113 step 2.)
 //! - [`FrameThrottle`]: host-pump overdrive coalescing with health
 //!   counters.
 //! - [`ResizeDebounce`]: debounced surface reconfiguration that always
@@ -23,7 +25,6 @@
 mod debounce;
 mod ffi;
 mod owned_registry;
-mod registry;
 mod slot;
 pub mod sync;
 mod throttle;
@@ -34,8 +35,6 @@ pub use debounce::{DEFAULT_RESIZE_DEBOUNCE_INTERVAL, ResizeDebounce};
 pub use ffi::{ffi_boundary, fill_out_buffer, optional_c_string};
 #[doc(inline)]
 pub use owned_registry::{EditorHandle, EditorHandleExhausted, OwnedEditorRegistry};
-#[doc(inline)]
-pub use registry::{EditorRegistry, no_thread_assertion};
 #[doc(inline)]
 pub use slot::{CallbackSlot, TransitionCell};
 #[doc(inline)]
