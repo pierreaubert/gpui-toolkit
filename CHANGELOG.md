@@ -4,6 +4,26 @@
 
 ## 2026-11-13
 
+### Audit 20261113 implementation (steps 0-17)
+
+Version bumps for every crate changed by the audit follow-up; see
+each crate's own CHANGELOG for details.
+
+- gpui-android 0.11.1, gpui-au 0.11.1, gpui-builder 0.11.1,
+  gpui-d3rs 0.11.2, gpui-dataset-transformation 0.11.1,
+  gpui-foreign-parent 0.11.1, gpui-ios 0.11.1,
+  gpui-linux-foreign 0.11.1, gpui-mesh 0.11.1, gpui-pretext 0.11.1,
+  gpui-px 0.11.1, gpui-python-runtime 0.11.1, gpui-scene3d 0.11.1,
+  gpui-showcase 0.11.1, gpui-spinorama 0.11.3, gpui-ui-kit 0.11.1,
+  gpui-web-foreign 0.11.1: validity-mask correctness, FFI ownership
+  migration, grapheme editing, streaming movie export, scalar-only
+  GPU updates, byte-budgeted caches and queues, shared table rows,
+  typed VTU errors, volume bounds, GPU compute residency and
+  threshold pipeline, common frame scheduler with thermal policy,
+  and the Q1/QA gates (allocation-aware perf schema, fuzz targets,
+  Miri coverage). The four crates that inherited the workspace
+  version now carry explicit versions so only affected crates bump.
+
 ### gpui-spinorama 0.11.2
 
 - Space frequency-plot markers at least 40 logical pixels apart. Curves retain

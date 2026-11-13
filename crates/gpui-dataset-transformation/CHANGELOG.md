@@ -1,5 +1,33 @@
 # Unreleased
 
+# 0.11.1
+
+## Added
+
+- `threshold_gpu` / `GpuFlow::threshold_cells`: portable GPU
+  classify → blocked exclusive scan → scatter threshold pipeline with
+  exact CPU output parity (differential-tested).
+- `GpuFlow::from_shared_device`, `with_power_preference`, and
+  `new_async`; `PreparedFlow` resident diagnostics
+  (`run_resident`, buffer accessors, readback counters) with
+  selectable outputs via `FlowOutputs`.
+- Structured `VtuError` for VTU reads (typed budget variant);
+  fallible numeric-array expansion.
+
+## Changed
+
+- `contour_lines` honors validity masks (triangles with missing
+  nodes emit nothing) and validates its input and levels.
+- Mesh IO is validity-aware: VTK/VTU/XDMF export masked entries as
+  NaN with a `<name>__valid` companion and readers restore masks;
+  bare NaNs read back as missing data. Surface formats are documented
+  geometry-only.
+- GPU dispatches are partitioned across 2D grids with checked buffer
+  sizes (typed `GpuError::TooLarge`); per-tet geometry is cached by a
+  prepass instead of recomputed per adjacency entry; the default
+  power policy is the system default.
+- `read_vtu*` now returns `Result<_, VtuError>` instead of `String`.
+
 # 0.11.0
 
 ## Added

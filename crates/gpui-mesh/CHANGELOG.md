@@ -1,5 +1,14 @@
 # Unreleased
 
+# 0.11.1
+
+## Changed
+
+- Documented and test-pinned the shared-payload sampling contract:
+  an intersected validity mask may mask entries whose shared payload
+  stays finite, so validity is defined by the mask
+  (`Field::is_valid`), never by the raw payload.
+
 # 0.11.0
 
 ## Added

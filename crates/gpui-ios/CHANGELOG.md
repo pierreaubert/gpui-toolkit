@@ -1,5 +1,22 @@
 # Unreleased
 
+# 0.11.1
+
+## Added
+
+- Real thermal state: `Platform::thermal_state` reads
+  `NSProcessInfo.thermalState`, and `gpui_ios_notify_thermal_state_changed`
+  / `gpui_ios_thermal_state` FFI let Swift hosts forward
+  `NSProcessInfoThermalStateDidChange` to the GPUI callback.
+
+## Changed
+
+- Foreign-parent editors use leased window slots: destroy closes the
+  slot immediately but defers the context drop until active
+  callbacks return. All `gpui_ios_foreign_*` exports are `unsafe`
+  with documented contracts and run inside `ffi_boundary`; editor
+  ids are allocated checked (never wrapping).
+
 # 0.11.0
 
 # 0.11.0

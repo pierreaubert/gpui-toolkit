@@ -1,6 +1,6 @@
 [package]
 name = "gpui-scene3d"
-version.workspace = true
+version = "0.11.1"
 edition.workspace = true
 repository.workspace = true
 authors.workspace = true

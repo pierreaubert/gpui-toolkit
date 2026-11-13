@@ -1,5 +1,13 @@
 # Unreleased
 
+# 0.11.1
+
+## Changed
+
+- The log-tick cache is a byte-budgeted LRU (256 KiB) instead of a
+  256-entry cache that cleared wholesale at capacity, with
+  retained-byte/activity counters and a trim hook.
+
 # 0.11.0
 
 # 0.10.14 - 2026-10-09

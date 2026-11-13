@@ -1,5 +1,15 @@
 # Unreleased
 
+# 0.11.1
+
+## Added
+
+- `TextMeasureCache` enforces a 4 MiB charged-byte budget across
+  retained prepared texts and computed sizes (previously count caps
+  only, so one huge text could pin unbounded memory), with
+  `stats()` counters (retained/high-water bytes, evictions) and a
+  `trim()` memory-pressure hook.
+
 # 0.11.0
 
 # 0.10.11

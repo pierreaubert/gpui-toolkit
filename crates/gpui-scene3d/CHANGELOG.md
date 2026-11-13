@@ -1,5 +1,38 @@
 # Unreleased
 
+# 0.11.1
+
+## Added
+
+- Streaming movie export: `write_png_sequence` sinks, `mux_mp4_to`
+  (bounded feed queue, concurrently drained pipes — frames larger
+  than a pipe buffer no longer deadlock), and
+  `Player::stream_movie_frames` with cancellation. Collect-all
+  `png_sequence`/`mux_mp4` keep an explicit small-export limit.
+- Scalar-only updates: retained preparation and GPU sync rebuild only
+  packed scalars (new scalar buffers, encoded-pass safe) when
+  topology, transport, and the validity pattern are unchanged.
+- `GpuStats` activity counters, per-chunk frustum culling,
+  `sync_with_budget` incremental actor uploads (single-call
+  completions stay atomic), and in-place `resize_target` reuse.
+- Volume raycasting: field-revision grid reuse (`update_field`),
+  `VolumeOptions::sample_budget`, and `render_cancellable`.
+- Warm-frame allocation acceptance test (camera-only frames do not
+  allocate in proportion to mesh size).
+
+## Changed
+
+- Face normals accumulate per global point across chunks, so shared
+  vertices shade continuously across chunk boundaries (previously
+  each chunk normalized independently); point-scalar preparation
+  streams in two passes instead of materializing all chunks.
+- Volume opacity uses exponential step-length correction
+  (homogeneous slabs are step-size independent); the tet grid is CSR
+  with cached inverse transforms and empty-space skipping.
+- The interactive viewer example now requires the `gpui-gpu`
+  feature, so the shipped configuration exercises the host-GPU
+  element.
+
 # 0.11.0
 
 ## Added

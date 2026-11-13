@@ -1,5 +1,12 @@
 # Unreleased
 
+# 0.11.3
+
+## Changed
+
+- Contour cache hits no longer build the contour generator or the
+  log-frequency vector before discovering the hit.
+
 ## Fixed
 
 - Preserve null samples as line breaks in scatter plots, including phase wraps.

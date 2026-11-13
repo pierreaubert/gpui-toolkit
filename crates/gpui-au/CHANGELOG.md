@@ -1,5 +1,17 @@
 # Unreleased
 
+# 0.11.1
+
+## Changed
+
+- All `gpui_au_*` exports are now `unsafe extern "C"` with documented
+  pointer/thread contracts, and every body runs inside `ffi_boundary`
+  so guest panics cannot unwind across the C boundary.
+- The window slot is leased: destroying the context during an active
+  callback defers the `AuContext` drop until the callback returns, so
+  reentrant host teardown cannot free the window under a live borrow.
+  Foreign threads resolve to "no window" in release builds too.
+
 # 0.11.0
 
 # 0.11.0

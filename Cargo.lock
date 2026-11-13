@@ -2637,7 +2637,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-android"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "accesskit",
  "android-activity",
@@ -2664,7 +2664,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-au"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "anyhow",
  "core-foundation 0.10.1",
@@ -2701,7 +2701,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-builder"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "criterion",
  "gpui-design",
@@ -2743,7 +2743,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-d3rs"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "approx",
  "bytemuck",
@@ -2789,7 +2789,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-dataset-transformation"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -2825,7 +2825,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-foreign-parent"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "web-time",
 ]
@@ -2846,7 +2846,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ios"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -2890,7 +2890,7 @@ version = "0.11.0"
 
 [[package]]
 name = "gpui-linux-foreign"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "gpui-foreign-parent",
  "sotf-gpui-toolkit-gpui",
@@ -2899,7 +2899,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-mesh"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "gpui-profiler",
  "thiserror 2.0.21",
@@ -2927,7 +2927,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-pretext"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "criterion",
  "gpui-profiler",
@@ -2947,7 +2947,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-px"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "criterion",
  "glam",
@@ -2972,7 +2972,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-python-runtime"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "arrow-array",
  "arrow-cast",
@@ -3022,7 +3022,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-scene3d"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -3043,7 +3043,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-showcase"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "anyhow",
  "criterion",
@@ -3105,7 +3105,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-spinorama"
-version = "0.11.2"
+version = "0.11.3"
 dependencies = [
  "base64",
  "gpui-builder",
@@ -3181,7 +3181,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "block2 0.6.2",
  "criterion",
@@ -3222,7 +3222,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-web-foreign"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "gpui-foreign-parent",
  "js-sys",

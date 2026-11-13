@@ -1,5 +1,13 @@
 # Unreleased
 
+# 0.11.1
+
+## Added
+
+- Asserting `layout_stats` retention gate test: a one-panel change
+  under view retention must reuse layout nodes/views and create
+  none, while scratch mode stays distinguishable.
+
 # 0.11.0
 
 ## Added

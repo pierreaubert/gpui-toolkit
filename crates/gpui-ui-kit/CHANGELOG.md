@@ -1,5 +1,30 @@
 # Unreleased
 
+# 0.11.1
+
+## Added
+
+- `Table::with_shared_rows` (rows are now `Arc<[T]>`; `Table::new`
+  stays source-compatible), `Table::keyed_by` stable row identity
+  with `selected_ids`/`focused_id`/`on_selection_ids_change`, and
+  bounded virtual-window overscan
+  (`DataVirtualWindow::DEFAULT_OVERSCAN`/`MAX_OVERSCAN`).
+
+## Changed
+
+- Text editing moves, extends, and deletes by extended grapheme
+  cluster (combining sequences, ZWJ emoji, flags, keycaps), external
+  positions snap to cluster boundaries, and word selection is a
+  single-pass scan. Movement is logical-order; bidi visual-order
+  movement remains an explicit non-goal.
+- The new `unicode-segmentation` dependency powers cluster boundaries.
+
+## Fixed
+
+- IME marked (composition) text is retained across composition
+  updates and reported from `marked_text_range`, instead of being
+  stubbed to `None`.
+
 # 0.11.0
 
 ## Fixed

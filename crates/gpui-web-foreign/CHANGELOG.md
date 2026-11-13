@@ -1,5 +1,14 @@
 # Unreleased
 
+# 0.11.1
+
+## Changed
+
+- The `requestAnimationFrame` pump runs through the shared
+  `FrameScheduler` policy and stops while the editor is clean:
+  invalidations (input, resize, composition, focus) restart it.
+  Browsers no longer wake idle editors 60-120x/s forever.
+
 # 0.11.0
 
 # 0.11.0

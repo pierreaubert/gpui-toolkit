@@ -1,5 +1,23 @@
 # Unreleased
 
+# 0.11.1
+
+## Added
+
+- `MeasureCache::bound_to` / `bound_to_with_budgets` / `rebind`:
+  construction-bound provider identity. Foreign providers on a bound
+  cache are measured fresh, retain nothing, and cannot serve or evict
+  the bound provider's entries.
+
+## Fixed
+
+- Segmentation corruption with chained escaped-quote clusters
+  (`\'` repeated): a later cluster could resurrect a segment slot
+  emptied earlier in the same merge pass, keeping the earlier start
+  offset for later text and breaking the (start, text) storage
+  invariant. Found by the new fuzz corpus replay; regression test
+  `fuzz_crash_segmentation_starts_stay_in_storage`.
+
 # 0.11.0
 
 # 0.10.11

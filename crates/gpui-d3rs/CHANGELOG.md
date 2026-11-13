@@ -1,5 +1,22 @@
 # Unreleased
 
+# 0.11.2
+
+## Added
+
+- Byte budgets with retained/high-water/statistics and trim hooks for
+  the software mesh-image cache, the glyph raster and chart-text
+  layout caches, and the thread-local path scratch (previously
+  count-capped or retained their largest-ever allocation; the image
+  cache alone could pin ~512 MiB).
+- Tick-label cache activity counters (`tick_label_cache_stats`).
+
+## Changed
+
+- Standalone device creation no longer forces
+  `PowerPreference::HighPerformance`; the system/host chooses the
+  adapter (shared-device paths are unaffected).
+
 # 0.11.0
 
 # 0.10.47

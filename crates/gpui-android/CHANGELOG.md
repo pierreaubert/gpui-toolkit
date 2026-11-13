@@ -1,5 +1,24 @@
 # Unreleased
 
+# 0.11.1
+
+## Added
+
+- `PlatformWindow::schedule_frame` is implemented: GPUI one-shot frame
+  demand (`on_next_frame`, dirtying refreshes) now wakes the event-loop
+  poll instead of stalling until unrelated input arrives.
+- Thermal slowdown: `AndroidWindow::set_thermal_status` plus
+  `Java_dev_gpui_mobile_GpuiActivity_nativeSetThermalStatus` slow the
+  frame-pump cadence as the PowerManager thermal level rises.
+
+## Changed
+
+- Callback `Box<dyn FnMut>` transmutes are replaced by one
+  main-thread-confined wrapper whose invocation asserts the event-loop
+  thread in every build profile.
+- Foreign-editor JNI exports run inside `ffi_boundary`, and editor ids
+  are allocated checked (never wrapping).
+
 # 0.11.0
 
 # 0.11.0

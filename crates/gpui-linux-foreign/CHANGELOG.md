@@ -1,5 +1,17 @@
 # Unreleased
 
+# 0.11.1
+
+## Changed
+
+- Editors are owned by a thread-local `OwnedEditorRegistry` under
+  non-reused checked tokens (the numeric editor id is the token, not
+  a pointer); closing during a callback defers destruction safely.
+- Foreign-thread calls are rejected in release builds (previously a
+  debug-only assertion).
+- The host pump drives the shared `FrameScheduler` policy, and all
+  22 C exports run inside `ffi_boundary`.
+
 # 0.11.0
 
 # 0.11.0

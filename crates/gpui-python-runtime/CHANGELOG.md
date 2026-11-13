@@ -1,5 +1,15 @@
 # Unreleased
 
+# 0.11.1
+
+## Changed
+
+- The showcase host's inbound Python queue is bounded in aggregate
+  bytes (32 MiB), not just message count: the reader thread acquires
+  budget before queueing and the session releases it on receive, so
+  256 queued multi-MiB frames can no longer be retained. Backpressure
+  blocks only the reader thread, never the UI thread.
+
 # 0.11.0
 
 ## Features
