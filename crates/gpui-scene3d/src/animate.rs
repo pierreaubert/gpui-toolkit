@@ -125,26 +125,31 @@ impl Player {
         self.series.sample(self.time).map_err(Into::into)
     }
 
-    /// Renders evenly spaced frames over the complete time range.
+    /// Streams evenly spaced frames over the complete time range to a sink.
+    ///
+    /// Each frame is sampled, rendered, and handed to
+    /// `sink(time, frame)` before the next is produced, so peak memory is
+    /// one frame regardless of count. A sink error stops rendering
+    /// immediately (cancellation) and is returned to the caller.
     ///
     /// # Errors
     ///
-    /// Returns an error for zero frame count or failed sampling/rendering.
-    /// This method collects frames in memory.
-    pub fn movie_frames(
+    /// Returns an error for zero frame count, failed sampling/rendering,
+    /// or the sink's error.
+    pub fn stream_movie_frames(
         &self,
         scene_for: impl Fn(DataSet) -> crate::Scene,
         camera: &crate::Camera,
         width: u32,
         height: u32,
         frames: usize,
-    ) -> Result<Vec<(f64, crate::Frame)>, SceneError> {
+        mut sink: impl FnMut(f64, crate::Frame) -> Result<(), SceneError>,
+    ) -> Result<usize, SceneError> {
         if frames == 0 {
             return Err(SceneError::InvalidPlayback(
                 "movie frame count must be positive",
             ));
         }
-        let mut out = Vec::with_capacity(frames);
         for index in 0..frames {
             let fraction = if frames == 1 {
                 0.0
@@ -153,8 +158,31 @@ impl Player {
             };
             let time = self.series.time_axis().at_fraction(fraction)?;
             let scene = scene_for(self.series.sample(time)?);
-            out.push((time, crate::render(&scene, camera, width, height)?));
+            sink(time, crate::render(&scene, camera, width, height)?)?;
         }
+        Ok(frames)
+    }
+
+    /// Renders evenly spaced frames over the complete time range.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for zero frame count or failed sampling/rendering.
+    /// This method collects frames in memory; prefer
+    /// [`stream_movie_frames`](Self::stream_movie_frames) for long movies.
+    pub fn movie_frames(
+        &self,
+        scene_for: impl Fn(DataSet) -> crate::Scene,
+        camera: &crate::Camera,
+        width: u32,
+        height: u32,
+        frames: usize,
+    ) -> Result<Vec<(f64, crate::Frame)>, SceneError> {
+        let mut out = Vec::with_capacity(frames);
+        self.stream_movie_frames(scene_for, camera, width, height, frames, |time, frame| {
+            out.push((time, frame));
+            Ok(())
+        })?;
         Ok(out)
     }
 }
@@ -237,6 +265,42 @@ mod tests {
         player.advance(3.0).unwrap();
         assert_eq!(player.time, 1.0);
         assert!(player.playing);
+    }
+
+    #[test]
+    fn stream_movie_frames_delivers_and_stops_on_sink_error() {
+        let series =
+            TimeSeries::new(vec![step(0.0, 0.0), step(2.0, 10.0)], vec![0.0, 2.0]).unwrap();
+        let player = Player::new(series).unwrap();
+        let camera = crate::Camera::default();
+        let scene_for = |ds: DataSet| {
+            crate::Scene::new().with_actor(
+                crate::Actor::new(ds)
+                    .coloured_by("p", crate::TransferFunction::viridis([0.0, 10.0])),
+            )
+        };
+        let mut times = Vec::new();
+        let delivered = player
+            .stream_movie_frames(scene_for, &camera, 16, 16, 5, |time, _frame| {
+                times.push(time);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(delivered, 5);
+        assert_eq!(times, vec![0.0, 0.5, 1.0, 1.5, 2.0]);
+
+        let mut seen = 0;
+        let error = player
+            .stream_movie_frames(scene_for, &camera, 16, 16, 5, |_, _| {
+                seen += 1;
+                if seen == 2 {
+                    return Err(SceneError::InvalidPlayback("stop"));
+                }
+                Ok(())
+            })
+            .unwrap_err();
+        assert_eq!(error, SceneError::InvalidPlayback("stop"));
+        assert_eq!(seen, 2, "rendering stops at the cancelling frame");
     }
 
     #[test]
