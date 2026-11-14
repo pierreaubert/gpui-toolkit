@@ -1,0 +1,62 @@
+[package]
+name = "gpui-python-mobile-android"
+version = "0.11.1"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Android native library and Gradle host for Python-authored GPUI apps (embedded CPython)"
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+name = "python_mobile_android"
+crate-type = ["cdylib"]
+
+[features]
+default = ["embedded"]
+# The shared host facade (bin/showcase.rs, included by path) gates its
+# embedded transport on this crate's `embedded` feature by the same name.
+embedded = ["gpui-python-runtime/embedded"]
+
+# Mirrors the dependency set the shared host facade references directly.
+[dependencies]
+gpui = { workspace = true }
+gpui-android = { workspace = true }
+gpui-audio-kit = { workspace = true }
+gpui-builder = { workspace = true }
+gpui-d3rs = { workspace = true }
+gpui-dataset-transformation = { workspace = true }
+gpui-design = { workspace = true }
+gpui-design-tools = { workspace = true }
+gpui-mesh = { workspace = true }
+gpui-miniapp = { workspace = true }
+gpui-pretext = { workspace = true }
+gpui-profiler = { workspace = true, features = ["global-allocator"] }
+gpui-px = { workspace = true, default-features = false }
+gpui-python-runtime = { workspace = true, features = ["showcase"] }
+gpui-scaffolder = { workspace = true }
+gpui-themes = { workspace = true }
+gpui-ui-kit = { workspace = true }
+anyhow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-cast = { workspace = true }
+arrow-ipc = { workspace = true }
+futures = { workspace = true }
+glam = { workspace = true }
+libc = { workspace = true }
+log = { workspace = true }
+memmap2 = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+smallvec = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { workspace = true }
+android_logger = { workspace = true }
+ndk = { workspace = true }

@@ -33,6 +33,8 @@ members = [
     "crates/gpui-toolkit-cli",
     "crates/gpui-ui-kit",
     "crates/gpui-showcase/ios",
+    "crates/gpui-python-runtime/mobile/ios",
+    "crates/gpui-python-runtime/mobile/android",
     "crates/gpui-ui-kit-macros",
     "crates/gpui-web-foreign",
     "crates/gpui-win-foreign",

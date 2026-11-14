@@ -2939,6 +2939,87 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-python-mobile-android"
+version = "0.11.1"
+dependencies = [
+ "android-activity",
+ "android_logger",
+ "anyhow",
+ "arrow-array",
+ "arrow-cast",
+ "arrow-ipc",
+ "futures",
+ "glam",
+ "gpui-android",
+ "gpui-audio-kit",
+ "gpui-builder",
+ "gpui-d3rs",
+ "gpui-dataset-transformation",
+ "gpui-design",
+ "gpui-design-tools",
+ "gpui-mesh",
+ "gpui-miniapp",
+ "gpui-pretext",
+ "gpui-profiler",
+ "gpui-px",
+ "gpui-python-runtime",
+ "gpui-scaffolder",
+ "gpui-themes",
+ "gpui-ui-kit",
+ "libc",
+ "log",
+ "memmap2",
+ "ndk",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "sotf-gpui-toolkit-gpui",
+ "tempfile",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
+name = "gpui-python-mobile-ios"
+version = "0.11.1"
+dependencies = [
+ "anyhow",
+ "arrow-array",
+ "arrow-cast",
+ "arrow-ipc",
+ "futures",
+ "glam",
+ "gpui-audio-kit",
+ "gpui-builder",
+ "gpui-d3rs",
+ "gpui-dataset-transformation",
+ "gpui-design",
+ "gpui-design-tools",
+ "gpui-ios",
+ "gpui-mesh",
+ "gpui-miniapp",
+ "gpui-pretext",
+ "gpui-profiler",
+ "gpui-px",
+ "gpui-python-runtime",
+ "gpui-scaffolder",
+ "gpui-themes",
+ "gpui-ui-kit",
+ "libc",
+ "log",
+ "memmap2",
+ "oslog",
+ "security-framework 3.7.0",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "sotf-gpui-toolkit-gpui",
+ "tempfile",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
 name = "gpui-python-runtime"
 version = "0.11.1"
 dependencies = [

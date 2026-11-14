@@ -38,6 +38,7 @@ use gpui::{
     self, AtlasKey, AtlasTile, Capslock, DispatchEventResult, GpuSpecs, Modifiers, PlatformAtlas,
     PlatformDisplay, PlatformInputHandler, PlatformWindow, PromptButton, PromptLevel,
     RequestFrameOptions, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
+    WindowVisibility,
 };
 use gpui_foreign_parent::sync::SyncResizeDebounce;
 use gpui_wgpu::{GpuContext, WgpuRenderer, WgpuSurfaceConfig, wgpu};
@@ -1420,7 +1421,7 @@ impl<I, R> MainThreadCallback<I, R> {
         }
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, Box<dyn FnMut(I) -> R>> {
+    fn lock(&self) -> parking_lot::MutexGuard<'_, Box<dyn FnMut(I) -> R>> {
         assert_eq!(
             std::thread::current().id(),
             main_thread_id(),
@@ -1515,6 +1516,14 @@ impl HasDisplayHandle for AndroidPlatformWindow {
 }
 
 impl PlatformWindow for AndroidPlatformWindow {
+    fn visibility(&self) -> WindowVisibility {
+        WindowVisibility::Visible
+    }
+
+    fn on_visibility_change(&self, _callback: Box<dyn FnMut(WindowVisibility)>) {}
+
+    fn on_display_changed(&self, _callback: Box<dyn FnMut()>) {}
+
     fn bounds(&self) -> gpui::Bounds<gpui::Pixels> {
         let state = self.window.state.lock();
         let w = state.width as f32 / state.scale_factor;
@@ -1806,7 +1815,7 @@ impl PlatformWindow for AndroidPlatformWindow {
             cb(RequestFrameOptions {
                 require_presentation: true,
                 force_render: text_dirty,
-                signal_at: None,
+                ..Default::default()
             });
         });
     }
@@ -2248,12 +2257,14 @@ impl PlatformWindow for AndroidPlatformWindow {
         self.window.on_close(move || send_callback.call_once());
     }
 
-    fn on_appearance_changed(&self, callback: Box<dyn FnMut()>) {
-        // Wire to system dark mode changes via Configuration.
-        let send_callback = MainThreadCallback::new(callback);
+    fn on_appearance_changed(&self, mut callback: Box<dyn FnMut()>) {
+        // Wire to system dark mode changes via Configuration. The wrapper
+        // carries single-argument callbacks, so adapt the nullary GPUI
+        // callback to a unit argument at construction.
+        let send_callback = MainThreadCallback::new(Box::new(move |()| callback()));
         self.window.on_appearance_changed(move |_appearance| {
             let mut cb = send_callback.lock();
-            cb();
+            cb(());
         });
     }
 
@@ -2266,10 +2277,6 @@ impl PlatformWindow for AndroidPlatformWindow {
         );
 
         self.window.draw(scene);
-    }
-
-    fn completed_frame(&self) {
-        // No-op — frame completion is handled by wgpu's present.
     }
 
     fn sprite_atlas(&self) -> Arc<dyn PlatformAtlas> {
@@ -2565,14 +2572,14 @@ impl FallbackAtlas {
 impl PlatformAtlas for FallbackAtlas {
     fn get_or_insert_with<'a>(
         &self,
-        key: &AtlasKey,
+        key: AtlasKey,
         build: &mut dyn FnMut() -> anyhow::Result<
             Option<(gpui::Size<gpui::DevicePixels>, std::borrow::Cow<'a, [u8]>)>,
         >,
     ) -> anyhow::Result<Option<AtlasTile>> {
         let mut state = self.state.lock();
 
-        if let Some(tile) = state.tiles.get(key) {
+        if let Some(tile) = state.tiles.get(&key) {
             return Ok(Some(tile.clone()));
         }
 
@@ -2597,7 +2604,7 @@ impl PlatformAtlas for FallbackAtlas {
                 },
             };
 
-            state.tiles.insert(key.clone(), tile.clone());
+            state.tiles.insert(key, tile.clone());
             Ok(Some(tile))
         } else {
             Ok(None)
@@ -2864,9 +2871,9 @@ mod tests {
     }
 
     #[test]
-    fn gpu_info_none_for_headless() {
+    fn gpu_specs_none_for_headless() {
         let w = AndroidWindow::headless(1080, 1920, 2.0);
-        assert!(w.gpu_info().is_none());
+        assert!(w.gpu_specs().is_none());
     }
 
     #[test]

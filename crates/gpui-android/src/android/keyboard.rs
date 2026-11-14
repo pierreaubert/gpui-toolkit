@@ -443,67 +443,37 @@ mod tests {
 
     #[test]
     fn letter_keycodes() {
-        assert_eq!(android_keycode_to_key(AKEYCODE_A), Some("a".to_string()));
-        assert_eq!(android_keycode_to_key(AKEYCODE_Z), Some("z".to_string()));
+        assert_eq!(android_keycode_to_key(AKEYCODE_A), Some("a"));
+        assert_eq!(android_keycode_to_key(AKEYCODE_Z), Some("z"));
     }
 
     #[test]
     fn number_keycodes() {
-        assert_eq!(android_keycode_to_key(AKEYCODE_0), Some("0".to_string()));
-        assert_eq!(android_keycode_to_key(AKEYCODE_9), Some("9".to_string()));
+        assert_eq!(android_keycode_to_key(AKEYCODE_0), Some("0"));
+        assert_eq!(android_keycode_to_key(AKEYCODE_9), Some("9"));
     }
 
     #[test]
     fn special_keycodes() {
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_ENTER),
-            Some("enter".to_string())
-        );
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_DEL),
-            Some("backspace".to_string())
-        );
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_ESCAPE),
-            Some("escape".to_string())
-        );
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_TAB),
-            Some("tab".to_string())
-        );
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_SPACE),
-            Some(" ".to_string())
-        );
+        assert_eq!(android_keycode_to_key(AKEYCODE_ENTER), Some("enter"));
+        assert_eq!(android_keycode_to_key(AKEYCODE_DEL), Some("backspace"));
+        assert_eq!(android_keycode_to_key(AKEYCODE_ESCAPE), Some("escape"));
+        assert_eq!(android_keycode_to_key(AKEYCODE_TAB), Some("tab"));
+        assert_eq!(android_keycode_to_key(AKEYCODE_SPACE), Some(" "));
     }
 
     #[test]
     fn arrow_keycodes() {
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_DPAD_UP),
-            Some("up".to_string())
-        );
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_DPAD_DOWN),
-            Some("down".to_string())
-        );
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_DPAD_LEFT),
-            Some("left".to_string())
-        );
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_DPAD_RIGHT),
-            Some("right".to_string())
-        );
+        assert_eq!(android_keycode_to_key(AKEYCODE_DPAD_UP), Some("up"));
+        assert_eq!(android_keycode_to_key(AKEYCODE_DPAD_DOWN), Some("down"));
+        assert_eq!(android_keycode_to_key(AKEYCODE_DPAD_LEFT), Some("left"));
+        assert_eq!(android_keycode_to_key(AKEYCODE_DPAD_RIGHT), Some("right"));
     }
 
     #[test]
     fn function_keycodes() {
-        assert_eq!(android_keycode_to_key(AKEYCODE_F1), Some("f1".to_string()));
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_F12),
-            Some("f12".to_string())
-        );
+        assert_eq!(android_keycode_to_key(AKEYCODE_F1), Some("f1"));
+        assert_eq!(android_keycode_to_key(AKEYCODE_F12), Some("f12"));
     }
 
     #[test]
@@ -530,17 +500,14 @@ mod tests {
 
     #[test]
     fn back_button_maps_to_escape() {
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_BACK),
-            Some("escape".to_string())
-        );
+        assert_eq!(android_keycode_to_key(AKEYCODE_BACK), Some("escape"));
     }
 
     #[test]
     fn keystroke_from_key_event() {
         let ks = android_key_to_keystroke(AKEYCODE_A, AMETA_NONE, 0).unwrap();
         assert_eq!(ks.key, "a");
-        assert_eq!(ks.key_char, Some("a".to_string()));
+        assert_eq!(ks.key_char, Some("a"));
         assert!(!ks.modifiers.shift);
     }
 
@@ -548,7 +515,7 @@ mod tests {
     fn keystroke_with_shift() {
         let ks = android_key_to_keystroke(AKEYCODE_A, AMETA_SHIFT_ON, 'A' as u32).unwrap();
         assert_eq!(ks.key, "a");
-        assert_eq!(ks.key_char, Some("A".to_string()));
+        assert_eq!(ks.key_char, Some("A"));
         assert!(ks.modifiers.shift);
     }
 
@@ -571,7 +538,7 @@ mod tests {
         // Simulate pressing a key that produces 'é'
         let ks = android_key_to_keystroke(AKEYCODE_E, AMETA_NONE, 'é' as u32).unwrap();
         assert_eq!(ks.key, "e");
-        assert_eq!(ks.key_char, Some("é".to_string()));
+        assert_eq!(ks.key_char, Some("é"));
     }
 
     #[test]
@@ -584,7 +551,7 @@ mod tests {
     fn character_to_keystroke_basic() {
         let ks = character_to_keystroke('h');
         assert_eq!(ks.key, "h");
-        assert_eq!(ks.key_char, Some("h".to_string()));
+        assert_eq!(ks.key_char, Some("h"));
     }
 
     #[test]
@@ -603,37 +570,16 @@ mod tests {
 
     #[test]
     fn numpad_keycodes() {
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_NUMPAD_0),
-            Some("0".to_string())
-        );
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_NUMPAD_ENTER),
-            Some("enter".to_string())
-        );
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_NUMPAD_ADD),
-            Some("+".to_string())
-        );
+        assert_eq!(android_keycode_to_key(AKEYCODE_NUMPAD_0), Some("0"));
+        assert_eq!(android_keycode_to_key(AKEYCODE_NUMPAD_ENTER), Some("enter"));
+        assert_eq!(android_keycode_to_key(AKEYCODE_NUMPAD_ADD), Some("+"));
     }
 
     #[test]
     fn punctuation_keycodes() {
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_COMMA),
-            Some(",".to_string())
-        );
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_SEMICOLON),
-            Some(";".to_string())
-        );
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_APOSTROPHE),
-            Some("'".to_string())
-        );
-        assert_eq!(
-            android_keycode_to_key(AKEYCODE_BACKSLASH),
-            Some("\\".to_string())
-        );
+        assert_eq!(android_keycode_to_key(AKEYCODE_COMMA), Some(","));
+        assert_eq!(android_keycode_to_key(AKEYCODE_SEMICOLON), Some(";"));
+        assert_eq!(android_keycode_to_key(AKEYCODE_APOSTROPHE), Some("'"));
+        assert_eq!(android_keycode_to_key(AKEYCODE_BACKSLASH), Some("\\"));
     }
 }

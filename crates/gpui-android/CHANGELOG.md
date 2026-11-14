@@ -1,5 +1,14 @@
 # Unreleased
 
+## Fixed
+
+- Restored compilation against the pinned GPUI release: implemented the
+  new `Platform`/`PlatformWindow`/`PlatformDisplay` items (displays and
+  sleep/wake hooks, `prevent_idle_sleep`, window visibility, display
+  `refresh_interval`), the new `restart`/`on_quit` signatures,
+  `RequestFrameOptions` field, atlas key by value, and refreshed stale
+  unit tests (key names, `dispatcher()`, `gpu_specs()`).
+
 # 0.11.1
 
 ## Added

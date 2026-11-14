@@ -1,0 +1,66 @@
+name: GPUIPythonMobile
+options:
+  bundleIdPrefix: org.spinorama
+  deploymentTarget:
+    iOS: "15.0"
+  xcodeVersion: "15.0"
+
+settings:
+  base:
+    SWIFT_OBJC_BRIDGING_HEADER: PythonMobileApp/BridgingHeader.h
+    # Only build for arm64 (our Rust lib is arm64-only)
+    EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
+
+targets:
+  GPUIPythonMobile:
+    type: application
+    platform: iOS
+    sources:
+      - PythonMobileApp
+      # Folder reference: staged Python app + gpui_toolkit package land in
+      # the bundle as `app/` (see scripts/stage-ios-resources.sh).
+      - path: app
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - framework: vendor/Python.xcframework
+        embed: true
+    postBuildScripts:
+      # Install the CPython stdlib into the bundle and convert every C
+      # extension (.so, including gpui_toolkit._native) into a signed
+      # framework iOS can load. Provided by the XCframework itself.
+      - name: Install Python
+        script: |
+          set -e
+          source $PROJECT_DIR/vendor/Python.xcframework/build/utils.sh
+          install_python vendor/Python.xcframework app
+          PYLIB="$CODESIGNING_FOLDER_PATH/python/lib/python3.15"
+          rm -rf "$PYLIB/test" "$PYLIB/idlelib" "$PYLIB/turtledemo" "$PYLIB/ensurepip/_bundled"
+          find "$CODESIGNING_FOLDER_PATH/python" -type d -name __pycache__ -prune -exec rm -rf {} +
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.spinorama.gpui-python-mobile
+        INFOPLIST_FILE: PythonMobileApp/Info.plist
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_VERSION: "5.10"
+        LIBRARY_SEARCH_PATHS:
+          - "$(PROJECT_DIR)/lib"
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/Frameworks"
+        ENABLE_USER_SCRIPT_SANDBOXING: false
+        DEAD_CODE_STRIPPING: false
+        OTHER_LDFLAGS:
+          - "-L$(PROJECT_DIR)/lib"
+          - "-force_load"
+          - "$(PROJECT_DIR)/lib/libpython_mobile_ios.a"
+          - "-framework Python"
+          - "-framework Metal"
+          - "-framework MetalKit"
+          - "-framework QuartzCore"
+          - "-framework CoreText"
+          - "-framework CoreGraphics"
+          - "-framework CoreFoundation"
+          - "-framework UIKit"
+          - "-framework Foundation"
+          - "-lc++"
