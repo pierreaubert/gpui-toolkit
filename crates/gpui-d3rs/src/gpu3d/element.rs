@@ -3,6 +3,7 @@
 mod angle;
 mod cartesian;
 mod consts;
+mod image_frame;
 mod linear;
 mod misc;
 mod normalized;

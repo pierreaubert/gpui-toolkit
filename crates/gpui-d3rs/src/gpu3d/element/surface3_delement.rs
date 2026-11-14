@@ -21,7 +21,7 @@ use crate::shape::contour_smoothing::StrokePoint;
 use crate::text::{GlyphTextConfig, HorizontalTextAnchor, VerticalTextAnchor, paint_chart_text_at};
 use glam::Vec3;
 use gpui::*;
-use image::{Frame, RgbaImage};
+use super::image_frame::surface_image_frame;
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -646,9 +646,8 @@ impl Surface3DElement {
             });
 
             if let Some(pixels) = renderer.render_transparent(camera, log_settings)
-                && let Some(rgba_image) = RgbaImage::from_raw(width_u32, height_u32, pixels)
+                && let Some(frame) = surface_image_frame(width_u32, height_u32, pixels)
             {
-                let frame = Frame::new(rgba_image);
                 let render_image = Arc::new(RenderImage::new(vec![frame]));
                 *self.surface_cache.borrow_mut() = Some(SurfaceTextureCache {
                     key,
@@ -1337,7 +1336,7 @@ impl Surface3DElement {
                 colorbar_y + colorbar_height - (t + 1.0 / num_segments as f32) * colorbar_height;
 
             // Get color from colormap
-            let color = self.config.colormap.color_at(1.0 - t);
+            let color = self.config.colormap.color_at(t);
             let rgba = gpui::rgba(
                 ((color.0 * 255.0) as u32) << 24
                     | ((color.1 * 255.0) as u32) << 16

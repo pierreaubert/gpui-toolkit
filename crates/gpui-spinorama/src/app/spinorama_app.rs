@@ -1826,7 +1826,7 @@ impl SpinoramaApp {
             .bg(theme.muted)
             .rounded(px(ds.corners.md))
             .children(plot.traces.iter().enumerate().filter_map(|(i, trace)| {
-                if !trace.visible || trace.name.is_empty() {
+                if !trace.visible || !trace.show_legend || trace.name.is_empty() {
                     return None;
                 }
                 let hidden = self.hidden_generic_traces.contains(&trace.name);

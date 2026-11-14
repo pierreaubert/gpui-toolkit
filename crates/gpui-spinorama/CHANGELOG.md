@@ -1,5 +1,17 @@
 # Unreleased
 
+# 0.11.6
+
+## Fixed
+
+- Preserve CEA2034 annotation callouts, secondary-axis anchors, and helper legend visibility in generated images.
+
+# 0.11.5
+
+## Fixed
+
+- Use the 2D contour Spinorama palette and -30 to +3 dB color domain for 3D surfaces and spheres.
+
 # 0.11.4
 
 ## Fixed

@@ -1,8 +1,8 @@
-use super::super::SpinoramaApp;
+use super::super::{SpinoramaApp, CONTOUR_SPL_RANGE};
 use crate::api::DirectivityData;
 use crate::types::Colormap;
 use d3rs::gpu3d::{
-    Colormap as Surface3DColormap, Surface3DConfig, Surface3DElement, SurfaceData as Surface3DData,
+    Surface3DConfig, Surface3DElement, SurfaceData as Surface3DData,
     SurfacePlotType,
 };
 use gpui::prelude::FluentBuilder;
@@ -213,20 +213,10 @@ impl SpinoramaApp {
             .with_y_range(-180.0, 180.0)
             .with_y_ticks(vec![-180.0, -90.0, 0.0, 90.0, 180.0])
             .with_z_label("SPL (dB)")
-            .with_z_range(-40.0, 10.0)
-            .with_z_ticks(vec![-40.0, -30.0, -20.0, -10.0, 0.0, 10.0]);
+            .with_z_range(CONTOUR_SPL_RANGE.0, CONTOUR_SPL_RANGE.1)
+            .with_z_ticks(vec![-30.0, -20.0, -10.0, 0.0, 3.0]);
 
-        // Map colormap
-        let colormap = match self.contour_colormap {
-            // No Spinorama ramp in the GPU colormaps; Turbo is closest.
-            Colormap::Spinorama => Surface3DColormap::Turbo,
-            Colormap::Viridis => Surface3DColormap::Viridis,
-            Colormap::Plasma => Surface3DColormap::Plasma,
-            Colormap::Magma => Surface3DColormap::Inferno,
-            Colormap::Inferno => Surface3DColormap::Inferno,
-            Colormap::Heat => Surface3DColormap::Inferno,
-            Colormap::Coolwarm => Surface3DColormap::CoolWarm,
-        };
+        let colormap = self.contour_colormap.surface_colormap();
 
         let config = Surface3DConfig::new()
             .colormap(colormap)
@@ -259,6 +249,7 @@ impl SpinoramaApp {
 
         // Colormap UI
         let colormaps = [
+            (Colormap::Spinorama, "Spinorama"),
             (Colormap::Viridis, "Viridis"),
             (Colormap::Plasma, "Plasma"),
             (Colormap::Magma, "Magma"),

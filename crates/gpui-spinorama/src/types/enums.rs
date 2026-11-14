@@ -64,6 +64,17 @@ impl Colormap {
         }
     }
 
+    pub(crate) fn surface_colormap(self) -> d3rs::gpu3d::Colormap {
+        use d3rs::gpu3d::Colormap as SurfaceColormap;
+        match self {
+            Self::Spinorama => SurfaceColormap::Spinorama,
+            Self::Viridis => SurfaceColormap::Viridis,
+            Self::Plasma => SurfaceColormap::Plasma,
+            Self::Magma | Self::Inferno | Self::Heat => SurfaceColormap::Inferno,
+            Self::Coolwarm => SurfaceColormap::CoolWarm,
+        }
+    }
+
     pub fn color_scale(
         &self,
     ) -> impl Fn(f64) -> d3rs::color::D3Color + Send + Sync + Clone + 'static {
@@ -72,22 +83,8 @@ impl Colormap {
             let t = t.clamp(0.0, 1.0);
             match colormap {
                 Colormap::Spinorama => {
-                    // Python `CONTOUR_COLORSCALE` stops (theme.py),
-                    // equally spaced from 0 to 1 in 0.1 steps.
-                    let colors = [
-                        d3rs::color::D3Color::from_hex(0x0000a8),
-                        d3rs::color::D3Color::from_hex(0x0000c8),
-                        d3rs::color::D3Color::from_hex(0x004aff),
-                        d3rs::color::D3Color::from_hex(0x0098ff),
-                        d3rs::color::D3Color::from_hex(0x4affa1),
-                        d3rs::color::D3Color::from_hex(0xa1ff4a),
-                        d3rs::color::D3Color::from_hex(0xffff00),
-                        d3rs::color::D3Color::from_hex(0xea9f00),
-                        d3rs::color::D3Color::from_hex(0xff4a00),
-                        d3rs::color::D3Color::from_hex(0xde4a00),
-                        d3rs::color::D3Color::from_hex(0xfd0e0d),
-                    ];
-                    super::super::utils::interpolate_colors(&colors, t)
+                    let (r, g, b) = d3rs::gpu3d::Colormap::Spinorama.color_at(t as f32);
+                    d3rs::color::D3Color { r, g, b, a: 1.0 }
                 }
                 Colormap::Viridis => {
                     let colors = [

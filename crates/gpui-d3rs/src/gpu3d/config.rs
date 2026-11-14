@@ -2,6 +2,12 @@
 
 use glam::Vec3;
 
+// Python spinorama CONTOUR_COLORSCALE, shared by the CPU colorbar and WGSL.
+pub(super) const SPINORAMA_COLORS: [u32; 11] = [
+    0x0000a8, 0x0000c8, 0x004aff, 0x0098ff, 0x4affa1, 0xa1ff4a, 0xffff00, 0xea9f00, 0xff4a00,
+    0xde4a00, 0xfd0e0d,
+];
+
 /// Available colormaps for surface visualization
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Colormap {
@@ -16,6 +22,8 @@ pub enum Colormap {
     Turbo,
     /// Cool-Warm diverging colormap
     CoolWarm,
+    /// Spinorama contour palette, from blue at low SPL to red at high SPL.
+    Spinorama,
 }
 
 impl Colormap {
@@ -27,6 +35,7 @@ impl Colormap {
             Colormap::Inferno => 2,
             Colormap::Turbo => 3,
             Colormap::CoolWarm => 4,
+            Colormap::Spinorama => 5,
         }
     }
 
@@ -35,6 +44,13 @@ impl Colormap {
     pub fn color_at(&self, t: f32) -> (f32, f32, f32) {
         let t = t.clamp(0.0, 1.0);
         match self {
+            Colormap::Spinorama => {
+                let colors = SPINORAMA_COLORS.map(crate::color::D3Color::from_hex);
+                let position = t * (colors.len() - 1) as f32;
+                let index = (position as usize).min(colors.len() - 2);
+                let color = colors[index].interpolate(&colors[index + 1], position - index as f32);
+                (color.r, color.g, color.b)
+            }
             Colormap::Viridis => {
                 // Polynomial approximation matching shader
                 let t2 = t * t;

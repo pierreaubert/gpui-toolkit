@@ -26,7 +26,12 @@ impl SpinoramaApp {
             let start = i * freq_count;
             let end = start + freq_count;
             if end <= spl_values.len() {
-                z_values.push(spl_values[start..end].to_vec());
+                z_values.push(
+                    spl_values[start..end]
+                        .iter()
+                        .map(|value| value.clamp(CONTOUR_SPL_RANGE.0, CONTOUR_SPL_RANGE.1))
+                        .collect(),
+                );
             } else {
                 // Should not happen if data is consistent, but handle gracefully
                 z_values.push(vec![0.0; freq_count]);
@@ -45,21 +50,10 @@ impl SpinoramaApp {
                 -180.0, -120.0, -60.0, 0.0, 60.0, 120.0, 180.0,
             ])
             .with_z_label("SPL (dB)")
-            .with_z_range(-40.0, 10.0)
-            .with_z_ticks(vec![-40.0, -30.0, -20.0, -10.0, 0.0, 10.0]);
+            .with_z_range(CONTOUR_SPL_RANGE.0, CONTOUR_SPL_RANGE.1)
+            .with_z_ticks(vec![-30.0, -20.0, -10.0, 0.0, 3.0]);
 
-        // Map colormap
-        let colormap = match self.contour_colormap {
-            // The GPU surface colormaps have no Spinorama ramp; Turbo
-            // is the closest rainbow approximation.
-            Colormap::Spinorama => Surface3DColormap::Turbo,
-            Colormap::Viridis => Surface3DColormap::Viridis,
-            Colormap::Plasma => Surface3DColormap::Plasma,
-            Colormap::Magma => Surface3DColormap::Inferno,
-            Colormap::Inferno => Surface3DColormap::Inferno,
-            Colormap::Heat => Surface3DColormap::Inferno,
-            Colormap::Coolwarm => Surface3DColormap::CoolWarm,
-        };
+        let colormap = self.contour_colormap.surface_colormap();
 
         let bg = theme.surface;
         let config = Surface3DConfig::new()
@@ -106,6 +100,7 @@ impl SpinoramaApp {
 
         // Colormap selector
         let colormaps = [
+            (Colormap::Spinorama, "Spinorama"),
             (Colormap::Viridis, "Viridis"),
             (Colormap::Plasma, "Plasma"),
             (Colormap::Magma, "Magma"),

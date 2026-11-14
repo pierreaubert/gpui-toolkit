@@ -716,6 +716,7 @@ pub fn parse_plot(plot: &Value) -> Result<crate::types::PlotData, String> {
     let mut paper_annotations: Vec<(String, f64, f64)> = Vec::new();
     if let Some(items) = layout.get("annotations").and_then(Value::as_array) {
         for item in items {
+            if item.get("visible").and_then(Value::as_bool) == Some(false) { continue; }
             let text = item
                 .get("text")
                 .and_then(Value::as_str)
@@ -730,9 +731,14 @@ pub fn parse_plot(plot: &Value) -> Result<crate::types::PlotData, String> {
             if xref == "paper" && !out.layout.subplots.is_empty() {
                 paper_annotations.push((text, x, y));
             } else {
-                out.layout
-                    .annotations
-                    .push(crate::types::Annotation { text, x, y });
+                let axis_x = |v: f64| if out.layout.x_axis.log && xref == "x" { 10f64.powf(v) } else { v };
+                let label = item.get("ax").and_then(Value::as_f64).zip(item.get("ay").and_then(Value::as_f64))
+                    .filter(|_| item.get("axref").and_then(Value::as_str) == Some("x"))
+                    .map(|(x, y)| (axis_x(x), y));
+                let color = item.pointer("/font/color").and_then(Value::as_str)
+                    .and_then(crate::types::parse_plotly_color).map(|c| c.0);
+                out.layout.annotations.push(crate::types::Annotation { text, x: axis_x(x), y,
+                    label, color, secondary_axis: item.get("yref").and_then(Value::as_str) == Some("y2") });
             }
         }
     }
@@ -751,10 +757,7 @@ pub fn parse_plot(plot: &Value) -> Result<crate::types::PlotData, String> {
         }
         match best {
             Some((index, _)) => out.layout.subplots[index].title = Some(text),
-            None => out
-                .layout
-                .annotations
-                .push(crate::types::Annotation { text, x, y }),
+            None => out.layout.annotations.push(crate::types::Annotation { text, x, y, ..Default::default() }),
         }
     }
     const PALETTE: [u32; 10] = [
@@ -796,6 +799,7 @@ pub fn parse_plot(plot: &Value) -> Result<crate::types::PlotData, String> {
                 .saturating_sub(1)
                 .min(out.layout.subplots.len() - 1);
         }
+        generic.show_legend = trace.get("showlegend").and_then(Value::as_bool).unwrap_or(true);
         generic.stroke_width = trace
             .pointer("/line/width")
             .and_then(Value::as_f64)
@@ -1060,6 +1064,33 @@ mod tests {
             "layout": {}
         });
         assert!(!parse_plot(&without_flag).unwrap().layout.hide_zero_line);
+    }
+
+    #[test]
+    fn spinorama_surface_colors_match_contour_colors() {
+        let colormap = crate::types::Colormap::Spinorama;
+        let contour = colormap.color_scale();
+        let surface = colormap.surface_colormap();
+        let stops = [
+            0x0000a8, 0x0000c8, 0x004aff, 0x0098ff, 0x4affa1, 0xa1ff4a,
+            0xffff00, 0xea9f00, 0xff4a00, 0xde4a00, 0xfd0e0d,
+        ];
+        for (index, hex) in stops.into_iter().enumerate() {
+            let expected = d3rs::color::D3Color::from_hex(hex);
+            let (r, g, b) = surface.color_at(index as f32 / 10.0);
+            assert!((r - expected.r).abs() < 1e-6);
+            assert!((g - expected.g).abs() < 1e-6);
+            assert!((b - expected.b).abs() < 1e-6);
+        }
+        // Check interpolation and clamping as well as the palette stops.
+        for sample in -10..=110 {
+            let t = f64::from(sample) / 100.0;
+            let expected = contour(t);
+            let (r, g, b) = surface.color_at(t as f32);
+            assert!((r - expected.r).abs() < 1e-6);
+            assert!((g - expected.g).abs() < 1e-6);
+            assert!((b - expected.b).abs() < 1e-6);
+        }
     }
 
     #[test]

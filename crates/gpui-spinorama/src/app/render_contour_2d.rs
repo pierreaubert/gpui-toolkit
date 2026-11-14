@@ -46,10 +46,7 @@ impl SpinoramaApp {
         // Python contour scale: fixed -30..+3 dB, one band every 3 dB
         // (`contour_start`/`contour_end` in plot/contour.py), so the
         // colours are comparable across speakers.
-        const SPL_MIN: f64 = -30.0;
-        const SPL_MAX: f64 = 3.0;
-        let spl_min = SPL_MIN;
-        let spl_max = SPL_MAX;
+        let (spl_min, spl_max) = CONTOUR_SPL_RANGE;
         let thresholds: Vec<f64> = (-30..=3).step_by(3).map(f64::from).collect();
 
         // Cache check first: on a hit neither the log-frequency vector

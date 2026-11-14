@@ -23,7 +23,7 @@ use d3rs::brush::{BrushSelection, BrushState};
 use d3rs::color::D3Color;
 use d3rs::contour::ContourGenerator;
 use d3rs::gpu3d::{
-    Colormap as Surface3DColormap, Surface3DConfig, Surface3DElement, Surface3DState,
+    Surface3DConfig, Surface3DElement, Surface3DState,
     SurfaceData as Surface3DData, SurfacePlotType,
 };
 use d3rs::grid::{GridConfig, render_grid};
@@ -47,6 +47,9 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
+
+// Shared SPL color domain for contours, surfaces, and spheres.
+const CONTOUR_SPL_RANGE: (f64, f64) = (-30.0, 3.0);
 
 include!("render_cea2034.rs");
 include!("render_directivity.rs");

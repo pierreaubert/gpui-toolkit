@@ -1,5 +1,12 @@
 # Unreleased
 
+# 0.11.3
+
+## Fixed
+
+- Preserve red and blue channels when exporting GPU surfaces through GPUI image frames.
+- Share the Spinorama palette between GPU surfaces and CPU colorbars; correct colorbar direction.
+
 # 0.11.2
 
 ## Added

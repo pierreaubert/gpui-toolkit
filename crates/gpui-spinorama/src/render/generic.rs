@@ -14,7 +14,7 @@ use d3rs::axis::{AxisConfig, render_axis};
 use d3rs::grid::{GridConfig, render_grid};
 use d3rs::scale::{LinearScale, LogScale, Scale};
 use d3rs::shape::{CurveType, LineConfig, LinePoint, StrokeDashArray, render_line};
-use d3rs::text::{GlyphTextConfig, render_glyph_text};
+use d3rs::text::{GlyphTextConfig, HorizontalTextAnchor, VerticalTextAnchor, paint_chart_text_at, render_glyph_text};
 use gpui::prelude::*;
 use gpui::{Div, Hsla, PathBuilder, canvas, div, point, px};
 use gpui_ui_kit::theme::{Theme, ThemeExt};
@@ -358,29 +358,115 @@ pub fn render_generic_freq_chart(
         };
         add_lines(area, &visible_scatter, &xs, &ys, &ys2, has_secondary)
     };
-    // Annotations as positioned glyph text.
+    // Preserve axis-bound callouts, including DI anchors and leader lines.
     let annotation_layer =
         div()
             .absolute()
             .inset_0()
             .children(plot.layout.annotations.iter().filter_map(|a| {
-                if a.x < x_domain.0 || a.x > x_domain.1 || a.y < y_domain.0 || a.y > y_domain.1 {
+                let range = if a.secondary_axis {
+                    y2_domain
+                } else {
+                    y_domain
+                };
+                if a.x < x_domain.0 || a.x > x_domain.1 || a.y < range.0 || a.y > range.1 {
                     return None;
                 }
-                let cfg = GlyphTextConfig::horizontal(
-                    (9.0 * scale).round(),
-                    Hsla::from(ui_theme.text_secondary),
+                let y_px = |v: f64| ((range.1 - v) / (range.1 - range.0)) as f32 * chart_height;
+                let color = a
+                    .color
+                    .unwrap_or(d3rs::color::D3Color::from_hex(0x222222))
+                    .to_rgba();
+                let font_size = (10.0 * scale).round();
+                let cfg = GlyphTextConfig::horizontal(font_size, Hsla::from(color));
+                let anchor = (x_to_px(a.x), y_px(a.y));
+                let Some((lx, ly)) = a.label else {
+                    return Some(
+                        div()
+                            .absolute()
+                            .left(px(anchor.0))
+                            .top(px(anchor.1 - 12.0))
+                            .child(render_glyph_text(&a.text, &cfg)),
+                    );
+                };
+                let width = a.text.chars().count() as f32 * font_size * 0.62 + 12.0 * scale;
+                let height = font_size * 1.35 + 12.0 * scale;
+                let center = (
+                    x_to_px(lx).clamp(width / 2.0, plot_width - width / 2.0),
+                    y_px(ly).clamp(height / 2.0, chart_height - height / 2.0),
                 );
+                let (dx, dy) = (anchor.0 - center.0, anchor.1 - center.1);
+                let edge_t = ((width / 2.0) / dx.abs())
+                    .min((height / 2.0) / dy.abs())
+                    .min(1.0);
+                let start = (center.0 + dx * edge_t, center.1 + dy * edge_t);
+                let leader = canvas(
+                    move |_b, _w, _c| (),
+                    move |bounds, _, window, _cx| {
+                        let ox: f32 = bounds.origin.x.into();
+                        let oy: f32 = bounds.origin.y.into();
+                        let mut path = PathBuilder::stroke(px(scale));
+                        path.move_to(point(px(ox + start.0), px(oy + start.1)));
+                        path.line_to(point(px(ox + anchor.0), px(oy + anchor.1)));
+                        if let Ok(path) = path.build() {
+                            window.paint_path(path, color);
+                        }
+                        let length = dx.hypot(dy).max(1.0);
+                        let (ux, uy) = (dx / length, dy / length);
+                        let mut head = PathBuilder::fill();
+                        head.move_to(point(px(ox + anchor.0), px(oy + anchor.1)));
+                        head.line_to(point(
+                            px(ox + anchor.0 - ux * 6.0 * scale - uy * 3.0 * scale),
+                            px(oy + anchor.1 - uy * 6.0 * scale + ux * 3.0 * scale),
+                        ));
+                        head.line_to(point(
+                            px(ox + anchor.0 - ux * 6.0 * scale + uy * 3.0 * scale),
+                            px(oy + anchor.1 - uy * 6.0 * scale - ux * 3.0 * scale),
+                        ));
+                        head.close();
+                        if let Ok(path) = head.build() {
+                            window.paint_path(path, color);
+                        }
+                    },
+                )
+                .absolute()
+                .inset_0();
+                let annotation_text = a.text.clone();
+                let label_text = canvas(
+                    move |_b, _w, _c| (),
+                    move |bounds, _, window, cx| {
+                        let x: f32 = bounds.origin.x.into();
+                        let y: f32 = bounds.origin.y.into();
+                        paint_chart_text_at(
+                            window,
+                            cx,
+                            &annotation_text,
+                            x + width / 2.0,
+                            y + height / 2.0,
+                            &cfg,
+                            HorizontalTextAnchor::Middle,
+                            VerticalTextAnchor::Middle,
+                        );
+                    },
+                )
+                .absolute()
+                .inset_0();
                 Some(
-                    div()
-                        .absolute()
-                        .left(px(x_to_px(a.x)))
-                        .top(px(y_to_px(a.y) - 12.0))
-                        .child(render_glyph_text(&a.text, &cfg)),
+                    div().absolute().inset_0().child(leader).child(
+                        div()
+                            .absolute()
+                            .left(px(center.0 - width / 2.0))
+                            .top(px(center.1 - height / 2.0))
+                            .w(px(width))
+                            .h(px(height))
+                            .bg(gpui::rgba(0xffffffe0))
+                            .border_1()
+                            .border_color(color)
+                            .child(label_text),
+                    ),
                 )
             }));
     let chart_area = chart_area.child(annotation_layer);
-
     let left_axis = AxisConfig::left()
         .with_ticks_inside(true)
         .with_tick_values(y_ticks.clone())
@@ -1220,7 +1306,7 @@ pub fn generic_legend_entries(plot: &PlotData) -> Vec<(String, d3rs::color::D3Co
     let mut names = HashSet::new();
     plot.traces
         .iter()
-        .filter(|t| t.visible && !t.name.is_empty() && names.insert(t.name.clone()))
+        .filter(|t| t.visible && t.show_legend && !t.name.is_empty() && names.insert(t.name.clone()))
         .map(|t| (t.name.clone(), t.fill_color.unwrap_or(t.color)))
         .collect()
 }

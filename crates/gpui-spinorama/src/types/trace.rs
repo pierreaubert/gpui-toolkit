@@ -48,11 +48,15 @@ pub enum TraceFill {
 }
 
 /// A single Plotly annotation (text placed at a data position).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Annotation {
     pub text: String,
     pub x: f64,
     pub y: f64,
+    /// Label center in data coordinates; present for arrow callouts.
+    pub label: Option<(f64, f64)>,
+    pub secondary_axis: bool,
+    pub color: Option<D3Color>,
 }
 
 /// Axis description taken from the Plotly layout.
@@ -134,6 +138,7 @@ pub struct GenericTrace {
     /// Subplot cell index (`PlotLayout::subplots`); 0 for single plots.
     pub subplot: usize,
     pub visible: bool,
+    pub show_legend: bool,
     /// Marker size for marker modes.
     pub marker_size: f32,
     /// Marker shape for marker modes (`marker.symbol`); `None` = circle.
@@ -162,6 +167,7 @@ impl GenericTrace {
             secondary_axis: false,
             subplot: 0,
             visible: true,
+            show_legend: true,
             marker_size: 5.0,
             marker_symbol: None,
         }

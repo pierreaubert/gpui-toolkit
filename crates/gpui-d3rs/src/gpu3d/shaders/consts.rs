@@ -157,8 +157,10 @@ fn get_color(t: f32, map_id: f32) -> vec3<f32> {
         return inferno(t);
     } else if (map_id < 3.5) {
         return turbo(t);
-    } else {
+    } else if (map_id < 4.5) {
         return coolwarm(t);
+    } else {
+        return spinorama(t);
     }
 }
 
@@ -534,7 +536,33 @@ fn fs_grid(in: VertexOutput) -> @location(0) vec4<f32> {
 
 /// Combined shader source
 pub fn combined_shader() -> String {
+    let stops = super::super::config::SPINORAMA_COLORS;
+    let colors = stops
+        .iter()
+        .map(|hex| {
+            format!(
+                "vec3<f32>({}.0, {}.0, {}.0) / 255.0",
+                (hex >> 16) & 255,
+                (hex >> 8) & 255,
+                hex & 255
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",\n");
+    let intervals = stops.len() - 1;
+    let last_index = intervals - 1;
+    let spinorama = format!(
+        r"
+fn spinorama(t: f32) -> vec3<f32> {{
+    let colors = array<vec3<f32>, {count}>({colors});
+    let position = clamp(t, 0.0, 1.0) * {intervals}.0;
+    let index = min(u32(position), {last_index}u);
+    return mix(colors[index], colors[index + 1u], position - f32(index));
+}}
+",
+        count = stops.len()
+    );
     format!(
-        "{COMMON_DEFINITIONS}\n{SURFACE_VERTEX_SHADER}\n{SURFACE_FRAGMENT_SHADER}\n{WIREFRAME_FRAGMENT_SHADER}\n{PROJECTION_VERTEX_SHADER}\n{PROJECTION_FRAGMENT_SHADER}\n{GRID_FRAGMENT_SHADER}"
+        "{COMMON_DEFINITIONS}\n{SURFACE_VERTEX_SHADER}\n{spinorama}\n{SURFACE_FRAGMENT_SHADER}\n{WIREFRAME_FRAGMENT_SHADER}\n{PROJECTION_VERTEX_SHADER}\n{PROJECTION_FRAGMENT_SHADER}\n{GRID_FRAGMENT_SHADER}"
     )
 }
