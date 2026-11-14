@@ -143,10 +143,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(
-        clippy::needless_range_loop,
-        reason = "columns of a fixed 3x3 matrix are indexed directly"
-    )]
     fn symmetric_eigen_recovers_diagonal() {
         let (values, vectors) =
             symmetric_eigen([[4.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 9.0]]);

@@ -102,9 +102,9 @@ pub const ENV_USE_DEMO_API: &str = "SPINORAMA_USE_DEMO";
 /// `SPINORAMA_API_BASE` containing `/demo/`.
 /// Wasm: `?demo=1` (or `?api=demo`) on the hosting page URL.
 pub fn demo_api_requested() -> bool {
-    if std::env::var(ENV_USE_DEMO_API).is_ok_and(|v| {
-        v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("demo")
-    }) {
+    if std::env::var(ENV_USE_DEMO_API)
+        .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("demo"))
+    {
         return true;
     }
     if let Ok(base) = std::env::var(ENV_API_BASE_URL)
@@ -116,7 +116,9 @@ pub fn demo_api_requested() -> bool {
     {
         if gpui_miniapp::web_query_param("demo")
             .as_deref()
-            .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("demo"))
+            .is_some_and(|v| {
+                v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("demo")
+            })
         {
             return true;
         }
@@ -216,7 +218,10 @@ pub async fn fetch_versions(
     serde_json::from_value(value).map_err(|e| e.to_string())
 }
 
-#[cfg_attr(test, allow(dead_code, reason = "live caller is gated out in unit tests"))]
+#[cfg_attr(
+    test,
+    allow(dead_code, reason = "live caller is gated out in unit tests")
+)]
 pub async fn fetch_available_speakers(
     api_key: Option<&str>,
     use_demo: bool,
@@ -342,13 +347,18 @@ fn numbers(value: &Value) -> Result<Vec<f64>, String> {
 // Plotly scatter nulls are line breaks, not malformed measurement data.
 fn line_numbers(value: &Value) -> Result<Vec<f64>, String> {
     if let Some(array) = value.as_array() {
-        array.iter().map(|sample| {
-            if sample.is_null() {
-                Ok(f64::NAN)
-            } else {
-                sample.as_f64().ok_or_else(|| "Non-numeric line sample".to_owned())
-            }
-        }).collect()
+        array
+            .iter()
+            .map(|sample| {
+                if sample.is_null() {
+                    Ok(f64::NAN)
+                } else {
+                    sample
+                        .as_f64()
+                        .ok_or_else(|| "Non-numeric line sample".to_owned())
+                }
+            })
+            .collect()
     } else {
         numbers(value)
     }
@@ -556,27 +566,21 @@ pub async fn fetch_contour_measurement(
     api_key: Option<&str>,
     use_demo: bool,
 ) -> Result<ContourPlotData, String> {
-    contour(
-        &fetch_measurement_plot_data(speaker, version, measurement, api_key, use_demo).await?,
-    )
+    contour(&fetch_measurement_plot_data(speaker, version, measurement, api_key, use_demo).await?)
 }
 
 fn string_values(value: &Value) -> Vec<String> {
-    value
-        .as_array()
-        .map(|items| {
-            items
-                .iter()
-                .map(|v| {
-                    v.as_str().map_or_else(|| {
-                        v.as_f64()
-                            .map(|n| n.to_string())
-                            .unwrap_or_default()
-                    }, str::to_string)
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+    value.as_array().map_or_default(|items| {
+        items
+            .iter()
+            .map(|v| {
+                v.as_str().map_or_else(
+                    || v.as_f64().map_or_default(|n| n.to_string()),
+                    str::to_string,
+                )
+            })
+            .collect()
+    })
 }
 
 fn axis_layout(value: &Value) -> crate::types::AxisLayout {
@@ -585,19 +589,16 @@ fn axis_layout(value: &Value) -> crate::types::AxisLayout {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    let range = value.get("range").and_then(Value::as_array).and_then(|r| {
-        Some((r.first()?.as_f64()?, r.get(1)?.as_f64()?))
-    });
+    let range = value
+        .get("range")
+        .and_then(Value::as_array)
+        .and_then(|r| Some((r.first()?.as_f64()?, r.get(1)?.as_f64()?)));
     let log = value.get("type").and_then(Value::as_str) == Some("log");
     let tick_values = value
         .get("tickvals")
         .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(Value::as_f64).collect())
-        .unwrap_or_default();
-    let tick_text = value
-        .get("ticktext")
-        .map(string_values)
-        .unwrap_or_default();
+        .map_or_default(|items| items.iter().filter_map(Value::as_f64).collect());
+    let tick_text = value.get("ticktext").map_or_default(string_values);
     crate::types::AxisLayout {
         title,
         range,
@@ -609,10 +610,7 @@ fn axis_layout(value: &Value) -> crate::types::AxisLayout {
 
 fn trace_color(trace: &Value) -> (crate::types::GenericTrace, f32) {
     let mut out = crate::types::GenericTrace::new(crate::types::TraceKind::Scatter, "");
-    let mut opacity = trace
-        .get("opacity")
-        .and_then(Value::as_f64)
-        .unwrap_or(1.0) as f32;
+    let mut opacity = trace.get("opacity").and_then(Value::as_f64).unwrap_or(1.0) as f32;
     // Line/marker colour and fill colour are independent in Plotly: a
     // band trace carries both (`line.color` for its outline,
     // `fillcolor` for the zone), so parse them separately instead of
@@ -732,7 +730,9 @@ pub fn parse_plot(plot: &Value) -> Result<crate::types::PlotData, String> {
             if xref == "paper" && !out.layout.subplots.is_empty() {
                 paper_annotations.push((text, x, y));
             } else {
-                out.layout.annotations.push(crate::types::Annotation { text, x, y });
+                out.layout
+                    .annotations
+                    .push(crate::types::Annotation { text, x, y });
             }
         }
     }
@@ -751,15 +751,21 @@ pub fn parse_plot(plot: &Value) -> Result<crate::types::PlotData, String> {
         }
         match best {
             Some((index, _)) => out.layout.subplots[index].title = Some(text),
-            None => out.layout.annotations.push(crate::types::Annotation { text, x, y }),
+            None => out
+                .layout
+                .annotations
+                .push(crate::types::Annotation { text, x, y }),
         }
     }
     const PALETTE: [u32; 10] = [
-        0x1f77b4, 0xff7f0e, 0x2ca02c, 0xd62728, 0x9467bd, 0x8c564b, 0xe377c2, 0x7f7f7f,
-        0xbcbd22, 0x17becf,
+        0x1f77b4, 0xff7f0e, 0x2ca02c, 0xd62728, 0x9467bd, 0x8c564b, 0xe377c2, 0x7f7f7f, 0xbcbd22,
+        0x17becf,
     ];
     for (index, trace) in traces.iter().enumerate() {
-        let type_name = trace.get("type").and_then(Value::as_str).unwrap_or("scatter");
+        let type_name = trace
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("scatter");
         let (mut generic, opacity) = trace_color(trace);
         generic.opacity = opacity;
         generic.name = trace
@@ -767,9 +773,9 @@ pub fn parse_plot(plot: &Value) -> Result<crate::types::PlotData, String> {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
-        generic.visible = trace.get("visible").is_none_or(|v| {
-            v.as_bool().unwrap_or(v.as_str() != Some("legendonly"))
-        });
+        generic.visible = trace
+            .get("visible")
+            .is_none_or(|v| v.as_bool().unwrap_or(v.as_str() != Some("legendonly")));
         generic.secondary_axis = trace
             .get("yaxis")
             .and_then(Value::as_str)
@@ -951,7 +957,14 @@ mod tests {
     fn bearer_header_is_sent_only_with_a_key() {
         use std::io::{BufRead, BufReader, Write};
         use std::sync::mpsc;
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let listener = match std::net::TcpListener::bind("127.0.0.1:0") {
+            Ok(listener) => listener,
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                eprintln!("skipping bearer-header socket test: local bind is not permitted");
+                return;
+            }
+            Err(error) => panic!("bind: {error}"),
+        };
         let addr = listener.local_addr().expect("addr");
         let (tx, rx) = mpsc::channel::<Vec<String>>();
         std::thread::spawn(move || {
@@ -986,12 +999,16 @@ mod tests {
         });
         let authed = rx.recv().expect("authed headers");
         assert!(
-            authed.iter().any(|h| h.eq_ignore_ascii_case("authorization: Bearer secret-key-1")),
+            authed
+                .iter()
+                .any(|h| h.eq_ignore_ascii_case("authorization: Bearer secret-key-1")),
             "missing Bearer header in {authed:?}"
         );
         let anon = rx.recv().expect("anon headers");
         assert!(
-            !anon.iter().any(|h| h.to_ascii_lowercase().starts_with("authorization:")),
+            !anon
+                .iter()
+                .any(|h| h.to_ascii_lowercase().starts_with("authorization:")),
             "unexpected Authorization header in {anon:?}"
         );
     }
@@ -1057,7 +1074,10 @@ mod tests {
                 && (high.b - 13.0 / 255.0_f32).abs() < 1e-6,
             "high stop: {high:?}"
         );
-        assert_eq!(crate::types::Colormap::default(), crate::types::Colormap::Spinorama);
+        assert_eq!(
+            crate::types::Colormap::default(),
+            crate::types::Colormap::Spinorama
+        );
     }
 
     #[test]
@@ -1111,8 +1131,14 @@ mod tests {
         });
         let data = parse_plot(&plot).unwrap();
         assert_eq!(data.layout.subplots.len(), 4);
-        assert_eq!(data.layout.subplots[0].title.as_deref(), Some("PEQ details"));
-        assert_eq!(data.layout.subplots[1].title.as_deref(), Some("PEQ v.s. Target"));
+        assert_eq!(
+            data.layout.subplots[0].title.as_deref(),
+            Some("PEQ details")
+        );
+        assert_eq!(
+            data.layout.subplots[1].title.as_deref(),
+            Some("PEQ v.s. Target")
+        );
         assert_eq!(data.layout.subplots[2].title.as_deref(), Some("Histogram"));
         assert_eq!(data.layout.subplots[3].title.as_deref(), Some("Spin"));
         assert_eq!(data.traces[0].subplot, 0);

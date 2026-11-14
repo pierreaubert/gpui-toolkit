@@ -253,18 +253,6 @@ impl PreparedGeometry {
         self.identity.scalar_transport.transport()
     }
 
-    pub(crate) fn identity(&self) -> GeometryIdentity {
-        self.identity
-    }
-
-    pub(crate) fn scalar_pattern(&self) -> u64 {
-        self.scalar_pattern
-    }
-
-    pub(crate) fn byte_len(&self) -> u64 {
-        self.bytes
-    }
-
     /// Rebuild only packed scalars from `actor`'s current field,
     /// reusing this geometry's positions/normals/indices/edges.
     /// Callers must have verified equal topology and scalar pattern.
@@ -429,7 +417,7 @@ impl PreparationCache {
             let identity = GeometryIdentity::of(actor)?;
             let mut compatible = None;
             if let Some(existing) = reusable.get(&identity.source_identity()) {
-                for geometry in existing.iter() {
+                for geometry in existing {
                     if geometry.identity.matches_buffers(actor)? {
                         compatible = Some(geometry.clone());
                         break;

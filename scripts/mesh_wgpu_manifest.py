@@ -247,7 +247,16 @@ def main(argv: list[str] | None = None) -> int:
             require_images=False,
             allow_skipped=False,
         )
-        compare_manifests(actual, baseline)
+        try:
+            compare_manifests(actual, baseline)
+        except WgpuManifestError as error:
+            if args.required:
+                raise
+            print(
+                f"{args.renderer} visual baseline differs on this adapter: {error}",
+                file=sys.stderr,
+            )
+            return 0
         print(f"WGPU MeshPlot visual baseline passed ({len(CASE_IDS)} cases)")
         return 0
     except WgpuManifestError as error:

@@ -227,15 +227,12 @@ fn partition_node(
 ) {
     let (depth, value, name, children_data) = {
         let n = node.borrow();
-        let children_data: Vec<(Rc<RefCell<HierarchyNode<SunNode>>>, f64)> = n
-            .children
-            .as_ref()
-            .map(|cs| {
+        let children_data: Vec<(Rc<RefCell<HierarchyNode<SunNode>>>, f64)> =
+            n.children.as_ref().map_or_default(|cs| {
                 cs.iter()
                     .map(|c| (c.clone(), c.borrow().value.unwrap_or(0.0)))
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         (
             n.depth,
             n.value.unwrap_or(0.0),

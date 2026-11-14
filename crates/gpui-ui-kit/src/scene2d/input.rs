@@ -395,8 +395,7 @@ impl Scene2DInputRouter {
             let crossed = scene
                 .grid
                 .as_ref()
-                .map(|grid| grid.crossed_cells(contact.position, event.position))
-                .unwrap_or_default();
+                .map_or_default(|grid| grid.crossed_cells(contact.position, event.position));
             let mut emitted_new_cell = false;
             for cell in crossed {
                 if contact

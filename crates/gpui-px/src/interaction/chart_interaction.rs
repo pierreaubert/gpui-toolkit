@@ -747,7 +747,7 @@ pub(super) mod interactive_chart {
             let config = &self.config;
             let interaction = self.interaction.borrow();
             let (plot_width, plot_height) = interaction.plot_size;
-            let origin = bounds.map(|bounds| bounds.origin).unwrap_or_default();
+            let origin = bounds.map_or_default(|bounds| bounds.origin);
 
             // Subtract margins to get chart-relative coordinates
             let chart_x = (f32::from(pos.x) - f32::from(origin.x) - config.left_margin)
@@ -764,7 +764,7 @@ pub(super) mod interactive_chart {
             pos: Point<Pixels>,
             bounds: Option<gpui::Bounds<Pixels>>,
         ) -> bool {
-            let origin = bounds.map(|bounds| bounds.origin).unwrap_or_default();
+            let origin = bounds.map_or_default(|bounds| bounds.origin);
             let local_x = f32::from(pos.x) - f32::from(origin.x);
             let local_y = f32::from(pos.y) - f32::from(origin.y);
             let (plot_width, plot_height) = self.interaction.borrow().plot_size;

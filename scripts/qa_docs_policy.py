@@ -203,7 +203,7 @@ def check() -> list[str]:
                 # cargo snapshots the manifest cadence above is authoritative.
                 text = vendoring.read_text()
                 match = re.search(r"Last reviewed:\s*(\d{4}-\d{2}-\d{2})", text)
-                if not match:
+                if not match and not is_snapshot:
                     errors.append(f"vendoring review date missing: {path}")
                 elif not is_snapshot and (
                     today - dt.date.fromisoformat(match.group(1))

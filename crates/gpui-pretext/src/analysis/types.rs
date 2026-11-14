@@ -107,8 +107,8 @@ pub(super) fn compile_analysis_chunks(
     let mut chunks = Vec::new();
     let mut start = 0;
 
-    for i in 0..seg.len() {
-        if seg.kinds[i] != SegmentBreakKind::HardBreak {
+    for (i, kind) in seg.kinds.iter().enumerate() {
+        if *kind != SegmentBreakKind::HardBreak {
             continue;
         }
         chunks.push(AnalysisChunk {

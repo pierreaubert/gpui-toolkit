@@ -27,6 +27,23 @@ def fixture(environment: dict[str, object]) -> dict[str, object]:
 
 
 class PerformanceEnvironmentTests(unittest.TestCase):
+    def test_linux_benchmark_selection_excludes_ios(self) -> None:
+        with mock.patch.object(qa_perf_baseline.sys, "platform", "linux"):
+            self.assertNotIn(
+                "gpui-ios:accessibility_diff",
+                {spec.key for spec in qa_perf_baseline.host_benchmarks()},
+            )
+            self.assertIn("20", qa_perf_baseline.host_criterion_flags())
+        with mock.patch.object(qa_perf_baseline.sys, "platform", "darwin"):
+            self.assertIn(
+                "gpui-ios:accessibility_diff",
+                {spec.key for spec in qa_perf_baseline.host_benchmarks()},
+            )
+            self.assertEqual(
+                qa_perf_baseline.host_criterion_flags(),
+                qa_perf_baseline.CRITERION_FLAGS,
+            )
+
     def test_mesh_plot_benchmarks_are_registered_with_the_release_runner(self) -> None:
         specs = {
             spec.key: spec
@@ -356,6 +373,31 @@ def timing_record(crate: str = "crate", bench: str = "bench") -> dict[str, objec
 
 
 class PerformanceEvidenceTests(unittest.TestCase):
+    def test_incomparable_host_collects_samples_without_timing_comparison(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = fixture({"system": "Darwin", "machine": "arm64"})
+            current = fixture({"system": "Linux", "machine": "x86_64"})
+            base["records"] = [timing_record()]
+            current["records"] = [timing_record()]
+            base_path = root / "baseline.json"
+            current_path = root / "current.json"
+            report_path = root / "report.md"
+            base_path.write_text(json.dumps(base))
+            current_path.write_text(json.dumps(current))
+            args = [
+                "--baseline", str(base_path), "--current", str(current_path),
+                "--output", str(report_path),
+            ]
+            self.assertEqual(qa_perf_gate.main(args), 2)
+            self.assertEqual(qa_perf_gate.main([*args, "--allow-incomparable-host"]), 0)
+            self.assertIn("Timing comparison skipped", report_path.read_text())
+            current["records"][0]["median_ns"] = 0
+            current_path.write_text(json.dumps(current))
+            report_path.unlink()
+            self.assertEqual(qa_perf_gate.main([*args, "--allow-incomparable-host"]), 2)
+            self.assertFalse(report_path.exists())
+
     def test_empty_cli_comparison_fails_instead_of_passing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

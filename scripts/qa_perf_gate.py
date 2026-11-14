@@ -108,6 +108,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--retries", type=int, default=1)
     parser.add_argument("--warn-only", action="store_true")
+    parser.add_argument("--allow-incomparable-host", action="store_true")
     args = parser.parse_args(argv)
 
     if args.retries < 0:
@@ -117,9 +118,34 @@ def main(argv: list[str]) -> int:
     try:
         baseline_data = _load_validated(args.baseline)
         current_data = _load_validated(args.current)
+        qa_perf_check.records_from_data(baseline_data, args.baseline)
+        qa_perf_check.records_from_data(current_data, args.current)
+    except qa_perf_check.InputError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    try:
         qa_perf_check.require_comparable_environments(
             baseline_data, current_data, args.baseline, args.current
         )
+    except qa_perf_check.InputError as exc:
+        if args.allow_incomparable_host and str(exc).startswith(
+            "benchmark environments are not comparable"
+        ):
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(
+                "# Performance regression check\n\n"
+                "Timing comparison skipped: the committed baseline was captured "
+                "on a different host. Portable benchmark samples were collected "
+                f"and validated in `{args.current}`.\n",
+                encoding="utf-8",
+            )
+            print(f"Performance timing comparison skipped: {exc}")
+            return 0
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    try:
         regressed = _regressions(
             baseline_data, current_data, args.threshold, args.noise_floor_ns
         )

@@ -3,6 +3,7 @@
 use std::collections::{HashMap, VecDeque};
 
 /// Retained-byte and activity counters for one glyph cache.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct GlyphCacheStats {
     pub entries: usize,
@@ -59,6 +60,7 @@ impl<K, V> BucketCache<K, V> {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn clear(&mut self) {
         self.buckets.clear();
         self.order.clear();
@@ -66,6 +68,7 @@ impl<K, V> BucketCache<K, V> {
         self.retained_bytes = 0;
     }
 
+    #[cfg(test)]
     pub(crate) fn stats(&self) -> GlyphCacheStats {
         GlyphCacheStats {
             entries: self.entries,
@@ -77,6 +80,7 @@ impl<K, V> BucketCache<K, V> {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn trim(&mut self) {
         self.clear();
         self.buckets.shrink_to_fit();

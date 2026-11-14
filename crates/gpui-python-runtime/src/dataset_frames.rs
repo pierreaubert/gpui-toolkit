@@ -229,6 +229,59 @@ mod dense_array_tests {
             (vec![7.0, 8.0, 9.0], 1, 3)
         );
     }
+
+    #[test]
+    fn dense_unsigned_indices_preserve_values_above_f64_precision() {
+        let large = (1_u64 << 53) + 1;
+        assert_eq!(
+            dense_array_unsigned(&large.to_le_bytes(), &[1, 1], "u64").unwrap(),
+            vec![large]
+        );
+        assert_eq!(
+            dense_array_unsigned(&[0, 255], &[2], "uint8").unwrap(),
+            vec![0, 255]
+        );
+        assert_eq!(
+            dense_array_unsigned(&65535_u16.to_le_bytes(), &[1], "u16").unwrap(),
+            vec![65535]
+        );
+        assert_eq!(
+            dense_array_unsigned(&u32::MAX.to_le_bytes(), &[1], "uint32").unwrap(),
+            vec![u64::from(u32::MAX)]
+        );
+        assert_eq!(
+            dense_array_unsigned(&[1], &[0], "u8"),
+            Err(DatasetFrameError::InvalidMetadata)
+        );
+        assert_eq!(
+            dense_array_unsigned(&[1], &[2], "u8"),
+            Err(DatasetFrameError::InvalidMetadata)
+        );
+        assert!(matches!(
+            dense_array_unsigned(&1_i32.to_le_bytes(), &[1], "i32"),
+            Err(DatasetFrameError::Decode(_))
+        ));
+    }
+
+    #[test]
+    fn dense_numeric_arrays_validate_shape_and_payload_length() {
+        let payload = [1.5_f32, -2.0]
+            .into_iter()
+            .flat_map(f32::to_le_bytes)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            dense_array_values(&payload, &[1, 2], "f32").unwrap(),
+            vec![1.5, -2.0]
+        );
+        assert_eq!(
+            dense_array_values(&payload, &[2, 2], "f32"),
+            Err(DatasetFrameError::InvalidMetadata)
+        );
+        assert_eq!(
+            dense_array_values(&payload, &[usize::MAX, 2], "f32"),
+            Err(DatasetFrameError::TooLarge)
+        );
+    }
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -906,11 +959,9 @@ impl AggregatedRows {
             if let Some(y0) = y0 {
                 output[index].y0.push(y0);
             }
-            output[index].keys.push(
-                key_index
-                    .map(|index| row[index].clone())
-                    .unwrap_or_default(),
-            );
+            output[index]
+                .keys
+                .push(key_index.map_or_default(|index| row[index].clone()));
         }
         Ok(output)
     }
@@ -2642,8 +2693,7 @@ impl DatasetFrameStore {
                     .filter(|value| !value.trim().is_empty());
                 let key = key_formatter
                     .as_ref()
-                    .map(|formatter| formatter.value(row_index).to_string())
-                    .unwrap_or_default();
+                    .map_or_default(|formatter| formatter.value(row_index).to_string());
                 let dash = validate_series_dash(
                     dash_formatter
                         .as_ref()
@@ -3274,6 +3324,52 @@ mod tests {
         );
         assert_eq!(
             store.preview_rows("events", &["missing".into()], 0, 1),
+            Err(DatasetFrameError::InvalidMetadata)
+        );
+    }
+
+    #[test]
+    fn filtered_sorted_preview_uses_numeric_order_and_bounded_window() {
+        let ipc = arrow_ipc_fixture();
+        let mut store = DatasetFrameStore::default();
+        assert!(store.ingest_arrow_ipc("events", 1, "schema", &ipc).unwrap());
+        let all_rows = DatasetFilter::Literal(DatasetFilterValue::Bool(true));
+        assert_eq!(
+            store
+                .preview_rows_sorted_filtered(
+                    "events",
+                    &["label".into()],
+                    &all_rows,
+                    "id",
+                    true,
+                    1,
+                    2,
+                )
+                .unwrap(),
+            Some(vec![vec!["b".into()], vec!["a".into()]])
+        );
+        assert_eq!(
+            store.preview_rows_sorted_filtered(
+                "missing",
+                &["id".into()],
+                &all_rows,
+                "id",
+                false,
+                0,
+                1
+            ),
+            Ok(None)
+        );
+        assert_eq!(
+            store.preview_rows_sorted_filtered(
+                "events",
+                &["id".into()],
+                &all_rows,
+                "missing",
+                false,
+                0,
+                1
+            ),
             Err(DatasetFrameError::InvalidMetadata)
         );
     }

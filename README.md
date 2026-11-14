@@ -190,17 +190,25 @@ just qa-gpui-obvious
 ## QA & Non-Regression
 
 The full QA suite is `just qa`. It runs coverage, property tests, visual
-non-regression, performance non-regression, and the existing smoke tests:
+checks, performance sampling, and the existing smoke tests.
+On Linux it runs host and WGPU checks; macOS adds the Apple-specific visual and
+Metal lanes. Windows and Apple targets are not run on Linux.
+
+Common commands:
 
 ```bash
 just qa           # green canonical gate; coverage floor ratchets upward
 just qa-prop      # property-based tests
 just qa-visual    # visual/golden/conformance checks
-just qa-perf      # benchmark non-regression against qa/perf/baseline.json
+just qa-perf      # collect host benchmarks; compare timing on matching hosts
 just qa-cov       # workspace coverage report (HTML + JSON)
 just qa-cov-check # enforced current floor; 90% remains the release target
 just qa-release-contract # governance, MSRV metadata, packages, docs, and API policy
 ```
+
+The committed performance baseline was captured on macOS. Linux collects
+shorter portable benchmark samples and records a skipped timing comparison
+until a baseline from a comparable Linux host is available.
 
 Update the committed performance baseline after intentional improvements:
 

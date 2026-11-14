@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from qa_release_evidence import (
+    APPLE_ONLY_ARTIFACTS,
     EvidenceError,
     MESH_PLOT_BENCHMARK_WORKLOADS,
     MESH_PLOT_CROSS_ADAPTER_VISUAL_ARTIFACT,
@@ -660,6 +661,20 @@ class ReleaseEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, "missing required QA artifacts"):
             self.build(root)
 
+    def test_linux_manifest_accepts_missing_apple_capture_artifacts(self):
+        root = self.make_repo()
+        for relative in APPLE_ONLY_ARTIFACTS:
+            (root / relative).unlink()
+        metal_visual = root / MESH_PLOT_METAL_VISUAL_CAPTURE_ARTIFACT
+        if metal_visual.is_file():
+            metal_visual.unlink()
+
+        manifest = self.build(root, include_apple_evidence=False)
+        paths = {row["path"] for row in manifest["artifacts"]}
+        self.assertTrue(paths.isdisjoint(APPLE_ONLY_ARTIFACTS))
+        with self.assertRaisesRegex(EvidenceError, "missing required QA artifacts"):
+            self.build(root)
+
     def test_missing_mesh_plot_benchmark_evidence_fails(self):
         root = self.make_repo()
         baseline = root / "qa/perf/baseline.json"
@@ -857,7 +872,8 @@ class ReleaseEvidenceTests(unittest.TestCase):
         data["cases"][0]["rgba_checksum"] = "fnv1a64:ffffffffffffffff"
         baseline.write_text(json.dumps(data), encoding="utf-8")
         with self.assertRaisesRegex(EvidenceError, "WGPU visual mismatch"):
-            self.build(root)
+            self.build(root, require_wgpu_visual=True)
+        self.build(root)
 
     def test_clean_release_requires_wgpu_baseline(self):
         root = self.make_repo()

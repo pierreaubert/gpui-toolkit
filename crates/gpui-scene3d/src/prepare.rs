@@ -57,30 +57,6 @@ impl GpuChunk {
     }
 }
 
-/// Prepares every visible surface chunk of an actor for GPU upload.
-///
-/// The boundary surface is extracted once per chunk budget, positions are
-/// rebased and converted, smooth normals are accumulated, and scalars are
-/// gathered per vertex. Cell values remain constant on their owner's triangles;
-/// vertices split only where converted scalar values disagree. Smooth geometric
-/// normals are preserved across those splits. Point scalars are gathered per vertex.
-/// Normal accumulation retries from source f64 edges when f32 arithmetic loses
-/// range; this temporary workspace adds eight bytes per position component.
-/// Positions and scalars still use f32 buffers; conversion is not lossless.
-/// Domains outside the raw f32 profile use unclamped linear scalar coordinates;
-/// map them with [`crate::PreparedTransfer::map_linear_position`]. The chunk
-/// records that source domain in [`GpuChunk::scalar_domain`].
-///
-/// # Errors
-///
-/// Uses the default face-workspace limit from [`gpui_mesh::SurfaceExtractionLimits`].
-/// Returns a mesh error for invalid geometry, field storage or workspace limits, or
-/// [`SceneError::FieldNotFound`] for a missing or nonscalar coloring field.
-/// Returns allocation errors for reference-normal storage or unsupported precision
-/// when positions used by the reference calculation exceed the f32 buffer range.
-/// Invalid transfer settings and unrepresentable finite scalar coordinates return
-/// explicit errors; they are not converted to missing samples.
-
 /// Face-normal sums per global point, accumulated across every chunk so
 /// vertices shared by chunk boundaries shade continuously instead of
 /// receiving independent per-chunk normals.
@@ -208,6 +184,29 @@ fn point_chunk_parts(
     Ok((positions, scalars, indices))
 }
 
+/// Prepares every visible surface chunk of an actor for GPU upload.
+///
+/// The boundary surface is extracted once per chunk budget, positions are
+/// rebased and converted, smooth normals are accumulated, and scalars are
+/// gathered per vertex. Cell values remain constant on their owner's triangles;
+/// vertices split only where converted scalar values disagree. Smooth geometric
+/// normals are preserved across those splits. Point scalars are gathered per vertex.
+/// Normal accumulation retries from source f64 edges when f32 arithmetic loses
+/// range; this temporary workspace adds eight bytes per position component.
+/// Positions and scalars still use f32 buffers; conversion is not lossless.
+/// Domains outside the raw f32 profile use unclamped linear scalar coordinates;
+/// map them with [`crate::PreparedTransfer::map_linear_position`]. The chunk
+/// records that source domain in [`GpuChunk::scalar_domain`].
+///
+/// # Errors
+///
+/// Uses the default face-workspace limit from [`gpui_mesh::SurfaceExtractionLimits`].
+/// Returns a mesh error for invalid geometry, field storage or workspace limits, or
+/// [`SceneError::FieldNotFound`] for a missing or nonscalar coloring field.
+/// Returns allocation errors for reference-normal storage or unsupported precision
+/// when positions used by the reference calculation exceed the f32 buffer range.
+/// Invalid transfer settings and unrepresentable finite scalar coordinates return
+/// explicit errors; they are not converted to missing samples.
 pub fn prepare_chunks(actor: &Actor, max_triangles: usize) -> Result<Vec<GpuChunk>, SceneError> {
     prepare_chunks_with_bounds(actor, max_triangles).map(|(_, chunks, _)| chunks)
 }
@@ -263,11 +262,7 @@ pub(crate) fn prepare_chunks_with_bounds_and_limits(
         Some(pair)
     } else {
         if actor.field.is_some() {
-            let name = actor
-                .field
-                .as_ref()
-                .map(|(_, n)| n.clone())
-                .unwrap_or_default();
+            let name = actor.field.as_ref().map_or_default(|(_, n)| n.clone());
             return Err(SceneError::FieldNotFound(name));
         }
         None

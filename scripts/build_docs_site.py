@@ -57,7 +57,7 @@ def route_href(route: str) -> str:
 
 def build(output: Path = DEFAULT_OUTPUT, source: Path = DEFAULT_SOURCE) -> list[Path]:
     try:
-        import markdown
+        from markdown import Markdown
     except ImportError as error:
         raise SystemExit(
             "error: the `markdown` package is required to build /docs/ "
@@ -71,7 +71,7 @@ def build(output: Path = DEFAULT_OUTPUT, source: Path = DEFAULT_SOURCE) -> list[
     written: list[Path] = []
     for index, (filename, route, label, description) in enumerate(PAGES):
         text = (source / filename).read_text(encoding="utf-8")
-        converter = markdown.Markdown(
+        converter = Markdown(
             extensions=["fenced_code", "tables", "sane_lists", "toc"],
             extension_configs={"toc": {"toc_depth": "2-3"}},
         )

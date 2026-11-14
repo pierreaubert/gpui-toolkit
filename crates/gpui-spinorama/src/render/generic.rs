@@ -19,9 +19,7 @@ use gpui::prelude::*;
 use gpui::{Div, Hsla, PathBuilder, canvas, div, point, px};
 use gpui_ui_kit::theme::{Theme, ThemeExt};
 
-use crate::types::{
-    GenericTrace, GraphDef, PlotData, PlotLayout, TraceFill, TraceKind, TraceMode,
-};
+use crate::types::{GenericTrace, GraphDef, PlotData, PlotLayout, TraceFill, TraceKind, TraceMode};
 use crate::utils::ChartTheme;
 
 fn dash_for(name: Option<&str>) -> Option<StrokeDashArray> {
@@ -164,11 +162,8 @@ pub fn render_generic_freq_chart(
         plot.extent(true, true),
         y_domain,
     );
-    let has_secondary = plot.layout.y_axis2.is_some()
-        && plot
-            .traces
-            .iter()
-            .any(|t| t.secondary_axis && t.visible);
+    let has_secondary =
+        plot.layout.y_axis2.is_some() && plot.traces.iter().any(|t| t.secondary_axis && t.visible);
     let y_title: &str = if def.y_title.is_empty() {
         if plot.layout.y_axis.title.is_empty() {
             "SPL (dB)"
@@ -220,9 +215,8 @@ pub fn render_generic_freq_chart(
             ((v - x_domain.0) / (x_domain.1 - x_domain.0)) as f32 * plot_width
         }
     };
-    let y_to_px = |v: f64| -> f32 {
-        ((y_domain.1 - v) / (y_domain.1 - y_domain.0)) as f32 * chart_height
-    };
+    let y_to_px =
+        |v: f64| -> f32 { ((y_domain.1 - v) / (y_domain.1 - y_domain.0)) as f32 * chart_height };
     type FillPoly = (Vec<(f32, f32)>, gpui::Rgba, f32);
     let mut fills: Vec<FillPoly> = Vec::new();
     let visible_scatter: Vec<&GenericTrace> = plot
@@ -365,25 +359,26 @@ pub fn render_generic_freq_chart(
         add_lines(area, &visible_scatter, &xs, &ys, &ys2, has_secondary)
     };
     // Annotations as positioned glyph text.
-    let annotation_layer = div()
-        .absolute()
-        .inset_0()
-        .children(plot.layout.annotations.iter().filter_map(|a| {
-            if a.x < x_domain.0 || a.x > x_domain.1 || a.y < y_domain.0 || a.y > y_domain.1 {
-                return None;
-            }
-            let cfg = GlyphTextConfig::horizontal(
-                (9.0 * scale).round(),
-                Hsla::from(ui_theme.text_secondary),
-            );
-            Some(
-                div()
-                    .absolute()
-                    .left(px(x_to_px(a.x)))
-                    .top(px(y_to_px(a.y) - 12.0))
-                    .child(render_glyph_text(&a.text, &cfg)),
-            )
-        }));
+    let annotation_layer =
+        div()
+            .absolute()
+            .inset_0()
+            .children(plot.layout.annotations.iter().filter_map(|a| {
+                if a.x < x_domain.0 || a.x > x_domain.1 || a.y < y_domain.0 || a.y > y_domain.1 {
+                    return None;
+                }
+                let cfg = GlyphTextConfig::horizontal(
+                    (9.0 * scale).round(),
+                    Hsla::from(ui_theme.text_secondary),
+                );
+                Some(
+                    div()
+                        .absolute()
+                        .left(px(x_to_px(a.x)))
+                        .top(px(y_to_px(a.y) - 12.0))
+                        .child(render_glyph_text(&a.text, &cfg)),
+                )
+            }));
     let chart_area = chart_area.child(annotation_layer);
 
     let left_axis = AxisConfig::left()
@@ -429,8 +424,7 @@ pub fn render_generic_freq_chart(
             .layout
             .y_axis2
             .as_ref()
-            .map(|a| a.title.clone())
-            .unwrap_or_default();
+            .map_or_default(|a| a.title.clone());
         // Title must be 'static for AxisConfig; leak is avoided by using
         // the known secondary titles, falling back to "DI (dB)".
         let title2: &'static str = match title2.as_str() {
@@ -465,72 +459,71 @@ pub fn render_generic_freq_chart(
         ));
     }
 
-    let x_title: &'static str = if log_x || plot.layout.x_axis.title.contains("Hz") || plot.layout.x_axis.title.is_empty() {
+    let x_title: &'static str = if log_x
+        || plot.layout.x_axis.title.contains("Hz")
+        || plot.layout.x_axis.title.is_empty()
+    {
         "Frequency (Hz)"
     } else {
         "X"
     };
-    div()
-        .flex()
-        .flex_col()
-        .child(top)
-        .child(
-            div()
-                .flex()
-                .child(div().flex_none().w(px(left_axis_width)))
-                .child(if log_x {
-                    let xs = LogScale::new()
-                        .domain(x_domain.0, x_domain.1)
-                        .range(0.0, f64::from(plot_width));
-                    render_axis(
-                        &xs,
-                        &AxisConfig::bottom()
-                            .with_ticks_inside(true)
-                            .with_tick_values(bottom_ticks)
-                            .with_minor_tick_values(
-                                (0..=3)
-                                    .flat_map(|decade| {
-                                        let base = 10f64.powi(decade + 1);
-                                        (2..=9).map(move |m| f64::from(m) * base)
-                                    })
-                                    .filter(|f| *f >= x_domain.0 && *f <= x_domain.1)
-                                    .collect::<Vec<f64>>(),
-                            )
-                            .with_formatter(|f| {
-                                if f >= 1000.0 {
-                                    format!("{:.0}k", f / 1000.0)
-                                } else {
-                                    format!("{f:.0}")
-                                }
-                            })
-                            .with_title(x_title)
-                            .with_label_font_size(label_size)
-                            .with_title_font_size(title_size)
-                            .with_tick_size(tick_size),
-                        plot_width,
-                        &theme,
-                    )
-                    .into_any_element()
-                } else {
-                    let xs = LinearScale::new()
-                        .domain(x_domain.0, x_domain.1)
-                        .range(0.0, f64::from(plot_width));
-                    render_axis(
-                        &xs,
-                        &AxisConfig::bottom()
-                            .with_ticks_inside(true)
-                            .with_tick_values(bottom_ticks)
-                            .with_formatter(fmt)
-                            .with_title(x_title)
-                            .with_label_font_size(label_size)
-                            .with_title_font_size(title_size)
-                            .with_tick_size(tick_size),
-                        plot_width,
-                        &theme,
-                    )
-                    .into_any_element()
-                }),
-        )
+    div().flex().flex_col().child(top).child(
+        div()
+            .flex()
+            .child(div().flex_none().w(px(left_axis_width)))
+            .child(if log_x {
+                let xs = LogScale::new()
+                    .domain(x_domain.0, x_domain.1)
+                    .range(0.0, f64::from(plot_width));
+                render_axis(
+                    &xs,
+                    &AxisConfig::bottom()
+                        .with_ticks_inside(true)
+                        .with_tick_values(bottom_ticks)
+                        .with_minor_tick_values(
+                            (0..=3)
+                                .flat_map(|decade| {
+                                    let base = 10f64.powi(decade + 1);
+                                    (2..=9).map(move |m| f64::from(m) * base)
+                                })
+                                .filter(|f| *f >= x_domain.0 && *f <= x_domain.1)
+                                .collect::<Vec<f64>>(),
+                        )
+                        .with_formatter(|f| {
+                            if f >= 1000.0 {
+                                format!("{:.0}k", f / 1000.0)
+                            } else {
+                                format!("{f:.0}")
+                            }
+                        })
+                        .with_title(x_title)
+                        .with_label_font_size(label_size)
+                        .with_title_font_size(title_size)
+                        .with_tick_size(tick_size),
+                    plot_width,
+                    &theme,
+                )
+                .into_any_element()
+            } else {
+                let xs = LinearScale::new()
+                    .domain(x_domain.0, x_domain.1)
+                    .range(0.0, f64::from(plot_width));
+                render_axis(
+                    &xs,
+                    &AxisConfig::bottom()
+                        .with_ticks_inside(true)
+                        .with_tick_values(bottom_ticks)
+                        .with_formatter(fmt)
+                        .with_title(x_title)
+                        .with_label_font_size(label_size)
+                        .with_title_font_size(title_size)
+                        .with_tick_size(tick_size),
+                    plot_width,
+                    &theme,
+                )
+                .into_any_element()
+            }),
+    )
 }
 
 fn add_lines<XS: Scale<f64, f64>, YS: Scale<f64, f64>>(
@@ -546,8 +539,12 @@ fn add_lines<XS: Scale<f64, f64>, YS: Scale<f64, f64>>(
             continue;
         }
         // Null/NaN samples break wrapped phase traces into finite runs.
-        let points: Vec<LinePoint> = trace.x.iter().zip(&trace.y)
-            .map(|(&x, &y)| LinePoint::new(x, y)).collect();
+        let points: Vec<LinePoint> = trace
+            .x
+            .iter()
+            .zip(&trace.y)
+            .map(|(&x, &y)| LinePoint::new(x, y))
+            .collect();
         if points.is_empty() {
             continue;
         }
@@ -581,7 +578,10 @@ fn add_lines<XS: Scale<f64, f64>, YS: Scale<f64, f64>>(
 /// Formats a radial tick value without trailing zeros (`0.5`, `-30`).
 fn format_radial_value(value: f64) -> String {
     if value == value.trunc() && value.abs() < 1e15 {
-        #[expect(clippy::cast_possible_truncation, reason = "checked integral and bounded")]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "checked integral and bounded"
+        )]
         let int = value as i64;
         format!("{int}")
     } else {
@@ -622,10 +622,7 @@ pub fn render_generic_polar(
         .first()
         .is_some_and(|t| t.kind == TraceKind::ScatterPolarCategorical);
     let categories: Vec<String> = if categorical {
-        traces
-            .first()
-            .map(|t| t.categories.clone())
-            .unwrap_or_default()
+        traces.first().map_or_default(|t| t.categories.clone())
     } else {
         Vec::new()
     };
@@ -640,11 +637,7 @@ pub fn render_generic_polar(
                 }
             }
         }
-        if hi <= lo {
-            (lo, lo + 1.0)
-        } else {
-            (lo, hi)
-        }
+        if hi <= lo { (lo, lo + 1.0) } else { (lo, hi) }
     });
     type PolarSeries = (Vec<(f32, f32)>, gpui::Rgba, f32);
     let mut series: Vec<PolarSeries> = Vec::new();
@@ -683,16 +676,15 @@ pub fn render_generic_polar(
             series.push((pts, trace.color.to_rgba(), trace.stroke_width));
         }
     }
-    let grid_radii: Vec<f32> = [0.25, 0.5, 0.75, 1.0]
-        .iter()
-        .map(|&t| t * outer)
-        .collect();
+    let grid_radii: Vec<f32> = [0.25, 0.5, 0.75, 1.0].iter().map(|&t| t * outer).collect();
     let spokes: Vec<f64> = if categorical && !categories.is_empty() {
         (0..categories.len())
             .map(|i| (i as f64 / categories.len() as f64) * std::f64::consts::TAU)
             .collect()
     } else {
-        (0..12).map(|i| f64::from(i) * 30.0_f64.to_radians()).collect()
+        (0..12)
+            .map(|i| f64::from(i) * 30.0_f64.to_radians())
+            .collect()
     };
     // Radial scale: grid circles carry value labels along the top
     // spoke. Spiders use the grid fractions of their (usually
@@ -794,9 +786,8 @@ pub fn render_generic_polar(
             .iter()
             .enumerate()
             .map(|(i, label)| {
-                let ang =
-                    (i as f64 / categories.len().max(1) as f64) * std::f64::consts::TAU
-                        - std::f64::consts::FRAC_PI_2;
+                let ang = (i as f64 / categories.len().max(1) as f64) * std::f64::consts::TAU
+                    - std::f64::consts::FRAC_PI_2;
                 let r = outer + label_px * 1.1;
                 let (left, top) = centred(
                     label,
@@ -817,7 +808,11 @@ pub fn render_generic_polar(
                 let deg = f64::from(i) * 30.0;
                 let ang = (deg - 90.0).to_radians();
                 let r = outer + label_px * 0.9;
-                let shown = if deg <= 180.0 { deg as i32 } else { deg as i32 - 360 };
+                let shown = if deg <= 180.0 {
+                    deg as i32
+                } else {
+                    deg as i32 - 360
+                };
                 let text = format!("{shown}°");
                 let (left, top) = centred(
                     &text,
@@ -1067,10 +1062,7 @@ pub fn render_generic_subplots(
 ) -> Div {
     let theme = ChartTheme::from_theme(ui_theme);
     let title_size = (chart_width / 800.0).clamp(0.7, 1.2) * 10.0;
-    let mut container = div()
-        .relative()
-        .w(px(chart_width))
-        .h(px(chart_height));
+    let mut container = div().relative().w(px(chart_width)).h(px(chart_height));
     for (index, cell) in plot.layout.subplots.iter().enumerate() {
         let cell_plot = PlotData {
             traces: plot
@@ -1182,9 +1174,11 @@ fn clip_poly_to_rect(poly: &[(f32, f32)], width: f32, height: f32) -> Vec<(f32, 
     clipped = clip_edge(&clipped, |p| p.0 >= 0.0, |a, b| cross(a, b, 0.0, false));
     clipped = clip_edge(&clipped, |p| p.0 <= width, |a, b| cross(a, b, width, false));
     clipped = clip_edge(&clipped, |p| p.1 >= 0.0, |a, b| cross(a, b, 0.0, true));
-    clipped = clip_edge(&clipped, |p| p.1 <= height, |a, b| {
-        cross(a, b, height, true)
-    });
+    clipped = clip_edge(
+        &clipped,
+        |p| p.1 <= height,
+        |a, b| cross(a, b, height, true),
+    );
     clipped
 }
 

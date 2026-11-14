@@ -8,12 +8,12 @@ use gpui::{Corners, Hsla, RenderImage, Rgba, TransformationMatrix, px};
 use image::{Frame, RgbaImage};
 use std::{
     cell::RefCell,
-    collections::{HashMap, hash_map::DefaultHasher},
+    collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
     sync::Arc,
 };
 
-use crate::util::bucket_cache::{BucketCache, GlyphCacheStats};
+use crate::util::bucket_cache::BucketCache;
 
 const GLYPH_RASTER_CACHE_CAPACITY: usize = 512;
 /// Maximum retained raster bytes (RGBA payloads + key/overhead charge).
@@ -168,22 +168,6 @@ thread_local! {
     static CHART_TEXT_LAYOUT_CACHE: RefCell<ChartTextLayoutCache> = RefCell::new(
         BucketCache::with_budgets(GLYPH_RASTER_CACHE_CAPACITY, CHART_TEXT_LAYOUT_CACHE_MAX_BYTES),
     );
-}
-
-/// Statistics of the glyph raster cache.
-pub(crate) fn glyph_raster_cache_stats() -> GlyphCacheStats {
-    GLYPH_RASTER_CACHE.with(|cache| cache.borrow().stats())
-}
-
-/// Statistics of the chart-text layout cache.
-pub(crate) fn chart_text_layout_cache_stats() -> GlyphCacheStats {
-    CHART_TEXT_LAYOUT_CACHE.with(|cache| cache.borrow().stats())
-}
-
-/// Release every retained glyph raster and layout (memory-pressure hook).
-pub(crate) fn trim_glyph_caches() {
-    GLYPH_RASTER_CACHE.with(|cache| cache.borrow_mut().trim());
-    CHART_TEXT_LAYOUT_CACHE.with(|cache| cache.borrow_mut().trim());
 }
 
 #[allow(

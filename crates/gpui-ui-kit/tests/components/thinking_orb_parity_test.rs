@@ -159,8 +159,7 @@ fn test_thinking_orb_frame_parity() {
                 }
             } else {
                 let mut used = vec![false; run_end - run_start];
-                for i in run_start..run_end {
-                    let d = &frame.dots[i];
+                for (i, d) in frame.dots.iter().enumerate().take(run_end).skip(run_start) {
                     let vals = [d.x, d.y, d.z, d.r, d.white, d.a.unwrap_or(1.0)];
                     let mut found = false;
                     for j in run_start..run_end {

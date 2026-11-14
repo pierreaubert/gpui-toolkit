@@ -10,6 +10,7 @@ const MAX_LABELS: usize = 512;
 const MAX_LABEL_BYTES: usize = 64 * 1024;
 
 /// Retained-byte and activity counters for the tick-label cache.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct TickLabelCacheStats {
     pub entries: usize,
@@ -45,6 +46,7 @@ impl TickLabelCache {
         label
     }
 
+    #[cfg(test)]
     fn stats(&self) -> TickLabelCacheStats {
         TickLabelCacheStats {
             entries: self.labels.len(),
@@ -112,12 +114,14 @@ pub(super) fn clear_tick_label_cache() {
 }
 
 /// Current retained-byte/activity counters of the tick-label cache.
+#[cfg(test)]
 pub(crate) fn tick_label_cache_stats() -> TickLabelCacheStats {
     TICK_LABEL_CACHE.with(|cache| cache.borrow().stats())
 }
 
 /// Release every retained tick label and its container capacity
 /// (memory-pressure hook; counters reset with the cache).
+#[cfg(test)]
 pub(crate) fn trim_tick_label_cache() {
     clear_tick_label_cache();
 }
@@ -148,7 +152,7 @@ mod tests {
     fn tick_label_cache_reports_stats_and_plateaus() {
         clear_tick_label_cache();
         for i in 0..2000 {
-            let _ = format_tick(i as f64 * 0.37, None);
+            let _ = format_tick(f64::from(i) * 0.37, None);
         }
         let stats = tick_label_cache_stats();
         assert!(stats.entries <= MAX_LABELS, "{stats:?}");

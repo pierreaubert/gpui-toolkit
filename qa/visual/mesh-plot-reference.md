@@ -35,8 +35,10 @@ axisymmetric revolve—and records PNG dimensions, opaque-pixel counts, and RGBA
 checksums in a manifest. `scripts/mesh_wgpu_manifest.py` is the shared
 validator used by the developer lane and `scripts/qa_release_evidence.py`; it
 checks the exact six case IDs, dimensions, safe repository-local paths,
-canonical `comparison_id` values, checksum format, and baseline equality. A
-release lane must promote
+canonical `comparison_id` values, and checksum format. Developer QA reports
+baseline drift because WGPU pixel checksums vary across adapters and can vary
+between captures on the same Linux adapter. Strict release evidence requires
+baseline equality. A release lane must promote
 `qa/visual/baselines/mesh-plot-wgpu-v1/manifest.json` from a clean revision and
 run with `QA_WGPU_REQUIRED=1`; ordinary developer runs skip explicitly when no
 headless adapter is available. In that case the lane writes an explicit

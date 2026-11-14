@@ -1937,9 +1937,9 @@ impl QueensGame {
 
     fn queens(&self) -> Vec<(usize, usize)> {
         let mut queens = Vec::new();
-        for row in 0..self.size {
-            for col in 0..self.size {
-                if self.marks[row][col] == 1 {
+        for (row, marks) in self.marks.iter().enumerate().take(self.size) {
+            for (col, mark) in marks.iter().enumerate().take(self.size) {
+                if *mark == 1 {
                     queens.push((row, col));
                 }
             }
@@ -4235,9 +4235,7 @@ mod tests {
         assert!(game.new_game());
         assert!(game.needs_ticks());
         game.grid[TETRIS_ROWS - 1] = [Some(PieceKind::O); TETRIS_COLS];
-        for col in 3..7 {
-            game.grid[TETRIS_ROWS - 1][col] = None;
-        }
+        game.grid[TETRIS_ROWS - 1][3..7].fill(None);
         game.current = PieceKind::I;
         game.rotation = 0;
         game.row = 17;

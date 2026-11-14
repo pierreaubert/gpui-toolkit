@@ -37,6 +37,7 @@ struct OffscreenCacheEntry {
 }
 
 /// Retained-byte and activity counters for the offscreen fallback cache.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct OffscreenCacheStats {
     pub entries: usize,
@@ -127,18 +128,21 @@ impl OffscreenCache {
         }
     }
 
+    #[cfg(test)]
     fn clear(&mut self) {
         self.entries.clear();
         self.order.clear();
         self.retained_bytes = 0;
     }
 
+    #[cfg(test)]
     fn trim(&mut self) {
         self.clear();
         self.entries.shrink_to_fit();
         self.order.shrink_to_fit();
     }
 
+    #[cfg(test)]
     fn stats(&self) -> OffscreenCacheStats {
         OffscreenCacheStats {
             entries: self.entries.len(),
@@ -159,11 +163,13 @@ thread_local! {
 }
 
 /// Current retained-byte/activity counters of the fallback cache.
+#[cfg(test)]
 pub(crate) fn offscreen_cache_stats() -> OffscreenCacheStats {
     OFFSCREEN_CACHE.with(|cache| cache.borrow().stats())
 }
 
 /// Release every retained fallback image (memory-pressure hook).
+#[cfg(test)]
 pub(crate) fn trim_offscreen_cache() {
     OFFSCREEN_CACHE.with(|cache| cache.borrow_mut().trim());
 }
@@ -489,7 +495,7 @@ mod tests {
         );
         assert!(stats.entries <= 32, "{stats:?}");
         assert!(stats.evictions > 0, "{stats:?}");
-        assert_eq!(stats.high_water_bytes, stats.retained_bytes.max(0));
+        assert_eq!(stats.high_water_bytes, stats.retained_bytes);
         assert!(stats.high_water_bytes <= OFFSCREEN_CACHE_MAX_BYTES);
         // LRU: the oldest ids are gone, the newest survives and hits.
         let key = cache_entry(&state, 512, 512).key;

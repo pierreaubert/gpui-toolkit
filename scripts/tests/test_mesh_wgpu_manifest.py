@@ -11,6 +11,7 @@ from mesh_wgpu_manifest import (
     COMPARISON_IDS,
     WgpuManifestError,
     compare_manifests,
+    main,
     validate_manifest,
     write_skip,
 )
@@ -186,6 +187,19 @@ class WgpuManifestTests(unittest.TestCase):
         baseline["cases"][0]["opaque_pixels"] += 1
         with self.assertRaisesRegex(WgpuManifestError, "opaque_pixels"):
             compare_manifests(actual, baseline)
+
+    def test_adapter_checksum_drift_is_reported_in_developer_lane(self):
+        baseline_path = self.root / "baseline.json"
+        baseline = captured_manifest()
+        baseline["cases"][0]["rgba_checksum"] = "fnv1a64:ffffffffffffffff"
+        baseline_path.write_text(json.dumps(baseline), encoding="utf-8")
+        args = [
+            "--actual", str(self.manifest_path),
+            "--baseline", str(baseline_path),
+            "--repo-root", str(self.root),
+        ]
+        self.assertEqual(main(args), 0)
+        self.assertEqual(main([*args, "--required"]), 1)
 
 
 if __name__ == "__main__":

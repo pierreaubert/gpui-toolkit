@@ -287,7 +287,7 @@ fn bench_showcase_table(c: &mut Criterion) {
             .expect("window must open");
         handle
             .update(&mut cx, |showcase, _, cx| {
-                showcase.select_section(section, cx)
+                showcase.select_section(section, cx);
             })
             .expect("section must select");
         let window: AnyWindowHandle = *handle;

@@ -30,6 +30,7 @@ pub(crate) fn with_path_scratch<R>(f: impl FnOnce(&mut String) -> R) -> R {
 }
 
 /// Release the thread-local scratch allocation (memory-pressure hook).
+#[cfg(test)]
 pub(crate) fn trim_path_scratch() {
     PATH_STRING_SCRATCH.with(|scratch| {
         let mut scratch = scratch.borrow_mut();

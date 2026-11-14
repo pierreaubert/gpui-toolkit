@@ -23,9 +23,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::{ThreadId, current};
 
 use gpui::{AnyWindowHandle, AppCell, PlatformInput};
-use gpui_foreign_parent::{
-    EditorHandle, FrameDecision, FrameScheduler, OwnedEditorRegistry, TransitionCell,
-};
+use gpui_foreign_parent::{EditorHandle, FrameScheduler, OwnedEditorRegistry, TransitionCell};
 use gpui_linux::foreign_parent::ForeignParentPlatform;
 
 use crate::geometry::ForeignBounds;

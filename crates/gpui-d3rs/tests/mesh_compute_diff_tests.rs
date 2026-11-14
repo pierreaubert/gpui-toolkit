@@ -5,13 +5,14 @@ use std::env;
 use std::sync::Arc;
 
 /// Adapter acquisition honoring mandatory-GPU CI: with
-/// GPUI_REQUIRE_GPU set, a missing adapter fails the test instead of
+/// `GPUI_REQUIRE_GPU` set, a missing adapter fails the test instead of
 /// silently skipping (scene3d uses the same convention).
 fn require_compute() -> Option<MeshCompute> {
     let compute = MeshCompute::try_new();
-    if compute.is_none() && env::var_os("GPUI_REQUIRE_GPU").is_some() {
-        panic!("GPUI_REQUIRE_GPU is set but no GPU adapter is available");
-    }
+    assert!(
+        compute.is_some() || env::var_os("GPUI_REQUIRE_GPU").is_none(),
+        "GPUI_REQUIRE_GPU is set but no GPU adapter is available"
+    );
     compute
 }
 

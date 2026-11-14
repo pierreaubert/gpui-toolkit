@@ -328,13 +328,11 @@ fn parse_data_items(xml: &str) -> Vec<(String, String, String)> {
         let tag = &after[..tag_end];
         let attr = |key: &str| -> String {
             let pattern = format!("{key}=\"");
-            tag.find(&pattern)
-                .map(|i| {
-                    let from = i + pattern.len();
-                    let to = tag[from..].find('"').map_or(tag.len(), |e| from + e);
-                    tag[from..to].to_string()
-                })
-                .unwrap_or_default()
+            tag.find(&pattern).map_or_default(|i| {
+                let from = i + pattern.len();
+                let to = tag[from..].find('"').map_or(tag.len(), |e| from + e);
+                tag[from..to].to_string()
+            })
         };
         let close = after[tag_end..]
             .find("</DataItem>")
@@ -358,13 +356,11 @@ fn parse_attributes(xml: &str) -> Vec<(String, String, String)> {
         let tag = &after[..tag_end];
         let attr = |key: &str| -> String {
             let pattern = format!("{key}=\"");
-            tag.find(&pattern)
-                .map(|i| {
-                    let from = i + pattern.len();
-                    let to = tag[from..].find('"').map_or(tag.len(), |e| from + e);
-                    tag[from..to].to_string()
-                })
-                .unwrap_or_default()
+            tag.find(&pattern).map_or_default(|i| {
+                let from = i + pattern.len();
+                let to = tag[from..].find('"').map_or(tag.len(), |e| from + e);
+                tag[from..to].to_string()
+            })
         };
         out.push((attr("Name"), attr("Center"), attr("AttributeType")));
         rest = &after[tag_end..];

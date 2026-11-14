@@ -72,11 +72,9 @@ impl WizardDebug {
         }
 
         // Mark all steps before target as completed
-        for i in 0..step {
-            if self.step_statuses[i] != StepStatus::Skipped
-                && self.step_statuses[i] != StepStatus::Error
-            {
-                self.step_statuses[i] = StepStatus::Completed;
+        for status in &mut self.step_statuses[..step] {
+            if *status != StepStatus::Skipped && *status != StepStatus::Error {
+                *status = StepStatus::Completed;
             }
         }
 
@@ -84,11 +82,9 @@ impl WizardDebug {
         self.step_statuses[step] = StepStatus::Active;
 
         // Mark all steps after target as not visited (unless skipped/error)
-        for i in (step + 1)..num_steps {
-            if self.step_statuses[i] != StepStatus::Skipped
-                && self.step_statuses[i] != StepStatus::Error
-            {
-                self.step_statuses[i] = StepStatus::NotVisited;
+        for status in &mut self.step_statuses[step + 1..num_steps] {
+            if *status != StepStatus::Skipped && *status != StepStatus::Error {
+                *status = StepStatus::NotVisited;
             }
         }
 
@@ -150,12 +146,12 @@ impl WizardDebug {
         if step >= 3 {
             return;
         }
-        for i in 0..step {
-            self.wizard2_statuses[i] = StepStatus::Completed;
+        for status in &mut self.wizard2_statuses[..step] {
+            *status = StepStatus::Completed;
         }
         self.wizard2_statuses[step] = StepStatus::Active;
-        for i in (step + 1)..3 {
-            self.wizard2_statuses[i] = StepStatus::NotVisited;
+        for status in &mut self.wizard2_statuses[step + 1..] {
+            *status = StepStatus::NotVisited;
         }
         self.wizard2_step = step;
     }
@@ -165,12 +161,12 @@ impl WizardDebug {
         if step >= 4 {
             return;
         }
-        for i in 0..step {
-            self.wizard3_statuses[i] = StepStatus::Completed;
+        for status in &mut self.wizard3_statuses[..step] {
+            *status = StepStatus::Completed;
         }
         self.wizard3_statuses[step] = StepStatus::Active;
-        for i in (step + 1)..4 {
-            self.wizard3_statuses[i] = StepStatus::NotVisited;
+        for status in &mut self.wizard3_statuses[step + 1..] {
+            *status = StepStatus::NotVisited;
         }
         self.wizard3_step = step;
     }

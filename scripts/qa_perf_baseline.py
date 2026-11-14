@@ -47,8 +47,8 @@ RUN_SAMPLES: dict[str, str] = {}
 class CollectionError(Exception):
     """A required benchmark did not produce trustworthy samples."""
 
-# Stable-but-reasonable Criterion settings for the non-regression suite.
-# Default settings are too slow for `just qa`; these still produce usable medians.
+# Criterion settings for comparison with the committed macOS baseline.
+# Linux uses shorter samples while that baseline cannot support a timing gate.
 CRITERION_FLAGS = [
     "--noplot",
     "--sample-size",
@@ -58,6 +58,19 @@ CRITERION_FLAGS = [
     "--warm-up-time",
     "2",
 ]
+
+
+def host_criterion_flags() -> list[str]:
+    """Use short Linux samples when no comparable timing baseline exists."""
+
+    if sys.platform.startswith("linux"):
+        return [
+            "--noplot", "--sample-size", "20",
+            "--measurement-time", "1", "--warm-up-time", "1",
+        ]
+    return CRITERION_FLAGS
+
+
 BENCH_TIMEOUT_SECS = 1800
 
 
@@ -171,6 +184,15 @@ BENCHMARKS: list[BenchSpec] = [
 ]
 
 
+def host_benchmarks() -> list[BenchSpec]:
+    """Select benchmark binaries that can run on the current host."""
+
+    return [
+        spec for spec in BENCHMARKS
+        if spec.crate != "gpui-ios" or sys.platform == "darwin"
+    ]
+
+
 def existing_criterion_dirs() -> set[str]:
     if not TARGET_CRITERION.exists():
         return set()
@@ -184,7 +206,7 @@ def run_bench(spec: BenchSpec, sample_dir: Path) -> None:
         cmd.append("--no-default-features")
     if spec.features:
         cmd.extend(["--features", ",".join(spec.features)])
-    cmd.extend(["--", *CRITERION_FLAGS])
+    cmd.extend(["--", *host_criterion_flags()])
 
     # Criterion honors CRITERION_HOME. Never reuse previous samples, including
     # when a successful benchmark binary accidentally executes no benchmarks.
@@ -328,7 +350,7 @@ def assign_crates(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def run_all() -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-    for spec in BENCHMARKS:
+    for spec in host_benchmarks():
         records.extend(run_one(spec))
     return records
 
@@ -358,7 +380,7 @@ def collect_all() -> list[dict[str, Any]]:
     records = discover_records()
     assigned = assign_crates(records)
     found_keys = {(r["crate"], r["bench"]) for r in assigned}
-    missing = [spec.key for spec in BENCHMARKS if (spec.crate, spec.bench) not in found_keys]
+    missing = [spec.key for spec in host_benchmarks() if (spec.crate, spec.bench) not in found_keys]
     if missing:
         raise CollectionError(f"missing required benchmark families: {', '.join(missing)}")
     return assigned
@@ -369,7 +391,7 @@ def build_baseline(records: list[dict[str, Any]]) -> dict[str, Any]:
         "version": BASELINE_VERSION,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "metadata": {
-            "criterion_flags": " ".join(CRITERION_FLAGS),
+            "criterion_flags": " ".join(host_criterion_flags()),
             "generator": "scripts/qa_perf_baseline.py",
             "environment": environment_metadata(),
             "run_id": RUN_ID,

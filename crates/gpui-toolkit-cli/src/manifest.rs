@@ -337,14 +337,8 @@ pub fn build_manifest(command: &Command) -> Manifest {
     }
     Manifest {
         name: command.get_name().to_owned(),
-        version: command
-            .get_version()
-            .map(ToString::to_string)
-            .unwrap_or_default(),
-        description: command
-            .get_about()
-            .map(ToString::to_string)
-            .unwrap_or_default(),
+        version: command.get_version().map_or_default(ToString::to_string),
+        description: command.get_about().map_or_default(ToString::to_string),
         global_options,
         commands,
         json_supported,
@@ -386,7 +380,7 @@ fn build_command(
         .map(|arg| ManifestArgument {
             name: arg.get_id().to_string(),
             required: arg.is_required_set(),
-            description: arg.get_help().map(ToString::to_string).unwrap_or_default(),
+            description: arg.get_help().map_or_default(ToString::to_string),
         })
         .collect();
     let options = command
@@ -409,10 +403,7 @@ fn build_command(
     }
     ManifestCommand {
         name: command.get_name().to_owned(),
-        description: command
-            .get_about()
-            .map(ToString::to_string)
-            .unwrap_or_default(),
+        description: command.get_about().map_or_default(ToString::to_string),
         arguments,
         options,
         json: facts.json,
@@ -446,6 +437,6 @@ fn describe_option(arg: &Arg) -> ManifestOption {
     ManifestOption {
         flag,
         kind: kind.to_owned(),
-        description: arg.get_help().map(ToString::to_string).unwrap_or_default(),
+        description: arg.get_help().map_or_default(ToString::to_string),
     }
 }

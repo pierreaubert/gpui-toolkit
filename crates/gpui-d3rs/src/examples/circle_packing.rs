@@ -165,15 +165,12 @@ fn pack_node(
     let (is_leaf, name, depth, value, child_data) = {
         let n = node.borrow();
         let is_leaf = n.children.is_none() || n.children.as_ref().unwrap().is_empty();
-        let child_data: Vec<(Rc<RefCell<HierarchyNode<PackNode>>>, f64)> = n
-            .children
-            .as_ref()
-            .map(|cs| {
+        let child_data: Vec<(Rc<RefCell<HierarchyNode<PackNode>>>, f64)> =
+            n.children.as_ref().map_or_default(|cs| {
                 cs.iter()
                     .map(|c| (c.clone(), c.borrow().value.unwrap_or(0.0)))
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         (
             is_leaf,
             n.data.name.clone(),

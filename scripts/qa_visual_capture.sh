@@ -164,7 +164,9 @@ FEATURES="--features autoeq,gpu-2d,gpu-3d,reqwest,showcase,spinorama,tokio,urlen
 echo "=== gpui-builder visual tests ==="
 cargo test -p gpui-builder visual --quiet
 echo "=== gpui-d3rs visual/GPU tests ==="
-cargo test -p gpui-d3rs --features gpui,gpu-2d,gpu-3d --tests --quiet
+# WGPU adapter tests share a native driver process. Running them concurrently
+# can crash the process on Linux even though each test passes in isolation.
+cargo test -p gpui-d3rs --features gpui,gpu-2d,gpu-3d --tests --quiet -- --test-threads=1
 echo "=== design-token conformance ==="
 cargo run -p gpui-design-tools --bin gpui-validate-design-tokens ${FEATURES} -- --report-json target/gpui-conformance/design-tokens.json --report-markdown target/gpui-conformance/design-tokens.md
 echo "=== component-lab conformance ==="

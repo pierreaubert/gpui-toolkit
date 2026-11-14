@@ -612,8 +612,7 @@ impl LevelMeterElement {
         let clipping = if self.is_clipping { " Clipping." } else { "" };
         let peak = self
             .peak_db
-            .map(|peak| format!(" Peak {peak:.1} dB."))
-            .unwrap_or_default();
+            .map_or_default(|peak| format!(" Peak {peak:.1} dB."));
         let description = SharedString::new(format!(
             "{}: level meter at {value_text}.{peak}{clipping}",
             self.channel_name

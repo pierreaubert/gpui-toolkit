@@ -17,11 +17,6 @@ use std::sync::Arc;
 
 use gpui_mesh::tetrahedra as tetrahedralize;
 
-fn barycentric(tet: [[f64; 3]; 4], p: [f64; 3]) -> Option<[f64; 4]> {
-    let inverse = tet_inverse(tet)?;
-    Some(barycentric_with_inverse(tet[0], inverse, p))
-}
-
 /// Cached per-tetrahedron transform: inverse of the edge matrix
 /// `[b-a, c-a, d-a]` (column-major), so barycentric weights at sample
 /// time are one matrix-vector product instead of a determinant plus
@@ -601,7 +596,7 @@ pub fn raycast_volume(
 /// step shrinks.
 fn step_opacity(alpha: f64, step: f64, diagonal: f64) -> f32 {
     let reference = diagonal / 64.0;
-    if !(reference > 0.0) || alpha <= 0.0 {
+    if reference.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) || alpha <= 0.0 {
         return 0.0;
     }
     if alpha >= 1.0 {

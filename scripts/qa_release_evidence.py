@@ -98,6 +98,18 @@ REQUIRED_ARTIFACTS = (
     "target/qa/visual/showcase-manifest.md",
 )
 
+# These artifacts require native Metal or a paired Metal product capture.
+APPLE_ONLY_ARTIFACTS = frozenset(
+    (
+        MESH_PLOT_VISUAL_CAPTURE_ARTIFACT,
+        MESH_PLOT_VISUAL_DIFF_ARTIFACT,
+        MESH_PLOT_PRODUCT_VISUAL_ARTIFACT,
+        MESH_COMPUTE_EVIDENCE_ARTIFACT,
+        MESH_METAL_MEMORY_EVIDENCE_ARTIFACT,
+        MESH_PLOT_CVD_ARTIFACT,
+    )
+)
+
 MESH_PLOT_BENCHMARKS = {
     ("gpui-d3rs", "mesh_prep"),
     ("gpui-px", "mesh_plot_frames"),
@@ -261,12 +273,18 @@ def artifact_row(root: Path, relative: str, revision: str) -> dict[str, object]:
     return row
 
 
-def collect_artifacts(root: Path, revision: str) -> list[dict[str, object]]:
-    missing = [relative for relative in REQUIRED_ARTIFACTS if not (root / relative).is_file()]
+def collect_artifacts(
+    root: Path, revision: str, *, include_apple_evidence: bool = True
+) -> list[dict[str, object]]:
+    required = set(REQUIRED_ARTIFACTS)
+    if not include_apple_evidence:
+        required.difference_update(APPLE_ONLY_ARTIFACTS)
+    missing = [relative for relative in sorted(required) if not (root / relative).is_file()]
     if missing:
         raise EvidenceError("missing required QA artifacts: " + ", ".join(missing))
 
-    paths = set(REQUIRED_ARTIFACTS)
+    paths = required
+    paths.update(relative for relative in APPLE_ONLY_ARTIFACTS if (root / relative).is_file())
     paths.update(relative for relative in OPTIONAL_ARTIFACTS if (root / relative).is_file())
     product_dir = root / MESH_PLOT_PRODUCT_VISUAL_DIR
     if product_dir.is_dir():
@@ -662,15 +680,22 @@ def validate_mesh_plot_wgpu_visual(root: Path, *, require_baseline: bool) -> Non
             require_images=False,
             allow_skipped=False,
         )
-        compare_manifests(actual, baseline)
     except WgpuManifestError as error:
         raise EvidenceError(str(error)) from error
+    try:
+        compare_manifests(actual, baseline)
+    except WgpuManifestError as error:
+        if require_baseline:
+            raise EvidenceError(str(error)) from error
+        print(f"WGPU visual baseline differs on this adapter: {error}", file=sys.stderr)
 
 
 def validate_mesh_plot_metal_visual(root: Path, *, require_capture: bool) -> None:
     """Validate the native Metal capture and its adapter availability contract."""
 
     actual_path = root / MESH_PLOT_METAL_VISUAL_CAPTURE_ARTIFACT
+    if not require_capture and not actual_path.is_file():
+        return
     try:
         actual = validate_manifest(
             actual_path,
@@ -1451,6 +1476,7 @@ def build_manifest(
     *,
     require_clean: bool = False,
     require_wgpu_visual: bool | None = None,
+    include_apple_evidence: bool = True,
     required_platforms: Iterable[str] = (),
 ) -> dict[str, object]:
     if require_wgpu_visual is None:
@@ -1459,24 +1485,28 @@ def build_manifest(
     if require_clean and source["dirty"]:
         raise EvidenceError("release evidence requires a clean worktree")
     revision = str(source["revision"])
-    artifacts = collect_artifacts(root, revision)
+    artifacts = collect_artifacts(
+        root, revision, include_apple_evidence=include_apple_evidence
+    )
     validate_mesh_plot_benchmarks(
         root,
         strict=require_clean,
         source_revision=revision,
     )
-    validate_mesh_plot_visual_capture(
-        root,
-        require_clean=require_clean,
-        source_revision=revision,
-    )
+    if include_apple_evidence or (root / MESH_PLOT_VISUAL_CAPTURE_ARTIFACT).is_file():
+        validate_mesh_plot_visual_capture(
+            root,
+            require_clean=require_clean,
+            source_revision=revision,
+        )
     baseline_ids = validate_mesh_plot_visual_baseline(root)
-    validate_mesh_plot_visual_diff(
-        root,
-        baseline_ids,
-        strict=require_clean,
-        source_revision=revision,
-    )
+    if include_apple_evidence or (root / MESH_PLOT_VISUAL_DIFF_ARTIFACT).is_file():
+        validate_mesh_plot_visual_diff(
+            root,
+            baseline_ids,
+            strict=require_clean,
+            source_revision=revision,
+        )
     validate_mesh_compute_evidence(
         root,
         require_capture=require_clean,
@@ -1581,6 +1611,7 @@ def main(argv: list[str] | None = None) -> int:
         manifest = build_manifest(
             root,
             require_clean=args.require_clean,
+            include_apple_evidence=platform.system() == "Darwin" or args.require_clean,
             required_platforms=args.require_platform,
         )
     except (EvidenceError, OSError, subprocess.CalledProcessError) as error:

@@ -668,7 +668,7 @@ const VENDORED_PATCHES: &[VendoredPatch] = &[
         upstream: "https://github.com/zed-industries/font-kit",
         upstream_base: "rev 94b0f28166665e8fd2f53ff6d268a14955c82269",
         owner: "text-platform-maintainers",
-        last_reviewed: "2026-10-04",
+        last_reviewed: "2026-10-30",
         review_cadence_days: 30,
         removal_condition: "Remove after Apple mobile cfg, bitmap/CSS behavior, and other source deltas are matched and platform gates pass.",
         delta_evidence_command: "git diff --no-index <font-kit 94b0f28> zed-font-kit",

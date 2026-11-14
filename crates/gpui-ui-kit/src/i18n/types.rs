@@ -147,7 +147,6 @@ impl I18nExt for App {
 
     fn language(&self) -> Language {
         self.try_global::<I18nState>()
-            .map(|s| s.language)
-            .unwrap_or_default()
+            .map_or_default(|s| s.language)
     }
 }

@@ -20,6 +20,8 @@ import 'builds/wasm.just'
 # ----------------------------------------------------------------------
 
 features := "--features autoeq,gpu-2d,gpu-3d,reqwest,spinorama,tokio,urlencoding"
+# Host-wide checks on Linux exclude targets whose runtime belongs to another OS.
+host_excludes := if os() == "linux" { "--exclude gpui-au --exclude gpui-android --exclude gpui-ios --exclude gpui-showcase-android --exclude gpui-showcase-ios --exclude gpui-showcase-tvos --exclude gpui-hello-web --exclude gpui-web-foreign --exclude gpui-win-foreign" } else { "" }
 cross_packages := "-p gpui-audio-kit -p gpui-builder -p gpui-component-lab -p gpui-d3rs -p gpui-design -p gpui-design-tools -p gpui-keybinding -p gpui-miniapp -p gpui-pretext -p gpui-px -p gpui-python-runtime -p gpui-scaffolder -p gpui-themes -p gpui-ui-kit -p gpui-ui-kit-macros"
 public_core_packages := "-p gpui-audio-kit -p gpui-builder -p gpui-d3rs -p gpui-design -p gpui-keybinding -p gpui-pretext -p gpui-px -p gpui-themes -p gpui-ui-kit -p gpui-ui-kit-macros"
 
@@ -57,7 +59,7 @@ lint: lint-host
 
 [group('lint')]
 lint-host:
-		RUST_MIN_STACK=33554432 {{cargo}} clippy --workspace --all-targets {{features}} -- -D warnings -A clippy::chunks_exact_to_as_chunks -A clippy::needless_late_init -A clippy::obfuscated_if_else -A clippy::let_and_return -A clippy::unnecessary_cast -A clippy::items_after_test_module -A clippy::type_complexity -A clippy::collapsible_if -A clippy::collapsible_match -A clippy::enum_variant_names -A clippy::needless_borrow -A clippy::op_ref -A clippy::ptr_arg -A clippy::too_many_arguments -A clippy::unwrap_or_default
+		RUST_MIN_STACK=33554432 {{cargo}} clippy --workspace {{host_excludes}} --all-targets {{features}} -- -D warnings -A clippy::chunks_exact_to_as_chunks -A clippy::needless_late_init -A clippy::obfuscated_if_else -A clippy::let_and_return -A clippy::unnecessary_cast -A clippy::items_after_test_module -A clippy::type_complexity -A clippy::collapsible_if -A clippy::collapsible_match -A clippy::enum_variant_names -A clippy::needless_borrow -A clippy::op_ref -A clippy::ptr_arg -A clippy::too_many_arguments -A clippy::unwrap_or_default
 
 [group('lint')]
 lint-all: lint-host lint-ios-rust
@@ -80,7 +82,7 @@ alias tests := ntest
 [group('test')]
 ntest:
 	# GPUI's test selectors require debug assertions; use Cargo's test profile.
-	{{cargo}} nextest run --profile ci --no-fail-fast --workspace {{features}}
+	CARGO_NET_OFFLINE=true GIT_CONFIG_GLOBAL=/dev/null {{cargo}} nextest run --profile ci --no-fail-fast --workspace {{host_excludes}} {{features}}
 
 [group('qa')]
 qa-miri:
@@ -118,7 +120,7 @@ qa-gpui-obvious: qa-gpui-conformance
 	{{cargo}} test -p gpui-ui-kit {{features}}
 	{{cargo}} test -p gpui-ui-kit {{features}} --features bench --test allocation_contracts -- --test-threads=1
 	{{cargo}} test -p gpui-ui-kit {{features}} --features bench --test text_input_corpus
-	{{cargo}} test -p gpui-d3rs {{features}}
+	RUST_TEST_THREADS=1 {{cargo}} test -p gpui-d3rs {{features}}
 	# MeshPlot allocation contracts use a process-global allocator; keep this
 	# package serial so unrelated test-thread startup allocations cannot pollute
 	# the zero-allocation hot-path assertions.
@@ -130,21 +132,31 @@ qa-gpui-obvious: qa-gpui-conformance
 # QA SUITE
 # ----------------------------------------------------------------------
 
-# Full QA aggregator. Runs non-coverage checks first; coverage gate is last so a
-# sub-90% report still lets the other suites exercise the code.
+# Host QA runs portable and Linux-capable checks. Apple adapter evidence runs
+# only on macOS. Coverage runs after the other checks.
 [group('qa')]
-qa: lint-host qa-scripts qa-api qa-prop qa-visual qa-mesh-wgpu-visual qa-mesh-metal-visual qa-mesh-product-visual qa-mesh-cvd qa-mesh-compute qa-mesh-lod qa-mesh-metal-memory qa-mesh-expanded-visual qa-perf qa-gpui-obvious qa-cov-check qa-deps
+qa: qa-host
+	@if [ "$(uname -s)" = "Darwin" ]; then just qa-apple; fi
+	just qa-cov-check
+	python3 scripts/qa_release_evidence.py
+	@echo "Full QA suite passed"
+
+[group('qa')]
+qa-host: lint-host qa-scripts qa-api qa-prop qa-visual qa-mesh-wgpu-visual qa-mesh-cvd-color-scale qa-mesh-lod qa-perf qa-gpui-obvious qa-deps
+
+[group('qa')]
+[macos]
+qa-apple: qa-scripts-apple qa-mesh-metal-visual qa-mesh-product-visual qa-mesh-cvd qa-mesh-compute qa-mesh-metal-memory qa-mesh-expanded-visual
 	# The developer lane skips when paired reference captures are unavailable;
 	# the release recipe below reruns it with a hard requirement.
 	bash scripts/qa_mesh_cross_adapter_visual.sh
 	bash scripts/qa_mesh_cross_adapter_expanded.sh
-	python3 scripts/qa_release_evidence.py
-	@echo "Full QA suite passed"
 
 # Repeat the full QA suite and reject evidence that is not tied to a clean
 # source revision. Platform recipes can be run first and required explicitly
 # with scripts/qa_release_evidence.py --require-platform <lane>.
 [group('release')]
+[macos]
 qa-release-evidence: qa
 	QA_METAL_REQUIRED=1 bash scripts/qa_mesh_metal_visual.sh
 	QA_PRODUCT_REQUIRED=1 bash scripts/qa_mesh_product_visual.sh
@@ -158,11 +170,18 @@ qa-release-evidence: qa
 
 [group('qa')]
 qa-scripts:
-	PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+	GIT_CONFIG_GLOBAL=/dev/null PYTHONPATH=scripts python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 	python3 scripts/qa_unsafe_policy.py
 	python3 scripts/qa_wasm_clock.py
 	python3 scripts/qa_embedded_assets.py
 	bash -n scripts/run_linux_native_ui_smoke.sh
+	bash -n scripts/qa_fuzz_check.sh
+	bash -n scripts/qa_mesh_lod.sh
+	python3 scripts/qa_desktop_accessibility.py --output-json target/qa/accessibility/desktop-evidence.json --output-markdown target/qa/accessibility/desktop-evidence.md
+
+[group('qa')]
+[macos]
+qa-scripts-apple:
 	bash -n scripts/run_macos_native_ui_smoke.sh
 	bash -n scripts/run_apple_simulator_smoke.sh
 	bash -n scripts/run_android_emulator_smoke.sh
@@ -171,14 +190,11 @@ qa-scripts:
 	bash -n scripts/qa_mesh_cross_adapter_expanded.sh
 	bash -n scripts/run_utm_linux_native_ui_smoke.sh
 	bash -n scripts/run_utm_windows_native_ui_smoke.sh
-	bash -n scripts/qa_fuzz_check.sh
 	bash -n scripts/qa_mesh_metal_visual.sh
 	bash -n scripts/qa_mesh_product_visual.sh
 	bash -n scripts/qa_mesh_cvd.sh
 	bash -n scripts/qa_mesh_compute.sh
-	bash -n scripts/qa_mesh_lod.sh
 	bash -n scripts/qa_mesh_metal_memory.sh
-	python3 scripts/qa_desktop_accessibility.py --output-json target/qa/accessibility/desktop-evidence.json --output-markdown target/qa/accessibility/desktop-evidence.md
 
 # Local macOS capture uses the native host directly. UTM is reserved for the
 # Linux and Windows desktop backends and is intentionally not part of hosted CI.
@@ -208,7 +224,7 @@ qa-api:
 	python3 scripts/qa_docs_policy.py
 	{{cargo}} check {{public_core_packages}} --lib --no-default-features
 	RUSTDOCFLAGS="-D warnings" {{cargo}} doc {{public_core_packages}} --lib --no-deps --no-default-features
-	{{cargo}} test -p gpui-scaffolder scaffolded_project_passes_cargo_check
+	CARGO_NET_OFFLINE=true GIT_CONFIG_GLOBAL=/dev/null {{cargo}} test -p gpui-scaffolder scaffolded_project_passes_cargo_check
 
 # Freeze the all-feature public Rust surface that Python v2 must classify.
 # rustdoc JSON currently requires nightly even though normal builds remain stable.
@@ -324,8 +340,8 @@ qa-mesh-expanded-visual:
 [group('qa')]
 qa-cov:
 	mkdir -p target/qa/cov
-	{{cargo}} llvm-cov --workspace --exclude gpui-scaffolder --all-targets --html --output-dir target/qa/cov/html {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
-	{{cargo}} llvm-cov --workspace --exclude gpui-scaffolder --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	RUST_TEST_THREADS=1 {{cargo}} llvm-cov --workspace {{host_excludes}} --exclude gpui-scaffolder --all-targets --html --output-dir target/qa/cov/html {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	RUST_TEST_THREADS=1 {{cargo}} llvm-cov --workspace {{host_excludes}} --exclude gpui-scaffolder --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
 	@echo "Coverage report: target/qa/cov/html/index.html"
 
 # Open the HTML coverage report (macOS).
@@ -338,7 +354,7 @@ qa-cov-html: qa-cov
 qa-cov-check:
 	@echo "Running coverage gate (threshold {{cov_threshold}}%)..."
 	mkdir -p target/qa/cov
-	{{cargo}} llvm-cov --workspace --exclude gpui-scaffolder --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
+	RUST_TEST_THREADS=1 {{cargo}} llvm-cov --workspace {{host_excludes}} --exclude gpui-scaffolder --all-targets --json --summary-only --output-path {{cov_summary}} {{features}} --ignore-filename-regex '{{cov_ignore_regex}}'
 	python3 scripts/qa_cov_check.py --summary {{cov_summary}} --threshold {{cov_threshold}} --output {{cov_report}} --ignore-regex '{{cov_ignore_regex}}'
 
 # Update the committed performance baseline. Run intentionally after benchmarking.
@@ -350,9 +366,9 @@ qa-perf-update:
 # Performance non-regression against the committed baseline.
 [group('qa')]
 qa-perf:
-	@echo "Running performance non-regression checks..."
+	@echo "Running host performance checks..."
 	python3 scripts/qa_perf_baseline.py --output {{perf_current}}
-	python3 scripts/qa_perf_gate.py --baseline {{perf_baseline}} --current {{perf_current}} --threshold {{perf_threshold}} --noise-floor-ns {{perf_noise_floor_ns}} --output {{perf_report}} --retries 2
+	python3 scripts/qa_perf_gate.py --baseline {{perf_baseline}} --current {{perf_current}} --threshold {{perf_threshold}} --noise-floor-ns {{perf_noise_floor_ns}} --output {{perf_report}} --retries 2 {{if os() == "linux" { "--allow-incomparable-host" } else { "" }}}
 
 # ----------------------------------------------------------------------
 # FORMAT / BUILD

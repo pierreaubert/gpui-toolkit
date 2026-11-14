@@ -75,6 +75,7 @@ const MAX_LOG_TICK_CACHE_ENTRIES: usize = 256;
 const MAX_LOG_TICK_CACHE_BYTES: usize = 256 * 1024;
 
 /// Retained-byte and activity counters for the log-tick cache.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct LogTickCacheStats {
     pub entries: usize,
@@ -101,7 +102,7 @@ struct LogTickCache {
 
 fn log_tick_charge(ticks: &[f64]) -> usize {
     // Key (16) + Vec header (24) + map slot slack (32) + payload.
-    72 + ticks.len() * std::mem::size_of::<f64>()
+    72 + std::mem::size_of_val(ticks)
 }
 
 impl LogTickCache {
@@ -143,6 +144,7 @@ impl LogTickCache {
         self.order.push_back(key);
     }
 
+    #[cfg(test)]
     fn stats(&self) -> LogTickCacheStats {
         LogTickCacheStats {
             entries: self.entries.len(),
@@ -154,6 +156,7 @@ impl LogTickCache {
         }
     }
 
+    #[cfg(test)]
     fn trim(&mut self) {
         self.entries.clear();
         self.order.clear();
@@ -171,11 +174,13 @@ thread_local! {
 }
 
 /// Current retained-byte/activity counters of the log-tick cache.
+#[cfg(test)]
 pub(crate) fn log_tick_cache_stats() -> LogTickCacheStats {
     LOG_TICK_CACHE.with(|cache| cache.borrow().stats())
 }
 
 /// Release every retained log-tick vector (memory-pressure hook).
+#[cfg(test)]
 pub(crate) fn trim_log_tick_cache() {
     LOG_TICK_CACHE.with(|cache| cache.borrow_mut().trim());
 }
@@ -235,7 +240,7 @@ mod tests {
     fn log_tick_cache_plateaus_and_keeps_recent_vectors() {
         trim_log_tick_cache();
         for i in 0..1000 {
-            let _ = generate_log_ticks(1.0 + i as f64 * 0.001, 1000.0);
+            let _ = generate_log_ticks(1.0 + f64::from(i) * 0.001, 1000.0);
         }
         let stats = log_tick_cache_stats();
         assert!(stats.entries <= MAX_LOG_TICK_CACHE_ENTRIES, "{stats:?}");

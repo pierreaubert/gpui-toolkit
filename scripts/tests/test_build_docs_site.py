@@ -1,4 +1,3 @@
-import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,8 +5,16 @@ from pathlib import Path
 import build_docs_site
 
 
+def has_markdown() -> bool:
+    try:
+        from markdown import Markdown  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 @unittest.skipUnless(
-    importlib.util.find_spec("markdown"),
+    has_markdown(),
     "markdown package not installed (uv run --with markdown ...)",
 )
 class BuildDocsSiteTest(unittest.TestCase):

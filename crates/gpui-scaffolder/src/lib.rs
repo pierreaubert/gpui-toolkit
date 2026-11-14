@@ -1745,6 +1745,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn scaffolded_project_passes_ios_simulator_cargo_check() -> Result<()> {
         let dir = tempdir()?;
@@ -1766,6 +1767,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn scaffolded_project_passes_tvos_simulator_cargo_check() -> Result<()> {
         let dir = tempdir()?;
@@ -1859,9 +1861,8 @@ mod tests {
         }
         manifest = manifest.replace(&generated_gpui, &local_gpui);
 
-        let inherited: Vec<(&String, &toml::Value)> = crates_io_patches
-            .map(|table| table.iter().collect())
-            .unwrap_or_default();
+        let inherited: Vec<(&String, &toml::Value)> =
+            crates_io_patches.map_or_default(|table| table.iter().collect());
         if inherited.is_empty() {
             fs::write(manifest_path, manifest)?;
             return Ok(());
@@ -2438,8 +2439,7 @@ mod tests {
                 .iter()
                 .map(|path| {
                     path.strip_prefix(&scaffolded.app_dir)
-                        .map(|relative| relative.to_string_lossy().into_owned())
-                        .unwrap_or_default()
+                        .map_or_default(|relative| relative.to_string_lossy().into_owned())
                 })
                 .collect();
             let has_ios = relative.iter().any(|path| path.contains("ios"));
