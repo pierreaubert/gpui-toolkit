@@ -52,11 +52,13 @@ native-qa = [
 ]
 python-extension = [
     "dep:pyo3",
+    "pyo3/extension-module",
     "dep:gpui-d3rs",
     "dep:gpui-px",
     "gpui-px/gpui",
     "gpui-px/gpu-2d",
 ]
+embedded = ["dep:pyo3", "pyo3/auto-initialize"]
 spinorama = ["gpui-px?/spinorama"]
 tokio = ["gpui-px?/tokio"]
 urlencoding = ["gpui-px?/urlencoding"]
@@ -91,7 +93,7 @@ arrow-ipc = { workspace = true }
 memmap2 = { workspace = true }
 tempfile = { workspace = true }
 libc = { workspace = true }
-pyo3 = { version = "0.30.1", features = ["abi3-py310", "extension-module"], optional = true }
+pyo3 = { version = "0.30.1", features = ["abi3-py310"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = { workspace = true }

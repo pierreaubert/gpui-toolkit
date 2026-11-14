@@ -10,6 +10,8 @@
 pub mod audio_stream;
 mod cache;
 pub mod dataset_frames;
+#[cfg(all(feature = "embedded", unix))]
+pub mod embedded;
 mod error;
 #[cfg(feature = "gpui")]
 pub mod gpui_adapter;
