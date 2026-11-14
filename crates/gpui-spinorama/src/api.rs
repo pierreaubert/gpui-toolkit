@@ -1067,6 +1067,29 @@ mod tests {
     }
 
     #[test]
+    fn parse_plot_preserves_axis_bound_callouts_and_helper_legend_visibility() {
+        let value = serde_json::json!({
+            "data": [{"type":"scatter", "name":"Sound Power DI slope", "x":[100,12000],
+                "y":[0,4], "yaxis":"y2", "showlegend":false}],
+            "layout": {"xaxis":{"type":"log"}, "annotations":[
+                {"text":"0.94 db/oct sm 0.74", "x":4.0, "y":8.0, "xref":"x", "yref":"y2",
+                    "ax":3.5, "ay":12.0, "axref":"x", "font":{"color":"#000000"}},
+                {"text":"hidden", "x":3.0, "y":1.0, "visible":false}
+            ]}
+        });
+        let plot = parse_plot(&value).unwrap();
+        assert!(!plot.traces[0].show_legend);
+        assert_eq!(plot.layout.annotations.len(), 1);
+        let annotation = &plot.layout.annotations[0];
+        assert_eq!(annotation.x, 10000.0);
+        assert!(annotation.secondary_axis);
+        let (x, y) = annotation.label.unwrap();
+        assert!((x - 10f64.powf(3.5)).abs() < 1e-9);
+        assert_eq!(y, 12.0);
+        assert_eq!(annotation.color, Some(d3rs::color::D3Color::from_hex(0)));
+    }
+
+    #[test]
     fn spinorama_surface_colors_match_contour_colors() {
         let colormap = crate::types::Colormap::Spinorama;
         let contour = colormap.color_scale();
