@@ -18183,14 +18183,19 @@ impl PythonIrShowcase {
                         force: arguments.get("force").and_then(Value::as_bool).unwrap_or(false),
                         dry_run: arguments.get("dry_run").and_then(Value::as_bool).unwrap_or(false),
                     };
+                    let flags = gpui_scaffolder::ScaffoldFlags {
+                        template: arguments.get("template").and_then(Value::as_str).unwrap_or(gpui_scaffolder::DEFAULT_TEMPLATE).into(),
+                        no_ios: arguments.get("no_ios").and_then(Value::as_bool).unwrap_or(false),
+                        no_android: arguments.get("no_android").and_then(Value::as_bool).unwrap_or(false),
+                    };
                     if command == "scaffolder.preview" {
-                        let preview = gpui_scaffolder::preview_scaffold(&options).map_err(|error| error.to_string())?;
+                        let preview = gpui_scaffolder::preview_scaffold_with_flags(&options, &flags).map_err(|error| error.to_string())?;
                         Ok(serde_json::json!({
                             "ok": true, "app_dir": preview.app.app_dir, "package_name": preview.app.package_name,
                             "title": preview.app.title, "files": preview.files,
                         }))
                     } else {
-                        let app = gpui_scaffolder::scaffold_app(&options).map_err(|error| error.to_string())?;
+                        let app = gpui_scaffolder::scaffold_app_with_flags(&options, &flags).map_err(|error| error.to_string())?;
                         Ok(serde_json::json!({"ok": true, "app_dir": app.app_dir, "package_name": app.package_name, "title": app.title}))
                     }
                 })();

@@ -27,7 +27,8 @@ struct Args {
     #[arg(long)]
     dry_run: bool,
 
-    /// Scaffold template to use. Only "default" is supported today.
+    /// Scaffold template to use: "default" (native Rust app) or
+    /// "python-mobile" (Python-authored iOS/Android app).
     #[arg(long, value_name = "TEMPLATE", default_value = "default")]
     template: String,
 
@@ -42,6 +43,7 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    let is_python_mobile = args.template == gpui_scaffolder::PYTHON_MOBILE_TEMPLATE;
     let options = ScaffoldOptions {
         name: args.name,
         output_dir: args.output_dir,
@@ -75,8 +77,14 @@ fn main() -> Result<()> {
     println!("Created {}", scaffolded.app_dir.display());
     println!("Run it with:");
     println!("  cd {}", scaffolded.app_dir.display());
-    println!("  cargo run");
-    println!("  just run");
+    if is_python_mobile {
+        println!("  just preflight");
+        println!("  just ios-sim");
+        println!("  just android-apk");
+    } else {
+        println!("  cargo run");
+        println!("  just run");
+    }
 
     Ok(())
 }

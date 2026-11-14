@@ -4,7 +4,7 @@ The Rust runtime consumes the dictionaries produced by these helpers and keeps
 GPU resources private.
 """
 
-from . import accessibility, audio, charts, d3, d3rs, data, design, effects, events, i18n, keybindings, lab, layout, mesh, meshplot, miniapp, native, platform, profiler, px, reports, resources, scaffolder, scene2d, scene3d, text, themes, tooling, ui
+from . import accessibility, audio, charts, d3, d3rs, data, design, effects, events, i18n, keybindings, lab, layout, mesh, meshplot, miniapp, mobile, native, platform, profiler, px, reports, resources, scaffolder, scene2d, scene3d, text, themes, tooling, ui
 from .app import (
     App,
     CancellationToken,
@@ -79,7 +79,7 @@ __all__ = [
     "ValidationSeverity", "ValueChange", "Viewport", "__version__",
     "accessibility", "application_data_dir", "audio", "capabilities", "charts",
     "d3", "d3rs", "data", "design", "effects", "events", "i18n",
-    "keybindings", "lab", "layout", "mesh", "meshplot", "miniapp", "native",
+    "keybindings", "lab", "layout", "mesh", "meshplot", "miniapp", "mobile", "native",
     "patch_op", "platform", "profiler", "px", "replace_op", "reports",
     "resources", "scene2d", "scene3d", "section", "text", "themes", "tooling",
     "ui",

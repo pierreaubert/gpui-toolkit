@@ -9,30 +9,47 @@ use std::path::{Component, Path, PathBuf};
 const GPUI_VERSION: &str = "0.2.3";
 const GPUI_ZED_TAG: &str = "v1.25.2";
 const SCAFFOLD_TEMPLATE_VERSION: &str = "2";
-/// Name of the only scaffold template shipped today. Custom templates are a
-/// future extension; [`ScaffoldFlags`] reserves the selection slot already.
+/// Name of the native Rust scaffold template.
 pub const DEFAULT_TEMPLATE: &str = "default";
+/// Name of the Python-authored mobile app template (embedded `CPython` hosts,
+/// no generated Rust crate; see `crates/gpui-python-runtime/mobile/`).
+pub const PYTHON_MOBILE_TEMPLATE: &str = "python-mobile";
+const PYTHON_MOBILE_GITIGNORE: &str = "/build/\n/target/\n__pycache__/\n/ios/app/gpui_toolkit/\n/ios/app/main_app.py\n/ios/build/\n/ios/lib/\n/ios/vendor/\n/android/gradle/app/src/main/assets/python/\n/android/gradle/app/src/main/assets/app/\n/android/gradle/app/src/main/assets/gpui_bundle_manifest.txt\n/android/gradle/app/src/main/jniLibs/\n/android/gradle/app/build/\n/android/gradle/.gradle/\n*.xcodeproj\n";
 const TOOLKIT_ROOT_ENV: &str = "GPUI_TOOLKIT_ROOT";
 const SCAFFOLD_GITIGNORE: &str =
     "/target/\n/ios/build/\n/ios/lib/\n.gradle/\n**/local.properties\n";
-/// Toolkit-relative path of the Android activity host source.
+/// Toolkit-relative directory holding the Android Java host sources.
+/// Every file in it must be copied: the sources reference each other.
 #[cfg(any(not(feature = "mobile"), test))]
-const GPUI_ANDROID_ACTIVITY_JAVA_PATH: &str =
-    "crates/gpui-android/android/src/main/java/dev/gpui/mobile/GpuiActivity.java";
-/// Toolkit-relative path of the Android file-provider host source.
-#[cfg(any(not(feature = "mobile"), test))]
-const GPUI_ANDROID_FILE_PROVIDER_JAVA_PATH: &str =
-    "crates/gpui-android/android/src/main/java/dev/gpui/mobile/GpuiFileProvider.java";
+const GPUI_ANDROID_JAVA_DIR: &str = "crates/gpui-android/android/src/main/java/dev/gpui/mobile";
+/// File names inside [`GPUI_ANDROID_JAVA_DIR`], in sorted order. The
+/// sources-match test fails if the checkout gains a file not listed here.
+const GPUI_ANDROID_JAVA_FILES: &[&str] = &[
+    "FileLeaseRegistry.java",
+    "GpuiAccessibilityNodeId.java",
+    "GpuiActivity.java",
+    "GpuiFileProvider.java",
+    "GpuiForeign.java",
+    "InputShadowBufferPolicy.java",
+];
 
-/// Embedded Android Java hosts. Gated behind the `mobile` feature (enabled by
-/// default) so `--help`-only binaries can opt out with `--no-default-features`
-/// and load the same sources from a toolkit checkout at runtime instead.
+/// Embedded Android Java hosts, parallel to [`GPUI_ANDROID_JAVA_FILES`].
+/// Gated behind the `mobile` feature (enabled by default) so `--help`-only
+/// binaries can opt out with `--no-default-features` and load the same
+/// sources from a toolkit checkout at runtime instead.
 #[cfg(feature = "mobile")]
-const GPUI_ANDROID_ACTIVITY_JAVA: &str =
-    include_str!("../../gpui-android/android/src/main/java/dev/gpui/mobile/GpuiActivity.java");
-#[cfg(feature = "mobile")]
-const GPUI_ANDROID_FILE_PROVIDER_JAVA: &str =
-    include_str!("../../gpui-android/android/src/main/java/dev/gpui/mobile/GpuiFileProvider.java");
+const GPUI_ANDROID_JAVA_EMBEDDED: &[&str] = &[
+    include_str!("../../gpui-android/android/src/main/java/dev/gpui/mobile/FileLeaseRegistry.java"),
+    include_str!(
+        "../../gpui-android/android/src/main/java/dev/gpui/mobile/GpuiAccessibilityNodeId.java"
+    ),
+    include_str!("../../gpui-android/android/src/main/java/dev/gpui/mobile/GpuiActivity.java"),
+    include_str!("../../gpui-android/android/src/main/java/dev/gpui/mobile/GpuiFileProvider.java"),
+    include_str!("../../gpui-android/android/src/main/java/dev/gpui/mobile/GpuiForeign.java"),
+    include_str!(
+        "../../gpui-android/android/src/main/java/dev/gpui/mobile/InputShadowBufferPolicy.java"
+    ),
+];
 
 #[derive(Debug, Clone)]
 pub struct ScaffoldOptions {
@@ -64,9 +81,8 @@ pub struct ScaffoldPreview {
 /// [`preview_scaffold_with_flags`] to customize the generated project.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScaffoldFlags {
-    /// Template name. Only [`DEFAULT_TEMPLATE`] (`"default"`) exists today;
-    /// any other value is an error, reserving the slot for a future template
-    /// registry.
+    /// Template name: [`DEFAULT_TEMPLATE`] (native Rust app) or
+    /// [`PYTHON_MOBILE_TEMPLATE`] (Python-authored iOS/Android app).
     pub template: String,
     /// Skip the iOS host (`ios/`, the `gpui-ios` dependency, iOS Just recipes).
     pub no_ios: bool,
@@ -88,13 +104,17 @@ impl Default for ScaffoldFlags {
 impl ScaffoldFlags {
     /// Reject unknown templates before touching the filesystem.
     pub fn validate(&self) -> Result<()> {
-        if self.template != DEFAULT_TEMPLATE {
-            bail!(
-                "unknown template \"{}\"; only \"default\" is supported",
-                self.template
-            );
+        match self.template.as_str() {
+            DEFAULT_TEMPLATE | PYTHON_MOBILE_TEMPLATE => Ok(()),
+            other => bail!(
+                "unknown template \"{other}\"; supported templates are \"{DEFAULT_TEMPLATE}\" and \"{PYTHON_MOBILE_TEMPLATE}\""
+            ),
         }
-        Ok(())
+    }
+
+    /// Whether this scaffold generates a Python-authored mobile project.
+    fn is_python_mobile(&self) -> bool {
+        self.template == PYTHON_MOBILE_TEMPLATE
     }
 }
 
@@ -234,6 +254,9 @@ fn build_scaffold_plan(
     flags: &ScaffoldFlags,
 ) -> Result<Vec<(PathBuf, String)>> {
     let toolkit_root = toolkit_root()?;
+    if flags.is_python_mobile() {
+        return build_python_mobile_plan(names, app_dir, flags, &toolkit_root);
+    }
     let dependencies = toolkit_dependency_paths(app_dir, &toolkit_root);
     // Lazily loaded only when the Android host is actually generated.
     let java = if flags.no_android {
@@ -270,11 +293,12 @@ fn build_scaffold_plan(
             (ios_source.join("BridgingHeader.h"), bridging_header(names)),
             (ios_source.join("Info.plist"), info_plist(names)),
             (ios_source.join("Entitlements.plist"), entitlements_plist()),
+            (ios_source.join("PrivacyInfo.xcprivacy"), privacy_info()),
         ]);
     }
 
     if !flags.no_android {
-        let (activity_java, file_provider_java) =
+        let java_sources =
             java.context("android sources must be loaded when the android host is generated")?;
         plan.extend([
             (
@@ -305,19 +329,553 @@ fn build_scaffold_plan(
                 app_dir.join("android/gradle/app/src/main/res/values/styles.xml"),
                 android_styles(),
             ),
+        ]);
+        let java_dir = app_dir.join("android/gradle/app/src/main/java/dev/gpui/mobile");
+        plan.extend(
+            java_sources
+                .into_iter()
+                .map(|(file_name, contents)| (java_dir.join(file_name), contents)),
+        );
+    }
+
+    Ok(plan)
+}
+
+/// File plan for a Python-authored mobile project: tracked Python sources
+/// under `app/`, platform shells under `ios/` and `android/gradle/`, and a
+/// `gpui-mobile.toml` manifest. No Rust crate is generated — the toolkit's
+/// `gpui-python-mobile-ios` / `gpui-python-mobile-android` hosts are built
+/// by the generated Just recipes via the toolkit's own stage scripts.
+fn build_python_mobile_plan(
+    names: &AppNames,
+    app_dir: &Path,
+    flags: &ScaffoldFlags,
+    toolkit_root: &Path,
+) -> Result<Vec<(PathBuf, String)>> {
+    let toolkit_relative = relative_path(app_dir, toolkit_root);
+    let java = if flags.no_android {
+        None
+    } else {
+        Some(android_java_sources(toolkit_root)?)
+    };
+
+    let mut plan = vec![
+        (
+            app_dir.join("gpui-mobile.toml"),
+            python_mobile_manifest(names, &toolkit_relative),
+        ),
+        (
+            app_dir.join("gpui-scaffold.toml"),
+            scaffold_metadata(names, flags),
+        ),
+        (
+            app_dir.join(".gitignore"),
+            PYTHON_MOBILE_GITIGNORE.to_owned(),
+        ),
+        (
+            app_dir.join("Justfile"),
+            python_mobile_justfile(names, flags, &toolkit_relative),
+        ),
+        (
+            app_dir.join("README.md"),
+            python_mobile_readme(names, flags),
+        ),
+        (app_dir.join("app/main_app.py"), python_mobile_app_py(names)),
+        (app_dir.join("app/.gitkeep"), String::new()),
+    ];
+
+    if !flags.no_ios {
+        let ios_source = app_dir.join("ios").join(&names.ios_source_dir);
+        plan.extend([
             (
-                app_dir.join("android/gradle/app/src/main/java/dev/gpui/mobile/GpuiActivity.java"),
-                activity_java,
+                app_dir.join("ios/project.yml"),
+                python_xcode_project_yml(names),
             ),
             (
-                app_dir
-                    .join("android/gradle/app/src/main/java/dev/gpui/mobile/GpuiFileProvider.java"),
-                file_provider_java,
+                ios_source.join("AppDelegate.swift"),
+                python_swift_app_delegate(),
+            ),
+            (
+                ios_source.join("BridgingHeader.h"),
+                python_bridging_header(names),
+            ),
+            (ios_source.join("Info.plist"), info_plist(names)),
+            (ios_source.join("Entitlements.plist"), entitlements_plist()),
+            (ios_source.join("PrivacyInfo.xcprivacy"), privacy_info()),
+            (
+                ios_source.join("Assets.xcassets/AppIcon.appiconset/Contents.json"),
+                app_icon_contents_json(),
             ),
         ]);
     }
 
+    if !flags.no_android {
+        let java_sources =
+            java.context("android sources must be loaded when the android host is generated")?;
+        plan.extend([
+            (
+                app_dir.join("android/gradle/settings.gradle.kts"),
+                android_settings_gradle(names),
+            ),
+            (
+                app_dir.join("android/gradle/build.gradle.kts"),
+                android_root_build_gradle(),
+            ),
+            (
+                app_dir.join("android/gradle/gradle.properties"),
+                android_gradle_properties(),
+            ),
+            (
+                app_dir.join("android/gradle/app/build.gradle.kts"),
+                python_android_app_build_gradle(names),
+            ),
+            (
+                app_dir.join("android/gradle/app/src/main/AndroidManifest.xml"),
+                python_android_manifest(),
+            ),
+            (
+                app_dir.join("android/gradle/app/src/main/res/values/strings.xml"),
+                android_strings(names),
+            ),
+            (
+                app_dir.join("android/gradle/app/src/main/res/values/styles.xml"),
+                android_styles(),
+            ),
+            (
+                app_dir.join("android/gradle/app/src/main/assets/.gitkeep"),
+                String::new(),
+            ),
+        ]);
+        let java_dir = app_dir.join("android/gradle/app/src/main/java/dev/gpui/mobile");
+        plan.extend(
+            java_sources
+                .into_iter()
+                .map(|(file_name, contents)| (java_dir.join(file_name), contents)),
+        );
+    }
+
     Ok(plan)
+}
+
+fn python_mobile_manifest(names: &AppNames, toolkit_relative: &Path) -> String {
+    format!(
+        r#"# GPUI mobile app manifest: identity for store builds and the
+# toolkit checkout the Just recipes build the native hosts from.
+[app]
+name = "{directory_name}"
+title = "{title}"
+version = "0.1.0"
+bundle_identifier = "{bundle_identifier}"
+entry = "main_app.py"
+
+[python]
+version = "3.15.2"
+# Pure-Python dependencies ship as plain modules/packages inside app/
+# next to main_app.py; there is no on-device package installation.
+
+[toolkit]
+# Path of the gpui-toolkit checkout, relative to this project.
+# The GPUI_TOOLKIT_ROOT environment variable wins when set.
+root = "{toolkit_root}"
+"#,
+        directory_name = toml_string(&names.directory_name),
+        title = toml_string(&names.title),
+        bundle_identifier = toml_string(&names.bundle_identifier),
+        toolkit_root = cargo_path(toolkit_relative),
+    )
+}
+
+fn python_mobile_app_py(names: &AppNames) -> String {
+    format!(
+        r#""""{title} — a GPUI app declared in Python, rendered natively.
+
+Edit this file (and add pure-Python modules next to it), then rebuild
+with `just ios-sim` or `just android-apk`. The same app also runs on the
+desktop through the installed gpui-toolkit wheel.
+"""
+
+from gpui_toolkit import App, Event, SessionContext, section, ui
+
+
+class CounterApp(App):
+    def __init__(self) -> None:
+        super().__init__(
+            title="{title}",
+            sections=[
+                section(
+                    "main",
+                    "Main",
+                    ui.vstack(
+                        [
+                            ui.section_header(
+                                "Hello from Python",
+                                "Declared in Python, rendered natively on mobile.",
+                            ),
+                            ui.metric("Clicks", 0, id="clicks"),
+                            ui.button("Click me", id="counter-button", action="increment"),
+                        ]
+                    ),
+                )
+            ],
+        )
+        self.clicks = 0
+
+    def on_action(self, event: Event, context: SessionContext) -> None:
+        if event.action == "increment":
+            self.clicks += 1
+            context.patch(
+                [{{"op": "set", "id": "clicks", "property": "value", "value": str(self.clicks)}}],
+                request_id=event.id,
+            )
+
+
+def build_app() -> CounterApp:
+    return CounterApp()
+
+
+if __name__ == "__main__":
+    build_app().run()
+"#,
+        title = rust_string(&names.title),
+    )
+}
+
+fn python_mobile_justfile(
+    names: &AppNames,
+    flags: &ScaffoldFlags,
+    toolkit_relative: &Path,
+) -> String {
+    let toolkit = toolkit_relative.to_string_lossy().replace('\\', "/");
+    let mut out = format!(
+        r#"toolkit := env_var_or_default("GPUI_TOOLKIT_ROOT", "{toolkit}")
+mobile := toolkit + "/crates/gpui-python-runtime/mobile"
+pythonpath := toolkit + "/crates/gpui-python-runtime/python"
+export ANDROID_HOME := env_var_or_default("ANDROID_HOME", "/opt/homebrew/share/android-commandlinetools")
+export JAVA_HOME := env_var_or_default("JAVA_HOME", "/Applications/Android Studio.app/Contents/jbr/Contents/Home")
+# App version comes from gpui-mobile.toml (single source for both stores).
+version := `python3 -c "import tomllib; print(tomllib.load(open('gpui-mobile.toml', 'rb'))['app']['version'])"`
+export GPUI_VERSION_NAME := version
+
+default:
+	just --list
+
+# Validate the Python app declarations on the desktop: dump the app IR,
+# then run it through the native host's validate-only handshake.
+preflight:
+	mkdir -p build
+	GPUI_TOOLKIT_DUMP_IR=1 PYTHONPATH={{{{pythonpath}}}}:app python3 app/main_app.py > build/preflight-ir.json
+	GPUI_TOOLKIT_VALIDATE_ONLY=1 cargo run --manifest-path {{{{toolkit}}}}/Cargo.toml -p gpui-python-runtime --features showcase --bin gpui-python-host -- app/main_app.py
+
+"#
+    );
+
+    if !flags.no_ios {
+        out.push_str(&format!(
+            r#"# Stage Python resources and build the Rust iOS host (simulator).
+ios-rust-sim:
+	{{{{mobile}}}}/ios/build-rust.sh ios app
+
+# Stage Python resources and build the Rust iOS host (device).
+ios-rust:
+	PLATFORM_NAME=iphoneos {{{{mobile}}}}/ios/build-rust.sh ios app
+
+# Generate the Xcode project used by the iOS recipes.
+ios-xcodegen:
+	cd ios && PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" xcodegen generate
+
+# Build the full iOS simulator app with Xcode.
+ios-sim: ios-rust-sim ios-xcodegen
+	cd ios && xcodebuild -project {xcode_target_name}.xcodeproj -scheme {xcode_target_name} -configuration Release -sdk iphonesimulator -arch arm64 SYMROOT=build -derivedDataPath build/DerivedData build
+
+# Build the full iOS device app with Xcode. Set IOS_DEVELOPMENT_TEAM and
+# IOS_SIGN_IDENTITY when building for a physical device.
+ios: ios-rust ios-xcodegen
+	cd ios && xcodebuild -project {xcode_target_name}.xcodeproj -scheme {xcode_target_name} -configuration Release -sdk iphoneos -arch arm64 SYMROOT=build -derivedDataPath build/DerivedData CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="${{IOS_DEVELOPMENT_TEAM:-}}" CODE_SIGN_IDENTITY="${{IOS_SIGN_IDENTITY:-Apple Development}}" build
+
+alias ios-device := ios
+
+"#,
+            xcode_target_name = names.xcode_target_name,
+        ));
+    }
+
+    if !flags.no_android {
+        out.push_str(
+            r"# Build a debug APK (stages Python resources and the Rust host first).
+# Requires ANDROID_HOME/ANDROID_NDK_HOME; see gpui-mobile.toml.
+android-apk:
+	{{mobile}}/android/scripts/build-apk.sh android app
+
+# Build a release AAB on top of the same staging pipeline.
+# Signing comes from the GPUI_ANDROID_* env vars when set.
+android-aab:
+	{{mobile}}/android/scripts/build-apk.sh android app
+	cd android/gradle && gradle :app:bundleRelease -PgpuiVersionName={{version}}
+
+# Validate the generated Android Gradle host without requiring a device.
+android-gradle-check:
+	cd android/gradle && gradle :app:assembleDebug --dry-run
+
+alias android := android-apk
+",
+        );
+    }
+
+    out
+}
+
+fn python_mobile_readme(names: &AppNames, flags: &ScaffoldFlags) -> String {
+    let mut out = format!(
+        "# {title}\n\nA GPUI app declared in Python (`app/main_app.py`), rendered natively on\nmobile by the toolkit's embedded-CPython hosts. Edit the Python sources\nunder `app/` — pure-Python dependencies are plain modules placed next to\n`main_app.py` — then rebuild:\n\n```sh\njust preflight   # validate declarations on the desktop first\n",
+        title = names.title,
+    );
+    if !flags.no_ios {
+        out.push_str("just ios-sim     # iOS simulator app\njust ios         # iOS device app\n");
+    }
+    if !flags.no_android {
+        out.push_str(
+            "just android-apk # Android debug APK\njust android-aab # Android release bundle\n",
+        );
+    }
+    out.push_str(
+        "```\n\nApp identity, entry point, and the toolkit checkout path live in\n`gpui-mobile.toml`. The same Python app also runs on the desktop\nthrough the installed `gpui-toolkit` wheel (`python3 app/main_app.py`).\n",
+    );
+    out
+}
+
+fn python_xcode_project_yml(names: &AppNames) -> String {
+    format!(
+        r#"name: {xcode_target_name}
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "15.0"
+  xcodeVersion: "15.0"
+
+settings:
+  base:
+    SWIFT_OBJC_BRIDGING_HEADER: {ios_source_dir}/BridgingHeader.h
+    # Only build for arm64 (our Rust lib is arm64-only)
+    EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
+
+targets:
+  {xcode_target_name}:
+    type: application
+    platform: iOS
+    sources:
+      - {ios_source_dir}
+      # Folder reference: staged Python app + gpui_toolkit package land in
+      # the bundle as `app/` (see the toolkit's stage-ios-resources.sh).
+      - path: app
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - framework: vendor/Python.xcframework
+        embed: true
+    postBuildScripts:
+      # Install the CPython stdlib into the bundle and convert every C
+      # extension (.so, including gpui_toolkit._native) into a signed
+      # framework iOS can load. Provided by the XCframework itself.
+      - name: Install Python
+        script: |
+          set -e
+          source $PROJECT_DIR/vendor/Python.xcframework/build/utils.sh
+          install_python vendor/Python.xcframework app
+          PYLIB="$CODESIGNING_FOLDER_PATH/python/lib/python3.15"
+          rm -rf "$PYLIB/test" "$PYLIB/idlelib" "$PYLIB/turtledemo" "$PYLIB/ensurepip/_bundled"
+          find "$CODESIGNING_FOLDER_PATH/python" -type d -name __pycache__ -prune -exec rm -rf {{}} +
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: {bundle_identifier}
+        INFOPLIST_FILE: {ios_source_dir}/Info.plist
+        CODE_SIGN_ENTITLEMENTS: {ios_source_dir}/Entitlements.plist
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_VERSION: "5.10"
+        LIBRARY_SEARCH_PATHS:
+          - "$(PROJECT_DIR)/lib"
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/Frameworks"
+        ENABLE_USER_SCRIPT_SANDBOXING: false
+        DEAD_CODE_STRIPPING: false
+        OTHER_LDFLAGS:
+          - "-L$(PROJECT_DIR)/lib"
+          - "-force_load"
+          - "$(PROJECT_DIR)/lib/libpython_mobile_ios.a"
+          - "-framework Python"
+          - "-framework Metal"
+          - "-framework MetalKit"
+          - "-framework QuartzCore"
+          - "-framework CoreText"
+          - "-framework CoreGraphics"
+          - "-framework CoreFoundation"
+          - "-framework UIKit"
+          - "-framework Foundation"
+          - "-lc++"
+"#,
+        xcode_target_name = names.xcode_target_name,
+        ios_source_dir = names.ios_source_dir,
+        bundle_identifier = names.bundle_identifier,
+    )
+}
+
+fn python_swift_app_delegate() -> String {
+    r"import UIKit
+
+@main
+class AppDelegate: UIResponder, UIApplicationDelegate {
+
+    var window: UIWindow?
+    private var displayLink: CADisplayLink?
+
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+    ) -> Bool {
+        // Launch the embedded-Python GPUI app. The Rust entry registers
+        // GPUI's app callback and points CPython at the bundled home.
+        python_mobile_ios_start()
+
+        displayLink = CADisplayLink(target: self, selector: #selector(renderFrame))
+        displayLink?.add(to: .main, forMode: .common)
+
+        return true
+    }
+
+    @objc private func renderFrame() {
+        gpui_ios_request_current_frame()
+    }
+
+    // MARK: - Lifecycle forwarding
+
+    func applicationWillEnterForeground(_ application: UIApplication) {
+        gpui_ios_will_enter_foreground(nil)
+    }
+
+    func applicationDidBecomeActive(_ application: UIApplication) {
+        gpui_ios_did_become_active(nil)
+    }
+
+    func applicationWillResignActive(_ application: UIApplication) {
+        gpui_ios_will_resign_active(nil)
+    }
+
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        gpui_ios_did_enter_background(nil)
+    }
+
+    func applicationWillTerminate(_ application: UIApplication) {
+        gpui_ios_will_terminate(nil)
+    }
+}
+"
+    .to_owned()
+}
+
+fn python_bridging_header(names: &AppNames) -> String {
+    format!(
+        r"#ifndef {header_guard}
+#define {header_guard}
+
+#include <stdbool.h>
+
+// Initialize and run the embedded-Python GPUI app
+void python_mobile_ios_start(void);
+
+// Frame rendering — call from CADisplayLink
+void gpui_ios_request_current_frame(void);
+
+// Lifecycle
+void gpui_ios_will_enter_foreground(void *app_ptr);
+void gpui_ios_did_become_active(void *app_ptr);
+void gpui_ios_will_resign_active(void *app_ptr);
+void gpui_ios_did_enter_background(void *app_ptr);
+void gpui_ios_will_terminate(void *app_ptr);
+
+#endif
+",
+        header_guard = format!(
+            "{}_BRIDGING_HEADER_H",
+            names.library_name.to_ascii_uppercase()
+        ),
+    )
+}
+
+fn python_android_app_build_gradle(names: &AppNames) -> String {
+    format!(
+        r#"plugins {{
+    id("com.android.application")
+}}
+
+// Release signing is env-driven so no secrets live in the project:
+//   GPUI_ANDROID_KEYSTORE / _KEYSTORE_PASSWORD / _KEY_ALIAS / _KEY_PASSWORD
+// Without them, release builds stay unsigned (CI and local checks).
+val gpuiKeystore: String? = System.getenv("GPUI_ANDROID_KEYSTORE")
+
+android {{
+    namespace = "{application_id}"
+    compileSdk = 36
+
+    defaultConfig {{
+        applicationId = "{application_id}"
+        minSdk = 26
+        targetSdk = 36
+        versionCode = (providers.gradleProperty("gpuiVersionCode").orNull ?: "1").toInt()
+        versionName = providers.gradleProperty("gpuiVersionName").orNull ?: "0.1.0"
+
+        ndk {{
+            abiFilters += listOf("arm64-v8a")
+        }}
+
+        manifestPlaceholders["nativeLibraryName"] = "python_mobile_android"
+    }}
+
+    signingConfigs {{
+        if (gpuiKeystore != null) {{
+            create("release-env") {{
+                storeFile = file(gpuiKeystore)
+                storePassword = System.getenv("GPUI_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("GPUI_ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("GPUI_ANDROID_KEY_PASSWORD")
+            }}
+        }}
+    }}
+
+    buildTypes {{
+        debug {{
+            isDebuggable = true
+            isJniDebuggable = true
+        }}
+        release {{
+            isMinifyEnabled = false
+            if (gpuiKeystore != null) {{
+                signingConfig = signingConfigs.getByName("release-env")
+            }}
+        }}
+    }}
+
+    androidResources {{
+        // The staged CPython tree is fully controlled by the toolkit's
+        // stage-android-resources.sh; AGP's default ignore pattern would
+        // silently drop stdlib dirs like `_pyrepl/` and `__phello__/`.
+        ignoreAssetsPattern = ""
+    }}
+
+    sourceSets {{
+        getByName("main") {{
+            jniLibs.srcDirs("src/main/jniLibs")
+        }}
+    }}
+
+    packaging {{
+        jniLibs {{
+            keepDebugSymbols += listOf("*/arm64-v8a/libpython_mobile_android.so")
+        }}
+    }}
+}}
+"#,
+        application_id = toml_string(&names.bundle_identifier),
+    )
 }
 
 /// Create the scaffold directory tree (parents of every planned file plus the
@@ -327,13 +885,24 @@ fn create_scaffold_directories(
     names: &AppNames,
     flags: &ScaffoldFlags,
 ) -> Result<()> {
-    fs::create_dir_all(app_dir.join("src"))
-        .with_context(|| format!("failed to create {}", app_dir.display()))?;
+    if flags.is_python_mobile() {
+        fs::create_dir_all(app_dir.join("app"))
+            .with_context(|| format!("failed to create {}", app_dir.display()))?;
+    } else {
+        fs::create_dir_all(app_dir.join("src"))
+            .with_context(|| format!("failed to create {}", app_dir.display()))?;
+    }
     if !flags.no_ios {
         fs::create_dir_all(app_dir.join("ios").join(&names.ios_source_dir))
             .with_context(|| format!("failed to create {}", app_dir.join("ios").display()))?;
         fs::create_dir_all(app_dir.join("ios/lib"))
             .with_context(|| format!("failed to create {}", app_dir.join("ios").display()))?;
+        if flags.is_python_mobile() {
+            // Staged bundle resources land here at build time; xcodegen
+            // needs the folder-reference path to exist when generating.
+            fs::create_dir_all(app_dir.join("ios/app"))
+                .with_context(|| format!("failed to create {}", app_dir.join("ios").display()))?;
+        }
     }
     if !flags.no_android {
         for dir in [
@@ -376,26 +945,33 @@ fn toolkit_dependency_paths(app_dir: &Path, toolkit_root: &Path) -> DependencyPa
 // disk) so the shared call site keeps a single `?`-based shape.
 #[allow(clippy::unnecessary_wraps)]
 #[cfg(feature = "mobile")]
-fn android_java_sources(_toolkit_root: &Path) -> Result<(String, String)> {
-    Ok((
-        GPUI_ANDROID_ACTIVITY_JAVA.to_owned(),
-        GPUI_ANDROID_FILE_PROVIDER_JAVA.to_owned(),
-    ))
+fn android_java_sources(_toolkit_root: &Path) -> Result<Vec<(&'static str, String)>> {
+    Ok(GPUI_ANDROID_JAVA_FILES
+        .iter()
+        .copied()
+        .zip(
+            GPUI_ANDROID_JAVA_EMBEDDED
+                .iter()
+                .map(|source| (*source).to_owned()),
+        )
+        .collect())
 }
 
 /// Android Java host sources: embedded at compile time with the default
 /// `mobile` feature, otherwise read from the surrounding toolkit checkout so
 /// lean binaries pay no size cost.
 #[cfg(not(feature = "mobile"))]
-fn android_java_sources(toolkit_root: &Path) -> Result<(String, String)> {
-    let activity = toolkit_root.join(GPUI_ANDROID_ACTIVITY_JAVA_PATH);
-    let provider = toolkit_root.join(GPUI_ANDROID_FILE_PROVIDER_JAVA_PATH);
-    Ok((
-        fs::read_to_string(&activity)
-            .with_context(|| format!("failed to read {}", activity.display()))?,
-        fs::read_to_string(&provider)
-            .with_context(|| format!("failed to read {}", provider.display()))?,
-    ))
+fn android_java_sources(toolkit_root: &Path) -> Result<Vec<(&'static str, String)>> {
+    GPUI_ANDROID_JAVA_FILES
+        .iter()
+        .copied()
+        .map(|file_name| {
+            let path = toolkit_root.join(GPUI_ANDROID_JAVA_DIR).join(file_name);
+            let contents = fs::read_to_string(&path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+            Ok((file_name, contents))
+        })
+        .collect()
 }
 
 fn ensure_directory_is_replaceable(path: &Path) -> Result<()> {
@@ -1116,6 +1692,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: {bundle_identifier}
         INFOPLIST_FILE: {ios_source_dir}/Info.plist
         CODE_SIGN_ENTITLEMENTS: {ios_source_dir}/Entitlements.plist
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.10"
         LIBRARY_SEARCH_PATHS: "$(PROJECT_DIR)/lib"
         ENABLE_USER_SCRIPT_SANDBOXING: false
@@ -1246,11 +1824,13 @@ fn info_plist(names: &AppNames) -> String {
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>UILaunchScreen</key>
+	<dict/>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>metal</string>
@@ -1273,6 +1853,64 @@ fn info_plist(names: &AppNames) -> String {
 "#,
         title = xml_string(&names.title),
     )
+}
+
+/// Starting-point privacy manifest. The accessed-API declarations cover
+/// what the host shell touches (app-container file metadata, monotonic
+/// clocks); submissions must re-audit against the app's own behavior.
+fn privacy_info() -> String {
+    r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>35F9.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
+"#
+    .to_owned()
+}
+
+fn app_icon_contents_json() -> String {
+    r#"{
+  "images" : [
+    {
+      "filename" : "icon-1024.png",
+      "idiom" : "universal",
+      "platform" : "ios",
+      "size" : "1024x1024"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
+"#
+    .to_owned()
 }
 
 fn entitlements_plist() -> String {
@@ -1376,6 +2014,16 @@ android {{
 "#,
         application_id = toml_string(&names.bundle_identifier),
         library_name = toml_string(&names.library_name),
+    )
+}
+
+/// Python-template manifest: the shared manifest plus the launcher icon
+/// staged by the toolkit's build scripts.
+fn python_android_manifest() -> String {
+    android_manifest().replacen(
+        "        android:label=\"@string/app_name\"",
+        "        android:icon=\"@mipmap/ic_launcher\"\n        android:label=\"@string/app_name\"",
+        1,
     )
 }
 
@@ -2381,6 +3029,66 @@ mod tests {
     }
 
     #[test]
+    fn python_mobile_template_generates_python_project_without_rust_crate() -> Result<()> {
+        let dir = tempdir()?;
+        let flags = ScaffoldFlags {
+            template: PYTHON_MOBILE_TEMPLATE.to_owned(),
+            ..ScaffoldFlags::default()
+        };
+        let (options, flags) = options_with_flags(dir.path(), "python-demo", flags);
+
+        let preview = preview_scaffold_with_flags(&options, &flags)?;
+        assert!(
+            preview.files.iter().all(|path| !path.exists()),
+            "preview must not write files"
+        );
+
+        let scaffolded = scaffold_app_with_flags(&options, &flags)?;
+        let app_dir = &scaffolded.app_dir;
+        // Python sources and identity, but no generated Rust crate.
+        assert!(app_dir.join("app/main_app.py").is_file());
+        assert!(app_dir.join("gpui-mobile.toml").is_file());
+        assert!(!app_dir.join("Cargo.toml").exists());
+        assert!(!app_dir.join("src").exists());
+
+        let manifest = fs::read_to_string(app_dir.join("gpui-mobile.toml"))?;
+        let _: toml::Value = toml::from_str(&manifest)?;
+        assert!(manifest.contains("bundle_identifier = \"com.example.python.demo\""));
+        assert!(manifest.contains("entry = \"main_app.py\""));
+
+        let justfile = fs::read_to_string(app_dir.join("Justfile"))?;
+        assert!(justfile.contains("preflight:"));
+        assert!(justfile.contains("ios-sim:"));
+        assert!(justfile.contains("android-apk:"));
+        assert!(justfile.contains("crates/gpui-python-runtime/mobile"));
+
+        let metadata = fs::read_to_string(app_dir.join("gpui-scaffold.toml"))?;
+        assert!(metadata.contains("template = \"python-mobile\""));
+
+        // Platform flags still select the shells.
+        let desktop_only = ScaffoldFlags {
+            template: PYTHON_MOBILE_TEMPLATE.to_owned(),
+            no_ios: true,
+            no_android: true,
+        };
+        let (options, flags) = options_with_flags(dir.path(), "python-bare", desktop_only);
+        let preview = preview_scaffold_with_flags(&options, &flags)?;
+        let relative: Vec<String> = preview
+            .files
+            .iter()
+            .map(|path| {
+                path.strip_prefix(&preview.app.app_dir)
+                    .map_or_default(|relative| relative.to_string_lossy().into_owned())
+            })
+            .collect();
+        assert!(!relative.iter().any(|path| path.starts_with("ios")));
+        assert!(!relative.iter().any(|path| path.starts_with("android")));
+        assert!(relative.iter().any(|path| path == "app/main_app.py"));
+
+        Ok(())
+    }
+
+    #[test]
     fn platform_flags_control_the_generated_project() -> Result<()> {
         for (case, flags, expected_files) in [
             (
@@ -2398,7 +3106,7 @@ mod tests {
                     no_ios: true,
                     ..ScaffoldFlags::default()
                 },
-                17,
+                21,
             ),
             (
                 "no-android",
@@ -2406,9 +3114,9 @@ mod tests {
                     no_android: true,
                     ..ScaffoldFlags::default()
                 },
-                13,
+                14,
             ),
-            ("full", ScaffoldFlags::default(), 22),
+            ("full", ScaffoldFlags::default(), 27),
         ] {
             let dir = tempdir()?;
             let name = format!("flagged-{case}");
@@ -2592,20 +3300,25 @@ mod tests {
     #[test]
     fn android_java_sources_match_toolkit_checkout() -> Result<()> {
         let root = toolkit_root()?;
-        let (activity, provider) = android_java_sources(&root)?;
-        assert!(activity.contains("GpuiActivity"));
-        assert!(provider.contains("GpuiFileProvider"));
+        let sources = android_java_sources(&root)?;
+        assert_eq!(sources.len(), GPUI_ANDROID_JAVA_FILES.len());
+
+        // The embedded list must cover every Java source in the checkout,
+        // or generated projects stop compiling when the host gains a file.
+        let mut checkout_files: Vec<String> = fs::read_dir(root.join(GPUI_ANDROID_JAVA_DIR))?
+            .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
+            .collect::<std::io::Result<_>>()?;
+        checkout_files.sort();
+        assert_eq!(checkout_files, GPUI_ANDROID_JAVA_FILES);
 
         // Whatever the `mobile` feature selects, the content must equal the
         // checkout files so embedded and runtime payloads cannot diverge.
-        assert_eq!(
-            activity,
-            fs::read_to_string(root.join(GPUI_ANDROID_ACTIVITY_JAVA_PATH))?
-        );
-        assert_eq!(
-            provider,
-            fs::read_to_string(root.join(GPUI_ANDROID_FILE_PROVIDER_JAVA_PATH))?
-        );
+        for (file_name, contents) in sources {
+            assert_eq!(
+                contents,
+                fs::read_to_string(root.join(GPUI_ANDROID_JAVA_DIR).join(file_name))?
+            );
+        }
         Ok(())
     }
 }
