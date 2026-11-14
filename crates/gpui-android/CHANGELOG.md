@@ -8,6 +8,10 @@
   `refresh_interval`), the new `restart`/`on_quit` signatures,
   `RequestFrameOptions` field, atlas key by value, and refreshed stale
   unit tests (key names, `dispatcher()`, `gpu_specs()`).
+- Text glyphs survive surface recreation (HOME/resume): the renderer is
+  retained across `term_window` and recovered onto the new surface, so
+  the sprite atlas GPUI captured at window creation stays the one the
+  renderer draws with; a forced resize repaint re-rasterizes text.
 
 # 0.11.1
 

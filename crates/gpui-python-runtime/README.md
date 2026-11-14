@@ -380,9 +380,9 @@ Mobile support has deliberate boundaries:
   acknowledgements, and backpressure.
 - Store signing, accounts, metadata, and privacy answers remain the app
   owner's responsibility. See [`mobile/STORE.md`](mobile/STORE.md).
-- Android text can currently disappear after HOME/resume surface recreation;
-  input and patches continue to work. Tracked in
-  [#11](http://192.168.1.32:3001/pierre/gpui-toolkit/issues/11).
+- Android activity recreation after the process is frozen in the
+  background does not yet re-enter cleanly. Tracked in
+  [#12](http://192.168.1.32:3001/pierre/gpui-toolkit/issues/12).
 
 Architecture, bundle layout, limitations, and phase-by-phase verification are
 recorded in [`MOBILE.md`](MOBILE.md).

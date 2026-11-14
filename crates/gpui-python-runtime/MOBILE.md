@@ -282,3 +282,20 @@ Generation exposed and fixed a scaffolder bug: Android projects copied
 only two of six Java host sources and no longer compiled. The scaffolder
 now copies the complete host source set, and a test fails if the checkout
 gains a Java file the embedded list does not carry.
+
+## Follow-up — Android glyphs after surface recreation (fixed 2026-11-14)
+
+Issue #11 is fixed. Root cause: GPUI captures `sprite_atlas()` once at
+window creation, but `gpui-android` destroyed and recreated the renderer
+(and its atlas) on every `TERM_WINDOW`/`INIT_WINDOW` cycle, so painted
+glyph tiles referenced a dead atlas. `AndroidWindow` now releases only
+the surface at `term_window`, retains the renderer, and recovers it onto
+the new surface via `WgpuRenderer::recover` — which keeps the same atlas
+Arc, clears its tiles, and (with a forced resize repaint) re-rasterizes
+text. Verified on GPUI_API_36: warm HOME/resume renders full text and a
+post-resume tap still drives Python patches.
+
+Verification exposed a distinct pre-existing limitation, filed as #12:
+after the cached-app freezer freezes the process, Android recreates the
+activity, `android_main` runs again in the same process, and constructing
+a second GPUI `App` panics. Warm resume cycles are unaffected.

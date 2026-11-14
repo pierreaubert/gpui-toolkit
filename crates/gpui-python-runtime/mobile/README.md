@@ -72,9 +72,9 @@ as `_pyrepl/`, which breaks the stdlib at runtime.
 
 - Pure-Python packages must be copied into `app/` at build time; compiled
   third-party wheels are out of scope (see `../MOBILE.md`).
-- Android: text glyphs do not survive HOME/resume surface recreation
-  (backend atlas bug, input and rendering otherwise keep working) —
-  [#11](http://192.168.1.32:3001/pierre/gpui-toolkit/issues/11).
+- Android: recreating the activity after a long background stay does
+  not yet re-enter `android_main` cleanly —
+  [#12](http://192.168.1.32:3001/pierre/gpui-toolkit/issues/12).
 - Store signing is env-driven machinery, not a completed submission:
   you still supply signing identities, store accounts, metadata, and a
   privacy audit. See [`STORE.md`](STORE.md). Only arm64 is supported.
