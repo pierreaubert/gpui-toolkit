@@ -104,8 +104,10 @@ projects/
     └── android/gradle/    # Android host
 ```
 
-The generator also writes a project README. Only the `default` scaffold template
-exists today; the development CLI's component/page templates are separate.
+The generator also writes a project README. The `default` template creates the
+Rust app in this section; `--template python-mobile` instead creates a
+Python-authored iOS/Android project (covered at the end of the mobile section).
+The development CLI's component/page templates are separate.
 `--no-ios --no-android` omits mobile hosts when you only need desktop.
 The generator refuses to overwrite a populated directory; choose a new name
 when repeating this exercise.
@@ -665,9 +667,10 @@ Python application packager is supplied by this tutorial.
 ## 13. Mobile Extension
 
 The Rust counter shares `src/app.rs` with its mobile hosts. These builds need
-platform SDKs and signing setup in addition to Rust. The desktop Python host
-does **not** package a Python interpreter for iOS or Android; use the Rust path
-for these generated mobile applications.
+platform SDKs and signing setup in addition to Rust. Generated Rust mobile
+applications use the default scaffold template below; Python-authored mobile
+apps use the separate `python-mobile` template at the end of this section and
+embed CPython in the native host instead of spawning a desktop child process.
 
 Run the commands below from `toolkit-counter/`. For iOS, install full Xcode,
 XcodeGen, and `just`, and select your Xcode developer directory.
@@ -744,6 +747,33 @@ stages `libtoolkit_counter.so`, then Gradle creates the debug APK. Install and
 launch it to check the counter. Public distribution requires a release signing
 configuration and an appropriately signed APK/AAB; the debug APK is for local
 testing. Adjust bundle/application identifiers before publishing your own app.
+
+### Build a Python mobile app
+
+Python-authored apps use a separate generator template because they bundle an
+embedded CPython interpreter and Python sources instead of generated Rust UI
+code. Generate and validate a project, then copy in the maintained Signal Lab
+example or replace it with your own `build_app()` module:
+
+```bash
+cargo run -p gpui-scaffolder -- signal-lab --output-dir .. --template python-mobile
+cp crates/gpui-python-runtime/python/examples/mobile_signal_lab.py \
+  ../signal-lab/app/main_app.py
+cd ../signal-lab
+just preflight
+just ios-sim
+just android-apk
+```
+
+The generated `gpui-mobile.toml` owns the app name, bundle identifier, entry
+point, and version shared by iOS and Android. Keep mobile Python inside the
+supported subset: widgets, patches, datasets, and charts; pure-Python modules
+beside `main_app.py`; no subprocesses, runtime downloads, compiled third-party
+wheels, or assumptions about a writable current directory. The toolkit's
+compiled `_native` extension is cross-built by the staging recipes. Start with
+the [mobile host guide](crates/gpui-python-runtime/mobile/README.md), then use
+the [store checklist](crates/gpui-python-runtime/mobile/STORE.md) for signing,
+privacy, and current platform limitations.
 
 ## 14. Development Loop
 

@@ -287,11 +287,10 @@ backend it remains silent. The current `sotf-daw` checkout has no Python cue
 binding, so the demo does not claim audio playback is connected.
 
 The drawing surface and its input contract use native GPUI elements. The host
-owns the OS window lifecycle and Python reducer transport. This checkout's
-Python launcher runs CPython in a desktop child process, so `games_demo.py` is
-not bundled into the mobile showcase binaries. Mobile apps use the native Rust
-GPUI surface path in the existing iOS and Android backends; this delivery does
-not package a mobile Python interpreter.
+owns the OS window lifecycle and Python reducer transport. The desktop
+launcher still runs CPython in a child process, and `games_demo.py` is not
+bundled into the native Rust mobile showcase binaries. Python apps can instead
+use the embedded mobile hosts described below.
 
 ### Native input development API
 
@@ -336,6 +335,57 @@ and closes its host.
 The test fails on native session errors or Python stderr. Handler errors
 include the event, node, action, exception type, and exception message;
 the full traceback is captured in stderr and available through `status`.
+
+## Mobile Python Apps
+
+The same `App`/`build_app()` declarations run on iOS and Android through
+embedded CPython hosts in [`mobile/`](mobile/README.md). There is no Python
+child process on device: the native host starts CPython on a dedicated thread
+and connects `App.serve()` to the renderer with OS pipes carrying the same
+session-v1 protocol as desktop stdio. `App.run()` checks
+`GPUI_TOOLKIT_EMBEDDED_SESSION=1` before looking for a desktop host binary;
+the mobile hosts themselves import the app and call `serve()` with their pipe
+streams.
+
+Generate a project from a toolkit checkout, replace the starter Python app,
+then validate and build it:
+
+```bash
+cargo run -p gpui-scaffolder -- my-app --output-dir .. --template python-mobile
+cp crates/gpui-python-runtime/python/examples/mobile_signal_lab.py ../my-app/app/main_app.py
+cd ../my-app
+just preflight
+just ios-sim        # or: just android-apk
+```
+
+The first maintained mobile example is
+[`mobile_signal_lab.py`](python/examples/mobile_signal_lab.py): touch-sized
+controls, form state, and a revisioned dataset driving a native chart. It runs
+unchanged through the desktop host so the same interaction can be developed
+and tested before a device build.
+
+Mobile support has deliberate boundaries:
+
+- arm64 iOS and Android only; apps are built from a toolkit source checkout,
+  not by installing the desktop wheel alone.
+- Pure-Python dependencies are copied into `app/` at build time. There is no
+  on-device `pip`, code download, subprocess launcher, or compiled
+  third-party wheel support; the toolkit's `_native` extension is cross-built
+  by the staging scripts.
+- Python code must stay inside CPython's mobile standard-library surface and
+  cannot assume a shell, console, writable current directory, or unrestricted
+  filesystem. Guard desktop-only imports and operations.
+- Mobile hosts do not negotiate file-backed `resource_mmap_frames`; datasets
+  and arrays use bounded binary pipe frames with the existing checksums,
+  acknowledgements, and backpressure.
+- Store signing, accounts, metadata, and privacy answers remain the app
+  owner's responsibility. See [`mobile/STORE.md`](mobile/STORE.md).
+- Android text can currently disappear after HOME/resume surface recreation;
+  input and patches continue to work. Tracked in
+  [#11](http://192.168.1.32:3001/pierre/gpui-toolkit/issues/11).
+
+Architecture, bundle layout, limitations, and phase-by-phase verification are
+recorded in [`MOBILE.md`](MOBILE.md).
 
 ## Platform Notes
 

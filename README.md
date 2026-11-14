@@ -20,8 +20,8 @@ and WASM.
 The tutorial explains prerequisites, the difference between `gpui-toolkit`
 (the catalog and development CLI) and `gpui-scaffolder` (the project generator),
 and [what to distribute](TUTORIAL.md#build-and-distribute). Start with desktop;
-[mobile builds](TUTORIAL.md#13-mobile-extension) use the Rust app and platform
-SDKs. Python currently targets the desktop host.
+[mobile builds](TUTORIAL.md#13-mobile-extension) cover both the Rust app and
+Python apps packaged with embedded CPython hosts.
 
 The same UI from Rust, the compact `layout!` macro, or Python:
 
@@ -127,7 +127,7 @@ Two open source examples:
 | [gpui-pretext](./crates/gpui-pretext/) | High-performance text measurement and multiline layout utilities. |
 | [gpui-profiler](./crates/gpui-profiler/) | Lightweight allocation profiling and hot-path regression utilities. |
 | [gpui-px](./crates/gpui-px/) | Plotly Express-style charting API built on `gpui-d3rs` for scatter, line, bar, heatmap, contour, surface, pie, boxplot, and treemap views. |
-| [gpui-python-runtime](./crates/gpui-python-runtime/) | Retained scene specification runtime for a GPUI Python wrapper, with an optional showcase. |
+| [gpui-python-runtime](./crates/gpui-python-runtime/) | Retained scene specification runtime for a GPUI Python wrapper, with desktop and embedded CPython mobile hosts. |
 | [gpui-release-gates](./crates/gpui-release-gates/) | Release-QA metadata (stability, gates, publish plan) for the GPUI toolkit workspace. |
 | [gpui-scaffolder](./crates/gpui-scaffolder/) | CLI for creating standalone GPUI mini-app projects backed by `gpui-miniapp`. |
 | [gpui-scene3d](./crates/gpui-scene3d/) | 3D scene rendering: orbit camera, transfer functions, WGSL clipping planes, chunked GPU buffers, software rasterizer, volume raycasting, and time playback. |
