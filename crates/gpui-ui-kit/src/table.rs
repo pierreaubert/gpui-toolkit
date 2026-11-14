@@ -559,8 +559,8 @@ fn virtual_spacer_height(row_height: Option<f32>, row_count: usize) -> Option<Pi
 #[cfg(test)]
 mod tests {
     use super::{DataVirtualWindow, SelectionMode, Table, virtual_spacer_height};
-    use std::collections::HashSet;
     use gpui::px;
+    use std::collections::HashSet;
 
     #[test]
     fn shared_rows_and_stable_keys_are_recorded() {
