@@ -1,5 +1,12 @@
 # Unreleased
 
+# 0.11.4
+
+## Fixed
+
+- Preserve shaded measurement-validity regions in CEA2034 and normalized CEA2034 pictures.
+- Keep one legend entry for repeated region names and label the DI axis with 5 dB ticks.
+
 # 0.11.3
 
 ## Changed

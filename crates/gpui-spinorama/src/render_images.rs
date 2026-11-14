@@ -43,10 +43,13 @@ enum GraphKind {
 
 fn classify(stem: &str) -> Option<GraphKind> {
     match stem {
-        // The AutoEQ spin sheets hold the same six CEA2034 curves; run
-        // them through the specialised CEA2034 renderer so the with-EQ
-        // and without-EQ pictures share one look and feel.
-        "CEA2034" | "CEA2034 Normalized" | "filters_spin_noeq" | "filters_spin_auto" => {
+        // Preserve the complete payload, including filled validity zones.
+        "CEA2034" | "CEA2034 Normalized" => Some(GraphKind::Generic {
+            graph_index: GRAPH_CATALOG
+                .iter()
+                .position(|graph| graph.measurement == "CEA2034")?,
+        }),
+        "filters_spin_noeq" | "filters_spin_auto" => {
             Some(GraphKind::Cea2034)
         }
         "SPL Horizontal Contour" | "SPL Horizontal Contour Normalized" => {

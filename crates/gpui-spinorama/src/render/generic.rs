@@ -438,7 +438,7 @@ pub fn render_generic_freq_chart(
             other => {
                 if other.starts_with("Phase") {
                     "Phase (deg)"
-                } else if other.contains("DI") {
+                } else if other.contains("DI") || other.contains("Directivity Index") {
                     "DI (dB)"
                 } else {
                     "Secondary"
@@ -449,7 +449,11 @@ pub fn render_generic_freq_chart(
             &y2_scale,
             &AxisConfig::right()
                 .with_ticks_inside(true)
-                .with_tick_values(ticks(y2_domain, if title2 == "Phase (deg)" { 90.0 } else { nice_step(y2_domain.1 - y2_domain.0) }))
+                .with_tick_values(ticks(y2_domain, match title2 {
+                    "Phase (deg)" => 90.0,
+                    "DI (dB)" => 5.0,
+                    _ => nice_step(y2_domain.1 - y2_domain.0),
+                }))
                 .with_formatter(fmt)
                 .with_title(title2)
                 .with_label_font_size(label_size)
@@ -1219,9 +1223,10 @@ mod tests {
 /// Legend for generic traces, in payload order with toggle support data.
 #[allow(dead_code, reason = "public legend helper for batch/image consumers")]
 pub fn generic_legend_entries(plot: &PlotData) -> Vec<(String, d3rs::color::D3Color)> {
+    let mut names = HashSet::new();
     plot.traces
         .iter()
-        .filter(|t| t.visible && !t.name.is_empty())
+        .filter(|t| t.visible && !t.name.is_empty() && names.insert(t.name.clone()))
         .map(|t| (t.name.clone(), t.fill_color.unwrap_or(t.color)))
         .collect()
 }
