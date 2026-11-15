@@ -36,9 +36,36 @@ thread_local! {
         RefCell::new(HashMap::new());
     static SELECT_OPEN_STATES: RefCell<HashMap<ElementId, bool>> =
         RefCell::new(HashMap::new());
+    /// Last measured dropdown placement per select id:
+    /// (open upward, height cap px), refreshed by the trigger canvas
+    /// every frame so the menu flips before it would clip.
+    static SELECT_PLACEMENTS: RefCell<HashMap<ElementId, (bool, f32)>> =
+        RefCell::new(HashMap::new());
 }
 
 const MAX_SELECT_FOCUS_ENTRIES: usize = 1024;
+
+/// Decide dropdown direction and height cap from the trigger's
+/// position in the window. Opens downward unless the space below is
+/// short and above is larger; the cap keeps the menu inside the
+/// window with a small margin on the chosen side.
+pub fn dropdown_placement(
+    viewport_height: f32,
+    trigger_top: f32,
+    trigger_bottom: f32,
+    max_height: f32,
+) -> (bool, f32) {
+    const MARGIN: f32 = 8.0;
+    let below = (viewport_height - trigger_bottom - MARGIN).max(0.0);
+    let above = (trigger_top - MARGIN).max(0.0);
+    if below >= max_height {
+        (false, max_height)
+    } else if above > below {
+        (true, max_height.min(above))
+    } else {
+        (false, max_height.min(below))
+    }
+}
 
 mod select_option;
 mod select_size;
@@ -522,6 +549,37 @@ impl Select {
                     .text_ellipsis(),
             );
 
+        // Measure the trigger in window coordinates so the dropdown
+        // can flip upward instead of clipping at the window bottom.
+        {
+            let placement_id = dropdown_id.clone();
+            let max_height = self.dropdown_max_height;
+            trigger = trigger.relative().child(
+                gpui::canvas(
+                    move |bounds, window, _cx| {
+                        let placement = dropdown_placement(
+                            window.viewport_size().height.into(),
+                            bounds.top().into(),
+                            bounds.bottom().into(),
+                            max_height,
+                        );
+                        SELECT_PLACEMENTS.with(|placements| {
+                            let mut placements = placements.borrow_mut();
+                            if !placements.contains_key(&placement_id)
+                                && placements.len() >= MAX_SELECT_FOCUS_ENTRIES
+                            {
+                                placements.clear();
+                            }
+                            placements.insert(placement_id.clone(), placement);
+                        });
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0(),
+            );
+        }
+
         // Dropdown arrow
         trigger = trigger.child(
             div()
@@ -541,24 +599,7 @@ impl Select {
         // Dropdown menu (only shown when open)
         // Use deferred() to ensure the dropdown renders on top of other content
         if self.is_open {
-            let mut dropdown = div()
-                .id((dropdown_id, "dropdown"))
-                .font_family(font_family.clone())
-                .absolute()
-                .top_full()
-                .left_0()
-                .min_w_full() // Ensure dropdown is at least as wide as trigger
-                .mt_1()
-                .bg(theme.dropdown_bg)
-                .border_1()
-                .border_color(theme.dropdown_border)
-                .rounded_md()
-                .shadow_lg()
-                .max_h(px(self.dropdown_max_height))
-                .overflow_y_scroll()
-                .track_scroll(&scroll_handle)
-                .py_1()
-                .occlude(); // Block mouse events from passing through
+            let mut options_list = div().py_1();
 
             for (idx, option) in self.options.iter().enumerate() {
                 let is_selected = self.selected.as_ref() == Some(&option.value);
@@ -621,8 +662,45 @@ impl Select {
                 }
 
                 option_el = option_el.child(option.label.clone());
-                dropdown = dropdown.child(option_el);
+                options_list = options_list.child(option_el);
             }
+
+            // Options scroll inside a ScrollArea so the overflow is
+            // visible (thumb) instead of a bare clipping div.
+            let (open_up, height_cap) = SELECT_PLACEMENTS.with(|placements| {
+                placements
+                    .borrow()
+                    .get(&dropdown_id)
+                    .copied()
+                    .unwrap_or((false, self.dropdown_max_height))
+            });
+            let mut dropdown = div()
+                .id((dropdown_id.clone(), "dropdown"))
+                .font_family(font_family.clone())
+                .absolute()
+                .left_0()
+                .min_w_full(); // Ensure dropdown is at least as wide as trigger
+            dropdown = if open_up {
+                dropdown.bottom_full().mb_1()
+            } else {
+                dropdown.top_full().mt_1()
+            };
+            let mut dropdown = dropdown
+                .bg(theme.dropdown_bg)
+                .border_1()
+                .border_color(theme.dropdown_border)
+                .rounded_md()
+                .shadow_lg()
+                .overflow_hidden()
+                .child(
+                    crate::scroll_area::ScrollArea::new(
+                        (dropdown_id, "dropdown-scroll"),
+                        options_list,
+                    )
+                    .max_height(px(height_cap))
+                    .track_scroll(&scroll_handle),
+                )
+                .occlude(); // Block mouse events from passing through
 
             // Backdrop overlay to catch outside clicks and close the dropdown
             let toggle_for_backdrop = on_toggle_rc.clone();

@@ -129,6 +129,9 @@ pub struct Dialog {
     on_close: Option<Box<dyn Fn(&mut Window, &mut App) + 'static>>,
     aria_label: Option<SharedString>,
     aria_role: Option<AriaRole>,
+    /// Viewport-relative height cap, filled by `render()` from the
+    /// actual window size (direct builders keep the fixed default).
+    max_height_cap: Option<gpui::Pixels>,
 }
 
 impl Dialog {
@@ -152,6 +155,7 @@ impl Dialog {
             on_close: None,
             aria_label: None,
             aria_role: None,
+            max_height_cap: None,
         }
     }
 
@@ -344,7 +348,10 @@ impl Dialog {
         let mut dialog = div()
             .id(self.id)
             .w(width)
-            .max_h(Rems(45.0))
+            .max_h(
+                self.max_height_cap
+                    .map_or(gpui::Length::from(Rems(45.0)), gpui::Length::from),
+            )
             .bg(theme.background)
             .border_1()
             .border_color(theme.border)
@@ -469,13 +476,11 @@ impl Dialog {
         let content_element = self.content_factory.map(|f| f(theme)).or(self.content);
         if let Some(content) = content_element {
             dialog = dialog.child(
-                div()
-                    .id((content_id, "content"))
-                    .flex_1()
-                    .overflow_y_scroll()
-                    .px_4()
-                    .py_4()
-                    .child(content),
+                crate::scroll_area::ScrollArea::new(
+                    (content_id, "content"),
+                    div().px_4().py_4().child(content),
+                )
+                .flex_1(),
             );
         }
 
@@ -497,7 +502,12 @@ impl Dialog {
 }
 
 impl RenderOnce for Dialog {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // Cap to 90% of the actual viewport so content (and the
+        // footer below it) can never be pushed off-screen on short
+        // windows; long content scrolls inside instead.
+        let viewport_height: f32 = window.viewport_size().height.into();
+        self.max_height_cap = Some(gpui::px((viewport_height * 0.9).max(0.0)));
         // Register in accessibility tree
         let effective_label = self
             .aria_label
