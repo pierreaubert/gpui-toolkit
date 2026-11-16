@@ -1,6 +1,21 @@
 use super::{EditState, Input, InputEntity};
-use gpui::SharedString;
+use gpui::{SharedString, rgb};
 use std::cell::RefCell;
+
+#[test]
+fn display_text_color_keeps_placeholder_color_before_editing() {
+    let placeholder = rgb(0x777777);
+    let text = rgb(0xffffff);
+
+    assert_eq!(
+        InputEntity::display_text_color(true, placeholder, text),
+        placeholder
+    );
+    assert_eq!(
+        InputEntity::display_text_color(false, placeholder, text),
+        text
+    );
+}
 
 #[test]
 fn password_builder_enables_masking() {

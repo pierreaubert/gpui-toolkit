@@ -449,6 +449,18 @@ impl Input {
 }
 
 impl InputEntity {
+    fn display_text_color(
+        showing_placeholder: bool,
+        placeholder_color: gpui::Rgba,
+        text_color: gpui::Rgba,
+    ) -> gpui::Rgba {
+        if showing_placeholder {
+            placeholder_color
+        } else {
+            text_color
+        }
+    }
+
     fn cached_password_mask(
         cache: &RefCell<Option<(usize, SharedString)>>,
         source: &str,
@@ -1659,11 +1671,11 @@ impl Render for InputEntity {
                 .items_start()
                 .line_height(px(20.0))
                 .min_h(px(40.0))
-                .text_color(if props.value.is_empty() && !editing_text {
-                    placeholder_color
-                } else {
-                    text_color
-                })
+                .text_color(Self::display_text_color(
+                    props.value.is_empty() && !editing_text,
+                    placeholder_color,
+                    text_color,
+                ))
                 .child(styled)
                 .child(
                     gpui::canvas(
@@ -1695,7 +1707,15 @@ impl Render for InputEntity {
                 (cursor_pos, cursor_pos)
             };
 
-            text_el = text_el.text_color(text_color).whitespace_nowrap();
+            // Focused but not yet edited and empty: the displayed string is the
+            // placeholder, so keep the placeholder colour.
+            text_el = text_el
+                .text_color(Self::display_text_color(
+                    !editing_text && props.value.is_empty(),
+                    placeholder_color,
+                    text_color,
+                ))
+                .whitespace_nowrap();
 
             if sel_start == sel_end {
                 let text = display_text.as_ref();
