@@ -1366,6 +1366,11 @@ log = "0.4"
         "\n# Keep every toolkit crate on this checkout; see gpui-scaffolder.\n[patch.crates-io]\n",
     );
     for (package, crate_dir) in TOOLKIT_PATCH_CRATES {
+        if (flags.no_ios && *package == "gpui-ios")
+            || (flags.no_android && *package == "gpui-android")
+        {
+            continue;
+        }
         let path = relative_path(app_dir, &toolkit_root.join(crate_dir));
         manifest.push_str(&format!(
             "{package} = {{ path = \"{}\" }}\n",
