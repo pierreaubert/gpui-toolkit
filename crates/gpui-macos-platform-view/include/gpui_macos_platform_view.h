@@ -10,7 +10,7 @@ extern "C" {
 
 /// JSON snapshot of every live platform view frame, in GPUI points with a
 /// top-left origin: `[{"id": "...", "x": 0, "y": 0, "width": 0,
-/// "height": 0, "z_index": 0, "visible": true}]`.
+/// "height": 0, "z_index": 0, "visible": true, "scale_factor": 2.0}]`.
 ///
 /// The caller owns the returned string and must release it with
 /// `gpui_macos_platform_views_free_string`. Returns NULL only on

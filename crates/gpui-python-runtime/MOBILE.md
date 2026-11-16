@@ -355,11 +355,12 @@ this section to Final.
   the GPUI window; later scenes are logged/ignored. Independent
   per-scene GPUI windows are out of scope until a product requirement
   for multi-scene exists.
+- **2026-11-16 — macOS platform-view host area (#117):** a true
+  GPUI-owned host area with clipping/z-order below GPUI content (not
+  sibling overlay only).
 
 ### Unresolved decisions
 
-- Should macOS platform views use sibling overlay only, or a true
-  GPUI-owned host area with clipping/z-order below GPUI content?
 - Does signed-build production stop at local signed artifacts, or does it
   include upload to TestFlight / Play internal testing?
 - Should completed issues be pushed one at a time as they are verified,
