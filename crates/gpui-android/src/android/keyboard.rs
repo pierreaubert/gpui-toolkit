@@ -507,7 +507,7 @@ mod tests {
     fn keystroke_from_key_event() {
         let ks = android_key_to_keystroke(AKEYCODE_A, AMETA_NONE, 0).unwrap();
         assert_eq!(ks.key, "a");
-        assert_eq!(ks.key_char, Some("a"));
+        assert_eq!(ks.key_char.as_deref(), Some("a"));
         assert!(!ks.modifiers.shift);
     }
 
@@ -515,7 +515,7 @@ mod tests {
     fn keystroke_with_shift() {
         let ks = android_key_to_keystroke(AKEYCODE_A, AMETA_SHIFT_ON, 'A' as u32).unwrap();
         assert_eq!(ks.key, "a");
-        assert_eq!(ks.key_char, Some("A"));
+        assert_eq!(ks.key_char.as_deref(), Some("A"));
         assert!(ks.modifiers.shift);
     }
 
@@ -538,7 +538,7 @@ mod tests {
         // Simulate pressing a key that produces 'é'
         let ks = android_key_to_keystroke(AKEYCODE_E, AMETA_NONE, 'é' as u32).unwrap();
         assert_eq!(ks.key, "e");
-        assert_eq!(ks.key_char, Some("é"));
+        assert_eq!(ks.key_char.as_deref(), Some("é"));
     }
 
     #[test]
@@ -551,7 +551,7 @@ mod tests {
     fn character_to_keystroke_basic() {
         let ks = character_to_keystroke('h');
         assert_eq!(ks.key, "h");
-        assert_eq!(ks.key_char, Some("h"));
+        assert_eq!(ks.key_char.as_deref(), Some("h"));
     }
 
     #[test]
