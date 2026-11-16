@@ -746,6 +746,24 @@ impl IosWindow {
         if let Some(text_str) = ns_string_to_string(text) {
             log::info!("GPUI iOS: Text input: {:?}", text_str);
 
+            // The software keyboard's Return key arrives as insertText("\n").
+            // Deliver it as an `enter` keystroke instead of text so single-
+            // line fields can submit; multiline fields still receive the key
+            // event and decide for themselves whether to insert a newline.
+            if matches!(text_str.as_str(), "\n" | "\r" | "\r\n") {
+                let event = PlatformInput::KeyDown(gpui::KeyDownEvent {
+                    keystroke: gpui::Keystroke {
+                        modifiers: Modifiers::default(),
+                        key: "enter".to_string(),
+                        key_char: Some("\n".to_string()),
+                    },
+                    is_held: false,
+                    prefer_character_input: false,
+                });
+                self.dispatch_input(event);
+                return;
+            }
+
             // Try the global text input callback (for our TextInput components).
             // The text is captured in PENDING_TEXT regardless of whether we also
             // send key events below.
