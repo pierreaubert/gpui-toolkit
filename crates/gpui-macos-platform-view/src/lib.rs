@@ -1,6 +1,6 @@
-//! Embed AppKit `NSView`s next to GPUI content on macOS (M1 scope).
+//! Embed `AppKit` `NSView`s next to GPUI content on macOS (M1 scope).
 //!
-//! Hosting a native view (WebKit, AVPlayer, a vendor SDK view) inside a
+//! Hosting a native view (`WebKit`, `AVPlayer`, a vendor SDK view) inside a
 //! GPUI window is a positioning problem, not a rendering one: the native
 //! view is an overlaid sibling in the same window, so this crate reports
 //! where GPUI laid out each [`MacPlatformView`] placeholder and the host
@@ -9,9 +9,9 @@
 //! 1. Place [`MacPlatformView`] elements in the GPUI tree.
 //! 2. Each frame (e.g. from your display link), call
 //!    [`snapshot_frames`] and set every native view's frame with
-//!    [`MacRect::to_appkit`] (GPUI uses a top-left origin, AppKit a
+//!    [`MacRect::to_appkit`] (GPUI uses a top-left origin, `AppKit` a
 //!    bottom-left one).
-//! 3. Add each native view above the GPUI view once; AppKit sibling order
+//! 3. Add each native view above the GPUI view once; `AppKit` sibling order
 //!    handles z-order within the platform layer.
 //!
 //! Scope notes for M1: there is no GPUI-owned host area (later phases can
@@ -40,7 +40,7 @@ use gpui::{
 /// # Safety
 ///
 /// The pointer must be a live `NSView` for as long as the handle is used,
-/// and — like all AppKit objects — it may only be used on the main thread.
+/// and — like all `AppKit` objects — it may only be used on the main thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViewHandle {
     view: *mut c_void,
@@ -82,7 +82,7 @@ pub struct MacRect {
 }
 
 impl MacRect {
-    /// Convert to AppKit coordinates (bottom-left origin) for a host view
+    /// Convert to `AppKit` coordinates (bottom-left origin) for a host view
     /// of the given height.
     pub fn to_appkit(self, host_height: f32) -> MacRect {
         MacRect {
