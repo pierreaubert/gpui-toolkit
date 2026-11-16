@@ -270,6 +270,11 @@ gpui_ios::set_text_input_callback(Some(Box::new(|text: &str| {
 
 ## Known Limitations
 
+- `gpui::surface()` / `Window::paint_surface` elements do not render on
+  iOS/tvOS: the wgpu renderer drops surface batches (only the macOS Metal
+  renderer implements them). The window logs a one-time warning when a
+  scene contains surfaces; use a platform view (e.g. `AVPlayerLayer`)
+  for video instead.
 - iOS only supports `aarch64` (arm64). No x86_64 simulator builds.
 - Sample rate changes at runtime are not supported on iOS CoreAudio.
 - File system access is sandboxed. Use `UIDocumentPickerViewController` for user file selection.

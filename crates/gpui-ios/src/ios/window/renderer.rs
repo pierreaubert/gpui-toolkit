@@ -11,8 +11,26 @@ use gpui_wgpu::{WgpuContext, WgpuRenderer, WgpuSurfaceConfig, wgpu};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
+/// Set once the unsupported-surfaces warning has been logged, so a
+/// surface-heavy app warns a single time instead of per frame.
+static SURFACES_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 impl IosWindow {
     pub(super) fn draw_scene(&self, scene: &Scene) {
+        // The wgpu renderer silently drops `PrimitiveBatch::Surfaces`
+        // (they are only implemented by the macOS Metal renderer), so a
+        // `surface()` element would otherwise vanish with no signal.
+        if !scene.surfaces.is_empty()
+            && !SURFACES_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            log::warn!(
+                "GPUI iOS: {} surface() element(s) will not render: CVPixelBuffer \
+                 surfaces are not implemented by the wgpu renderer on iOS/tvOS; \
+                 use a platform view (e.g. AVPlayerLayer via gpui-ios platform \
+                 views) for video instead",
+                scene.surfaces.len()
+            );
+        }
         // Never block the display-link thread on the renderer: when a
         // resize holds the lock, skip the frame instead of stalling.
         let mut guard = match self.renderer.try_lock() {
