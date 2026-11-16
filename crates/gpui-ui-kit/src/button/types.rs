@@ -24,6 +24,9 @@ pub struct ButtonTheme {
     pub accent: Rgba,
     #[theme(default = 0x0098ff, from = accent_hover)]
     pub accent_hover: Rgba,
+    /// Keyboard focus ring color; must remain visible on accent fills.
+    #[theme(default = 0xffffff, from = focus_ring)]
+    pub focus_ring: Rgba,
     #[theme(default = 0x3c3c3c, from = surface)]
     pub surface: Rgba,
     #[theme(default = 0x4a4a4a, from = surface_hover)]

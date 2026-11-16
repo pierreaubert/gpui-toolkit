@@ -83,6 +83,9 @@ pub struct Theme {
     pub accent_hover: Rgba,
     /// Muted accent for backgrounds
     pub accent_muted: Rgba,
+    /// Keyboard focus ring color. This must contrast with accent-filled
+    /// controls as well as their surrounding surface.
+    pub focus_ring: Rgba,
 
     // Semantic colors
     /// Success color
@@ -169,6 +172,7 @@ impl Theme {
         "accent",
         "accent_hover",
         "accent_muted",
+        "focus_ring",
         "success",
         "warning",
         "error",
@@ -213,6 +217,7 @@ impl Theme {
             accent: rgb(0x007acc),
             accent_hover: rgb(0x0098ff),
             accent_muted: rgba(0x007acc33),
+            focus_ring: rgb(0xffffff),
             // Semantic
             success: rgb(0x22c55e),
             warning: rgb(0xf59e0b),
@@ -265,6 +270,7 @@ impl Theme {
             accent: rgb(0x0066cc),
             accent_hover: rgb(0x0055aa),
             accent_muted: rgba(0x0066cc22),
+            focus_ring: rgb(0xffffff),
             // Semantic
             success: rgb(0x15803d),
             warning: rgb(0xb45309),
@@ -317,6 +323,7 @@ impl Theme {
             accent: rgb(0x58a6ff),
             accent_hover: rgb(0x79b8ff),
             accent_muted: rgba(0x1f6feb33),
+            focus_ring: rgb(0x0d1117),
             // Semantic
             success: rgb(0x3fb950),
             warning: rgb(0xd29922),
@@ -367,6 +374,7 @@ impl Theme {
             accent: rgb(0x6abf69),
             accent_hover: rgb(0x7dd07c),
             accent_muted: rgba(0x3d5a3a33),
+            focus_ring: rgb(0x1a2418),
             // Semantic
             success: rgb(0x6abf69),
             warning: rgb(0xe0c062),
@@ -417,6 +425,7 @@ impl Theme {
             accent: rgb(0xffffff),
             accent_hover: rgb(0xcccccc),
             accent_muted: rgba(0xffffff33),
+            focus_ring: rgb(0x000000),
             // Semantic (grayscale for B&W theme)
             success: rgb(0xaaaaaa),
             warning: rgb(0x888888),
@@ -467,6 +476,7 @@ impl Theme {
             accent: rgb(0xf59e0b),
             accent_hover: rgb(0xfbbf24),
             accent_muted: rgba(0x78350f33),
+            focus_ring: rgb(0x0c0c0e),
             // Semantic
             success: rgb(0x4ade80),
             warning: rgb(0xfb923c),
@@ -514,6 +524,7 @@ impl Theme {
             accent: rgb(0x0f62fe),
             accent_hover: rgb(0x0353e9),
             accent_muted: rgb(0xd0e2ff),
+            focus_ring: rgb(0xffffff),
             success: rgb(0x24a148),
             warning: rgb(0xf1c21b),
             error: rgb(0xda1e28),
@@ -557,6 +568,7 @@ impl Theme {
             accent: rgb(0x0f62fe),
             accent_hover: rgb(0x0353e9),
             accent_muted: rgb(0xd0e2ff),
+            focus_ring: rgb(0xffffff),
             success: rgb(0x24a148),
             warning: rgb(0xf1c21b),
             error: rgb(0xda1e28),
@@ -600,6 +612,7 @@ impl Theme {
             accent: rgb(0x4589ff),
             accent_hover: rgb(0x78a9ff),
             accent_muted: rgba(0x4589ff33),
+            focus_ring: rgb(0xffffff),
             success: rgb(0x42be65),
             warning: rgb(0xf1c21b),
             error: rgb(0xff8389),
@@ -643,6 +656,7 @@ impl Theme {
             accent: rgb(0x4589ff),
             accent_hover: rgb(0x78a9ff),
             accent_muted: rgba(0x4589ff33),
+            focus_ring: rgb(0xffffff),
             success: rgb(0x42be65),
             warning: rgb(0xf1c21b),
             error: rgb(0xff8389),
@@ -694,6 +708,7 @@ impl Theme {
             accent: rgb(0x007aff),
             accent_hover: rgb(0x1a87ff),
             accent_muted: rgba(0x007aff33),
+            focus_ring: rgb(0xffffff),
             // Semantic (systemGreen/Orange/Red/Blue)
             success: rgb(0x30d158),
             warning: rgb(0xff9230),
@@ -749,6 +764,7 @@ impl Theme {
             accent: rgb(0x007aff),
             accent_hover: rgb(0x006ee6),
             accent_muted: rgba(0x007aff22),
+            focus_ring: rgb(0xffffff),
             // Semantic (systemGreen/Orange/Red/Blue)
             success: rgb(0x34c759),
             warning: rgb(0xff8d28),
@@ -804,6 +820,7 @@ impl Theme {
             accent: rgb(0x60cdff),
             accent_hover: rgb(0x7bd4ff),
             accent_muted: rgba(0x60cdff33),
+            focus_ring: rgb(0x000000),
             // Semantic (SystemFill success/caution/critical, attention)
             success: rgb(0x6ccb5f),
             warning: rgb(0xfce100),
@@ -859,6 +876,7 @@ impl Theme {
             accent: rgb(0x0067c0),
             accent_hover: rgb(0x1975c5),
             accent_muted: rgba(0x0067c022),
+            focus_ring: rgb(0xffffff),
             // Semantic (SystemFill success/caution/critical, attention)
             success: rgb(0x0f7b0f),
             warning: rgb(0x9d5d00),

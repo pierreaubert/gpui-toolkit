@@ -1380,6 +1380,7 @@ pub fn {}() -> EditorTheme {{
         gpui_ui_kit::ButtonTheme {
             accent: self.accent.to_rgba(),
             accent_hover: self.accent_hover.to_rgba(),
+            focus_ring: self.text_on_accent.to_rgba(),
             surface: self.surface.to_rgba(),
             surface_hover: self.surface_hover.to_rgba(),
             text_primary: self.text_primary.to_rgba(),

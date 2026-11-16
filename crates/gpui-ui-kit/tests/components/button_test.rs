@@ -81,6 +81,7 @@ fn test_button_theme_construction() {
     let theme = ButtonTheme {
         accent: gpui::rgba(0xff6600ff),
         accent_hover: gpui::rgba(0xff8800ff),
+        focus_ring: gpui::rgba(0xffffffff),
         surface: gpui::rgba(0x2a2a2aff),
         surface_hover: gpui::rgba(0x3a3a3aff),
         text_primary: gpui::rgba(0xffffffff),

@@ -115,6 +115,7 @@ fn test_icon_button_theme_construction() {
         filled_hover_bg: gpui::rgba(0x4a4a4aff),
         accent: gpui::rgba(0x007accff),
         accent_hover: gpui::rgba(0x0098ffff),
+        focus_ring: gpui::rgba(0xffffffff),
         text: gpui::rgba(0xccccccff),
         text_on_accent: gpui::rgba(0xffffffff),
         border: gpui::rgba(0x555555ff),

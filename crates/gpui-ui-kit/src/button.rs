@@ -409,7 +409,7 @@ impl RenderOnce for Button {
         // Get/create persistent focus handle for this button id so the
         // element is Tab-reachable across re-renders. See module-level
         // BUTTON_FOCUS_HANDLES comment for the registry pattern.
-        let focus_ring_color = theme.accent;
+        let focus_ring_color = theme.focus_ring;
 
         let mut el = div()
             .id(self.id.clone())
@@ -451,7 +451,7 @@ impl RenderOnce for Button {
             // CSS `:focus-visible` analogue — only renders when the user
             // arrived at the button via keyboard (Tab), not via mouse click.
             // Layered on top of the base border, so a focused button has a
-            // 2px accent-colored ring distinct from its normal border_color.
+            // 2px focus ring distinct from both its normal border and fill.
             .focus_visible(|style| style.border_2().border_color(focus_ring_color));
 
         if let Some(anchor) = self.scroll_anchor {

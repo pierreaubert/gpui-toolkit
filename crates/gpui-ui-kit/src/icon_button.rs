@@ -74,6 +74,9 @@ pub struct IconButtonTheme {
     /// Accent hover color
     #[theme(default = 0x0098ffff, from = accent)]
     pub accent_hover: Rgba,
+    /// Keyboard focus ring color; must remain visible on accent fills.
+    #[theme(default = 0xffffffff, from = focus_ring)]
+    pub focus_ring: Rgba,
     /// Default text/icon color
     #[theme(default = 0xccccccff, from = text_secondary)]
     pub text: Rgba,
@@ -472,12 +475,12 @@ impl RenderOnce for IconButton {
 
         let global_theme = cx.theme();
         let icon_theme = IconButtonTheme::from(global_theme.as_ref());
-        let focus_ring_color = icon_theme.accent;
+        let focus_ring_color = icon_theme.focus_ring;
         let mut el = self
             .build_with_theme_and_design(global_theme.as_ref(), &icon_theme, &design)
             .track_focus(&focus_handle)
             // CSS `:focus-visible` analogue — only renders when reached via
-            // keyboard. Layered 2px accent border on top of the (optional)
+            // keyboard. Layered 2px focus border on top of the (optional)
             // 1px outline-variant border.
             .focus_visible(move |style| style.border_2().border_color(focus_ring_color));
 

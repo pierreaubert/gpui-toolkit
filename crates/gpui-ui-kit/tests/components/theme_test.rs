@@ -1,6 +1,28 @@
 //! Theme tests
 
-use gpui_ui_kit::theme::Theme;
+use gpui_ui_kit::button::ButtonTheme;
+use gpui_ui_kit::theme::{Theme, ThemeVariant};
+
+#[test]
+fn test_every_theme_focus_ring_contrasts_with_accent_fills() {
+    for variant in ThemeVariant::all() {
+        let theme = Theme::for_variant(*variant);
+
+        assert_ne!(
+            theme.focus_ring, theme.accent,
+            "{variant:?}: focus ring must be visible on a Primary fill"
+        );
+        assert_ne!(
+            theme.focus_ring, theme.error,
+            "{variant:?}: focus ring must be visible on a Destructive fill"
+        );
+        assert_eq!(
+            ButtonTheme::from(&theme).focus_ring,
+            theme.focus_ring,
+            "{variant:?}: ButtonTheme must consume the global focus ring token"
+        );
+    }
+}
 
 #[test]
 fn test_theme_creation() {

@@ -73,6 +73,7 @@ fn construct_all_fields() -> Theme {
         accent: rgb(0),
         accent_hover: rgb(0),
         accent_muted: rgba(0),
+        focus_ring: rgb(0),
         success: rgb(0),
         warning: rgb(0),
         error: rgb(0),
@@ -180,7 +181,7 @@ fn all_theme_fields_compiles_exhaustively() {
     // name must resolve against the constructed value via a match on the
     // field set. (Field access by string is impossible; the exhaustive
     // literal above is the compile guard, this loop is the runtime guard.)
-    assert_eq!(Theme::FIELD_NAMES.len(), 35);
+    assert_eq!(Theme::FIELD_NAMES.len(), 36);
     let _ = theme;
 }
 
