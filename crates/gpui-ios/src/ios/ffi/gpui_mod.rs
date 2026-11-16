@@ -140,6 +140,74 @@ pub extern "C" fn gpui_ios_will_terminate(_app_ptr: *mut c_void) {
     log::info!("GPUI iOS: Will terminate");
 }
 
+/// Scene-based launch entry point for hosts using `UIScene` life cycle
+/// (mandatory from iOS/tvOS 27): create the GPUI platform and drain the
+/// pending launch callback without entering the app-delegate `run_app`
+/// path. Safe to call before `gpui_ios_set_app_callback`'s callback has
+/// been delivered by `run_app`; later calls are no-ops.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_ios_finish_launching() {
+    super::consts::ensure_window_list();
+    gpui_ios_did_finish_launching(std::ptr::null_mut());
+}
+
+/// Resolve a scene lifecycle target: the given window when non-null
+/// (validated against both registries), else the current window.
+fn lifecycle_window(window_ptr: *mut c_void) -> Option<&'static super::super::window::IosWindow> {
+    if window_ptr.is_null() {
+        return registered_window(current_window())
+            .or_else(super::foreign_parent::current_foreign_window);
+    }
+    let window = window_ptr as *const super::super::window::IosWindow;
+    registered_window(window).or_else(|| super::foreign_parent::registered_foreign_window(window))
+}
+
+/// Scene lifecycle forwarding for one window (see
+/// `IOS_SCENE_LIFECYCLE_TEMPLATE`). `window_ptr` may be null to target
+/// the current window.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_ios_lifecycle_forwarding_will_enter_foreground(window_ptr: *mut c_void) {
+    if let Some(window) = lifecycle_window(window_ptr) {
+        window.notify_active_status_change(true);
+    }
+}
+
+/// Scene lifecycle forwarding for one window; see
+/// `gpui_ios_lifecycle_forwarding_will_enter_foreground`.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_ios_lifecycle_forwarding_did_become_active(window_ptr: *mut c_void) {
+    if let Some(window) = lifecycle_window(window_ptr) {
+        window.notify_active_status_change(true);
+    }
+}
+
+/// Scene lifecycle forwarding for one window; see
+/// `gpui_ios_lifecycle_forwarding_will_enter_foreground`.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_ios_lifecycle_forwarding_will_resign_active(window_ptr: *mut c_void) {
+    if let Some(window) = lifecycle_window(window_ptr) {
+        window.notify_active_status_change(false);
+    }
+}
+
+/// Scene lifecycle forwarding for one window; see
+/// `gpui_ios_lifecycle_forwarding_will_enter_foreground`.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_ios_lifecycle_forwarding_did_enter_background(window_ptr: *mut c_void) {
+    if let Some(window) = lifecycle_window(window_ptr) {
+        window.notify_active_status_change(false);
+    }
+}
+
+/// Scene lifecycle forwarding for one window; see
+/// `gpui_ios_lifecycle_forwarding_will_enter_foreground`.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_ios_lifecycle_forwarding_will_terminate(window_ptr: *mut c_void) {
+    if let Some(window) = lifecycle_window(window_ptr) {
+        window.notify_active_status_change(false);
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn gpui_ios_handle_touch(
     window_ptr: *mut c_void,

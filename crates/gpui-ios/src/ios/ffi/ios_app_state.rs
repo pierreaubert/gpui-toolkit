@@ -1,10 +1,9 @@
 use super::consts::IOS_APP_STATE;
-use super::consts::IOS_WINDOW_LIST;
+use super::consts::ensure_window_list;
 use super::consts::install_ios_panic_hook;
 use super::misc::retain_application_for_process_lifetime;
 use super::take::take_app_callback;
 use super::take::take_asset_source;
-use super::window_list_wrapper::WindowListWrapper;
 use gpui::{App, AppContext, WindowOptions};
 use std::rc::Rc;
 
@@ -24,7 +23,7 @@ pub fn run_app() {
             finish_launching: std::cell::UnsafeCell::new(None),
         };
         let _ = IOS_APP_STATE.set(state);
-        let _ = IOS_WINDOW_LIST.set(WindowListWrapper(std::cell::UnsafeCell::new(Vec::new())));
+        ensure_window_list();
     }
 
     let platform = Rc::new(super::super::IosPlatform::new());

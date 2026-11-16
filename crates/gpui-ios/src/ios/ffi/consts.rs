@@ -14,7 +14,16 @@ pub(super) static IOS_PANIC_HOOK: Once = Once::new();
 
 pub(crate) static IOS_WINDOW_LIST: OnceLock<WindowListWrapper> = OnceLock::new();
 
+/// Initialise the app window list on first use.
+///
+/// Scene-based and foreign-parent hosts never call `run_app`, so the list
+/// cannot depend on it (or on `gpui_ios_initialize`) having run first.
+pub(crate) fn ensure_window_list() {
+    let _ = IOS_WINDOW_LIST.set(WindowListWrapper(std::cell::UnsafeCell::new(Vec::new())));
+}
+
 pub(crate) fn register_window(window: *const super::super::window::IosWindow) {
+    ensure_window_list();
     if let Some(wrapper) = IOS_WINDOW_LIST.get() {
         unsafe {
             (*wrapper.0.get()).push(window);

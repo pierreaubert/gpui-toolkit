@@ -127,6 +127,96 @@ pub fn dispatch_thermal_state_change() -> bool {
     })
 }
 
+/// Swift template for hosting GPUI under the `UIScene` life cycle, which
+/// iOS/tvOS 27 require (create-only from Xcode 27, general in the
+/// following release). Adopting `UIScene` is the host app's decision —
+/// nothing here changes existing app-delegate integrations.
+///
+/// Declare the `gpui_ios_*` C entry points in your bridging header, keep
+/// calling `gpui_ios_set_app_callback` + `run_app()` exactly as in the
+/// app-delegate flow, and let the scene delegate drive launching,
+/// lifecycle forwarding, and the display link from here instead.
+pub const IOS_SCENE_LIFECYCLE_TEMPLATE: &str = r#"
+import SwiftUI
+import UIKit
+
+final class GPUIAppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(
+            name: nil, sessionRole: connectingSceneSession.role)
+        configuration.delegateClass = GPUIAppSceneDelegate.self
+        return configuration
+    }
+}
+
+final class GPUIAppSceneDelegate: NSObject, UIWindowSceneDelegate {
+    var window: UIWindow?
+    private var displayLink: CADisplayLink?
+
+    func scene(
+        _ scene: UIScene,
+        willConnectTo session: UISceneSession,
+        options connectionOptions: UIScene.ConnectionOptions
+    ) {
+        displayLink = CADisplayLink(
+            target: self, selector: #selector(pumpFrame))
+        displayLink?.add(to: .main, forMode: .common)
+        // Let SwiftUI create its scene window first, then launch GPUI.
+        DispatchQueue.main.async { gpui_ios_finish_launching() }
+    }
+
+    @objc private func pumpFrame() {
+        gpui_ios_request_current_frame()
+    }
+
+    func sceneWillEnterForeground(_ scene: UIScene) {
+        gpui_ios_lifecycle_forwarding_will_enter_foreground(gpui_ios_get_window())
+    }
+
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        gpui_ios_lifecycle_forwarding_did_become_active(gpui_ios_get_window())
+    }
+
+    func sceneWillResignActive(_ scene: UIScene) {
+        gpui_ios_lifecycle_forwarding_will_resign_active(gpui_ios_get_window())
+    }
+
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        gpui_ios_lifecycle_forwarding_did_enter_background(gpui_ios_get_window())
+    }
+}
+
+final class GPUIRootViewController: UIViewController {
+    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
+}
+
+struct GPUIAppRootView: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> GPUIRootViewController {
+        GPUIRootViewController()
+    }
+
+    func updateUIViewController(
+        _ viewController: GPUIRootViewController, context: Context
+    ) {}
+}
+
+@main
+struct GPUIHostApp: App {
+    @UIApplicationDelegateAdaptor(GPUIAppDelegate.self)
+    var appDelegate
+
+    var body: some Scene {
+        WindowGroup {
+            GPUIAppRootView().ignoresSafeArea()
+        }
+    }
+}
+"#;
+
 // ── Software keyboard control ────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

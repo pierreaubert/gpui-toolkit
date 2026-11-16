@@ -140,6 +140,24 @@ pub(crate) fn current_foreign_window() -> Option<&'static IosWindow> {
     live.then(|| unsafe { &*pointer.as_ptr() })
 }
 
+/// Validate a host-supplied window pointer against the live registry,
+/// mirroring `consts::registered_window` for the app window list.
+pub(crate) fn registered_foreign_window(window: *const IosWindow) -> Option<&'static IosWindow> {
+    if window.is_null() || !is_main_thread() {
+        return None;
+    }
+    let pointer = NonNull::new(window.cast_mut())?;
+    let live = FOREIGN_WINDOWS.with(|windows| {
+        windows
+            .borrow()
+            .values()
+            .any(|slot| !slot.closing && slot.window == Some(pointer))
+    });
+    // SAFETY: validated above against the live registry; the boxed window
+    // outlives its registry slot (destruction is deferred past slot close).
+    live.then(|| unsafe { &*window })
+}
+
 /// Close `editor_id`'s slot: later lookups resolve to "no window";
 /// deferred destruction runs once active leases drain.
 pub(crate) fn unregister_foreign_window(editor_id: u64) {
