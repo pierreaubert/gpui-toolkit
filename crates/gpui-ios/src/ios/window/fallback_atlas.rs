@@ -125,7 +125,7 @@ mod tests {
             )))
         };
         atlas
-            .get_or_insert_with(&key, &mut build)
+            .get_or_insert_with(key, &mut build)
             .expect("fallback insert succeeds");
     }
 
