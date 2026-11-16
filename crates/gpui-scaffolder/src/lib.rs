@@ -15,6 +15,24 @@ pub const DEFAULT_TEMPLATE: &str = "default";
 /// no generated Rust crate; see `crates/gpui-python-runtime/mobile/`).
 pub const PYTHON_MOBILE_TEMPLATE: &str = "python-mobile";
 const PYTHON_MOBILE_GITIGNORE: &str = "/build/\n/target/\n__pycache__/\n/ios/app/gpui_toolkit/\n/ios/app/main_app.py\n/ios/build/\n/ios/lib/\n/ios/vendor/\n/android/gradle/app/src/main/assets/python/\n/android/gradle/app/src/main/assets/app/\n/android/gradle/app/src/main/assets/gpui_bundle_manifest.txt\n/android/gradle/app/src/main/jniLibs/\n/android/gradle/app/build/\n/android/gradle/.gradle/\n*.xcodeproj\n";
+/// Toolkit crates a scaffolded app can reach transitively through its direct
+/// path dependencies. The generated manifest patches each one to this
+/// checkout so Cargo cannot mix crates.io and path copies of the same crate
+/// (which split every shared trait and type in two).
+const TOOLKIT_PATCH_CRATES: &[(&str, &str)] = &[
+    ("gpui-android", "crates/gpui-android"),
+    ("gpui-builder", "crates/gpui-builder"),
+    ("gpui-d3rs", "crates/gpui-d3rs"),
+    ("gpui-design", "crates/gpui-design"),
+    ("gpui-foreign-parent", "crates/gpui-foreign-parent"),
+    ("gpui-ios", "crates/gpui-ios"),
+    ("gpui-layout-expr", "crates/gpui-layout-expr"),
+    ("gpui-miniapp", "crates/gpui-miniapp"),
+    ("gpui-pretext", "crates/gpui-pretext"),
+    ("gpui-profiler", "crates/gpui-profiler"),
+    ("gpui-ui-kit", "crates/gpui-ui-kit"),
+    ("gpui-ui-kit-macros", "crates/gpui-ui-kit-macros"),
+];
 const TOOLKIT_ROOT_ENV: &str = "GPUI_TOOLKIT_ROOT";
 const SCAFFOLD_GITIGNORE: &str =
     "/target/\n/ios/build/\n/ios/lib/\n.gradle/\n**/local.properties\n";
@@ -268,7 +286,7 @@ fn build_scaffold_plan(
     let mut plan = vec![
         (
             app_dir.join("Cargo.toml"),
-            cargo_toml(names, &dependencies, flags),
+            cargo_toml(names, &dependencies, flags, app_dir, &toolkit_root),
         ),
         (
             app_dir.join("gpui-scaffold.toml"),
@@ -1274,7 +1292,13 @@ fn rust_string(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-fn cargo_toml(names: &AppNames, dependencies: &DependencyPaths, flags: &ScaffoldFlags) -> String {
+fn cargo_toml(
+    names: &AppNames,
+    dependencies: &DependencyPaths,
+    flags: &ScaffoldFlags,
+    app_dir: &Path,
+    toolkit_root: &Path,
+) -> String {
     let mut manifest = format!(
         r#"[package]
 name = "{package_name}"
@@ -1332,11 +1356,22 @@ log = "0.4"
         ));
     }
 
-    // No [patch] tables: the sotf-3rdparties crates publish under renamed
-    // sotf-* package names, and Cargo requires a patch entry to carry the
-    // patched crate's name, so renamed crates cannot patch upstream names.
-    // Scaffolded apps resolve block/font-kit from crates.io; the local GPUI
-    // closure used by compile-smoke tests carries its own sotf-* path deps.
+    // Patch every toolkit crate this app can reach to the same checkout as
+    // its direct path dependencies. Without this, Cargo resolves version-only
+    // transitive edges (e.g. gpui-design) from crates.io next to the path
+    // copies, and shared traits/types exist twice. The sotf-3rdparties GPUI
+    // fork still cannot be patched this way (renamed sotf-* packages), so
+    // block/font-kit continue to resolve from crates.io as before.
+    manifest.push_str(
+        "\n# Keep every toolkit crate on this checkout; see gpui-scaffolder.\n[patch.crates-io]\n",
+    );
+    for (package, crate_dir) in TOOLKIT_PATCH_CRATES {
+        let path = relative_path(app_dir, &toolkit_root.join(crate_dir));
+        manifest.push_str(&format!(
+            "{package} = {{ path = \"{}\" }}\n",
+            cargo_path(&path)
+        ));
+    }
     manifest
 }
 
@@ -2251,11 +2286,19 @@ mod tests {
         assert!(manifest.contains("android_logger"));
         assert!(manifest.contains("zune-core = \"=0.5.1\""));
         assert!(manifest.contains("libc = \"=0.2.191\""));
-        // Renamed sotf-* crates cannot patch upstream names, so the template
-        // carries no [patch] tables; scaffolded apps resolve block/font-kit
-        // from crates.io.
-        assert!(!manifest.contains("[patch."));
-        assert!(!manifest.contains("[patch.crates-io]"));
+        // Toolkit crates are patched to this checkout so a scaffolded app
+        // never mixes crates.io and path copies; renamed sotf-* crates still
+        // cannot patch upstream names and stay unpatched.
+        let parsed_manifest: toml::Value = toml::from_str(&manifest)?;
+        let patches = parsed_manifest["patch"]["crates-io"]
+            .as_table()
+            .context("generated Cargo.toml must patch toolkit crates")?;
+        for package in ["gpui-design", "gpui-ui-kit-macros", "gpui-foreign-parent"] {
+            assert!(
+                patches.contains_key(package),
+                "missing [patch.crates-io] entry for {package}"
+            );
+        }
         assert!(!manifest.contains("zed-font-kit"));
         assert!(!manifest.contains("sotf-3rdparties/block"));
 
@@ -2725,7 +2768,13 @@ mod tests {
             ios: Path::new("/tmp/ios").to_path_buf(),
             android: Path::new("/tmp/android").to_path_buf(),
         };
-        let toml = cargo_toml(&names, &dependencies, &ScaffoldFlags::default());
+        let toml = cargo_toml(
+            &names,
+            &dependencies,
+            &ScaffoldFlags::default(),
+            Path::new("/tmp/demo-app"),
+            Path::new("/tmp"),
+        );
         assert!(toml.contains("name = \"demo-app\""));
         assert!(toml.contains("name = \"demo_app\""));
         assert!(toml.contains("/tmp/miniapp"));
