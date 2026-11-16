@@ -72,6 +72,10 @@ thread_local! {
     /// Live foreign editor instances, keyed by editor id. Thread-local:
     /// foreign threads see an empty map and resolve to "no window".
     static FOREIGN_WINDOWS: RefCell<HashMap<u64, ForeignSlot>> = RefCell::new(HashMap::new());
+
+    /// Most recently registered foreign window, for crate-level helpers
+    /// (software keyboard) that act on "the current window" without an id.
+    static CURRENT_FOREIGN_WINDOW: Cell<Option<NonNull<IosWindow>>> = const { Cell::new(None) };
 }
 
 fn drain_deferred(slot: &mut ForeignSlot) {
@@ -112,6 +116,28 @@ pub(crate) fn register_foreign_window(editor_id: u64, window: &IosWindow) {
             },
         );
     });
+    CURRENT_FOREIGN_WINDOW.with(|current| current.set(Some(NonNull::from(window))));
+}
+
+/// The most recently registered live foreign window, if any.
+///
+/// The returned reference follows the same convention as
+/// `consts::registered_window`: windows are boxed for their whole GPUI
+/// lifetime, and closing slots are excluded.
+pub(crate) fn current_foreign_window() -> Option<&'static IosWindow> {
+    if !is_main_thread() {
+        return None;
+    }
+    let pointer = CURRENT_FOREIGN_WINDOW.with(Cell::get)?;
+    let live = FOREIGN_WINDOWS.with(|windows| {
+        windows
+            .borrow()
+            .values()
+            .any(|slot| !slot.closing && slot.window == Some(pointer))
+    });
+    // SAFETY: validated above against the live registry; the boxed window
+    // outlives its registry slot (destruction is deferred past slot close).
+    live.then(|| unsafe { &*pointer.as_ptr() })
 }
 
 /// Close `editor_id`'s slot: later lookups resolve to "no window";
@@ -124,7 +150,12 @@ pub(crate) fn unregister_foreign_window(editor_id: u64) {
         let mut windows = windows.borrow_mut();
         if let Some(slot) = windows.get_mut(&editor_id) {
             slot.closing = true;
-            slot.window = None;
+            let closing_window = slot.window.take();
+            CURRENT_FOREIGN_WINDOW.with(|current| {
+                if current.get() == closing_window {
+                    current.set(None);
+                }
+            });
             drain_deferred(slot);
             if slot.leases == 0 {
                 windows.remove(&editor_id);

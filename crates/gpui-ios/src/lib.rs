@@ -144,17 +144,32 @@ pub fn show_keyboard() {
     show_keyboard_with_type(KeyboardType::Default);
 }
 
+/// Resolve the window keyboard helpers act on: the app window list first,
+/// then the current foreign-parent window (embedded editors never enter
+/// the app list, so app-only lookup silently no-ops for them).
+#[cfg(any(target_os = "ios", target_os = "tvos"))]
+fn with_keyboard_window(action: impl FnOnce(&ios::IosWindow)) {
+    if let Some(wrapper) = ios::ffi::IOS_WINDOW_LIST.get() {
+        // SAFETY: registered windows are boxed for their GPUI lifetime and
+        // unregistered before being dropped (see ffi::consts).
+        let window = unsafe {
+            let windows = &*wrapper.0.get();
+            windows.last().map(|&window| &*window)
+        };
+        if let Some(window) = window {
+            action(window);
+            return;
+        }
+    }
+    if let Some(window) = ios::ffi::current_foreign_window() {
+        action(window);
+    }
+}
+
 pub fn show_keyboard_with_type(keyboard_type: KeyboardType) {
     #[cfg(any(target_os = "ios", target_os = "tvos"))]
     {
-        if let Some(wrapper) = ios::ffi::IOS_WINDOW_LIST.get() {
-            unsafe {
-                let windows = &*wrapper.0.get();
-                if let Some(&window) = windows.last() {
-                    (*window).show_keyboard_with_type(keyboard_type);
-                }
-            }
-        }
+        with_keyboard_window(|window| window.show_keyboard_with_type(keyboard_type));
     }
     #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
     {
@@ -165,14 +180,7 @@ pub fn show_keyboard_with_type(keyboard_type: KeyboardType) {
 pub fn hide_keyboard() {
     #[cfg(any(target_os = "ios", target_os = "tvos"))]
     {
-        if let Some(wrapper) = ios::ffi::IOS_WINDOW_LIST.get() {
-            unsafe {
-                let windows = &*wrapper.0.get();
-                if let Some(&window) = windows.last() {
-                    (*window).hide_keyboard();
-                }
-            }
-        }
+        with_keyboard_window(|window| window.hide_keyboard());
     }
 }
 
