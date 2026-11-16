@@ -4,8 +4,8 @@
 //! indeterminate state, labels, and custom theming using `VisualTestContext`.
 
 use gpui::{
-    Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,
-    VisualTestContext, Window, div,
+    Context, InteractiveElement, IntoElement, Modifiers, MouseButton, ParentElement, Render,
+    Styled, TestAppContext, VisualTestContext, Window, div, px,
 };
 use gpui_ui_kit::checkbox::{Checkbox, CheckboxSize};
 use std::cell::RefCell;
@@ -353,4 +353,37 @@ async fn test_checkbox_multiple_toggles(cx: &mut TestAppContext) {
             "on_change should have been called twice"
         );
     }
+}
+
+#[gpui::test]
+async fn test_checkbox_label_wraps_instead_of_squeezing_the_box(cx: &mut TestAppContext) {
+    struct NarrowCheckboxView;
+
+    impl Render for NarrowCheckboxView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().flex().flex_col().child(
+                div()
+                    .w(px(120.))
+                    .debug_selector(|| "narrow-checkbox".to_string())
+                    .child(
+                        Checkbox::new("narrow-checkbox")
+                            .label("A long checkbox label that must wrap within the column"),
+                    ),
+            )
+        }
+    }
+
+    let window = cx.add_window(move |_window, _cx| NarrowCheckboxView);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+
+    let bounds = cx
+        .debug_bounds("narrow-checkbox")
+        .expect("narrow checkbox column must be laid out");
+    assert_eq!(f32::from(bounds.size.width), 120.);
+    assert!(
+        f32::from(bounds.size.height) > 40.,
+        "the label must wrap to multiple lines instead of squeezing the box, got height {:?}",
+        bounds.size.height
+    );
 }
