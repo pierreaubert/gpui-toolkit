@@ -14,6 +14,8 @@ import sys
 import unittest
 from unittest.mock import patch
 
+from typing import Any
+
 from gpui_toolkit.app import App, Event, SessionContext, section
 
 
@@ -26,7 +28,7 @@ class EmbeddedApp(App):
     def on_session_ready(self, context: SessionContext) -> None:
         self.session_ready_count += 1
 
-    def on_action(self, event: Event, context: SessionContext) -> None:
+    def on_action(self, event: Event, context: SessionContext) -> Any:
         self.taps += 1
         context.patch(
             [{"op": "set", "id": "label", "property": "text", "value": "tapped"}],
@@ -113,6 +115,50 @@ class EmbeddedServeTests(unittest.TestCase):
         self.assertEqual(snapshots[1]["app_ir"]["title"], "Embedded Test")
         self.assertEqual(app.taps, 1)
         self.assertEqual(app.session_ready_count, 1)
+
+    def test_handler_returning_non_coroutine_awaitable_is_awaited(self):
+        class ImmediateAwaitable:
+            def __await__(self):
+                yield from ()
+                return None
+
+        class AwaitableApp(EmbeddedApp):
+            def on_action(self, event, context):
+                super().on_action(event, context)
+                return ImmediateAwaitable()
+
+        app = AwaitableApp(
+            title="Embedded Test",
+            sections=[section("main", "Main", {"kind": "text", "id": "label", "text": "hi"})],
+            serial_reducer=True,
+        )
+        incoming = io.BytesIO(
+            session_input(
+                INITIALIZE,
+                {
+                    "type": "event",
+                    "id": "event-1",
+                    "node_id": "button",
+                    "event": "click",
+                    "action": "tap",
+                    "payload": {},
+                    "sequence": 1,
+                },
+                SHUTDOWN,
+            )
+        )
+        outgoing = io.BytesIO()
+
+        app.serve(input_stream=incoming, output_stream=outgoing)
+
+        messages = [json.loads(line) for line in outgoing.getvalue().splitlines()]
+        types = [message["type"] for message in messages]
+        # The patch lands and no "action_failed" error is reported for
+        # the awaitable return value (asyncio.run rejects awaitables
+        # that are not coroutines).
+        self.assertIn("patch", types)
+        self.assertNotIn("error", types)
+        self.assertEqual(app.taps, 1)
 
     def test_binary_frames_go_to_the_injected_output_stream(self):
         outgoing = io.BytesIO()

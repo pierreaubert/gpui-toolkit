@@ -18,7 +18,11 @@ from threading import Event as ThreadEvent, Lock, RLock, Semaphore, Thread
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from collections.abc import Awaitable
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
+
+if TYPE_CHECKING:
+    from typing import Self
 
 from .events import Event, Scene2DEvent, Scene2DTick, specialize as specialize_event
 from .effects import EffectResult
@@ -39,6 +43,20 @@ PYTHON_SESSION_CAPABILITIES = frozenset({
     "resource_mmap_frames",
     "scene2d", "scene2d_pointer_input", "scene2d_keyboard_input", "scene2d_tick_schedule",
 })
+
+
+async def _await_outcome(awaitable: Awaitable[Any]) -> Any:
+    return await awaitable
+
+
+def _run_awaitable(awaitable: Awaitable[Any]) -> Any:
+    """Run an arbitrary awaitable to completion on a fresh event loop.
+
+    `asyncio.run` only accepts coroutines, but app handlers may return
+    any awaitable (that is all `inspect.isawaitable` promises), so wrap
+    it in a coroutine first.
+    """
+    return asyncio.run(_await_outcome(awaitable))
 
 
 def _negotiate_capabilities(
@@ -98,10 +116,11 @@ class App:
     def to_spec(self) -> dict[str, Any]:
         if not self.sections:
             raise ValueError("App requires at least one section")
-        miniapp = None if self.miniapp is None else self.miniapp.to_spec()
-        title = self.title if miniapp is None else self.miniapp.title
-        width = self.width if miniapp is None else self.miniapp.width
-        height = self.height if miniapp is None else self.miniapp.height
+        miniapp_config = self.miniapp
+        miniapp = None if miniapp_config is None else miniapp_config.to_spec()
+        title = self.title if miniapp_config is None else miniapp_config.title
+        width = self.width if miniapp_config is None else miniapp_config.width
+        height = self.height if miniapp_config is None else miniapp_config.height
         for name, value in (("width", width), ("height", height)):
             if value is not None and (not math.isfinite(float(value)) or float(value) <= 0.0):
                 raise ValueError(f"App {name} must be finite and positive when specified")
@@ -227,7 +246,7 @@ class App:
         try:
             ready_result = self.on_session_ready(context)
             if inspect.isawaitable(ready_result):
-                asyncio.run(ready_result)
+                _run_awaitable(ready_result)
         except Exception:
             context.error(None, "session_ready_failed", "Python session initialization failed")
         context.snapshot(self.to_spec())
@@ -265,7 +284,12 @@ class App:
                 message_type = message.get("type")
                 if message_type == "shutdown":
                     if self.serial_reducer:
-                        submit_handler(self._handle_shutdown, context, control=True).result()
+                        shutdown_future = submit_handler(
+                            self._handle_shutdown, context, control=True)
+                        if shutdown_future is None:
+                            raise RuntimeError(
+                                "shutdown handler submission was unexpectedly dropped")
+                        shutdown_future.result()
                         executor.shutdown(wait=True, cancel_futures=True)
                     else:
                         self._handle_shutdown(context)
@@ -396,7 +420,7 @@ class App:
                 else:
                     result = self.on_action(event, context)
                 if inspect.isawaitable(result):
-                    asyncio.run(result)
+                    _run_awaitable(result)
         except Exception as error:
             description = "".join(traceback.format_exception_only(type(error), error)).strip()
             action = f" (action {event.action!r})" if event.action else ""
@@ -416,7 +440,7 @@ class App:
         try:
             result = self.on_session_shutdown(context)
             if inspect.isawaitable(result):
-                asyncio.run(result)
+                _run_awaitable(result)
         except Exception:
             context.error(None, "session_shutdown_failed", "Python session shutdown failed")
 
@@ -425,7 +449,7 @@ class App:
             with context.reducer_transaction(enabled=self.serial_reducer):
                 outcome = self.on_effect_result(request_id, EffectResult.from_wire(request_id, result), context)
                 if inspect.isawaitable(outcome):
-                    asyncio.run(outcome)
+                    _run_awaitable(outcome)
         except Exception:
             context.error(request_id, "effect_result_failed", "Python effect-result handler failed")
 
@@ -434,7 +458,7 @@ class App:
             with context.reducer_transaction(enabled=self.serial_reducer):
                 outcome = self.on_command_result(request_id, CommandResult.from_wire(request_id, result), context)
                 if inspect.isawaitable(outcome):
-                    asyncio.run(outcome)
+                    _run_awaitable(outcome)
         except Exception:
             context.error(request_id, "command_result_failed", "Python command-result handler failed")
 
@@ -444,7 +468,7 @@ class App:
             with context.reducer_transaction(enabled=self.serial_reducer):
                 outcome = self.on_profiler_sample(sample_from_wire(wire), context)
                 if inspect.isawaitable(outcome):
-                    asyncio.run(outcome)
+                    _run_awaitable(outcome)
         except Exception:
             context.error(None, "profiler_sample_failed", "Python profiler-sample handler failed")
 
@@ -466,7 +490,7 @@ class ResourceFrameAcknowledgement:
     error: str | None = None
 
     @classmethod
-    def from_wire(cls, wire: Mapping[str, Any]) -> "ResourceFrameAcknowledgement":
+    def from_wire(cls, wire: Mapping[str, Any]) -> Self:
         resource_id = wire.get("resource_id")
         generation = wire.get("generation")
         sequence = wire.get("sequence")

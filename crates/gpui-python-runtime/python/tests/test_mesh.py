@@ -63,7 +63,9 @@ class MeshTests(unittest.TestCase):
              mesh.arrows(scale=0.4, stride=4)],
         )
         self.assertGreater(len(arrows["triangles"]), 0)
-        self.assertEqual(len(arrows["triangles"]) % 72, 0)
+        # Closed arrows emit 34 triangles = 102 indices each
+        # (gpui-dataset-transformation glyph::solid_arrows_are_closed_triangle_meshes).
+        self.assertEqual(len(arrows["triangles"]) % 102, 0)
         self.assertIn("magnitude", arrows["fields"])
 
         tubes = mesh.geometry(
