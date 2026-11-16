@@ -30,6 +30,7 @@ mod accessibility_test;
 mod accordion_test;
 mod breadcrumbs_test;
 mod context_menu_test;
+mod focus_group_test;
 mod focus_mapping_test;
 mod focus_trap_test;
 mod menu_test;

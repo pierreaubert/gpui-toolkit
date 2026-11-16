@@ -36,7 +36,9 @@
 use gpui::prelude::{
     InteractiveElement, IntoElement, ParentElement, RenderOnce, StatefulInteractiveElement, Styled,
 };
-use gpui::{AnyElement, App, ElementId, FocusHandle, KeyDownEvent, Pixels, Window, div, px};
+use gpui::{
+    AnyElement, App, Div, ElementId, FocusHandle, KeyDownEvent, Pixels, Stateful, Window, div, px,
+};
 
 use crate::theme::ThemeExt;
 
@@ -238,6 +240,8 @@ pub struct FocusGroup {
     focus_ring: bool,
     gap: Pixels,
     focus_handle: Option<FocusHandle>,
+    styles: Vec<Box<dyn FnOnce(Stateful<Div>) -> Stateful<Div>>>,
+    initial_focus: bool,
 }
 
 impl FocusGroup {
@@ -252,6 +256,8 @@ impl FocusGroup {
             focus_ring: true,
             gap: px(8.0),
             focus_handle: None,
+            styles: Vec::new(),
+            initial_focus: false,
         }
     }
 
@@ -270,6 +276,25 @@ impl FocusGroup {
     /// Show focus ring on focused child (default: true)
     pub fn focus_ring(mut self, show: bool) -> Self {
         self.focus_ring = show;
+        self
+    }
+
+    /// Apply custom styling or sizing to the group container.
+    ///
+    /// Hooks run in registration order after the group's direction and
+    /// focus-ring styling, so callers can make the group fill, scroll, or
+    /// otherwise size its container.
+    pub fn style(mut self, f: impl FnOnce(Stateful<Div>) -> Stateful<Div> + 'static) -> Self {
+        self.styles.push(Box::new(f));
+        self
+    }
+
+    /// Focus the first registered target on render when nothing is focused.
+    ///
+    /// This gives pointerless surfaces (notably tvOS) an initial remote
+    /// target without stealing focus from an already focused control.
+    pub fn initial_focus(mut self, initial_focus: bool) -> Self {
+        self.initial_focus = initial_focus;
         self
     }
 
@@ -318,7 +343,12 @@ impl FocusGroup {
         self
     }
 
-    fn navigation_delta(direction: FocusDirection, key: &str, shift: bool) -> Option<FocusMove> {
+    /// Translate a keyboard key into a focus movement for `direction`.
+    pub fn navigation_delta(
+        direction: FocusDirection,
+        key: &str,
+        shift: bool,
+    ) -> Option<FocusMove> {
         match key {
             "home" => Some(FocusMove::First),
             "end" => Some(FocusMove::Last),
@@ -348,7 +378,7 @@ impl FocusGroup {
         }
     }
 
-    pub(crate) fn target_index(
+    pub fn target_index(
         target_count: usize,
         current_index: Option<usize>,
         movement: FocusMove,
@@ -392,8 +422,9 @@ impl FocusGroup {
     }
 }
 
+/// A focus movement computed by [`FocusGroup::navigation_delta`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FocusMove {
+pub enum FocusMove {
     First,
     Last,
     Next,
@@ -403,7 +434,13 @@ pub(crate) enum FocusMove {
 }
 
 impl RenderOnce for FocusGroup {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        if self.initial_focus
+            && window.focused(cx).is_none()
+            && let Some(first) = self.focus_targets.first()
+        {
+            window.focus(first, cx);
+        }
         let direction = self.direction;
         let wraparound = self.wraparound;
         let gap = self.gap;
@@ -432,6 +469,10 @@ impl RenderOnce for FocusGroup {
         if self.focus_ring {
             let ring_color = cx.theme().accent;
             container = container.focus_visible(|style| style.border_2().border_color(ring_color));
+        }
+
+        for style in self.styles {
+            container = style(container);
         }
 
         if !focus_targets.is_empty() {

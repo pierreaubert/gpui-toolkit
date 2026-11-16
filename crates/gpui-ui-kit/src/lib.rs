@@ -167,7 +167,7 @@ pub use wizard::{
 pub use focus::{
     FOCUS_INTEGRATION_REPORT_TYPE, FOCUS_INTEGRATION_SCHEMA_VERSION, FocusDirection, FocusGroup,
     FocusGroupExt, FocusIntegrationEntry, FocusIntegrationReport, FocusIntegrationStatus,
-    FocusTrap, focus_integration_entries, focus_integration_report,
+    FocusMove, FocusTrap, focus_integration_entries, focus_integration_report,
 };
 #[doc(inline)]
 pub use scene2d::{
