@@ -577,41 +577,17 @@ impl IosWindow {
     // ── tvOS: Siri Remote button handling ─────────────────────────────────
     //
     // Maps hardware button presses to GPUI events:
-    //   Select (4)    → MouseDown/MouseUp at last known position (click)
+    //   Select (4)    → Enter keystroke (activates the focused control)
     //   Menu (5)      → Escape keystroke
     //   Play/Pause (6)→ Space keystroke
     //   Arrows (0-3)  → arrow keystrokes consumed by GPUI focus groups
     #[cfg(target_os = "tvos")]
     pub fn handle_press(&self, press_type: i64, is_down: bool) {
-        let modifiers = self.modifiers.get();
-        let position = self.mouse_position.get();
-
         let emit = |input: PlatformInput| {
             self.dispatch_input(input);
         };
 
-        // UIPressType constants
-        const SELECT: i64 = 4;
-
         match press_type {
-            SELECT => {
-                if is_down {
-                    emit(PlatformInput::MouseDown(gpui::MouseDownEvent {
-                        button: gpui::MouseButton::Left,
-                        position,
-                        modifiers,
-                        click_count: 1,
-                        first_mouse: false,
-                    }));
-                } else {
-                    emit(PlatformInput::MouseUp(gpui::MouseUpEvent {
-                        button: gpui::MouseButton::Left,
-                        position,
-                        modifiers,
-                        click_count: 1,
-                    }));
-                }
-            }
             _ if super::super::text_input::tvos_press_key(press_type).is_some() => {
                 let key = super::super::text_input::tvos_press_key(press_type).unwrap();
                 let keystroke = gpui::Keystroke::parse(key).unwrap();

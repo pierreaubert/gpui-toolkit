@@ -18,6 +18,7 @@ pub fn tvos_press_key(press_type: i64) -> Option<&'static str> {
         1 => Some("down"),
         2 => Some("left"),
         3 => Some("right"),
+        4 => Some("enter"),
         5 => Some("escape"),
         6 => Some("space"),
         _ => None,
@@ -179,7 +180,7 @@ mod tests {
         assert_eq!(tvos_press_key(1), Some("down"));
         assert_eq!(tvos_press_key(2), Some("left"));
         assert_eq!(tvos_press_key(3), Some("right"));
-        assert_eq!(tvos_press_key(4), None);
+        assert_eq!(tvos_press_key(4), Some("enter"));
         assert_eq!(tvos_press_key(5), Some("escape"));
         assert_eq!(tvos_press_key(6), Some("space"));
     }
