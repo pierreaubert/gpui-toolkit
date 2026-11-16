@@ -15,6 +15,7 @@ members = [
     "crates/gpui-keybinding",
     "crates/gpui-layout-expr",
     "crates/gpui-linux-foreign",
+    "crates/gpui-macos-platform-view",
     "crates/gpui-mesh",
     "crates/gpui-miniapp",
     "crates/gpui-pretext",

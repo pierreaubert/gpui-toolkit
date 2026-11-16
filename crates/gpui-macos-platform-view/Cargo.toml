@@ -1,0 +1,22 @@
+[package]
+name = "gpui-macos-platform-view"
+version = "0.11.1"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Embed AppKit NSViews next to GPUI content on macOS: ViewHandle, frame reporting, VerticalStack"
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+gpui = { workspace = true }
+serde_json = { workspace = true }

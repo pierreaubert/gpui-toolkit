@@ -19,6 +19,7 @@ The `gpui-toolkit` workspace contains several related crates for building GPUI a
 | `gpui-web-foreign` | Browser binding: page-owned canvas host shell (observers, rAF pump, listeners) plus DOM input tables; renderer provider needs the §16 fork change | [contract](docs/foreign-parent-editor-embedding.md) |
 | `gpui-win-foreign` | Windows binding: GPUI editors in host-owned HWNDs (VST3); WS_CHILD creation hook in the gpui_windows fork | [contract](docs/foreign-parent-editor-embedding.md) |
 | `gpui-linux-foreign` | Linux binding: X11 child windows (VST3/CLAP-x11) and Wayland subsurfaces (CLAP-wayland); creation hooks in the gpui_linux fork | [contract](docs/foreign-parent-editor-embedding.md) |
+| `gpui-macos-platform-view` | Embed AppKit NSViews next to GPUI content on macOS: ViewHandle, per-frame frame reporting for the host's follows-the-view loop, VerticalStack, JSON C ABI | [README](crates/gpui-macos-platform-view/README.md) |
 | `gpui-ios` | iOS platform backend (Metal rendering, touch, text) | [README](gpui-ios/README.md), [AGENTS.md](gpui-ios/AGENTS.md) |
 | `gpui-pretext` | High-performance text measurement and multiline layout (Rust port of chenglou/pretext) | [README](gpui-pretext/README.md) |
 | `gpui-profiler` | Lightweight allocation profiling utilities for interactive UI hot paths | [README](gpui-profiler/README.md) |

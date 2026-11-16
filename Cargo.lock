@@ -2866,6 +2866,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-macos-platform-view"
+version = "0.11.1"
+dependencies = [
+ "serde_json",
+ "sotf-gpui-toolkit-gpui",
+]
+
+[[package]]
 name = "gpui-mesh"
 version = "0.11.1"
 dependencies = [

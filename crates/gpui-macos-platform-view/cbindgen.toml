@@ -1,0 +1,4 @@
+language = "C"
+include_guard = "GPUI_MACOS_PLATFORM_VIEW_H"
+sys_includes = []
+documentation = true
