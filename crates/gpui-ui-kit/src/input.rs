@@ -157,8 +157,11 @@ pub struct Input {
     text_color: Option<Rgba>,
     border_color: Option<Rgba>,
     placeholder_color: Option<Rgba>,
-    /// Called when value is confirmed (Enter pressed)
+    /// Called when an edit commits a changed value (Enter or focus loss;
+    /// multiline inputs only commit on Enter)
     on_change: Option<Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
+    /// Called only when Enter submits the current value
+    on_submit: Option<Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
     /// Called when editing starts (click on input)
     on_edit_start: Option<Rc<dyn Fn(&mut Window, &mut App) + 'static>>,
     /// Called when editing ends (Enter = Some(value), Escape = None)
@@ -222,6 +225,7 @@ impl Input {
             border_color: None,
             placeholder_color: None,
             on_change: None,
+            on_submit: None,
             on_edit_start: None,
             on_edit_end: None,
             on_text_change: None,
@@ -394,9 +398,17 @@ impl Input {
         self
     }
 
-    /// Set change handler (called when input value is confirmed with Enter)
+    /// Set change handler, called when an edit commits a changed value
+    /// (Enter or focus loss; multiline inputs only commit on Enter).
     pub fn on_change(mut self, handler: impl Fn(&str, &mut Window, &mut App) + 'static) -> Self {
         self.on_change = Some(Rc::new(handler));
+        self
+    }
+
+    /// Set submit handler, called only when Enter submits the current value.
+    /// Unlike [`Input::on_change`], it also fires when the value is unchanged.
+    pub fn on_submit(mut self, handler: impl Fn(&str, &mut Window, &mut App) + 'static) -> Self {
+        self.on_submit = Some(Rc::new(handler));
         self
     }
 
@@ -564,15 +576,28 @@ impl InputEntity {
     }
 
     fn commit_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.finish_edit(window, cx, false);
+    }
+
+    fn submit_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.finish_edit(window, cx, true);
+    }
+
+    fn finish_edit(&mut self, window: &mut Window, cx: &mut Context<Self>, submit: bool) {
         let mut state = self.edit_state.borrow_mut();
         if !state.editing {
             return;
         }
 
+        let changed = state.text != state.initial_text;
         let text = state.finish_edit();
         drop(state);
 
+        if submit && let Some(ref handler) = self.props.on_submit {
+            handler(&text, window, cx);
+        }
         if !self.props.multiline
+            && changed
             && let Some(ref handler) = self.props.on_change
         {
             handler(&text, window, cx);
@@ -1021,9 +1046,17 @@ impl InputEntity {
                     state.insert_text("\n");
                     self.emit_text_change(&state.text, window, cx);
                 } else {
+                    let changed = state.text != state.initial_text;
+                    if changed {
+                        let submitted_text = state.text.clone();
+                        state.initial_text = submitted_text;
+                    }
                     let text = state.text.clone();
                     drop(state);
-                    if let Some(handler) = &self.props.on_change {
+                    if let Some(handler) = &self.props.on_submit {
+                        handler(&text, window, cx);
+                    }
+                    if changed && let Some(handler) = &self.props.on_change {
                         handler(&text, window, cx);
                     }
                 }
@@ -1031,7 +1064,7 @@ impl InputEntity {
             }
             "enter" => {
                 drop(state);
-                self.commit_edit(window, cx);
+                self.submit_edit(window, cx);
                 window.blur(cx);
             }
             "escape" => {
@@ -1149,6 +1182,8 @@ impl InputEntity {
         let mut state = self.edit_state.borrow_mut();
         if !state.editing {
             state.text = self.props.value.to_string();
+            let initial_text = state.text.clone();
+            state.initial_text = initial_text;
             state.editing = true;
             state.cursor = state.text.chars().count();
             state.clear_selection();

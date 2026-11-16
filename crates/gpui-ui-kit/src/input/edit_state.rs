@@ -30,6 +30,9 @@ pub struct EditState {
     pub(super) editing: bool,
     /// Current edit text
     pub(super) text: String,
+    /// Text at the start of this edit session (or the last multiline submit),
+    /// used to suppress no-op `on_change` commits.
+    pub(super) initial_text: String,
     /// Cursor position (character index)
     pub(super) cursor: usize,
     /// Selection anchor (where selection started). If Some, selection is from anchor to cursor.
@@ -53,6 +56,10 @@ impl std::fmt::Debug for EditState {
             .field("editing", &self.editing)
             .field("text", &"<redacted>")
             .field("text_char_count", &self.text.chars().count())
+            .field(
+                "initial_text_char_count",
+                &self.initial_text.chars().count(),
+            )
             .field("cursor", &self.cursor)
             .field("selection_anchor", &self.selection_anchor)
             .field("marked_range", &self.marked_range)
@@ -71,6 +78,7 @@ impl EditState {
         // A changed parent value can come from external undo, import, or reset.
         if previous != current && self.editing && self.text != current {
             current.clone_into(&mut self.text);
+            current.clone_into(&mut self.initial_text);
             self.cursor = self.cursor.min(self.text.chars().count());
             self.marked_range = None;
             self.clear_selection();
@@ -135,6 +143,7 @@ impl EditState {
     /// history are cleared immediately so a password is not retained in the
     /// thread-local widget state after focus leaves the field.
     pub(super) fn finish_edit(&mut self) -> String {
+        self.initial_text.clear();
         self.editing = false;
         self.marked_range = None;
         self.clear_selection();
@@ -147,6 +156,7 @@ impl EditState {
 
     /// Discard an uncommitted edit without retaining its raw text or history.
     pub(super) fn abandon_edit(&mut self) {
+        self.initial_text.clear();
         self.editing = false;
         self.marked_range = None;
         self.clear_selection();
@@ -161,6 +171,7 @@ impl EditState {
         Self {
             editing: true,
             text: value.to_string(),
+            initial_text: value.to_string(),
             cursor: len,
             selection_anchor: Some(0), // Select all by default
             marked_range: None,

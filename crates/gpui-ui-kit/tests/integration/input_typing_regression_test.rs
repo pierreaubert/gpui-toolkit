@@ -185,6 +185,42 @@ async fn test_input_debug_commits_live_text_on_blur(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+async fn test_input_unchanged_blur_does_not_call_on_change(cx: &mut TestAppContext) {
+    let value = Rc::new(RefCell::new("Hello World".to_string()));
+    let changes = Rc::new(RefCell::new(Vec::new()));
+
+    let window = cx.add_window({
+        let value = value.clone();
+        let changes = changes.clone();
+
+        move |_window, _cx| InputCommitOnBlurRegressionView { value, changes }
+    });
+
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+
+    let input_center = cx
+        .debug_bounds("input-blur-commit")
+        .map_or_else(|| point(px(150.), px(24.)), |bounds| bounds.center());
+    cx.simulate_mouse_down(input_center, MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_up(input_center, MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+
+    let blur_center = cx
+        .debug_bounds("blur-target")
+        .map_or_else(|| point(px(40.), px(80.)), |bounds| bounds.center());
+    cx.simulate_mouse_down(blur_center, MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_up(blur_center, MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+
+    assert!(
+        changes.borrow().is_empty(),
+        "Blurring an unchanged input must not call on_change; changes: {:?}",
+        changes.borrow().as_slice()
+    );
+}
+
+#[gpui::test]
 async fn test_input_debug_emacs_keybindings_edit_text(cx: &mut TestAppContext) {
     let live_text = Rc::new(RefCell::new(String::new()));
 

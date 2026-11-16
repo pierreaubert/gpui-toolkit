@@ -215,7 +215,7 @@ impl SearchBar {
             input = input.on_text_change(move |query, window, cx| handler(query, window, cx));
         }
         if let Some(handler) = on_submit {
-            input = input.on_change(move |query, window, cx| {
+            input = input.on_submit(move |query, window, cx| {
                 handler(query, window, cx);
             });
         }

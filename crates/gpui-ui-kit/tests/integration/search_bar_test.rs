@@ -9,8 +9,8 @@
 //! - Full configuration
 
 use gpui::{
-    Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,
-    VisualTestContext, Window, div, point, px,
+    Context, InteractiveElement, IntoElement, Modifiers, MouseButton, ParentElement, Render,
+    Styled, TestAppContext, VisualTestContext, Window, div, point, px,
 };
 use gpui_ui_kit::search_bar::{SearchBar, SearchBarSize};
 use std::cell::RefCell;
@@ -243,6 +243,90 @@ async fn test_search_bar_typing_changes_query(cx: &mut TestAppContext) {
         !changes.borrow().is_empty(),
         "SearchBar on_change should be called while typing"
     );
+}
+
+#[gpui::test]
+async fn test_search_bar_submit_only_fires_on_return(cx: &mut TestAppContext) {
+    struct SubmitView {
+        submitted: Rc<RefCell<Vec<String>>>,
+        query: Rc<RefCell<String>>,
+    }
+
+    impl Render for SubmitView {
+        fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+            let submitted = self.submitted.clone();
+            let query = self.query.clone();
+            let value = query.borrow().clone();
+            div()
+                .size_full()
+                .p_4()
+                .flex()
+                .flex_col()
+                .gap_4()
+                .child(
+                    div().w(px(300.)).child(
+                        SearchBar::new("submit-search")
+                            .value(value)
+                            .on_change(move |next, _window, _cx| {
+                                *query.borrow_mut() = next.to_string();
+                            })
+                            .on_submit(move |query, _window, _cx| {
+                                submitted.borrow_mut().push(query.to_string());
+                            }),
+                    ),
+                )
+                .child(
+                    div()
+                        .debug_selector(|| "search-outside".to_string())
+                        .w(px(160.))
+                        .h(px(32.))
+                        .child("Elsewhere"),
+                )
+        }
+    }
+
+    let submitted = Rc::new(RefCell::new(Vec::new()));
+    let window = cx.add_window({
+        let submitted = submitted.clone();
+        move |_window, _cx| SubmitView {
+            submitted,
+            query: Rc::new(RefCell::new(String::new())),
+        }
+    });
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+
+    let input_center = cx
+        .debug_bounds("submit-search")
+        .expect("search input must be laid out")
+        .center();
+    cx.simulate_mouse_down(input_center, MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_up(input_center, MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+    cx.simulate_input("query");
+    cx.run_until_parked();
+
+    let outside_center = cx
+        .debug_bounds("search-outside")
+        .expect("outside target must be laid out")
+        .center();
+    cx.simulate_mouse_down(outside_center, MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_up(outside_center, MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+    assert!(
+        submitted.borrow().is_empty(),
+        "on_submit fired without Return: {:?}",
+        submitted.borrow()
+    );
+
+    cx.simulate_mouse_down(input_center, MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_up(input_center, MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(submitted.borrow().as_slice(), ["query"]);
 }
 
 #[gpui::test]
