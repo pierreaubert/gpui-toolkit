@@ -17,6 +17,37 @@ and WASM.
 | [Python: write a native app](TUTORIAL.md#12-python-runtime-demo) | Set up the Python package, write the same counter, and run it through the native GPUI host. |
 | [Build with an agent](TUTORIAL.md#agent-workflow) | Discover the CLI contract, scaffold a project, look up real APIs, and verify the result. |
 
+### Five-minute quickstart
+
+From a clone of this repository (Rust stable plus your platform SDK; see the
+tutorial for the full prerequisites):
+
+```bash
+git clone https://github.com/pierreaubert/gpui-toolkit
+cd gpui-toolkit
+
+# Generate a native counter app one directory up, then run it:
+cargo run -p gpui-scaffolder -- my-app --output-dir ..
+cd ../my-app
+cargo run            # desktop window
+cargo build --release  # packaged executable under target/release/
+just ios-sim         # same app in the iOS Simulator
+just android-apk     # same app as a debug APK
+```
+
+Prefer Python? Generate a Python mobile/desktop project instead and edit
+`app/main_app.py`:
+
+```bash
+cargo run -p gpui-scaffolder -- my-app --output-dir .. --template python-mobile
+cd ../my-app
+just preflight       # validate the Python declarations on the desktop
+just ios-sim         # or: just android-apk
+```
+
+That is the whole loop — generate, run, package. Everything below and in the
+[tutorial](TUTORIAL.md) expands on it.
+
 The tutorial explains prerequisites, the difference between `gpui-toolkit`
 (the catalog and development CLI) and `gpui-scaffolder` (the project generator),
 and [what to distribute](TUTORIAL.md#build-and-distribute). Start with desktop;
