@@ -480,13 +480,13 @@ jobs:
           package: ${{ matrix.package }}
 
   public-msrv:
-    name: Public GPUI-free MSRV (Rust 1.89)
+    name: Public GPUI-free MSRV (Rust 1.98)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
       - name: Install declared minimum Rust toolchain
-        uses: dtolnay/rust-toolchain@1.89.0
+        uses: dtolnay/rust-toolchain@1.98.0
 
       - name: Check minimal public crates and all their targets
         run: cargo check -p gpui-design -p gpui-pretext -p gpui-profiler -p gpui-ui-kit-macros --all-targets
