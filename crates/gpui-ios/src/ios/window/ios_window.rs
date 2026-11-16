@@ -24,11 +24,9 @@ use gpui::{
     px, size,
 };
 use gpui_wgpu::WgpuRenderer;
-#[cfg(target_os = "ios")]
-use objc::runtime::NO;
 use objc::{
     class, msg_send,
-    runtime::{BOOL, Object, YES},
+    runtime::{BOOL, NO, Object, YES},
     sel, sel_impl,
 };
 use parking_lot::Mutex;
