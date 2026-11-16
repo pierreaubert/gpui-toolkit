@@ -82,7 +82,7 @@ alias tests := ntest
 [group('test')]
 ntest:
 	# GPUI's test selectors require debug assertions; use Cargo's test profile.
-	CARGO_NET_OFFLINE=true GIT_CONFIG_GLOBAL=/dev/null {{cargo}} nextest run --profile ci --no-fail-fast --workspace {{host_excludes}} {{features}}
+	GIT_CONFIG_GLOBAL=/dev/null {{cargo}} nextest run --profile ci --no-fail-fast --workspace {{host_excludes}} {{features}}
 
 [group('qa')]
 qa-miri:
