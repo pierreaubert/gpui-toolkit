@@ -31,6 +31,7 @@ mod accordion_test;
 mod breadcrumbs_test;
 mod context_menu_test;
 mod focus_mapping_test;
+mod focus_trap_test;
 mod menu_test;
 mod tabs_test;
 mod wizard_test;

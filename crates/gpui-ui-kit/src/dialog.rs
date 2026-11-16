@@ -368,36 +368,44 @@ impl Dialog {
             let trap_focus = self.trap_focus;
             let trap_targets = self.trap_targets;
             let dismiss_on_escape = self.dismiss_on_escape;
-            if on_close.is_some() || trap_focus {
+            if trap_focus {
+                // Focus trap: keep Tab inside the modal. This runs in the
+                // capture phase so it sees Tab before a focused descendant
+                // (e.g. a `Button`, which moves focus itself and stops
+                // propagation) can move focus out of the dialog.
+                let trap_handle = handle.clone();
+                let trap_targets = trap_targets.clone();
+                dialog = dialog.capture_key_down(
+                    move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
+                        if event.keystroke.key.as_str() != "tab" {
+                            return;
+                        }
+                        if !trap_targets.is_empty() {
+                            let current = trap_targets
+                                .iter()
+                                .position(|target| target.is_focused(window));
+                            if let Some(index) = FocusTrap::cycle_index(
+                                trap_targets.len(),
+                                current,
+                                event.keystroke.modifiers.shift,
+                            ) {
+                                window.focus(&trap_targets[index], cx);
+                            }
+                            cx.stop_propagation();
+                            return;
+                        }
+                        if trap_handle.is_focused(window) {
+                            cx.stop_propagation();
+                        }
+                    },
+                );
+            }
+            if on_close.is_some() {
                 let handler = on_close.clone();
                 let restore_focus_to = restore_focus_to.clone();
                 dialog = dialog.on_key_down(
                     move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
                         let key = event.keystroke.key.as_str();
-                        // Focus trap: keep Tab inside the modal. Inner fields
-                        // run their own handlers first (bubbling); cycling (or
-                        // stopping propagation when no targets are registered)
-                        // here only prevents focus escaping the dialog.
-                        if trap_focus && key == "tab" {
-                            if !trap_targets.is_empty() {
-                                let current = trap_targets
-                                    .iter()
-                                    .position(|target| target.is_focused(window));
-                                if let Some(index) = FocusTrap::cycle_index(
-                                    trap_targets.len(),
-                                    current,
-                                    event.keystroke.modifiers.shift,
-                                ) {
-                                    window.focus(&trap_targets[index], cx);
-                                }
-                                cx.stop_propagation();
-                                return;
-                            }
-                            if handle.is_focused(window) {
-                                cx.stop_propagation();
-                                return;
-                            }
-                        }
                         if !dismiss_on_escape {
                             return;
                         }

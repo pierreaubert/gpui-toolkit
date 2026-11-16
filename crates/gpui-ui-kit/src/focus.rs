@@ -566,8 +566,10 @@ impl RenderOnce for FocusTrap {
         let mut container = div().id(self.id).track_focus(&focus_handle).focusable();
 
         if !focus_targets.is_empty() {
+            // Capture phase: the trap must see Tab before a focused descendant
+            // (`Button` / `Input`) moves focus itself and stops propagation.
             container =
-                container.on_key_down(move |event: &KeyDownEvent, window: &mut Window, cx| {
+                container.capture_key_down(move |event: &KeyDownEvent, window: &mut Window, cx| {
                     if event.keystroke.key.as_str() != "tab" {
                         return;
                     }
