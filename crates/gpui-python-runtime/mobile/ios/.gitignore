@@ -1,0 +1,6 @@
+/app/*
+!/app/.gitkeep
+/lib/
+/vendor/
+/build/
+*.xcodeproj

@@ -9,19 +9,26 @@ from .commands import CommandResult, CommandStatus
 if TYPE_CHECKING:
     from .app import SessionContext
 
+TEMPLATES = ("default", "python-mobile")
+
 @dataclass(frozen=True)
 class ScaffoldOptions:
     name: str
     output_dir: str
     force: bool = False
     dry_run: bool = True
+    template: str = "default"
+    no_ios: bool = False
+    no_android: bool = False
     def __post_init__(self) -> None:
         path = PurePath(self.name)
         if not self.name.strip() or len(path.parts) != 1 or path.name in {".", ".."}:
             raise ValueError("app name must be a single directory name")
         if not self.output_dir.strip(): raise ValueError("output_dir is required")
+        if self.template not in TEMPLATES:
+            raise ValueError(f"unknown scaffold template: {self.template!r} (supported: {', '.join(TEMPLATES)})")
     def to_spec(self) -> dict[str, Any]:
-        return {"name": self.name, "output_dir": self.output_dir, "force": self.force, "dry_run": self.dry_run}
+        return {"name": self.name, "output_dir": self.output_dir, "force": self.force, "dry_run": self.dry_run, "template": self.template, "no_ios": self.no_ios, "no_android": self.no_android}
     def preview(self, context: "SessionContext", request_id: str) -> None:
         context.command(request_id, "scaffolder.preview", **self.to_spec())
     def write(self, context: "SessionContext", request_id: str) -> None:

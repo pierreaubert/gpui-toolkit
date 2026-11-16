@@ -38,6 +38,7 @@ use gpui::{
     self, AtlasKey, AtlasTile, Capslock, DispatchEventResult, GpuSpecs, Modifiers, PlatformAtlas,
     PlatformDisplay, PlatformInputHandler, PlatformWindow, PromptButton, PromptLevel,
     RequestFrameOptions, WindowBackgroundAppearance, WindowBounds, WindowControlArea,
+    WindowVisibility,
 };
 use gpui_foreign_parent::sync::SyncResizeDebounce;
 use gpui_wgpu::{GpuContext, WgpuRenderer, WgpuSurfaceConfig, wgpu};
@@ -643,54 +644,112 @@ impl AndroidWindow {
 
         let width = native_window.width();
         let height = native_window.height();
+        let raw_window = Self::raw_window(&native_window);
 
         let mut state = self.state.lock();
         let transparent = state.transparent;
 
-        // The local gpui_wgpu renderer does not expose a detachable surface API,
-        // so Android recreates the renderer whenever NativeActivity gives us a
-        // fresh ANativeWindow.
+        // GPUI captures `PlatformWindow::sprite_atlas()` once at window
+        // creation and paints glyphs into that atlas for the window's whole
+        // life, so the renderer (and its atlas) must survive surface
+        // recreation: recover the retained renderer onto the fresh
+        // ANativeWindow instead of building a new one with a new atlas.
+        // `recover` clears the atlas tiles, so the forced repaint below
+        // re-rasterizes text into the same atlas the renderer draws with.
+        let mut recovered = false;
         if let Some(mut renderer) = state.renderer.take() {
-            renderer.destroy();
+            match renderer.recover(&raw_window) {
+                Ok(()) => {
+                    renderer.update_drawable_size(gpui::size(
+                        gpui::DevicePixels(width),
+                        gpui::DevicePixels(height),
+                    ));
+                    state.renderer = Some(renderer);
+                    recovered = true;
+                    log::info!(
+                        "AndroidWindow::init_window — recovered renderer {}×{}",
+                        width,
+                        height
+                    );
+                }
+                Err(error) => {
+                    log::warn!(
+                        "AndroidWindow::init_window — renderer recovery failed, recreating: {error}"
+                    );
+                }
+            }
         }
-
-        let ctx = if state.gpu_context.borrow().is_some() {
-            Rc::clone(&state.gpu_context)
-        } else {
-            // Use the context from the platform; store it in our state too.
-            state.gpu_context = Rc::clone(&gpu_context);
-            gpu_context
-        };
-        let renderer = Self::create_renderer(&native_window, ctx, width, height, transparent)?;
-        state.renderer = Some(renderer);
-        log::info!(
-            "AndroidWindow::init_window — created renderer {}×{}",
-            width,
-            height
-        );
+        if state.renderer.is_none() {
+            let ctx = if state.gpu_context.borrow().is_some() {
+                Rc::clone(&state.gpu_context)
+            } else {
+                // Use the context from the platform; store it in our state too.
+                state.gpu_context = Rc::clone(&gpu_context);
+                gpu_context
+            };
+            let renderer = Self::create_renderer(&native_window, ctx, width, height, transparent)?;
+            state.renderer = Some(renderer);
+            log::info!(
+                "AndroidWindow::init_window — created renderer {}×{}",
+                width,
+                height
+            );
+        }
 
         // Store the new native window (drops previous one if any).
         state.native_window = Some(native_window);
         state.width = width;
         state.height = height;
         state.is_active = true;
+        let scale_factor = state.scale_factor;
         self.active
             .store(true, std::sync::atomic::Ordering::Relaxed);
+        drop(state);
+
+        if recovered {
+            // Recovery cleared the atlas tiles; force a full relayout and
+            // repaint through the resize path (as Windows does after device
+            // loss) so text re-rasterizes instead of replaying the view cache.
+            self.fire_resize_callback(width, height, scale_factor);
+        }
 
         Ok(())
+    }
+
+    /// Invoke the resize callback outside the state lock, then restore it.
+    fn fire_resize_callback(&self, width: i32, height: i32, scale: f32) {
+        let cb = {
+            let mut state = self.state.lock();
+            state.resize_callback.take()
+        };
+        if let Some(mut cb) = cb {
+            cb(
+                Size {
+                    width: DevicePixels(width),
+                    height: DevicePixels(height),
+                },
+                scale,
+            );
+            let mut state = self.state.lock();
+            if state.resize_callback.is_none() {
+                state.resize_callback = Some(cb);
+            }
+        }
     }
 
     /// Called when `APP_CMD_TERM_WINDOW` fires and the surface is about to be
     /// destroyed.
     ///
-    /// Drops the renderer and surface but keeps the window struct alive so
-    /// callbacks are preserved.
+    /// Releases the renderer's surface-bound resources but retains the
+    /// renderer itself — and with it the sprite atlas GPUI captured at
+    /// window creation — so `init_window` can recover it onto the next
+    /// surface. The window struct and callbacks also stay alive.
     pub fn term_window(&self) {
         let mut state = self.state.lock();
 
-        if let Some(mut renderer) = state.renderer.take() {
+        if let Some(renderer) = state.renderer.as_mut() {
             renderer.destroy();
-            log::info!("AndroidWindow::term_window — renderer destroyed");
+            log::info!("AndroidWindow::term_window — surface released, renderer retained");
         }
 
         // Release our reference on the native window.
@@ -759,24 +818,7 @@ impl AndroidWindow {
 
         // Fire the resize callback outside the lock — GPUI's callback may
         // call bounds() / scale_factor() which need the state lock.
-        let cb = {
-            let mut state = self.state.lock();
-            state.resize_callback.take()
-        };
-        if let Some(mut cb) = cb {
-            cb(
-                Size {
-                    width: DevicePixels(new_w),
-                    height: DevicePixels(new_h),
-                },
-                scale,
-            );
-            // Put callback back.
-            let mut state = self.state.lock();
-            if state.resize_callback.is_none() {
-                state.resize_callback = Some(cb);
-            }
-        }
+        self.fire_resize_callback(new_w, new_h, scale);
     }
 
     /// Host-driven resize for foreign-parent editors.
@@ -1187,7 +1229,8 @@ impl AndroidWindow {
 
     /// Whether the window currently has an active wgpu surface.
     pub fn has_surface(&self) -> bool {
-        self.state.lock().renderer.is_some()
+        let state = self.state.lock();
+        state.renderer.is_some() && state.native_window.is_some()
     }
 
     /// Returns the sprite atlas from the renderer, if available.
@@ -1420,7 +1463,7 @@ impl<I, R> MainThreadCallback<I, R> {
         }
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, Box<dyn FnMut(I) -> R>> {
+    fn lock(&self) -> parking_lot::MutexGuard<'_, Box<dyn FnMut(I) -> R>> {
         assert_eq!(
             std::thread::current().id(),
             main_thread_id(),
@@ -1515,6 +1558,14 @@ impl HasDisplayHandle for AndroidPlatformWindow {
 }
 
 impl PlatformWindow for AndroidPlatformWindow {
+    fn visibility(&self) -> WindowVisibility {
+        WindowVisibility::Visible
+    }
+
+    fn on_visibility_change(&self, _callback: Box<dyn FnMut(WindowVisibility)>) {}
+
+    fn on_display_changed(&self, _callback: Box<dyn FnMut()>) {}
+
     fn bounds(&self) -> gpui::Bounds<gpui::Pixels> {
         let state = self.window.state.lock();
         let w = state.width as f32 / state.scale_factor;
@@ -1806,7 +1857,7 @@ impl PlatformWindow for AndroidPlatformWindow {
             cb(RequestFrameOptions {
                 require_presentation: true,
                 force_render: text_dirty,
-                signal_at: None,
+                ..Default::default()
             });
         });
     }
@@ -2248,12 +2299,14 @@ impl PlatformWindow for AndroidPlatformWindow {
         self.window.on_close(move || send_callback.call_once());
     }
 
-    fn on_appearance_changed(&self, callback: Box<dyn FnMut()>) {
-        // Wire to system dark mode changes via Configuration.
-        let send_callback = MainThreadCallback::new(callback);
+    fn on_appearance_changed(&self, mut callback: Box<dyn FnMut()>) {
+        // Wire to system dark mode changes via Configuration. The wrapper
+        // carries single-argument callbacks, so adapt the nullary GPUI
+        // callback to a unit argument at construction.
+        let send_callback = MainThreadCallback::new(Box::new(move |()| callback()));
         self.window.on_appearance_changed(move |_appearance| {
             let mut cb = send_callback.lock();
-            cb();
+            cb(());
         });
     }
 
@@ -2266,10 +2319,6 @@ impl PlatformWindow for AndroidPlatformWindow {
         );
 
         self.window.draw(scene);
-    }
-
-    fn completed_frame(&self) {
-        // No-op — frame completion is handled by wgpu's present.
     }
 
     fn sprite_atlas(&self) -> Arc<dyn PlatformAtlas> {
@@ -2565,14 +2614,14 @@ impl FallbackAtlas {
 impl PlatformAtlas for FallbackAtlas {
     fn get_or_insert_with<'a>(
         &self,
-        key: &AtlasKey,
+        key: AtlasKey,
         build: &mut dyn FnMut() -> anyhow::Result<
             Option<(gpui::Size<gpui::DevicePixels>, std::borrow::Cow<'a, [u8]>)>,
         >,
     ) -> anyhow::Result<Option<AtlasTile>> {
         let mut state = self.state.lock();
 
-        if let Some(tile) = state.tiles.get(key) {
+        if let Some(tile) = state.tiles.get(&key) {
             return Ok(Some(tile.clone()));
         }
 
@@ -2597,7 +2646,7 @@ impl PlatformAtlas for FallbackAtlas {
                 },
             };
 
-            state.tiles.insert(key.clone(), tile.clone());
+            state.tiles.insert(key, tile.clone());
             Ok(Some(tile))
         } else {
             Ok(None)
@@ -2864,9 +2913,9 @@ mod tests {
     }
 
     #[test]
-    fn gpu_info_none_for_headless() {
+    fn gpu_specs_none_for_headless() {
         let w = AndroidWindow::headless(1080, 1920, 2.0);
-        assert!(w.gpu_info().is_none());
+        assert!(w.gpu_specs().is_none());
     }
 
     #[test]

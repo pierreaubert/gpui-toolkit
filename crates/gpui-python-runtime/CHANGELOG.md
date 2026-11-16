@@ -1,5 +1,18 @@
 # Unreleased
 
+## Added
+
+- Embedded mobile sessions: `App.serve` accepts injected host streams and
+  `App.run()` serves (instead of exec-ing a desktop host) under
+  `GPUI_TOOLKIT_EMBEDDED_SESSION=1`; `SessionContext` accepts an injected
+  output stream for JSON and binary frames. Desktop stdio behavior is
+  unchanged.
+- Rust `embedded` feature with `spawn_embedded_session` (in-process
+  CPython over OS pipes, same session-v1 protocol).
+- iOS/Android host crates under `mobile/` plus the `gpui_toolkit.mobile`
+  generator entry point (`python -m gpui_toolkit.mobile scaffold|preflight`)
+  and the maintained `mobile_signal_lab.py` example app.
+
 # 0.11.1
 
 ## Changed

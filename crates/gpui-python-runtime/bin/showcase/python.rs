@@ -571,11 +571,55 @@ struct MmapSessionConfig {
     token: String,
 }
 
-/// Supervised persistent Python child. Stdout and stderr are drained on helper
-/// threads, so neither a chatty application nor a stalled GPUI frame can block
-/// the child process on a full pipe.
+/// Who must be waited on when the session ends: a desktop child process
+/// (which can be killed after the shutdown deadline) or the in-process
+/// interpreter thread of an embedded session (which cannot be killed and
+/// is left detached if it ignores both `shutdown` and pipe close).
+enum SessionSupervision {
+    Child(std::process::Child),
+    #[cfg(feature = "embedded")]
+    Embedded(gpui_python_runtime::embedded::EmbeddedThread),
+}
+
+impl SessionSupervision {
+    /// Waits up to `timeout` for the interpreter to exit.
+    ///
+    /// Returns whether exit was observed. A child process that misses the
+    /// deadline is killed; an embedded thread is simply left running.
+    fn wait_exited(&mut self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        match self {
+            Self::Child(child) => loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => return true,
+                    Ok(None) if Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Ok(None) | Err(_) => {
+                        let _ = child.kill();
+                        return child.wait().is_ok() || child.try_wait().ok().flatten().is_some();
+                    }
+                }
+            },
+            #[cfg(feature = "embedded")]
+            Self::Embedded(thread) => loop {
+                if thread.try_join().is_some() {
+                    return true;
+                }
+                if Instant::now() >= deadline {
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            },
+        }
+    }
+}
+
+/// Supervised persistent Python session. Stdout and stderr are drained on
+/// helper threads, so neither a chatty application nor a stalled GPUI frame
+/// can block the interpreter on a full pipe.
 pub(super) struct PythonSession {
-    child: Arc<Mutex<std::process::Child>>,
+    supervision: Arc<Mutex<SessionSupervision>>,
     outbound: PythonOutboundWriter,
     messages: Receiver<InboundMessage>,
     inbound: Arc<InboundBudget>,
@@ -761,27 +805,13 @@ impl PythonSession {
     pub fn shutdown(&self) {
         self.wake.notify();
         send_shutdown_when_available(&self.outbound);
-        let child_exited = {
-            let mut child = self
-                .child
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            let deadline = Instant::now() + shutdown_timeout();
-            loop {
-                match child.try_wait() {
-                    Ok(Some(_)) => break true,
-                    Ok(None) if Instant::now() < deadline => {
-                        std::thread::sleep(Duration::from_millis(10));
-                    }
-                    Ok(None) | Err(_) => {
-                        let _ = child.kill();
-                        break child.wait().is_ok() || child.try_wait().ok().flatten().is_some();
-                    }
-                }
-            }
-        };
+        let exited = self
+            .supervision
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .wait_exited(shutdown_timeout());
         self.outbound.close();
-        if child_exited {
+        if exited {
             cleanup_resource_directory(&self.resource_directory);
         }
     }
@@ -792,7 +822,7 @@ impl Drop for PythonSession {
         self.wake.notify();
         // Unblock a reader thread waiting on the inbound byte budget.
         self.inbound.close();
-        let child = self.child.clone();
+        let supervision = self.supervision.clone();
         let outbound = self.outbound.clone();
         let resource_directory = self.resource_directory.clone();
         let timeout = shutdown_timeout();
@@ -801,18 +831,8 @@ impl Drop for PythonSession {
             .spawn(move || {
                 send_shutdown_when_available(&outbound);
                 outbound.close();
-                if let Ok(mut child) = child.lock() {
-                    let deadline = Instant::now() + timeout;
-                    while Instant::now() < deadline {
-                        match child.try_wait() {
-                            Ok(Some(_)) | Err(_) => break,
-                            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
-                        }
-                    }
-                    if child.try_wait().ok().flatten().is_none() {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                    }
+                if let Ok(mut supervision) = supervision.lock() {
+                    let _ = supervision.wait_exited(timeout);
                 }
                 outbound.close();
                 cleanup_resource_directory(&resource_directory);
@@ -909,22 +929,6 @@ fn spawn_python_session_for_script(
         .stderr
         .take()
         .ok_or("failed to capture Python stderr")?;
-    // Keep the render thread decoupled from a chatty child while bounding host
-    // memory. Backpressure is applied on this reader thread, never in GPUI.
-    let (tx, rx) = mpsc::sync_channel(MAX_INBOUND_MESSAGES);
-    let inbound = Arc::new(InboundBudget::new(MAX_INBOUND_BYTES));
-    let reader_budget = inbound.clone();
-    let wake = PythonSessionWake::new();
-    let reader_wake = wake.clone();
-    std::thread::spawn(move || {
-        read_python_messages_with_mmap(
-            BufReader::new(stdout),
-            tx,
-            reader_budget,
-            reader_wake,
-            Some(mmap_config),
-        );
-    });
     let stderr_lines = Arc::new(Mutex::new(StderrLog::default()));
     let stderr_sink = stderr_lines.clone();
     std::thread::spawn(move || {
@@ -942,16 +946,79 @@ fn spawn_python_session_for_script(
             stderr_sink.lock().expect("stderr lock").push(diagnostic);
         }
     });
-    Ok(PythonSession {
-        child: Arc::new(Mutex::new(child)),
+    Ok(assemble_python_session(
+        BufReader::new(stdout),
+        outbound,
+        SessionSupervision::Child(child),
+        Some(mmap_config),
+        Some(resource_directory),
+        stderr_lines,
+    ))
+}
+
+/// Builds the supervised session around one transport: a desktop child's
+/// stdio pipes or the OS pipes of an embedded interpreter thread. Both
+/// feed the same bounded reader, outbound writer queue, and wire parser.
+fn assemble_python_session<R: BufRead + Send + 'static>(
+    stdout: R,
+    outbound: PythonOutboundWriter,
+    supervision: SessionSupervision,
+    mmap_config: Option<MmapSessionConfig>,
+    resource_directory: Option<tempfile::TempDir>,
+    stderr_lines: Arc<Mutex<StderrLog>>,
+) -> PythonSession {
+    // Keep the render thread decoupled from a chatty interpreter while
+    // bounding host memory. Backpressure is applied on this reader thread,
+    // never in GPUI.
+    let (tx, rx) = mpsc::sync_channel(MAX_INBOUND_MESSAGES);
+    let inbound = Arc::new(InboundBudget::new(MAX_INBOUND_BYTES));
+    let reader_budget = inbound.clone();
+    let wake = PythonSessionWake::new();
+    let reader_wake = wake.clone();
+    std::thread::spawn(move || {
+        read_python_messages_with_mmap(stdout, tx, reader_budget, reader_wake, mmap_config);
+    });
+    PythonSession {
+        supervision: Arc::new(Mutex::new(supervision)),
         outbound,
         messages: rx,
         inbound,
         pending: Arc::new(Mutex::new(VecDeque::new())),
         stderr: stderr_lines,
         wake,
-        resource_directory: Arc::new(Mutex::new(Some(resource_directory))),
-    })
+        resource_directory: Arc::new(Mutex::new(resource_directory)),
+    }
+}
+
+/// Host capabilities for an embedded session: everything the desktop host
+/// advertises except mmap resource files, which need a shared filesystem
+/// directory. Datasets and arrays fall back to bounded binary pipe frames.
+#[cfg(feature = "embedded")]
+fn embedded_capabilities() -> Vec<String> {
+    DEFAULT_HOST_CAPABILITIES
+        .iter()
+        .filter(|capability| **capability != "resource_mmap_frames")
+        .map(|capability| (*capability).into())
+        .collect()
+}
+
+/// Starts the app in the embedded interpreter (mobile hosts) and wraps its
+/// pipes in the same supervised session as the desktop child process.
+#[cfg(feature = "embedded")]
+pub(super) fn spawn_embedded_python_session(
+    script: PathBuf,
+    python_paths: Vec<PathBuf>,
+) -> Result<PythonSession, Box<dyn Error + Send + Sync>> {
+    let embedded = gpui_python_runtime::embedded::spawn_embedded_session(&script, &python_paths)?;
+    let (reader, writer, thread) = embedded.into_transport();
+    Ok(assemble_python_session(
+        reader,
+        PythonOutboundWriter::with_writer(writer),
+        SessionSupervision::Embedded(thread),
+        None,
+        None,
+        Arc::new(Mutex::new(StderrLog::default())),
+    ))
 }
 
 #[cfg(test)]
@@ -1267,14 +1334,32 @@ fn read_python_messages_with_mmap<R: BufRead>(
 
 pub(super) fn load_python_session_blocking()
 -> Result<(PythonAppIr, PythonSession), Box<dyn Error + Send + Sync>> {
-    let session = spawn_python_session()?;
+    let capabilities = DEFAULT_HOST_CAPABILITIES
+        .iter()
+        .map(|value| (*value).into())
+        .collect();
+    complete_python_session_handshake(spawn_python_session()?, capabilities)
+}
+
+/// Loads the app through the embedded interpreter (mobile hosts) using the
+/// same initialize/ready/snapshot handshake as the desktop child process.
+#[cfg(feature = "embedded")]
+pub(super) fn load_embedded_python_session_blocking(
+    script: PathBuf,
+    python_paths: Vec<PathBuf>,
+) -> Result<(PythonAppIr, PythonSession), Box<dyn Error + Send + Sync>> {
+    let session = spawn_embedded_python_session(script, python_paths)?;
+    complete_python_session_handshake(session, embedded_capabilities())
+}
+
+fn complete_python_session_handshake(
+    session: PythonSession,
+    capabilities: Vec<String>,
+) -> Result<(PythonAppIr, PythonSession), Box<dyn Error + Send + Sync>> {
     session.send(&HostMessage::Initialize(
         gpui_python_runtime::session::Initialize {
             session_version: gpui_python_runtime::session::PYTHON_APP_SESSION_VERSION,
-            capabilities: DEFAULT_HOST_CAPABILITIES
-                .iter()
-                .map(|value| (*value).into())
-                .collect(),
+            capabilities: capabilities.clone(),
             platform: std::env::consts::OS.into(),
             theme: "system".into(),
             window: gpui_python_runtime::session::WindowMetadata {
@@ -1286,13 +1371,7 @@ pub(super) fn load_python_session_blocking()
     ))?;
     match session.recv()? {
         PythonMessage::Ready(ready) => {
-            gpui_python_runtime::session::SessionState::new(
-                DEFAULT_HOST_CAPABILITIES
-                    .iter()
-                    .map(|capability| (*capability).into())
-                    .collect(),
-            )
-            .validate_ready(&ready)?;
+            gpui_python_runtime::session::SessionState::new(capabilities).validate_ready(&ready)?;
         }
         other => return Err(format!("expected Python session ready, received {other:?}").into()),
     }
@@ -1596,6 +1675,39 @@ for line in sys.stdin:
         );
         let _ = std::fs::remove_file(script);
         let _ = std::fs::remove_file(marker);
+    }
+
+    #[cfg(feature = "embedded")]
+    #[test]
+    fn embedded_session_loads_app_through_host_handshake() {
+        let script = env::temp_dir().join(format!(
+            "gpui-toolkit-python-embedded-{}.py",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&script);
+        std::fs::write(
+            &script,
+            r#"from gpui_toolkit.app import App, section
+
+
+def build_app():
+    return App(
+        title="Embedded Host Test",
+        sections=[section("main", "Main", {"kind": "text", "id": "label", "text": "hi"})],
+    )
+"#,
+        )
+        .expect("write embedded probe script");
+
+        let python_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python");
+        let (app_ir, session) =
+            load_embedded_python_session_blocking(script.clone(), vec![python_root])
+                .expect("embedded session handshake loads the app");
+        assert_eq!(app_ir.title, "Embedded Host Test");
+
+        session.shutdown();
+        drop(session);
+        let _ = std::fs::remove_file(script);
     }
 
     #[test]

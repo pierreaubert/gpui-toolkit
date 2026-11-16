@@ -1,0 +1,8 @@
+/vendor/
+/gradle/app/src/main/assets/python/
+/gradle/app/src/main/assets/app/
+/gradle/app/src/main/assets/gpui_bundle_manifest.txt
+/gradle/app/src/main/jniLibs/
+/gradle/app/build/
+/gradle/build/
+/gradle/.gradle/

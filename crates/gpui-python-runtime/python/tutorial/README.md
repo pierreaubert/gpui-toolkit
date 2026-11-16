@@ -126,6 +126,35 @@ covered by `test_examples.py`:
 Replace the data-builder functions with measurement or application data when
 adapting a demo; the chart declarations stay unchanged.
 
+## 7. Build the same app for mobile
+
+Mobile uses the same `build_app()` contract, session protocol, widgets, and
+patch loop, but it needs a GPUI toolkit source checkout and the platform SDKs;
+the desktop wheel by itself is not a mobile packager. Start with the
+touch-sized Signal Lab example:
+
+```bash
+# From the gpui-toolkit checkout root:
+PYTHONPATH=crates/gpui-python-runtime/python \
+  python3 crates/gpui-python-runtime/python/examples/mobile_signal_lab.py
+
+cargo run -p gpui-scaffolder -- signal-lab --output-dir .. --template python-mobile
+cp crates/gpui-python-runtime/python/examples/mobile_signal_lab.py \
+  ../signal-lab/app/main_app.py
+cd ../signal-lab
+just preflight
+just ios-sim        # iOS Simulator
+just android-apk    # Android debug APK
+```
+
+Replace `app/main_app.py` with your own app as it grows. Keep mobile apps
+inside the tested subset: touch-friendly controls, datasets, charts, and
+patches; pure-Python modules copied into `app/`; no subprocesses, downloaded
+code, compiled third-party wheels, or assumptions about a writable current
+directory. The [mobile host guide](../../mobile/README.md) describes bundle
+layout and staging, while the [store checklist](../../mobile/STORE.md) covers
+signing, privacy, versioning, and current limitations.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |

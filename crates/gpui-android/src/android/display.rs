@@ -22,6 +22,7 @@ use gpui::{self, DisplayId, PlatformDisplay};
 use ndk::native_window::NativeWindow;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use ndk::asset::AssetManager;
 use ndk::configuration::Configuration;
@@ -229,6 +230,11 @@ impl fmt::Debug for AndroidDisplay {
 // ── impl PlatformDisplay ──────────────────────────────────────────────────────
 
 impl PlatformDisplay for AndroidDisplay {
+    fn refresh_interval(&self) -> Option<Duration> {
+        // The NDK surface this backend uses does not expose a refresh rate.
+        None
+    }
+
     fn id(&self) -> DisplayId {
         DisplayId::new(self.id)
     }

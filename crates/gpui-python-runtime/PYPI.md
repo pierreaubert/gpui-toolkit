@@ -254,6 +254,7 @@ Full apps in the repository, each runnable against the installed wheel:
 | [`surface3d_demo.py`](https://github.com/pierreaubert/gpui-toolkit/blob/main/crates/gpui-python-runtime/python/examples/surface3d_demo.py) | 3D surface modes with orbit camera |
 | [`games_demo.py`](https://github.com/pierreaubert/gpui-toolkit/blob/main/crates/gpui-python-runtime/python/examples/games_demo.py) | Scene2D boards: Sudoku, Chess, Tetris, Othello, Queens, Zip |
 | [`showcase.py`](https://github.com/pierreaubert/gpui-toolkit/blob/main/crates/gpui-python-runtime/python/showcase.py) | The full component catalog, background jobs, live patching |
+| [`mobile_signal_lab.py`](https://github.com/pierreaubert/gpui-toolkit/blob/main/crates/gpui-python-runtime/python/examples/mobile_signal_lab.py) | Touch-sized controls and a live dataset chart; use it as `main_app.py` in a `python-mobile` scaffold to build iOS or Android |
 
 ## Documentation
 

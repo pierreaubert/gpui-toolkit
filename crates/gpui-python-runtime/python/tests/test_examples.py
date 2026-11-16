@@ -93,6 +93,7 @@ class PythonExampleTests(unittest.TestCase):
         for name in (
             "chart_gallery.py",
             "mesh_plot_demo.py",
+            "mobile_signal_lab.py",
             "mesh_plot_revolve_demo.py",
             "mesh_plot_resource_demo.py",
             "spinorama_demo.py",
@@ -109,6 +110,7 @@ class PythonExampleTests(unittest.TestCase):
         for name in (
             "chart_gallery.py",
             "mesh_plot_demo.py",
+            "mobile_signal_lab.py",
             "mesh_plot_revolve_demo.py",
             "mesh_plot_resource_demo.py",
             "spinorama_demo.py",

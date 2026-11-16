@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import math
 import os
@@ -135,6 +136,11 @@ class App:
         if os.environ.get("GPUI_TOOLKIT_SESSION") == "1":
             self.serve()
             return
+        if os.environ.get("GPUI_TOOLKIT_EMBEDDED_SESSION") == "1":
+            # An embedded interpreter has no host executable to exec; the
+            # native host owns the session streams (see App.serve).
+            self.serve()
+            return
 
         host = _host_binary()
         if host is None:
@@ -188,9 +194,19 @@ class App:
     def on_profiler_sample(self, sample: Any, context: "SessionContext") -> Any:
         """Override to receive a bounded-rate native allocation sample."""
 
-    def serve(self) -> None:
-        """Run the persistent stdio session used by the native host."""
-        initialize = _read_message()
+    def serve(
+        self,
+        *,
+        input_stream: io.IOBase | None = None,
+        output_stream: io.IOBase | None = None,
+    ) -> None:
+        """Run the persistent session used by the native host.
+
+        Streams default to ``sys.stdin``/``sys.stdout`` (desktop child-process
+        transport). Embedded hosts pass host-owned pipe streams instead; the
+        wire protocol is identical either way.
+        """
+        initialize = _read_message() if input_stream is None else _read_message(input_stream)
         if initialize.get("type") != "initialize":
             raise RuntimeError("expected initialize message from GPUI host")
         if initialize.get("session_version") != PYTHON_APP_SESSION_VERSION:
@@ -202,7 +218,7 @@ class App:
         negotiated_capabilities = _negotiate_capabilities(
             initialize.get("capabilities", []), self.required_capabilities,
         )
-        context = SessionContext(capabilities=negotiated_capabilities)
+        context = SessionContext(capabilities=negotiated_capabilities, output=output_stream)
         context.send({
             "type": "ready",
             "session_version": PYTHON_APP_SESSION_VERSION,
@@ -244,7 +260,8 @@ class App:
                     future.add_done_callback(lambda _future, held=slot: held.release())
                 return future
 
-            for message in _messages(context):
+            incoming = _messages(context) if input_stream is None else _messages(context, input_stream)
+            for message in incoming:
                 message_type = message.get("type")
                 if message_type == "shutdown":
                     if self.serial_reducer:
@@ -467,7 +484,13 @@ class SessionContext:
         capabilities: Sequence[str] = (),
         resource_directory: str | os.PathLike[str] | None = None,
         resource_token: str | None = None,
+        output: io.IOBase | None = None,
     ) -> None:
+        if output is not None and not (
+            hasattr(output, "write") and hasattr(output, "flush")
+        ):
+            raise TypeError("session output must be a writable stream with flush()")
+        self._output = output
         if (
             not isinstance(max_outstanding_resource_bytes, int)
             or isinstance(max_outstanding_resource_bytes, bool)
@@ -605,7 +628,25 @@ class SessionContext:
         return encoded
 
     def _write_locked(self, message: dict[str, Any]) -> None:
-        print(self._encode_message(message), flush=True)
+        encoded = self._encode_message(message)
+        if self._output is None:
+            print(encoded, flush=True)
+            return
+        if isinstance(self._output, (io.RawIOBase, io.BufferedIOBase)):
+            self._output.write(encoded.encode("utf-8") + b"\n")
+        else:
+            self._output.write(encoded + "\n")
+        self._output.flush()
+
+    def _binary_stream(self) -> io.BufferedIOBase | io.RawIOBase | None:
+        """Flush pending text output and return the binary frame stream."""
+        if self._output is None:
+            sys.stdout.flush()
+            return getattr(sys.stdout, "buffer", None)
+        self._output.flush()
+        if isinstance(self._output, (io.RawIOBase, io.BufferedIOBase)):
+            return self._output
+        return getattr(self._output, "buffer", None)
 
     def resource_frame(self, header: Mapping[str, Any], payload: bytes) -> None:
         """Write one atomic JSON-header/raw-payload frame to the native host."""
@@ -614,8 +655,7 @@ class SessionContext:
         if len(payload) > 256 * 1024:
             raise ValueError("audio resource frame exceeds 256 KiB")
         with self._publication_lock, self._lock:
-            sys.stdout.flush()
-            stream = getattr(sys.stdout, "buffer", None)
+            stream = self._binary_stream()
             if stream is None:
                 raise RuntimeError("binary resource frames require a binary stdout stream")
             stream.write(encoded)
@@ -647,8 +687,7 @@ class SessionContext:
                     "mesh frame would exceed max_outstanding_resource_bytes: "
                     f"{projected} > {self._max_outstanding_resource_bytes}"
                 )
-            sys.stdout.flush()
-            stream = getattr(sys.stdout, "buffer", None)
+            stream = self._binary_stream()
             if stream is None:
                 raise RuntimeError("binary mesh frames require a binary stdout stream")
             stream.write(encoded)
@@ -697,8 +736,7 @@ class SessionContext:
                     "resource frame would exceed max_outstanding_resource_bytes: "
                     f"{projected} > {self._max_outstanding_resource_bytes}"
                 )
-            sys.stdout.flush()
-            stream = getattr(sys.stdout, "buffer", None)
+            stream = self._binary_stream()
             if stream is None:
                 raise RuntimeError("binary dataset frames require binary stdout stream")
             stream.write(encoded)
@@ -1354,8 +1392,8 @@ def _validate_python_runtime() -> None:
         )
 
 
-def _read_message() -> dict[str, Any]:
-    line = sys.stdin.readline()
+def _read_message(stream: io.IOBase | None = None) -> dict[str, Any]:
+    line = (sys.stdin if stream is None else stream).readline()
     if not line:
         raise RuntimeError("GPUI host closed the session")
     value = json.loads(line)
@@ -1364,8 +1402,8 @@ def _read_message() -> dict[str, Any]:
     return value
 
 
-def _messages(context: SessionContext | None = None) -> Any:
-    for line in sys.stdin:
+def _messages(context: SessionContext | None = None, stream: io.IOBase | None = None) -> Any:
+    for line in sys.stdin if stream is None else stream:
         if line.strip():
             try:
                 value = json.loads(line)

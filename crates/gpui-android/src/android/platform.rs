@@ -35,9 +35,9 @@
 use anyhow::Result;
 use futures::channel::oneshot;
 use gpui::{
-    Action, AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle, ForegroundExecutor,
-    KeybindingKeystroke, Keymap, Keystroke, Menu, MenuItem, PathPromptOptions, Platform,
-    PlatformDisplay, PlatformKeyboardLayout, PlatformKeyboardMapper, PlatformTextSystem,
+    Action, ActivityGuard, AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle,
+    ForegroundExecutor, KeybindingKeystroke, Keymap, Keystroke, Menu, MenuItem, PathPromptOptions,
+    Platform, PlatformDisplay, PlatformKeyboardLayout, PlatformKeyboardMapper, PlatformTextSystem,
     PlatformWindow, Task, ThermalState, WindowAppearance, WindowParams,
 };
 use gpui_wgpu::CosmicTextSystem;
@@ -45,6 +45,7 @@ use parking_lot::Mutex;
 use std::{
     cell::RefCell,
     collections::HashMap,
+    ffi::OsString,
     io::Read,
     path::{Path, PathBuf},
     rc::Rc,
@@ -69,7 +70,7 @@ type PlatformCallbackId = u64;
 struct PlatformCallbacks {
     finish_launching: Option<Box<dyn FnOnce()>>,
     on_init_window: Option<Box<dyn FnOnce(Arc<AndroidWindow>)>>,
-    quit: Option<Box<dyn FnMut()>>,
+    quit: Option<Box<dyn FnMut() -> bool>>,
     reopen: Option<Box<dyn FnMut()>>,
     open_urls: Option<Box<dyn FnMut(Vec<String>)>>,
     keyboard_layout: Option<Box<dyn FnMut()>>,
@@ -756,7 +757,7 @@ impl AndroidPlatform {
     fn invoke_quit_callback(&self) {
         self.with_callbacks(|callbacks| {
             if let Some(callback) = callbacks.quit.as_mut() {
-                callback();
+                let _ = callback();
             }
         });
     }
@@ -1308,12 +1309,15 @@ impl AndroidPlatform {
     // ── callback registration ─────────────────────────────────────────────────
 
     /// Register a callback invoked when the app is about to quit.
-    pub fn on_quit<F>(&self, cb: F)
+    pub fn on_quit<F>(&self, mut cb: F)
     where
         F: FnMut() + 'static,
     {
         self.with_callbacks(|callbacks| {
-            callbacks.quit = Some(Box::new(cb));
+            callbacks.quit = Some(Box::new(move || {
+                cb();
+                true
+            }));
         });
     }
 
@@ -1416,7 +1420,7 @@ impl Platform for AndroidPlatform {
         AndroidPlatform::quit(self);
     }
 
-    fn restart(&self, _binary_path: Option<PathBuf>) {
+    fn restart(&self, _binary_path: Option<PathBuf>, _arguments: Vec<OsString>) {
         log::warn!("AndroidPlatform::restart — not supported on Android");
     }
 
@@ -1598,7 +1602,7 @@ impl Platform for AndroidPlatform {
         }
     }
 
-    fn on_quit(&self, callback: Box<dyn FnMut()>) {
+    fn on_quit(&self, callback: Box<dyn FnMut() -> bool>) {
         self.with_callbacks(|callbacks| {
             callbacks.quit = Some(callback);
         });
@@ -1608,6 +1612,18 @@ impl Platform for AndroidPlatform {
         self.with_callbacks(|callbacks| {
             callbacks.reopen = Some(callback);
         });
+    }
+
+    fn on_displays_changed(&self, _callback: Box<dyn FnMut()>) {}
+
+    fn on_system_sleep(&self, _callback: Box<dyn FnMut()>) {}
+
+    fn on_system_wake(&self, _callback: Box<dyn FnMut()>) {}
+
+    fn prevent_idle_sleep(&self, reason: &str) -> Task<Result<ActivityGuard>> {
+        Task::ready(Err(anyhow::anyhow!(
+            "Idle sleep prevention for {reason:?} is not supported on Android"
+        )))
     }
 
     fn set_menus(&self, _menus: Vec<Menu>, _keymap: &Keymap) {
@@ -1810,8 +1826,8 @@ impl Platform for SharedPlatform {
     fn quit(&self) {
         <AndroidPlatform as Platform>::quit(&self.0)
     }
-    fn restart(&self, binary_path: Option<PathBuf>) {
-        <AndroidPlatform as Platform>::restart(&self.0, binary_path)
+    fn restart(&self, binary_path: Option<PathBuf>, arguments: Vec<OsString>) {
+        <AndroidPlatform as Platform>::restart(&self.0, binary_path, arguments)
     }
     fn activate(&self, ignoring_other_apps: bool) {
         <AndroidPlatform as Platform>::activate(&self.0, ignoring_other_apps)
@@ -1875,11 +1891,23 @@ impl Platform for SharedPlatform {
     fn open_with_system(&self, path: &Path) {
         <AndroidPlatform as Platform>::open_with_system(&self.0, path)
     }
-    fn on_quit(&self, callback: Box<dyn FnMut()>) {
+    fn on_quit(&self, callback: Box<dyn FnMut() -> bool>) {
         <AndroidPlatform as Platform>::on_quit(&self.0, callback)
     }
     fn on_reopen(&self, callback: Box<dyn FnMut()>) {
         <AndroidPlatform as Platform>::on_reopen(&self.0, callback)
+    }
+    fn on_displays_changed(&self, callback: Box<dyn FnMut()>) {
+        <AndroidPlatform as Platform>::on_displays_changed(&self.0, callback)
+    }
+    fn on_system_sleep(&self, callback: Box<dyn FnMut()>) {
+        <AndroidPlatform as Platform>::on_system_sleep(&self.0, callback)
+    }
+    fn on_system_wake(&self, callback: Box<dyn FnMut()>) {
+        <AndroidPlatform as Platform>::on_system_wake(&self.0, callback)
+    }
+    fn prevent_idle_sleep(&self, reason: &str) -> Task<Result<ActivityGuard>> {
+        <AndroidPlatform as Platform>::prevent_idle_sleep(&self.0, reason)
     }
     fn set_menus(&self, menus: Vec<Menu>, keymap: &Keymap) {
         <AndroidPlatform as Platform>::set_menus(&self.0, menus, keymap)
@@ -1978,7 +2006,7 @@ mod tests {
     fn off_thread_drop_defers_callback_registry_cleanup_to_owner() {
         let platform = Arc::new(headless());
         let callback_id = platform.callback_id;
-        let dispatcher = platform.foreground_dispatcher();
+        let dispatcher = platform.dispatcher();
         assert!(PLATFORM_CALLBACKS.with(|callbacks| callbacks.borrow().contains_key(&callback_id)));
 
         std::thread::spawn(move || drop(platform)).join().unwrap();
