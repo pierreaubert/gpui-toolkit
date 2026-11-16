@@ -90,6 +90,8 @@ pub(super) fn init_metal_renderer(
     // a surface from the UIView's raw window handle, construct the
     // WgpuContext with that instance, and pre-populate the
     // shared GpuContext so WgpuRenderer::new() reuses it.
+    // GPUI calls `set_background_appearance` right after window creation,
+    // which reconfigures the surface alpha mode via `update_transparency`.
     let config = WgpuSurfaceConfig {
         size: pixel_size,
         transparent: false,

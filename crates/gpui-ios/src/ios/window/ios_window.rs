@@ -86,6 +86,9 @@ pub(crate) struct IosWindow {
     pub(super) bounds: Cell<Bounds<Pixels>>,
     /// Scale factor
     pub(super) scale_factor: Cell<f32>,
+    /// Whether the window surface composites with alpha (transparent
+    /// background appearance); drives layer opacity and surface alpha mode.
+    pub(super) transparent: Cell<bool>,
     /// Input handler for text input
     pub(super) input_handler: RefCell<Option<PlatformInputHandler>>,
     /// Callback for frame requests
@@ -353,6 +356,7 @@ impl IosWindow {
                 text_input_view,
                 bounds: Cell::new(initial_bounds),
                 scale_factor: Cell::new(initial_metrics.scale_factor),
+                transparent: Cell::new(false),
                 input_handler: RefCell::new(None),
                 request_frame_callback: RefCell::new(None),
                 forced_frame_pending: Cell::new(false),
@@ -1216,11 +1220,33 @@ impl PlatformWindow for IosWindow {
     }
 
     fn background_appearance(&self) -> WindowBackgroundAppearance {
-        WindowBackgroundAppearance::Opaque
+        if self.transparent.get() {
+            WindowBackgroundAppearance::Transparent
+        } else {
+            WindowBackgroundAppearance::Opaque
+        }
     }
 
-    fn set_background_appearance(&self, _background_appearance: WindowBackgroundAppearance) {
-        // Could adjust view background color
+    fn set_background_appearance(&self, background_appearance: WindowBackgroundAppearance) {
+        let transparent = matches!(
+            background_appearance,
+            WindowBackgroundAppearance::Transparent | WindowBackgroundAppearance::Blurred
+        );
+        self.transparent.set(transparent);
+        if !self.view.is_null() {
+            // SAFETY: `view` is this window's live Metal view (or null,
+            // checked above); `layer`/`setOpaque:` are standard UIKit/Core
+            // Animation messages with no retained out-params.
+            unsafe {
+                let layer: *mut Object = msg_send![self.view, layer];
+                let opaque = if transparent { NO } else { YES };
+                let _: () = msg_send![layer, setOpaque: opaque];
+                let _: () = msg_send![self.view, setOpaque: opaque];
+            }
+        }
+        if let Some(renderer) = self.renderer.lock().as_mut() {
+            renderer.update_transparency(transparent);
+        }
     }
 
     fn minimize(&self) {

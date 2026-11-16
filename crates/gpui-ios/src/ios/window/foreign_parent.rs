@@ -250,6 +250,7 @@ impl IosWindow {
                     size: size(px(info.width), px(info.height)),
                 }),
                 scale_factor: Cell::new(info.scale),
+                transparent: Cell::new(false),
                 input_handler: RefCell::new(None),
                 request_frame_callback: RefCell::new(None),
                 forced_frame_pending: Cell::new(false),
