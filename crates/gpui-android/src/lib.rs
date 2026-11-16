@@ -23,6 +23,9 @@ pub fn current_platform(headless: bool) -> std::rc::Rc<dyn gpui::Platform> {
     android::current_platform(headless)
 }
 
+#[cfg(target_os = "android")]
+pub use android::jni::run_android_app;
+
 #[cfg(not(target_os = "android"))]
 pub fn current_platform(_headless: bool) -> std::rc::Rc<dyn gpui::Platform> {
     panic!("gpui-android can only create a platform on Android")

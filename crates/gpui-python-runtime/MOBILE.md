@@ -299,3 +299,68 @@ Verification exposed a distinct pre-existing limitation, filed as #12:
 after the cached-app freezer freezes the process, Android recreates the
 activity, `android_main` runs again in the same process, and constructing
 a second GPUI `App` panics. Warm resume cycles are unaffected.
+
+## Follow-up — Android activity recreation (#12, fixed 2026-11-16)
+
+`android_main` must return on Destroy (`NativeActivity` finishes the
+destroy only then), and `android-activity` only allows `poll_events` on
+the glue thread owning the generation's `ALooper`, so the GPUI
+platform/`App` cannot outlive its activity generation. Each generation
+now runs its own platform and `App` on its own glue thread
+(`gpui_android::run_android_app`): the platform slot is replaceable, the
+dispatcher acquires/releases its looper so it can be dropped after the
+thread exits, and window callbacks pin their owning thread per callback
+instead of process-wide. State preservation lives one layer down: the
+embedded Python session is parked process-wide when the host entity
+drops, and the next host generation reattaches by sending a second
+`initialize`, which Python answers with `ready` plus a fresh snapshot
+of the preserved app state (without re-running `on_session_ready`).
+Also fixed along the way: the event loop no longer draws a first frame
+after `TerminateWindow` (it panicked on the released surface's renderer
+and killed the GPUI thread during HOME/background).
+
+Verified on GPUI_API_36: warm HOME/resume keeps text and input; two
+consecutive font-scale recreations in the same process keep the
+Signal Lab click count (3 → tap → 4) with no panics; a cached-app
+freezer cycle (`cmd activity freeze`, relaunch) resumes with state and
+input intact (4 → 5).
+
+## Remaining-backlog scope contract — Draft
+
+Status: **Draft**. Only explicit acceptance by the project owner changes
+this section to Final.
+
+### Settled decisions
+
+- **2026-11-16 — completion boundary:** complete the full remaining
+  backlog in sequence: fix #12 Android `android_main` re-entry; implement
+  #118 zero-copy `CVPixelBuffer` import; implement #117 M2/M3; implement
+  #119 per-scene windows; investigate and fix the #75 Windows entrypoint
+  failure using GitHub Actions evidence.
+- **Signing:** signing and store submission remain manual. Existing
+  shell-provided credentials may be used only as separately settled below;
+  no credential values are recorded here.
+- **Fork/main delivery:** changes may be committed and pushed to both
+  `sotf-3rdparties` and `gpui-toolkit` `main`, following the prior
+  authorization. The concrete push cadence is still unresolved below.
+- **Done checklist:** each numbered item lands as its own commit with
+  relevant tests or device/CI evidence, documentation is updated, and an
+  issue is not treated as done merely because a workaround or warning
+  exists.
+- **2026-11-16 — Android activity recreation:** preserve the existing
+  GPUI/Python app state when Android recreates the activity in a live
+  process. A clean process cold restart is not an acceptable primary
+  behavior for #12.
+- **2026-11-16 — `UIScene` scope (#119):** a single primary scene owns
+  the GPUI window; later scenes are logged/ignored. Independent
+  per-scene GPUI windows are out of scope until a product requirement
+  for multi-scene exists.
+
+### Unresolved decisions
+
+- Should macOS platform views use sibling overlay only, or a true
+  GPUI-owned host area with clipping/z-order below GPUI content?
+- Does signed-build production stop at local signed artifacts, or does it
+  include upload to TestFlight / Play internal testing?
+- Should completed issues be pushed one at a time as they are verified,
+  or held locally until the whole backlog is complete?

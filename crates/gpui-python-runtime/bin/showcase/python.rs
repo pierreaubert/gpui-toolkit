@@ -1338,7 +1338,7 @@ pub(super) fn load_python_session_blocking()
         .iter()
         .map(|value| (*value).into())
         .collect();
-    complete_python_session_handshake(spawn_python_session()?, capabilities)
+    complete_python_session_handshake(spawn_python_session()?, capabilities, false)
 }
 
 /// Loads the app through the embedded interpreter (mobile hosts) using the
@@ -1348,13 +1348,65 @@ pub(super) fn load_embedded_python_session_blocking(
     script: PathBuf,
     python_paths: Vec<PathBuf>,
 ) -> Result<(PythonAppIr, PythonSession), Box<dyn Error + Send + Sync>> {
+    let capabilities = embedded_capabilities();
+    if let Some(parked) = take_parked_embedded_session() {
+        match complete_python_session_handshake(parked, capabilities.clone(), true) {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                eprintln!(
+                    "parked Python session reattach failed ({error}); starting a fresh session"
+                );
+            }
+        }
+    }
     let session = spawn_embedded_python_session(script, python_paths)?;
-    complete_python_session_handshake(session, embedded_capabilities())
+    complete_python_session_handshake(session, capabilities, false)
+}
+
+/// Session parked by the previous host generation (Android activity
+/// recreation), waiting for the next generation to reattach. The pipes
+/// stay open and the Python thread stays blocked on read, so Python
+/// app state survives the host rebuild.
+#[cfg(feature = "embedded")]
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(dead_code, reason = "parking is wired into the Android host only")
+)]
+static PARKED_EMBEDDED_SESSION: Mutex<Option<PythonSession>> = Mutex::new(None);
+
+/// Park `session` for the next host generation instead of shutting it
+/// down. If a session is already parked, this one is dropped (and so
+/// shut down) normally: there is only ever one live host generation.
+#[cfg(feature = "embedded")]
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(dead_code, reason = "parking is wired into the Android host only")
+)]
+pub(super) fn park_embedded_session(session: PythonSession) {
+    let mut parked = PARKED_EMBEDDED_SESSION
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if parked.is_none() {
+        *parked = Some(session);
+    }
+}
+
+#[cfg(feature = "embedded")]
+#[cfg_attr(
+    not(target_os = "android"),
+    allow(dead_code, reason = "parking is wired into the Android host only")
+)]
+fn take_parked_embedded_session() -> Option<PythonSession> {
+    PARKED_EMBEDDED_SESSION
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
 }
 
 fn complete_python_session_handshake(
     session: PythonSession,
     capabilities: Vec<String>,
+    reattach: bool,
 ) -> Result<(PythonAppIr, PythonSession), Box<dyn Error + Send + Sync>> {
     session.send(&HostMessage::Initialize(
         gpui_python_runtime::session::Initialize {
@@ -1369,13 +1421,25 @@ fn complete_python_session_handshake(
             },
         },
     ))?;
-    match session.recv()? {
-        PythonMessage::Ready(ready) => {
-            gpui_python_runtime::session::SessionState::new(capabilities).validate_ready(&ready)?;
-        }
-        other => return Err(format!("expected Python session ready, received {other:?}").into()),
-    }
     let mut before_snapshot = Vec::new();
+    loop {
+        let (charge, message) = session.recv_charged()?;
+        match message? {
+            PythonMessage::Ready(ready) => {
+                session.inbound.release(charge);
+                gpui_python_runtime::session::SessionState::new(capabilities)
+                    .validate_ready(&ready)?;
+                break;
+            }
+            // A reattached session may still deliver messages queued
+            // before the previous host went away; replay them through
+            // the normal message loop like pre-snapshot messages.
+            message if reattach => before_snapshot.push((charge, Ok(message))),
+            other => {
+                return Err(format!("expected Python session ready, received {other:?}").into());
+            }
+        }
+    }
     let app_ir = loop {
         // Keep charges attached: replayed messages stay inside the
         // aggregate inbound budget while they wait in `pending`.
@@ -1704,6 +1768,47 @@ def build_app():
             load_embedded_python_session_blocking(script.clone(), vec![python_root])
                 .expect("embedded session handshake loads the app");
         assert_eq!(app_ir.title, "Embedded Host Test");
+
+        session.shutdown();
+        drop(session);
+        let _ = std::fs::remove_file(script);
+    }
+
+    #[cfg(feature = "embedded")]
+    #[test]
+    fn embedded_session_reattaches_through_second_handshake() {
+        let script = env::temp_dir().join(format!(
+            "gpui-toolkit-python-embedded-reattach-{}.py",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&script);
+        std::fs::write(
+            &script,
+            r#"from gpui_toolkit.app import App, section
+
+
+def build_app():
+    return App(
+        title="Embedded Reattach Test",
+        sections=[section("main", "Main", {"kind": "text", "id": "label", "text": "hi"})],
+    )
+"#,
+        )
+        .expect("write embedded reattach probe script");
+
+        let python_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python");
+        let (app_ir, session) =
+            load_embedded_python_session_blocking(script.clone(), vec![python_root])
+                .expect("embedded session handshake loads the app");
+        assert_eq!(app_ir.title, "Embedded Reattach Test");
+
+        // The next host generation (Android activity recreation) sends a
+        // second Initialize on the same pipes; the live Python session
+        // must answer with Ready plus a fresh snapshot.
+        let (app_ir, session) =
+            complete_python_session_handshake(session, embedded_capabilities(), true)
+                .expect("reattach handshake reloads the app");
+        assert_eq!(app_ir.title, "Embedded Reattach Test");
 
         session.shutdown();
         drop(session);

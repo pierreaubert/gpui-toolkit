@@ -141,6 +141,17 @@ class MobileSignalLabApp(App):
             section("settings", "Settings", self._settings()),
         ]
 
+    def to_spec(self) -> dict[str, Any]:
+        # Rebuild from current state so full snapshots (first frame, or
+        # a host reattaching after Android activity recreation) never
+        # show values captured at construction time.
+        self.sections = [
+            section("overview", "Overview", self._overview()),
+            section("signal", "Signal", self._signal()),
+            section("settings", "Settings", self._settings()),
+        ]
+        return super().to_spec()
+
     def _overview(self) -> ui.Node:
         return ui.vstack(
             [
@@ -169,7 +180,7 @@ class MobileSignalLabApp(App):
                             action="increment",
                         ),
                         ui.progress(
-                            0.0,
+                            min(self.clicks / CLICK_GOAL, 1.0),
                             label="Click goal",
                             id="click-progress",
                         ),

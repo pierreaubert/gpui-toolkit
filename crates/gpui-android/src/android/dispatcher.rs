@@ -64,6 +64,10 @@ unsafe extern "C" {
     ) -> i32;
     /// Removes a file-descriptor from the looper.
     fn ALooper_removeFd(looper: *mut libc_looper_opaque, fd: RawFd) -> i32;
+    /// Increments the looper's reference count.
+    fn ALooper_acquire(looper: *mut libc_looper_opaque);
+    /// Decrements the looper's reference count.
+    fn ALooper_release(looper: *mut libc_looper_opaque);
 }
 
 // Opaque C type placeholder.
@@ -183,6 +187,12 @@ impl AndroidDispatcher {
             !looper.is_null(),
             "AndroidDispatcher::new() must be called on the Android main thread"
         );
+        // Keep the looper alive past this thread: the dispatcher may be
+        // dropped after the activity generation (and its glue thread)
+        // ends, and Drop still has to unregister from the looper.
+        // SAFETY: `looper` is the non-null looper of the calling thread;
+        // the matching release is in `Drop`.
+        unsafe { ALooper_acquire(looper) };
 
         let pool_threads = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -386,6 +396,11 @@ impl AndroidDispatcher {
     }
 
     fn unregister_from_looper(&self) {
+        if self.looper.is_null() {
+            return;
+        }
+        // SAFETY: `new` acquired a reference on this looper, so it is
+        // alive until the release in `Drop`.
         unsafe {
             ALooper_removeFd(self.looper, self.read_fd);
         }
@@ -405,6 +420,10 @@ impl Drop for AndroidDispatcher {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::SeqCst);
         self.unregister_from_looper();
+        if !self.looper.is_null() {
+            // SAFETY: balanced with the `ALooper_acquire` in `new`.
+            unsafe { ALooper_release(self.looper) };
+        }
         // Close file descriptors.
         unsafe {
             libc_close(self.read_fd);

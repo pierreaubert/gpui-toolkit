@@ -1662,7 +1662,7 @@ mod mobile {{
         out.push_str(&format!(
             r#"#[cfg(target_os = "android")]
 mod android {{
-    use gpui::{{App, AppContext, Application}};
+    use gpui::{{App, AppContext}};
     use gpui_ui_kit::accessibility::AccessibilityTree;
     use gpui_ui_kit::{{DesignSystemState, I18nState, ThemeState, ThemeVariant}};
 
@@ -1675,13 +1675,9 @@ mod android {{
         );
         gpui_android::android::jni::install_panic_hook();
 
-        let _platform = gpui_android::android::jni::init_platform(&app);
-        let Some(shared_platform) = gpui_android::android::jni::shared_platform() else {{
-            log::error!("android_main: shared_platform() returned None");
-            return;
-        }};
-
-        Application::with_platform(shared_platform.into_rc()).run(|cx: &mut App| {{
+        // GPUI runs on the first android_main call only; recreated
+        // activities hand their surface to it and state is preserved.
+        gpui_android::run_android_app(app, |cx: &mut App| {{
             cx.set_global(ThemeState::with_variant(ThemeVariant::default()));
             cx.set_global(DesignSystemState::new());
             cx.set_global(AccessibilityTree::new());
@@ -2370,7 +2366,7 @@ mod tests {
         assert!(lib.contains("demo_app_ios_start"));
         assert!(lib.contains("gpui_ios::ios::ffi::run_app"));
         assert!(lib.contains("pub fn android_main(app: android_activity::AndroidApp)"));
-        assert!(lib.contains("gpui_android::android::jni::init_platform"));
+        assert!(lib.contains("gpui_android::run_android_app(app"));
 
         let app = fs::read_to_string(scaffolded.app_dir.join("src/main.rs"))?;
         assert!(app.contains("demo_app::run_desktop"));

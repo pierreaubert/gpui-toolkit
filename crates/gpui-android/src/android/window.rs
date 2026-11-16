@@ -1248,6 +1248,15 @@ impl AndroidWindow {
         state.renderer.as_ref().map(|r| r.gpu_specs())
     }
 
+    /// Whether a live native surface is currently bound.
+    ///
+    /// `false` between `TerminateWindow` and the next `InitWindow`, when
+    /// the logical window (and its callbacks) outlives the surface but
+    /// the renderer has no GPU resources to draw with.
+    pub fn has_native_window(&self) -> bool {
+        self.state.lock().native_window.is_some()
+    }
+
     /// Whether the window is currently active / visible.
     pub fn is_active(&self) -> bool {
         self.active.load(std::sync::atomic::Ordering::Relaxed)
@@ -1419,13 +1428,13 @@ struct MainThreadInputHandler(Option<PlatformInputHandler>);
 // callback registry uses a Send bound for all callbacks.
 unsafe impl Send for MainThreadInputHandler {}
 
-/// The GPUI main (event-loop) thread, pinned by the first confined
-/// callback construction (all `PlatformWindow::on_*` registrations run
-/// there by GPUI's construction contract).
+/// The GPUI main (event-loop) thread for a confined callback: the
+/// thread that constructed it (all `PlatformWindow::on_*` registrations
+/// run there by GPUI's construction contract). Pinned per callback,
+/// not process-wide, because activity recreation runs each generation
+/// on a fresh glue thread.
 fn main_thread_id() -> std::thread::ThreadId {
-    static MAIN_THREAD: std::sync::LazyLock<std::thread::ThreadId> =
-        std::sync::LazyLock::new(|| std::thread::current().id());
-    *MAIN_THREAD
+    std::thread::current().id()
 }
 
 /// A `!Send` GPUI callback confined to the Android main thread.
@@ -1444,6 +1453,7 @@ fn main_thread_id() -> std::thread::ThreadId {
 /// destroy paths on the event loop); a typed-command main-thread owner
 /// remains the long-term replacement (audit-20261113 step 3).
 struct MainThreadCallback<I, R> {
+    owner: std::thread::ThreadId,
     callback: Mutex<Box<dyn FnMut(I) -> R>>,
 }
 
@@ -1456,9 +1466,8 @@ unsafe impl<I, R> Sync for MainThreadCallback<I, R> {}
 
 impl<I, R> MainThreadCallback<I, R> {
     fn new(callback: Box<dyn FnMut(I) -> R>) -> Self {
-        // Construction pins the main thread on first use.
-        let _ = main_thread_id();
         Self {
+            owner: main_thread_id(),
             callback: Mutex::new(callback),
         }
     }
@@ -1466,7 +1475,7 @@ impl<I, R> MainThreadCallback<I, R> {
     fn lock(&self) -> parking_lot::MutexGuard<'_, Box<dyn FnMut(I) -> R>> {
         assert_eq!(
             std::thread::current().id(),
-            main_thread_id(),
+            self.owner,
             "GPUI callbacks must be invoked on the Android main thread"
         );
         self.callback.lock()
@@ -1475,6 +1484,7 @@ impl<I, R> MainThreadCallback<I, R> {
 
 /// `FnOnce` twin of [`MainThreadCallback`] (close callbacks).
 struct MainThreadFnOnce {
+    owner: std::thread::ThreadId,
     callback: Mutex<Option<Box<dyn FnOnce()>>>,
 }
 
@@ -1485,8 +1495,8 @@ unsafe impl Sync for MainThreadFnOnce {}
 
 impl MainThreadFnOnce {
     fn new(callback: Box<dyn FnOnce()>) -> Self {
-        let _ = main_thread_id();
         Self {
+            owner: main_thread_id(),
             callback: Mutex::new(Some(callback)),
         }
     }
@@ -1494,7 +1504,7 @@ impl MainThreadFnOnce {
     fn call_once(&self) {
         assert_eq!(
             std::thread::current().id(),
-            main_thread_id(),
+            self.owner,
             "GPUI callbacks must be invoked on the Android main thread"
         );
         if let Some(callback) = self.callback.lock().take() {

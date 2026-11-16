@@ -18,7 +18,16 @@ from gpui_toolkit.app import App, Event, SessionContext, section
 
 
 class EmbeddedApp(App):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.session_ready_count = 0
+        self.taps = 0
+
+    def on_session_ready(self, context: SessionContext) -> None:
+        self.session_ready_count += 1
+
     def on_action(self, event: Event, context: SessionContext) -> None:
+        self.taps += 1
         context.patch(
             [{"op": "set", "id": "label", "property": "text", "value": "tapped"}],
             request_id=event.id,
@@ -70,6 +79,40 @@ class EmbeddedServeTests(unittest.TestCase):
         self.assertEqual(messages[2]["request_id"], "event-1")
         self.assertEqual(messages[2]["ops"], [{"op": "set", "id": "label", "property": "text", "value": "tapped"}])
         self.assertEqual(stdout.getvalue(), "")
+
+    def test_second_initialize_reattaches_without_rerunning_session_ready(self):
+        app = build_app()
+        incoming = io.BytesIO(
+            session_input(
+                INITIALIZE,
+                {
+                    "type": "event",
+                    "id": "event-1",
+                    "node_id": "button",
+                    "event": "click",
+                    "action": "tap",
+                    "payload": {},
+                    "sequence": 1,
+                },
+                INITIALIZE,
+                SHUTDOWN,
+            )
+        )
+        outgoing = io.BytesIO()
+
+        app.serve(input_stream=incoming, output_stream=outgoing)
+
+        messages = [json.loads(line) for line in outgoing.getvalue().splitlines()]
+        types = [message["type"] for message in messages]
+        self.assertEqual(types.count("ready"), 2)
+        self.assertEqual(types.count("snapshot"), 2)
+        self.assertEqual(types.count("patch"), 1)
+        # The reattach snapshot still describes this same app instance,
+        # and its state (tap count) and one-shot ready hook were kept.
+        snapshots = [message for message in messages if message["type"] == "snapshot"]
+        self.assertEqual(snapshots[1]["app_ir"]["title"], "Embedded Test")
+        self.assertEqual(app.taps, 1)
+        self.assertEqual(app.session_ready_count, 1)
 
     def test_binary_frames_go_to_the_injected_output_stream(self):
         outgoing = io.BytesIO()

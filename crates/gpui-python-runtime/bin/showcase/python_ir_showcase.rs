@@ -19125,6 +19125,14 @@ impl PythonIrShowcase {
 impl Drop for PythonIrShowcase {
     fn drop(&mut self) {
         self.shutdown_runtime_state();
+        // Android activity recreation rebuilds the GPUI host in the
+        // same process: park the embedded Python session so the next
+        // host generation reattaches to it with app state intact
+        // instead of shutting the interpreter session down.
+        #[cfg(all(feature = "embedded", target_os = "android"))]
+        if let Some(session) = self.session.take() {
+            super::python::park_embedded_session(session);
+        }
     }
 }
 

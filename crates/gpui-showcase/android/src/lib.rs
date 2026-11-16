@@ -5,7 +5,7 @@
 
 #[cfg(target_os = "android")]
 mod imp {
-    use gpui::{App, AppContext, Application, WindowOptions};
+    use gpui::{App, AppContext, WindowOptions};
     use gpui_showcase::Showcase;
     use gpui_ui_kit::i18n::I18nState;
     use gpui_ui_kit::theme::{ThemeState, ThemeVariant};
@@ -23,13 +23,9 @@ mod imp {
         }));
 
         log::info!("android_main: entered");
-        let _platform = gpui_android::android::jni::init_platform(&app);
-        let Some(shared_platform) = gpui_android::android::jni::shared_platform() else {
-            log::error!("android_main: shared_platform() returned None");
-            return;
-        };
-
-        Application::with_platform(shared_platform.into_rc()).run(|cx: &mut App| {
+        // GPUI runs on the first android_main call only; recreated
+        // activities hand their surface to it and state is preserved.
+        gpui_android::run_android_app(app, |cx: &mut App| {
             log::info!("Application::run callback: opening showcase");
             cx.set_global(ThemeState::with_variant(ThemeVariant::Dark));
             cx.set_global(I18nState::new());

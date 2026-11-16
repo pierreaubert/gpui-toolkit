@@ -41,7 +41,7 @@
 use std::{
     ffi::c_void,
     sync::{
-        Arc, OnceLock,
+        Arc, OnceLock, RwLock,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -332,13 +332,48 @@ pub fn invalidate_app_class_cache(class_name: &str) {
 
 /// The `AndroidApp` handle from `android-activity`.
 ///
-/// Set once in `android_main`; read-only thereafter.
-static ANDROID_APP: OnceLock<AndroidApp> = OnceLock::new();
+/// Set by every `android_main` and replaced when Android recreates the
+/// activity in the same process: each activity generation runs its own
+/// GPUI platform/`App` on its own glue thread (see `run_android_app`).
+static ANDROID_APP: RwLock<Option<AndroidApp>> = RwLock::new(None);
 
-/// Process-global `AndroidPlatform` instance.
+/// `APP_CMD_DESTROY` was delivered for the current activity generation.
+static DESTROY_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+fn store_android_app(app: AndroidApp) {
+    *ANDROID_APP.write().unwrap() = Some(app);
+}
+
+fn current_android_app() -> Option<AndroidApp> {
+    ANDROID_APP.read().unwrap().clone()
+}
+
+/// Replaceable slot for the current generation's `AndroidPlatform`.
 ///
-/// Initialised once during `android_main`; read-only thereafter.
-static PLATFORM: OnceLock<Arc<AndroidPlatform>> = OnceLock::new();
+/// A platform (and its dispatcher) is bound to the `ALooper` of the
+/// glue thread that created it, so activity recreation in the same
+/// process needs a fresh platform per generation: `init_platform`
+/// installs one and `run_android_app` clears the slot when its
+/// generation ends. `get` returns an owned clone so callers never
+/// hold the lock across JNI/GPUI calls.
+struct PlatformSlot(RwLock<Option<Arc<AndroidPlatform>>>);
+
+impl PlatformSlot {
+    const fn new() -> Self {
+        Self(RwLock::new(None))
+    }
+
+    fn get(&self) -> Option<Arc<AndroidPlatform>> {
+        self.0.read().unwrap().clone()
+    }
+
+    /// Install `platform`, returning the previous generation's if any.
+    fn replace(&self, platform: Option<Arc<AndroidPlatform>>) -> Option<Arc<AndroidPlatform>> {
+        std::mem::replace(&mut *self.0.write().unwrap(), platform)
+    }
+}
+
+static PLATFORM: PlatformSlot = PlatformSlot::new();
 
 /// Immutable virtual-keyboard character map shared by hardware key events.
 static KEY_CHARACTER_MAP: OnceLock<Global<JObject<'static>>> = OnceLock::new();
@@ -393,8 +428,7 @@ pub fn unicode_char_for_key_event(key_code: i32, _action: i32, meta_state: i32) 
 /// Uses `AndroidApp::vm_as_ptr()` from the stored `AndroidApp`.
 /// Used by `platform.rs` for JNI calls.
 pub fn java_vm() -> *mut c_void {
-    ANDROID_APP
-        .get()
+    current_android_app()
         .map(|app| app.vm_as_ptr())
         .unwrap_or(std::ptr::null_mut())
 }
@@ -409,21 +443,21 @@ pub fn java_vm() -> *mut c_void {
 /// Code that previously used `(*activity).clazz` should use this directly
 /// as the activity jobject.
 pub fn activity_as_ptr() -> *mut c_void {
-    ANDROID_APP
-        .get()
+    current_android_app()
         .map(|app| app.activity_as_ptr())
         .unwrap_or(std::ptr::null_mut())
 }
 
 /// Returns a clone of the stored `AndroidApp`, if initialised.
 pub fn android_app() -> Option<AndroidApp> {
-    ANDROID_APP.get().cloned()
+    current_android_app()
 }
 
-/// Returns a reference to the global `AndroidPlatform`, if initialised.
+/// Returns the current generation's `AndroidPlatform`, if initialised.
 ///
-/// Returns `None` before `android_main` has set it up.
-pub fn platform() -> Option<&'static Arc<AndroidPlatform>> {
+/// Returns `None` before `android_main` has set it up, and again after
+/// that generation's event loop ends.
+pub fn platform() -> Option<Arc<AndroidPlatform>> {
     PLATFORM.get()
 }
 
@@ -438,9 +472,7 @@ pub fn platform() -> Option<&'static Arc<AndroidPlatform>> {
 ///
 /// Returns `None` before `init_platform` has been called.
 pub fn shared_platform() -> Option<SharedPlatform> {
-    PLATFORM
-        .get()
-        .map(|arc| SharedPlatform::new(Arc::clone(arc)))
+    PLATFORM.get().map(SharedPlatform::new)
 }
 
 // ── input event types ─────────────────────────────────────────────────────────
@@ -877,7 +909,13 @@ fn maybe_run_init_callbacks(iteration: u64) {
     let Some(platform) = PLATFORM.get() else {
         return;
     };
-    if platform.primary_window().is_none() {
+    let Some(win) = platform.primary_window() else {
+        return;
+    };
+    // INIT_WINDOW_DONE is also cleared by TerminateWindow, after which
+    // the retained renderer has no GPU resources: only run (and draw the
+    // first frame) once InitWindow has bound a new surface.
+    if !win.has_native_window() {
         return;
     }
     if let Some(finish_cb) = platform.take_finish_launching_callback() {
@@ -941,20 +979,34 @@ fn pump_frame_if_needed(
     process_input_events(app);
 }
 
-/// The event loop that processes `android-activity` events and drives the
-/// platform.
+/// The event loop that processes `android-activity` events and drives
+/// the platform for one activity generation.
 ///
-/// Called from `android_main` after the platform is initialised.
-/// Runs until the platform requests quit or the activity is destroyed.
-/// Keep momentum scrolling responsive, but otherwise let the Android looper
-/// sleep until a platform event, foreground-task wake, or delayed task is due.
+/// `android-activity` only allows `poll_events` on the glue thread that
+/// owns the generation's `ALooper`, and `NativeActivity` only finishes
+/// destroying the activity once `android_main` returns, so on Destroy
+/// this loop ends like a normal quit; a recreated activity calls
+/// `android_main` again and `run_android_app` starts a fresh platform
+/// and GPUI `App` on the new thread. State that must survive that
+/// (the embedded Python session) is parked process-wide by the host,
+/// not inside the GPUI `App`.
 ///
-/// The loop is staged as **poll → decode → dispatch → draw**: lifecycle work
-/// is deferred to the `apply_*` stage handlers, input mapping goes through
-/// the tested `crate::event_stages` decoders, and frames pump through
-/// `pump_frame_if_needed`.
+/// Keep momentum scrolling responsive, but otherwise let the Android
+/// looper sleep until a platform event, foreground-task wake, or delayed
+/// task is due. The loop is staged as **poll → decode → dispatch → draw**:
+/// lifecycle work is deferred to the `apply_*` stage handlers, input
+/// mapping goes through the tested `crate::event_stages` decoders, and
+/// frames pump through `pump_frame_if_needed`.
 pub fn run_event_loop(app: &AndroidApp) {
     log::info!("run_event_loop: entering main loop");
+    // Clear stale per-generation lifecycle flags from the previous activity.
+    DESTROY_REQUESTED.store(false, Ordering::Relaxed);
+    TERM_WINDOW_PENDING.store(false, Ordering::Relaxed);
+    INIT_WINDOW_PENDING.store(false, Ordering::Relaxed);
+    WINDOW_RESIZED_PENDING.store(false, Ordering::Relaxed);
+    CONFIG_CHANGED_PENDING.store(false, Ordering::Relaxed);
+    PAUSE_PENDING.store(false, Ordering::Relaxed);
+    RESUME_PENDING.store(false, Ordering::Relaxed);
 
     // Track whether the on_init_window callback has already been invoked.
     // We do NOT invoke it inside handle_main_event (which runs inside
@@ -987,8 +1039,11 @@ pub fn run_event_loop(app: &AndroidApp) {
             last_heartbeat = now;
         }
 
-        // Check if quit was requested.
+        // Check if this generation should end (app quit or Destroy).
         if let Some(platform) = PLATFORM.get() {
+            if DESTROY_REQUESTED.load(Ordering::Relaxed) {
+                platform.quit();
+            }
             if platform.should_quit() {
                 platform.run_pending_quit_callback();
                 log::info!("run_event_loop: platform requested quit");
@@ -996,6 +1051,9 @@ pub fn run_event_loop(app: &AndroidApp) {
                 break;
             }
             platform.tick();
+        } else if DESTROY_REQUESTED.load(Ordering::Relaxed) {
+            log::info!("run_event_loop: destroyed before platform init");
+            break;
         }
 
         let (poll_timeout, force_frame_after_poll, needs_frame_pump) = PLATFORM
@@ -1230,10 +1288,10 @@ fn handle_main_event(_app: &AndroidApp, event: MainEvent<'_>) {
 
         MainEvent::Destroy => {
             log::info!("MainEvent::Destroy");
-
-            if let Some(platform) = PLATFORM.get() {
-                platform.quit();
-            }
+            // End this generation's loop (handled at the loop top, like
+            // a quit) so `android_main` can return and let the activity
+            // finish destroying; see `run_event_loop`.
+            DESTROY_REQUESTED.store(true, Ordering::Relaxed);
         }
 
         MainEvent::InsetsChanged { .. } => {
@@ -1264,6 +1322,9 @@ fn handle_main_event(_app: &AndroidApp, event: MainEvent<'_>) {
 ///
 /// Returns `true` if the application should exit.
 pub fn poll_events(timeout_ms: i32) -> bool {
+    if DESTROY_REQUESTED.load(Ordering::Relaxed) {
+        return true;
+    }
     if let Some(platform) = PLATFORM.get() {
         if platform.should_quit() {
             return true;
@@ -1271,7 +1332,7 @@ pub fn poll_events(timeout_ms: i32) -> bool {
         platform.tick();
     }
 
-    let app = match ANDROID_APP.get() {
+    let app = match current_android_app() {
         Some(app) => app,
         None => return false,
     };
@@ -1284,13 +1345,13 @@ pub fn poll_events(timeout_ms: i32) -> bool {
 
     app.poll_events(timeout, |event| match event {
         PollEvent::Main(main_event) => {
-            handle_main_event(app, main_event);
+            handle_main_event(&app, main_event);
         }
         PollEvent::Wake => {}
         _ => {}
     });
 
-    process_input_events(app);
+    process_input_events(&app);
 
     // Drive the GPUI rendering pipeline (same as run_event_loop).
     if let Some(platform) = PLATFORM.get() {
@@ -1333,25 +1394,50 @@ pub fn install_panic_hook() {
     }));
 }
 
-/// Store the `AndroidApp` globally and create the `AndroidPlatform`.
+/// Store the `AndroidApp` globally and create this generation's
+/// `AndroidPlatform`.
 ///
-/// Must be called exactly once from `android_main` before
-/// `run_event_loop`.  Returns a reference to the platform so the caller
-/// can register callbacks (e.g. `set_on_init_window`) before entering
-/// the event loop.
-pub fn init_platform(app: &AndroidApp) -> &'static Arc<AndroidPlatform> {
-    let _ = ANDROID_APP.set(app.clone());
+/// Called once per `android_main` invocation, on that invocation's glue
+/// thread (the dispatcher binds to its `ALooper`). Safe on activity
+/// recreation in the same process: the previous generation's platform
+/// is replaced (normally `run_android_app` already cleared it when that
+/// generation ended).
+pub fn init_platform(app: &AndroidApp) -> Arc<AndroidPlatform> {
+    store_android_app(app.clone());
     log::info!("init_platform: stored AndroidApp");
 
     let platform = Arc::new(AndroidPlatform::new(false));
     log::info!("init_platform: AndroidPlatform created");
 
-    PLATFORM
-        .set(Arc::clone(&platform))
-        .unwrap_or_else(|_| log::warn!("PLATFORM already set — duplicate init_platform?"));
+    if PLATFORM.replace(Some(Arc::clone(&platform))).is_some() {
+        log::info!("init_platform: replaced previous generation's platform");
+    }
+    platform
+}
 
-    // SAFETY: we just set it above.
-    PLATFORM.get().unwrap()
+/// Clear the global platform slot, dropping this generation's platform.
+fn shutdown_platform() {
+    if PLATFORM.replace(None).is_some() {
+        log::info!("run_android_app: generation platform released");
+    }
+}
+
+/// Run a GPUI application from `android_main`, one activity generation.
+///
+/// Creates a fresh platform bound to this thread's looper, runs the
+/// GPUI `Application` until quit or Destroy, then releases the
+/// platform so a recreated activity (a fresh `android_main` on a fresh
+/// glue thread in the same process) can start cleanly. Prefer this
+/// over open-coding `init_platform` + `Application::run` in entry
+/// points.
+pub fn run_android_app(
+    app: AndroidApp,
+    on_finish_launching: impl FnOnce(&mut gpui::App) + 'static,
+) {
+    init_platform(&app);
+    let shared = shared_platform().expect("platform was just initialised");
+    gpui::Application::with_platform(shared.into_rc()).run(on_finish_launching);
+    shutdown_platform();
 }
 
 // ── system chrome (status bar / navigation bar) ───────────────────────────────

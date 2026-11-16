@@ -141,6 +141,31 @@ class MobileSignalLabExampleTests(unittest.TestCase):
         peak_op = next(op for op in patch["ops"] if op["id"] == "peak")
         self.assertEqual(peak_op["value"], "0.75")
 
+    def test_snapshot_reflects_current_state_after_actions(self):
+        module = load_mobile_example()
+        app = module.build_app()
+        output = io.BytesIO()
+        app.on_action(
+            Event("tap-1", 1, "increment", "click", "increment", {}),
+            SessionContext(output=output),
+        )
+
+        spec = app.to_spec()
+
+        def nodes(value):
+            if isinstance(value, dict):
+                yield value
+                for child in value.values():
+                    yield from nodes(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from nodes(child)
+
+        click_count = next(
+            node for node in nodes(spec) if node.get("id") == "click-count"
+        )
+        self.assertEqual(click_count["value"], "1")
+
     def test_invalid_waveform_is_rejected_without_mutating_state(self):
         module = load_mobile_example()
         app = module.build_app()

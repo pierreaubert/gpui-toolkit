@@ -28,10 +28,10 @@ mod showcase;
 mod imp {
     use std::ffi::CString;
     use std::io::Read;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     use android_activity::AndroidApp;
-    use gpui::{App, Application};
+    use gpui::App;
 
     /// FNV-1a over the manifest bytes; identifies one exact bundle build.
     fn manifest_hash(bytes: &[u8]) -> String {
@@ -131,13 +131,9 @@ mod imp {
             std::env::set_var("GPUI_TOOLKIT_DATA_DIR", &internal);
         }
 
-        let _platform = gpui_android::android::jni::init_platform(&app);
-        let Some(shared_platform) = gpui_android::android::jni::shared_platform() else {
-            log::error!("android_main: shared_platform() returned None");
-            return;
-        };
-
-        Application::with_platform(shared_platform.into_rc()).run(move |cx: &mut App| {
+        // GPUI runs on the first android_main call only; recreated
+        // activities hand their surface to it and state is preserved.
+        gpui_android::run_android_app(app, move |cx: &mut App| {
             crate::showcase::run_embedded_app(cx, script.clone(), python_paths.clone());
         });
     }

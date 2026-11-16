@@ -274,6 +274,38 @@ class App:
                 if message_type == "heartbeat":
                     context.send({"type": "heartbeat", "id": message.get("id", "")})
                     continue
+                if message_type == "initialize":
+                    # Host reattach: a GPUI host generation ended without
+                    # shutting this session down (Android activity
+                    # recreation rebuilds the host in the same process).
+                    # Answer like a fresh handshake — ready plus a full
+                    # snapshot of the preserved app state — but do not
+                    # re-run `on_session_ready` hooks.
+                    if message.get("session_version") != PYTHON_APP_SESSION_VERSION:
+                        context.error(
+                            message.get("id"),
+                            "unsupported_session_version",
+                            "reattach initialize has an unsupported session version",
+                        )
+                        continue
+                    try:
+                        renegotiated = _negotiate_capabilities(
+                            message.get("capabilities", []), self.required_capabilities,
+                        )
+                    except RuntimeError as error:
+                        context.error(
+                            message.get("id"),
+                            "capability_negotiation_failed",
+                            str(error),
+                        )
+                        continue
+                    context.send({
+                        "type": "ready",
+                        "session_version": PYTHON_APP_SESSION_VERSION,
+                        "capabilities": renegotiated,
+                    })
+                    context.snapshot(self.to_spec())
+                    continue
                 if message_type == "cancel":
                     request_id = str(message.get("request_id", ""))
                     context.cancel_job(request_id)
