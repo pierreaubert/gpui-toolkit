@@ -151,6 +151,68 @@ pub extern "C" fn gpui_ios_finish_launching() {
     gpui_ios_did_finish_launching(std::ptr::null_mut());
 }
 
+/// A `UIWindowScene` connected (scene-delegate `willConnectTo`).
+///
+/// Single-primary-scene policy: the first scene claims the GPUI
+/// window — existing windows are attached to it, windows created
+/// later initialize against it, and launching finishes. Later scenes
+/// are logged and ignored until the primary disconnects. Call from
+/// the scene delegate before any other scene setup; null is a no-op.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_ios_scene_will_connect(scene_ptr: *mut c_void) {
+    install_ios_panic_hook();
+    if scene_ptr.is_null() {
+        return;
+    }
+    let claim = super::consts::primary_scene_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .claim(scene_ptr as usize);
+    match claim {
+        crate::scene_state::SceneClaim::Primary => {
+            log::info!("GPUI iOS: primary scene connected {scene_ptr:p}");
+            if let Some(wrapper) = IOS_WINDOW_LIST.get() {
+                unsafe {
+                    let windows = &*wrapper.0.get();
+                    for &window_ptr in windows.iter() {
+                        if !window_ptr.is_null() {
+                            (&*window_ptr).attach_to_scene(scene_ptr);
+                        }
+                    }
+                }
+            }
+            gpui_ios_finish_launching();
+        }
+        crate::scene_state::SceneClaim::AlreadyPrimary => {
+            log::info!("GPUI iOS: primary scene reconnected {scene_ptr:p}");
+        }
+        crate::scene_state::SceneClaim::Ignored => {
+            log::warn!(
+                "GPUI iOS: ignoring non-primary scene {scene_ptr:p}; \
+                 only the first connected scene owns the GPUI window"
+            );
+        }
+    }
+}
+
+/// A `UIWindowScene` disconnected (scene-delegate
+/// `sceneDidDisconnect`). Disconnecting the primary frees the claim
+/// so the next connected scene becomes primary; other scenes are
+/// ignored. Null is a no-op.
+#[unsafe(no_mangle)]
+pub extern "C" fn gpui_ios_scene_did_disconnect(scene_ptr: *mut c_void) {
+    if scene_ptr.is_null() {
+        return;
+    }
+    let released = super::consts::primary_scene_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .release(scene_ptr as usize);
+    if released {
+        log::info!("GPUI iOS: primary scene disconnected {scene_ptr:p}");
+    }
+}
+
 /// Resolve a scene lifecycle target: the given window when non-null
 /// (validated against both registries), else the current window.
 fn lifecycle_window(window_ptr: *mut c_void) -> Option<&'static super::super::window::IosWindow> {

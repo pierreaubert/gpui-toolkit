@@ -14,6 +14,24 @@ pub(super) static IOS_PANIC_HOOK: Once = Once::new();
 
 pub(crate) static IOS_WINDOW_LIST: OnceLock<WindowListWrapper> = OnceLock::new();
 
+pub(super) static PRIMARY_SCENE: OnceLock<std::sync::Mutex<crate::scene_state::PrimaryScene>> =
+    OnceLock::new();
+
+/// The claimed-primary-scene state machine (see `crate::scene_state`).
+pub(crate) fn primary_scene_state() -> &'static std::sync::Mutex<crate::scene_state::PrimaryScene> {
+    PRIMARY_SCENE.get_or_init(|| std::sync::Mutex::new(crate::scene_state::PrimaryScene::new()))
+}
+
+/// The primary `UIWindowScene*` as a raw pointer, or null before any
+/// scene connects (app-delegate-only hosts).
+pub(crate) fn current_primary_scene() -> *mut std::ffi::c_void {
+    primary_scene_state()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .primary()
+        .map_or(std::ptr::null_mut(), |scene| scene as *mut std::ffi::c_void)
+}
+
 /// Initialise the app window list on first use.
 ///
 /// Scene-based and foreign-parent hosts never call `run_app`, so the list

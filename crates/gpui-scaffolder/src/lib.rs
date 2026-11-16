@@ -308,6 +308,10 @@ fn build_scaffold_plan(
                 ios_source.join("AppDelegate.swift"),
                 swift_app_delegate(names),
             ),
+            (
+                ios_source.join("SceneDelegate.swift"),
+                swift_scene_delegate(),
+            ),
             (ios_source.join("BridgingHeader.h"), bridging_header(names)),
             (ios_source.join("Info.plist"), info_plist(names)),
             (ios_source.join("Entitlements.plist"), entitlements_plist()),
@@ -412,6 +416,10 @@ fn build_python_mobile_plan(
             (
                 ios_source.join("AppDelegate.swift"),
                 python_swift_app_delegate(),
+            ),
+            (
+                ios_source.join("SceneDelegate.swift"),
+                swift_scene_delegate(),
             ),
             (
                 ios_source.join("BridgingHeader.h"),
@@ -737,6 +745,53 @@ targets:
     )
 }
 
+/// Scene delegate shared by the Rust and Python iOS hosts. Required
+/// from iOS/tvOS 27: without a scene manifest + delegate the app traps
+/// at launch. The first scene to connect claims the GPUI window.
+fn swift_scene_delegate() -> String {
+    r"import UIKit
+
+/// Scene entry point (required from iOS/tvOS 27). The first scene to
+/// connect claims the single GPUI window; gpui-ios logs and ignores
+/// later scenes until the primary disconnects.
+final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+
+    func scene(
+        _ scene: UIScene,
+        willConnectTo session: UISceneSession,
+        options connectionOptions: UIScene.ConnectionOptions
+    ) {
+        gpui_ios_scene_will_connect(
+            UnsafeMutableRawPointer(Unmanaged.passUnretained(scene).toOpaque()))
+    }
+
+    func sceneDidDisconnect(_ scene: UIScene) {
+        gpui_ios_scene_did_disconnect(
+            UnsafeMutableRawPointer(Unmanaged.passUnretained(scene).toOpaque()))
+    }
+
+    // Scene life cycle replaces the app-delegate foreground/background
+    // callbacks, so forward scene state to the GPUI window from here.
+    func sceneWillEnterForeground(_ scene: UIScene) {
+        gpui_ios_lifecycle_forwarding_will_enter_foreground(gpui_ios_get_window())
+    }
+
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        gpui_ios_lifecycle_forwarding_did_become_active(gpui_ios_get_window())
+    }
+
+    func sceneWillResignActive(_ scene: UIScene) {
+        gpui_ios_lifecycle_forwarding_will_resign_active(gpui_ios_get_window())
+    }
+
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        gpui_ios_lifecycle_forwarding_did_enter_background(gpui_ios_get_window())
+    }
+}
+"
+    .to_owned()
+}
+
 fn python_swift_app_delegate() -> String {
     r"import UIKit
 
@@ -802,6 +857,17 @@ void python_mobile_ios_start(void);
 
 // Frame rendering — call from CADisplayLink
 void gpui_ios_request_current_frame(void);
+
+// Active GPUI window pointer
+void *gpui_ios_get_window(void);
+
+// Scene life cycle (UISceneDelegate)
+void gpui_ios_scene_will_connect(void *scene_ptr);
+void gpui_ios_scene_did_disconnect(void *scene_ptr);
+void gpui_ios_lifecycle_forwarding_will_enter_foreground(void *window_ptr);
+void gpui_ios_lifecycle_forwarding_did_become_active(void *window_ptr);
+void gpui_ios_lifecycle_forwarding_will_resign_active(void *window_ptr);
+void gpui_ios_lifecycle_forwarding_did_enter_background(void *window_ptr);
 
 // Lifecycle
 void gpui_ios_will_enter_foreground(void *app_ptr);
@@ -1824,6 +1890,18 @@ fn bridging_header(names: &AppNames) -> String {
 void {ffi_start_symbol}(void);
 
 void gpui_ios_request_current_frame(void);
+
+// Active GPUI window pointer
+void *gpui_ios_get_window(void);
+
+// Scene life cycle (UISceneDelegate)
+void gpui_ios_scene_will_connect(void *scene_ptr);
+void gpui_ios_scene_did_disconnect(void *scene_ptr);
+void gpui_ios_lifecycle_forwarding_will_enter_foreground(void *window_ptr);
+void gpui_ios_lifecycle_forwarding_did_become_active(void *window_ptr);
+void gpui_ios_lifecycle_forwarding_will_resign_active(void *window_ptr);
+void gpui_ios_lifecycle_forwarding_did_enter_background(void *window_ptr);
+
 void gpui_ios_will_enter_foreground(void *app);
 void gpui_ios_did_become_active(void *app);
 void gpui_ios_will_resign_active(void *app);
@@ -1884,6 +1962,23 @@ fn info_plist(names: &AppNames) -> String {
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 </dict>
 </plist>
 "#,
@@ -2356,6 +2451,18 @@ mod tests {
             fs::read_to_string(scaffolded.app_dir.join("ios/DemoAppApp/AppDelegate.swift"))?;
         assert!(app_delegate.contains("demo_app_ios_start()"));
         assert!(app_delegate.contains("gpui_ios_request_current_frame()"));
+
+        let scene_delegate = fs::read_to_string(
+            scaffolded
+                .app_dir
+                .join("ios/DemoAppApp/SceneDelegate.swift"),
+        )?;
+        assert!(scene_delegate.contains("gpui_ios_scene_will_connect"));
+        assert!(scene_delegate.contains("gpui_ios_scene_did_disconnect"));
+
+        let info_plist = fs::read_to_string(scaffolded.app_dir.join("ios/DemoAppApp/Info.plist"))?;
+        assert!(info_plist.contains("UIApplicationSceneManifest"));
+        assert!(info_plist.contains("$(PRODUCT_MODULE_NAME).SceneDelegate"));
 
         let app = fs::read_to_string(scaffolded.app_dir.join("src/app.rs"))?;
         assert!(app.contains("MiniApp::run"));
@@ -2939,6 +3046,12 @@ mod tests {
             preview
                 .files
                 .iter()
+                .any(|path| path.ends_with("ios/PreviewAppApp/SceneDelegate.swift"))
+        );
+        assert!(
+            preview
+                .files
+                .iter()
                 .any(|path| path.ends_with("android/gradle/app/build.gradle.kts"))
         );
         assert!(preview.files.iter().all(|path| !path.exists()));
@@ -3164,9 +3277,9 @@ mod tests {
                     no_android: true,
                     ..ScaffoldFlags::default()
                 },
-                14,
+                15,
             ),
-            ("full", ScaffoldFlags::default(), 27),
+            ("full", ScaffoldFlags::default(), 28),
         ] {
             let dir = tempdir()?;
             let name = format!("flagged-{case}");

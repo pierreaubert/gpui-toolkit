@@ -236,9 +236,23 @@ impl IosWindow {
             #[cfg(not(target_os = "ios"))]
             let window_class = class!(UIWindow);
             let window: *mut Object = msg_send![window_class, alloc];
-            let window: *mut Object = msg_send![window, initWithFrame: screen_bounds_cg];
-            #[cfg(target_os = "ios")]
-            input_diag_log(|| "window using legacy initWithFrame".to_owned());
+            // Scene-based hosts (mandatory from iOS/tvOS 27) claim a
+            // primary scene before creating windows; initialize against
+            // it so the window joins the scene life cycle. App-delegate
+            // hosts keep the legacy frame initializer.
+            let primary_scene = super::super::ffi::current_primary_scene();
+            let window: *mut Object = if primary_scene.is_null() {
+                #[cfg(target_os = "ios")]
+                input_diag_log(|| "window using legacy initWithFrame".to_owned());
+                msg_send![window, initWithFrame: screen_bounds_cg]
+            } else {
+                msg_send![window, initWithWindowScene: primary_scene as *mut Object]
+            };
+            let view_frame_cg: core_graphics::geometry::CGRect = if primary_scene.is_null() {
+                screen_bounds_cg
+            } else {
+                msg_send![window, bounds]
+            };
             #[cfg(target_os = "ios")]
             input_diag_log(|| {
                 format!("window created temp_dir={}", std::env::temp_dir().display())
@@ -253,7 +267,7 @@ impl IosWindow {
             // Create our custom Metal view using the registered class
             let metal_view_class = register_metal_view_class();
             let view: *mut Object = msg_send![metal_view_class, alloc];
-            let view: *mut Object = msg_send![view, initWithFrame: screen_bounds_cg];
+            let view: *mut Object = msg_send![view, initWithFrame: view_frame_cg];
 
             // Configure the Metal layer — wgpu will use it for rendering but
             // we still need to set contentsScale so the drawable size is correct.
@@ -926,6 +940,20 @@ impl IosWindow {
 
     /// Notify the window of active status changes (foreground/background).
     ///
+    /// Attach this window to a connected `UIWindowScene` (the primary
+    /// scene; see `gpui_ios_scene_will_connect`). Windows created
+    /// before the scene connected used the legacy frame initializer;
+    /// assigning `windowScene` adopts them into the scene life cycle
+    /// that iOS/tvOS 27 require.
+    pub fn attach_to_scene(&self, scene: *mut c_void) {
+        if scene.is_null() || self.window.is_null() {
+            return;
+        }
+        unsafe {
+            let _: () = msg_send![self.window, setWindowScene: scene as *mut Object];
+        }
+    }
+
     /// This is called by the FFI layer when the app transitions between
     /// foreground and background states.
     pub fn notify_active_status_change(&self, is_active: bool) {

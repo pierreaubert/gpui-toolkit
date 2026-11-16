@@ -10,8 +10,9 @@ use super::gpui_mod::{
     gpui_ios_lifecycle_forwarding_will_enter_foreground,
     gpui_ios_lifecycle_forwarding_will_resign_active, gpui_ios_lifecycle_forwarding_will_terminate,
     gpui_ios_refresh_accessibility, gpui_ios_register_platform_view_factory,
-    gpui_ios_request_current_frame, gpui_ios_request_frame, gpui_ios_will_enter_foreground,
-    gpui_ios_will_resign_active, gpui_ios_will_terminate,
+    gpui_ios_request_current_frame, gpui_ios_request_frame, gpui_ios_scene_did_disconnect,
+    gpui_ios_scene_will_connect, gpui_ios_will_enter_foreground, gpui_ios_will_resign_active,
+    gpui_ios_will_terminate,
 };
 use super::window_list_wrapper::WindowListWrapper;
 
@@ -52,6 +53,8 @@ fn exported_host_entry_points_are_null_safe_before_view_attach() {
         gpui_ios_register_platform_view_factory(std::ptr::null(), 0, None, None, None, None, None)
     });
     gpui_ios_finish_launching();
+    gpui_ios_scene_will_connect(std::ptr::null_mut());
+    gpui_ios_scene_did_disconnect(std::ptr::null_mut());
     gpui_ios_lifecycle_forwarding_will_enter_foreground(std::ptr::null_mut());
     gpui_ios_lifecycle_forwarding_did_become_active(std::ptr::null_mut());
     gpui_ios_lifecycle_forwarding_will_resign_active(std::ptr::null_mut());
@@ -62,7 +65,8 @@ fn exported_host_entry_points_are_null_safe_before_view_attach() {
 #[test]
 fn scene_lifecycle_template_names_only_real_exports() {
     for symbol in [
-        "gpui_ios_finish_launching",
+        "gpui_ios_scene_will_connect",
+        "gpui_ios_scene_did_disconnect",
         "gpui_ios_get_window",
         "gpui_ios_request_current_frame",
         "gpui_ios_lifecycle_forwarding_will_enter_foreground",

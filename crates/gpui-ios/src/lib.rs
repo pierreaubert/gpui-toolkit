@@ -18,6 +18,7 @@ pub mod native;
 pub mod notifications;
 pub mod pencil;
 pub mod platform_view;
+pub mod scene_state;
 pub mod widget;
 
 // ── System chrome styling ────────────────────────────────────────────────────
@@ -165,8 +166,15 @@ final class GPUIAppSceneDelegate: NSObject, UIWindowSceneDelegate {
         displayLink = CADisplayLink(
             target: self, selector: #selector(pumpFrame))
         displayLink?.add(to: .main, forMode: .common)
-        // Let SwiftUI create its scene window first, then launch GPUI.
-        DispatchQueue.main.async { gpui_ios_finish_launching() }
+        // The first scene to connect claims the GPUI window; this
+        // also finishes launching (later scenes are ignored).
+        gpui_ios_scene_will_connect(
+            UnsafeMutableRawPointer(Unmanaged.passUnretained(scene).toOpaque()))
+    }
+
+    func sceneDidDisconnect(_ scene: UIScene) {
+        gpui_ios_scene_did_disconnect(
+            UnsafeMutableRawPointer(Unmanaged.passUnretained(scene).toOpaque()))
     }
 
     @objc private func pumpFrame() {

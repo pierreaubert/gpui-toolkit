@@ -46,6 +46,14 @@ bool gpui_ios_handle_pencil_hover(float x, float y, float altitude_angle,
                                   float azimuth_angle, float distance,
                                   double timestamp_seconds);
 
+// Scene life cycle (UISceneDelegate)
+void gpui_ios_scene_will_connect(void *scene_ptr);
+void gpui_ios_scene_did_disconnect(void *scene_ptr);
+void gpui_ios_lifecycle_forwarding_will_enter_foreground(void *window_ptr);
+void gpui_ios_lifecycle_forwarding_did_become_active(void *window_ptr);
+void gpui_ios_lifecycle_forwarding_will_resign_active(void *window_ptr);
+void gpui_ios_lifecycle_forwarding_did_enter_background(void *window_ptr);
+
 // Lifecycle
 void gpui_ios_will_enter_foreground(void *app_ptr);
 void gpui_ios_did_become_active(void *app_ptr);
