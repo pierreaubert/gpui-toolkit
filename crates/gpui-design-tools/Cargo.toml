@@ -3,6 +3,7 @@ name = "gpui-design-tools"
 version = "0.11.0"
 authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "Design token and conformance tooling for gpui-toolkit"

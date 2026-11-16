@@ -3,6 +3,7 @@ name = "gpui-audio-kit"
 version = "0.11.0"
 authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "Audio-focused GPUI components for plugin and playback interfaces"

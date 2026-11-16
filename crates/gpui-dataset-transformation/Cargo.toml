@@ -2,6 +2,7 @@
 name = "gpui-dataset-transformation"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 repository.workspace = true
 authors.workspace = true
 description = "Dataset to dataset transformations: slice, clip, threshold, isosurface, warp"

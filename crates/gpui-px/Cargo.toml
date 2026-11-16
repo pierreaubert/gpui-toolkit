@@ -3,6 +3,7 @@ name = "gpui-px"
 version = "0.11.1"
 authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
 license.workspace = true

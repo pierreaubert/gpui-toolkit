@@ -2,6 +2,7 @@
 name = "gpui-d3rs"
 version = "0.11.3"
 edition.workspace = true
+rust-version.workspace = true
 repository.workspace = true
 authors.workspace = true
 description = "D3.js-inspired plotting library for GPUI"

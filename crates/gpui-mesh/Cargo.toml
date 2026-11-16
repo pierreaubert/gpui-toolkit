@@ -2,6 +2,7 @@
 name = "gpui-mesh"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 repository.workspace = true
 authors.workspace = true
 description = "Unstructured and structured mesh data model for GPUI visualization"

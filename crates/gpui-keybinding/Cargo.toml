@@ -3,6 +3,7 @@ name = "gpui-keybinding"
 version = "0.11.0"
 authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "Reusable keybinding framework with Vim/Emacs/VSCode presets for GPUI applications"
 license.workspace = true
 repository.workspace = true

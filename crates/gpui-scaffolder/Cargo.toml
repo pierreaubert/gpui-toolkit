@@ -3,6 +3,7 @@ name = "gpui-scaffolder"
 version = "0.11.0"
 authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "Create standalone GPUI mini-app projects backed by gpui-miniapp"

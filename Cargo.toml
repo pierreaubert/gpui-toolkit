@@ -46,6 +46,7 @@ resolver = "3"
 version = "0.11.1"
 authors = ["Pierre F. Aubert pierre@spinorama.org"]
 edition = "2024"
+rust-version = "1.98"
 license = "ISC"
 repository = "https://github.com/pierreaubert/gpui-toolkit"
 keywords = ["gpui", "ui", "visualization"]

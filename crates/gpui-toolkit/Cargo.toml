@@ -3,6 +3,7 @@ name = "gpui-toolkit"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "Convenience aggregate crate that re-exports all GPUI toolkit libraries"
 license.workspace = true
 repository.workspace = true

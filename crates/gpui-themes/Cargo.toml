@@ -3,6 +3,7 @@ name = "gpui-themes"
 version = "0.11.0"
 authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "Theme editor and management for GPUI applications"
 license.workspace = true
 repository.workspace = true

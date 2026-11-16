@@ -3,6 +3,7 @@ name = "gpui-ui-kit"
 version = "0.11.1"
 authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "A reusable UI component library for GPUI applications"

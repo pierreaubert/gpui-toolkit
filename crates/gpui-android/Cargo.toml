@@ -2,6 +2,7 @@
 name = "gpui-android"
 version = "0.11.1"
 edition.workspace = true
+rust-version.workspace = true
 repository.workspace = true
 keywords.workspace = true
 categories.workspace = true

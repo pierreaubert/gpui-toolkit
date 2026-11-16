@@ -3,6 +3,7 @@ name = "gpui-showcase-android"
 version = "0.11.0"
 authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Android native library and Gradle host for the GPUI showcase"

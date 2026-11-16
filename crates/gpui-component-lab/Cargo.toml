@@ -3,6 +3,7 @@ name = "gpui-component-lab"
 version = "0.11.0"
 authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "Prop-driven component lab and responsive preview matrix for gpui-toolkit"

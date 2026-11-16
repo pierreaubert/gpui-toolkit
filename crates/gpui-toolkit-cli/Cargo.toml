@@ -3,6 +3,7 @@ name = "gpui-toolkit-cli"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "Unified agent-ready CLI for gpui-toolkit: catalog, docs, templates, themes, and layout tools"

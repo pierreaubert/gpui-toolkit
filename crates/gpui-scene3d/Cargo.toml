@@ -2,6 +2,7 @@
 name = "gpui-scene3d"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 repository.workspace = true
 authors.workspace = true
 description = "3D scene rendering for GPUI: camera, transfer functions, chunked GPU preparation, animation"

@@ -2,6 +2,7 @@
 name = "gpui-au"
 version = "0.11.1"
 edition = "2024"
+rust-version.workspace = true
 repository.workspace = true
 keywords.workspace = true
 categories.workspace = true

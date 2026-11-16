@@ -3,6 +3,7 @@ name = "gpui-showcase"
 version = "0.11.1"
 authors.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Showcase application for gpui-ui-kit components"
