@@ -62,6 +62,15 @@ and isoline modes, deterministic SVG export, and an accessibility summary.
 Coordinates remain `f64` at the public boundary; GPU upload preparation rebases
 the bounds centre before converting to `f32`.
 
+Rendering is GPU-first: the default `MeshPlotBackend::Auto` draws through
+the wgpu renderer (or Metal with the `gpu-metal` feature on macOS), and
+field reductions, clipping, and contour generation run as wgpu compute
+kernels in `gpui-d3rs`. The CPU implementations remain as the golden
+reference those kernels are diff-tested against, and as the deterministic
+fallback for offscreen export and unsupported backends (currently the
+Windows software scene path). Force the wgpu path with
+`.backend(MeshPlotBackend::Wgpu)` when embedding.
+
 ```rust
 use d3rs::mesh::{CoordinateAxis, ScalarAssociation, ScalarField, TriangleMesh};
 use gpui_px::{mesh_plot, FieldInterpolation, MeshPlotView, MeshRenderMode};
