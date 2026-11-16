@@ -115,7 +115,7 @@ impl RenderOnce for InlineMarkdown {
             if style.code {
                 highlight.background_color = Some(self.theme.code_background.into());
                 highlight.color = Some(self.theme.code_text.into());
-                fonts.push((range.clone(), SharedString::from("monospace")));
+                fonts.push((range.clone(), self.theme.code_font_family.clone()));
             }
             if style.strike {
                 highlight.strikethrough = Some(gpui::StrikethroughStyle {

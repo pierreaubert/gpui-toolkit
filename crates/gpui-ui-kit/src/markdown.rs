@@ -242,6 +242,12 @@ pub struct MarkdownTheme {
     /// Code block text.
     #[theme(default = 0xccccccff, from = text_secondary)]
     pub code_text: Rgba,
+    /// Font family for inline code and fenced code blocks.
+    #[theme(
+        default_expr = "crate::theme::default_mono_font_family()",
+        from_expr = "theme.font_family_mono.clone()"
+    )]
+    pub code_font_family: SharedString,
     /// Quote bar and quote text.
     #[theme(default = 0x777777ff, from = text_muted)]
     pub quote: Rgba,
@@ -361,7 +367,7 @@ impl Markdown {
                 .px(px(design.spacing.control_padding_x))
                 .py(px(design.spacing.control_padding_y * 0.5))
                 .text_color(theme.code_text)
-                .font_family("monospace")
+                .font_family(theme.code_font_family.clone())
                 .child(code),
             MarkdownBlock::ListItem(text) => div()
                 .flex()

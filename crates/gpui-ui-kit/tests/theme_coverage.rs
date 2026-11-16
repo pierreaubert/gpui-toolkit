@@ -81,6 +81,7 @@ fn construct_all_fields() -> Theme {
         border: rgb(0),
         border_hover: rgb(0),
         font_family: "test".into(),
+        font_family_mono: "test-mono".into(),
         badge_primary_bg: rgb(0),
         badge_primary_text: rgb(0),
         badge_success_bg: rgb(0),

@@ -25,6 +25,24 @@ fn test_every_theme_focus_ring_contrasts_with_accent_fills() {
 }
 
 #[test]
+fn test_every_theme_declares_a_resolvable_mono_family() {
+    for variant in ThemeVariant::all() {
+        let theme = Theme::for_variant(*variant);
+
+        assert!(
+            !theme.font_family_mono.is_empty(),
+            "{variant:?}: mono font family must be declared"
+        );
+        assert_ne!(
+            theme.font_family_mono, "monospace",
+            "{variant:?}: the generic monospace family does not resolve on CoreText"
+        );
+    }
+    assert_eq!(Theme::macos_dark().font_family_mono, "Menlo");
+    assert_eq!(Theme::fluent_dark().font_family_mono, "Cascadia Mono");
+}
+
+#[test]
 fn test_theme_creation() {
     let dark = Theme::dark();
     let light = Theme::light();

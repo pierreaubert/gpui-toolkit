@@ -42,7 +42,7 @@ impl Code {
 
         if self.inline {
             div()
-                .font_family(theme.font_family.clone())
+                .font_family(theme.font_family_mono.clone())
                 .px_1()
                 .py(px(1.0))
                 .bg(theme.surface)
@@ -52,7 +52,7 @@ impl Code {
                 .child(self.content)
         } else {
             div()
-                .font_family(theme.font_family.clone())
+                .font_family(theme.font_family_mono.clone())
                 .p_3()
                 .bg(theme.muted)
                 .rounded_md()
