@@ -99,6 +99,7 @@ impl InboundBudget {
         self.freed.notify_all();
     }
 
+    #[cfg(test)]
     fn outstanding_bytes(&self) -> usize {
         self.state
             .lock()
@@ -106,6 +107,7 @@ impl InboundBudget {
             .outstanding_bytes
     }
 
+    #[cfg(test)]
     fn high_water_bytes(&self) -> usize {
         self.state
             .lock()
@@ -577,7 +579,10 @@ struct MmapSessionConfig {
 /// is left detached if it ignores both `shutdown` and pipe close).
 enum SessionSupervision {
     Child(std::process::Child),
-    #[cfg(feature = "embedded")]
+    #[cfg(all(
+        feature = "embedded",
+        any(test, target_os = "ios", target_os = "tvos", target_os = "android")
+    ))]
     Embedded(gpui_python_runtime::embedded::EmbeddedThread),
 }
 
@@ -601,7 +606,10 @@ impl SessionSupervision {
                     }
                 }
             },
-            #[cfg(feature = "embedded")]
+            #[cfg(all(
+                feature = "embedded",
+                any(test, target_os = "ios", target_os = "tvos", target_os = "android")
+            ))]
             Self::Embedded(thread) => loop {
                 if thread.try_join().is_some() {
                     return true;
@@ -774,6 +782,7 @@ impl PythonSession {
             .join("\n")
     }
 
+    #[cfg(test)]
     fn recv(&self) -> Result<PythonMessage, Box<dyn Error + Send + Sync>> {
         let (charge, message) = self.recv_charged()?;
         self.inbound.release(charge);
@@ -993,7 +1002,10 @@ fn assemble_python_session<R: BufRead + Send + 'static>(
 /// Host capabilities for an embedded session: everything the desktop host
 /// advertises except mmap resource files, which need a shared filesystem
 /// directory. Datasets and arrays fall back to bounded binary pipe frames.
-#[cfg(feature = "embedded")]
+#[cfg(all(
+    feature = "embedded",
+    any(test, target_os = "ios", target_os = "tvos", target_os = "android")
+))]
 fn embedded_capabilities() -> Vec<String> {
     DEFAULT_HOST_CAPABILITIES
         .iter()
@@ -1004,7 +1016,10 @@ fn embedded_capabilities() -> Vec<String> {
 
 /// Starts the app in the embedded interpreter (mobile hosts) and wraps its
 /// pipes in the same supervised session as the desktop child process.
-#[cfg(feature = "embedded")]
+#[cfg(all(
+    feature = "embedded",
+    any(test, target_os = "ios", target_os = "tvos", target_os = "android")
+))]
 pub(super) fn spawn_embedded_python_session(
     script: PathBuf,
     python_paths: Vec<PathBuf>,
@@ -1343,7 +1358,10 @@ pub(super) fn load_python_session_blocking()
 
 /// Loads the app through the embedded interpreter (mobile hosts) using the
 /// same initialize/ready/snapshot handshake as the desktop child process.
-#[cfg(feature = "embedded")]
+#[cfg(all(
+    feature = "embedded",
+    any(test, target_os = "ios", target_os = "tvos", target_os = "android")
+))]
 pub(super) fn load_embedded_python_session_blocking(
     script: PathBuf,
     python_paths: Vec<PathBuf>,

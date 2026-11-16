@@ -5,8 +5,8 @@ use super::MarkdownTheme;
 use crate::accessibility::{AriaProps, AriaRole, apply_native_accessibility};
 use gpui::prelude::*;
 use gpui::{
-    App, ElementId, FontStyle, FontWeight, HighlightStyle, InteractiveText, SharedString,
-    StyledText, UnderlineStyle, Window, div, px,
+    App, ElementId, FontStyle, FontWeight, HighlightStyle, InteractiveText, StyledText,
+    UnderlineStyle, Window, div, px,
 };
 use pulldown_cmark::{Event, Options, Parser, Tag};
 use std::ops::Range;

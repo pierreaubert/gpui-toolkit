@@ -9,6 +9,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # The committed .cargo/config.toml selects clang + mold for Linux x86_64
+  # (the dev workstations have mold); hosted runners do not, and clang
+  # rejects `-fuse-ld=mold` when it is absent. Point this target at the
+  # stock linker in CI only — local config stays untouched.
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: cc
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C symbol-mangling-version=v0"
 
 jobs:
   platform-check:

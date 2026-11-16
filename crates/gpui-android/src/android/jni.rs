@@ -714,6 +714,9 @@ fn process_input_events(app: &AndroidApp) {
 
 // ── main event loop ───────────────────────────────────────────────────────────
 
+/// Nominal-thermal alias exercised by this module's unit tests; the
+/// loop itself always goes through the thermal variant.
+#[cfg(test)]
 fn event_loop_poll_timeout(
     needs_frame_pump: bool,
     next_delayed_task: Option<Duration>,

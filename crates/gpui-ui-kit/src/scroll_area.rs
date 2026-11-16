@@ -26,7 +26,7 @@ use gpui::prelude::{
 };
 use gpui::{
     AnyElement, App, Div, ElementId, FocusHandle, KeyDownEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, ScrollHandle, Stateful, Window, div, point, px,
+    MouseMoveEvent, Pixels, ScrollHandle, Stateful, Window, div, point, px,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
