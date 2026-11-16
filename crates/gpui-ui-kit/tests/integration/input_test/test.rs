@@ -9,9 +9,10 @@ use super::input_on_change_test_view::InputOnChangeTestView;
 use super::input_test_view::InputTestView;
 use super::input_with_callback_view::InputWithCallbackView;
 use gpui::{
-    Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, TestAppContext,
-    VisualTestContext, Window, div,
+    Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,
+    VisualTestContext, Window, div, px,
 };
+use gpui_ui_kit::button::Button;
 use gpui_ui_kit::input::Input;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -796,6 +797,79 @@ async fn test_input_cut(cx: &mut TestAppContext) {
             );
         }
     }
+}
+
+struct TabNavigationInputView;
+
+impl Render for TabNavigationInputView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .gap_4()
+            .child(Button::new("tab-a", "A"))
+            .child(
+                div().w(px(300.)).child(
+                    Input::new("tab-input")
+                        .value("")
+                        .placeholder("Type here..."),
+                ),
+            )
+            .child(Button::new("tab-b", "B"))
+    }
+}
+
+#[gpui::test]
+async fn test_input_is_reachable_with_tab(cx: &mut TestAppContext) {
+    let (button_a, button_b) = cx.update(|cx| {
+        (
+            Button::focus_handle_for("tab-a", cx),
+            Button::focus_handle_for("tab-b", cx),
+        )
+    });
+    let window = cx.add_window(move |_window, _cx| TabNavigationInputView);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    cx.update(|window, app| window.focus(&button_a, app));
+    cx.run_until_parked();
+    assert!(cx.update(|window, _| button_a.is_focused(window)));
+
+    cx.simulate_keystrokes("tab");
+    cx.run_until_parked();
+
+    assert!(
+        cx.update(|window, app| window.is_element_focused(&"tab-input".into(), app)),
+        "Tab from A must reach the default Input, not skip to B"
+    );
+    assert!(
+        !cx.update(|window, _| button_b.is_focused(window)),
+        "Tab from A skipped the Input"
+    );
+}
+
+#[gpui::test]
+async fn test_tab_in_input_moves_focus_on(cx: &mut TestAppContext) {
+    let button_b = cx.update(|cx| Button::focus_handle_for("tab-b", cx));
+    let window = cx.add_window(move |_window, _cx| TabNavigationInputView);
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+
+    let bounds = cx
+        .debug_bounds("tab-input")
+        .expect("Input must be registered for click focusing");
+    cx.simulate_mouse_down(bounds.center(), MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_up(bounds.center(), MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+    assert!(cx.update(|window, app| window.is_element_focused(&"tab-input".into(), app)));
+
+    cx.simulate_keystrokes("tab");
+    cx.run_until_parked();
+
+    assert!(
+        cx.update(|window, _| button_b.is_focused(window)),
+        "Tab inside an Input should move focus to B"
+    );
 }
 
 /// Test that disabled input doesn't accept input

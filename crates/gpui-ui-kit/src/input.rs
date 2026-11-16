@@ -1115,6 +1115,16 @@ impl InputEntity {
         if !self.focus_handle.is_focused(window) && !self.edit_state.borrow().editing {
             return;
         }
+        if event.keystroke.key.as_str() == "tab" && !self.props.multiline {
+            // Move focus like `Button` does; focus-out commits the edit.
+            if event.keystroke.modifiers.shift {
+                window.focus_prev(cx);
+            } else {
+                window.focus_next(cx);
+            }
+            cx.stop_propagation();
+            return;
+        }
         if event.keystroke.key.as_str() == "tab" {
             return;
         }
@@ -1778,7 +1788,7 @@ impl RenderOnce for Input {
                 let mut handles = handles.borrow_mut();
                 handles
                     .entry(id.clone())
-                    .or_insert_with(|| cx.focus_handle())
+                    .or_insert_with(|| cx.focus_handle().tab_stop(true))
                     .clone()
             })
         });
