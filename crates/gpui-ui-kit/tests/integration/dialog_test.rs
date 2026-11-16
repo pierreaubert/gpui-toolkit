@@ -9,7 +9,11 @@
 //! - Backdrop click behavior
 //! - Theme customization
 
-use gpui::{Context, IntoElement, ParentElement, Render, Styled, TestAppContext, Window, div};
+use gpui::{
+    Context, FocusHandle, IntoElement, ParentElement, Render, Styled, TestAppContext,
+    VisualTestContext, Window, div,
+};
+use gpui_ui_kit::button::Button;
 use gpui_ui_kit::dialog::{Dialog, DialogSize, DialogTheme};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -391,4 +395,72 @@ async fn test_dialog_empty_content(cx: &mut TestAppContext) {
     }
 
     let _window = cx.add_window(|_window, _cx| EmptyContentView);
+}
+
+// ============================================================================
+// Focus regression tests
+// ============================================================================
+
+struct FooterFocusDialogView {
+    dialog_handle: FocusHandle,
+    cancel_handle: FocusHandle,
+    ok_handle: FocusHandle,
+    close_count: Arc<AtomicUsize>,
+}
+
+impl Render for FooterFocusDialogView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let close_count = self.close_count.clone();
+        div().size_full().child(
+            Dialog::new("escape-dialog")
+                .title("Title")
+                .content("Body")
+                .focus_handle(self.dialog_handle.clone())
+                .trap_focus(true)
+                .trap_targets([self.cancel_handle.clone(), self.ok_handle.clone()])
+                .on_close(move |_window, _cx| {
+                    close_count.fetch_add(1, Ordering::SeqCst);
+                })
+                .footer(
+                    div()
+                        .flex()
+                        .child(Button::new("cancel", "Cancel"))
+                        .child(Button::new("ok", "OK")),
+                ),
+        )
+    }
+}
+
+#[gpui::test]
+async fn test_dialog_escape_closes_when_footer_button_focused(cx: &mut TestAppContext) {
+    let close_count = Arc::new(AtomicUsize::new(0));
+    let close_count_clone = close_count.clone();
+    let (ok_handle, cancel_handle, dialog_handle) = cx.update(|cx| {
+        (
+            Button::focus_handle_for("ok", cx),
+            Button::focus_handle_for("cancel", cx),
+            cx.focus_handle(),
+        )
+    });
+    let view_ok_handle = ok_handle.clone();
+    let window = cx.add_window(move |_window, _cx| FooterFocusDialogView {
+        dialog_handle,
+        cancel_handle,
+        ok_handle: view_ok_handle,
+        close_count: close_count_clone,
+    });
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+    cx.update(|window, app| window.focus(&ok_handle, app));
+    cx.run_until_parked();
+    assert!(cx.update(|window, _| ok_handle.is_focused(window)));
+
+    cx.simulate_keystrokes("escape");
+    cx.run_until_parked();
+
+    assert_eq!(
+        close_count.load(Ordering::SeqCst),
+        1,
+        "Escape with a footer Button focused must call on_close"
+    );
 }

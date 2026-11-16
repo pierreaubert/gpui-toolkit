@@ -401,8 +401,12 @@ impl Dialog {
                         if !dismiss_on_escape {
                             return;
                         }
-                        if crate::interaction::overlay_key_action(key, handle.is_focused(window))
-                            != Some(crate::interaction::OverlayKeyAction::Dismiss)
+                        // `contains_focused`, not `is_focused`: Escape must also
+                        // dismiss when a descendant (e.g. a footer Button) has focus.
+                        if crate::interaction::overlay_key_action(
+                            key,
+                            handle.contains_focused(window, cx),
+                        ) != Some(crate::interaction::OverlayKeyAction::Dismiss)
                         {
                             return;
                         }
