@@ -8,8 +8,8 @@
 //! - `InlineAlert` variants
 
 use gpui::{
-    Context, IntoElement, Modifiers, MouseButton, ParentElement, Render, Styled, TestAppContext,
-    VisualTestContext, Window, div,
+    Context, InteractiveElement, IntoElement, Modifiers, MouseButton, ParentElement, Render,
+    Styled, TestAppContext, VisualTestContext, Window, div, px,
 };
 use gpui_ui_kit::alert::{Alert, AlertVariant, InlineAlert};
 use std::sync::Arc;
@@ -315,4 +315,59 @@ async fn test_alert_full_featured(cx: &mut TestAppContext) {
     }
 
     let _window = cx.add_window(|_window, _cx| FullFeaturedView);
+}
+
+// ============================================================================
+// Layout Regression Tests
+// ============================================================================
+
+struct BoundedAlertView(String);
+
+impl Render for BoundedAlertView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div().flex().items_start().child(
+            div()
+                .w(px(500.))
+                .debug_selector(|| "alert-wrap".to_string())
+                .child(Alert::new("bounded-alert", self.0.clone())),
+        )
+    }
+}
+
+#[gpui::test]
+async fn test_alert_long_message_wraps_and_grows(cx: &mut TestAppContext) {
+    let long = "word ".repeat(60);
+    let window = cx.add_window(move |_window, _cx| BoundedAlertView(long));
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+
+    let bounds = cx
+        .debug_bounds("alert-wrap")
+        .expect("bounded alert wrapper must be laid out");
+    assert!(
+        f32::from(bounds.size.height) > 100.,
+        "a 300-character alert message must wrap and grow past one line, got height {:?}",
+        bounds.size.height
+    );
+    assert!(
+        f32::from(bounds.size.width) <= 500.5,
+        "alert wrapper must stay inside its 500px parent, got width {:?}",
+        bounds.size.width
+    );
+}
+
+#[gpui::test]
+async fn test_alert_unbroken_message_wraps_and_grows(cx: &mut TestAppContext) {
+    let window = cx.add_window(move |_window, _cx| BoundedAlertView("x".repeat(300)));
+    let mut cx = VisualTestContext::from_window(window.into(), cx);
+    cx.run_until_parked();
+
+    let bounds = cx
+        .debug_bounds("alert-wrap")
+        .expect("bounded alert wrapper must be laid out");
+    assert!(
+        f32::from(bounds.size.height) > 100.,
+        "an unbroken 300-character alert message must wrap and grow, got height {:?}",
+        bounds.size.height
+    );
 }

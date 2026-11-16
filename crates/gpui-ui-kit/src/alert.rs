@@ -170,6 +170,7 @@ impl Alert {
         // Content
         let mut content = div()
             .flex_1()
+            .min_w_0()
             .flex()
             .flex_col()
             .gap(px(design.spacing.grid_unit));
