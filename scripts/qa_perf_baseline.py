@@ -48,7 +48,7 @@ class CollectionError(Exception):
     """A required benchmark did not produce trustworthy samples."""
 
 # Criterion settings for comparison with the committed macOS baseline.
-# Linux uses shorter samples while that baseline cannot support a timing gate.
+# Linux uses its own shorter sampling configuration and matching baseline.
 CRITERION_FLAGS = [
     "--noplot",
     "--sample-size",
@@ -61,7 +61,7 @@ CRITERION_FLAGS = [
 
 
 def host_criterion_flags() -> list[str]:
-    """Use short Linux samples when no comparable timing baseline exists."""
+    """Use the platform's baseline-compatible sampling configuration."""
 
     if sys.platform.startswith("linux"):
         return [
@@ -480,6 +480,21 @@ def cpu_model() -> str:
     return platform.processor() or "unknown"
 
 
+def linux_render_devices(dev_dir: Path = Path("/dev/dri"), sys_dir: Path = Path("/sys/class/drm")) -> str:
+    """Record visible render devices rather than unrelated display controllers."""
+    devices = sorted(dev_dir.glob("renderD*"))
+    if not devices:
+        return "no-render-device"
+    identities = []
+    for device in devices:
+        try:
+            pci = sys_dir / device.name / "device"
+            identities.append(f"{(pci / 'vendor').read_text().strip()}:{(pci / 'device').read_text().strip()}")
+        except OSError:
+            return "unknown"
+    return "render-devices:" + ",".join(sorted(identities))
+
+
 def gpu_model() -> str:
     """Best-effort GPU identity for provenance; "unknown" stays comparable."""
     if sys.platform == "darwin":
@@ -496,10 +511,7 @@ def gpu_model() -> str:
             pass
         return "unknown"
     if sys.platform.startswith("linux"):
-        output = command_output(["lspci"])
-        for marker in ("VGA compatible controller:", "3D controller:"):
-            if marker in output:
-                return output.split(marker, 1)[1].split(" (rev", 1)[0].strip() or "unknown"
+        return linux_render_devices()
     return "unknown"
 
 

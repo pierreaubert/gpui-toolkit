@@ -45,6 +45,13 @@ FFI_BOUNDARY_FILES = {
     "crates/gpui-d3rs/src/mesh/gpu/metal_backend.rs",
     "crates/gpui-foreign-parent/src/ffi.rs",
     "crates/gpui-foreign-parent/src/registry.rs",
+    # AppKit view handles and the C ABI bridge are native ownership boundaries.
+    "crates/gpui-macos-platform-view/src/lib.rs",
+    "crates/gpui-macos-platform-view/src/host.rs",
+    "crates/gpui-macos-platform-view/examples/below_gpui.rs",
+    # Mobile entry points cross JNI and the iOS C ABI respectively.
+    "crates/gpui-python-runtime/mobile/android/src/lib.rs",
+    "crates/gpui-python-runtime/mobile/ios/src/lib.rs",
     "crates/gpui-python-runtime/src/dataset_frames.rs",
 }
 

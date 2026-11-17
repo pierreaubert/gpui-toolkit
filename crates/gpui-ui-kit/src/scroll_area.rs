@@ -30,7 +30,8 @@ use gpui::{
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 /// Minimum scrollbar thumb length in pixels, so very long content
 /// still has a grabbable thumb.

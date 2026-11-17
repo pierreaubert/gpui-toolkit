@@ -120,11 +120,17 @@ def check() -> list[str]:
         "gpui-profiler",
         "gpui-ui-kit-macros",
     )
+    workspace_msrv = cargo["workspace"]["package"].get("rust-version")
+    if workspace_msrv != "1.100":
+        errors.append("workspace must declare rust-version = 1.100")
     for crate in public_msrv_crates:
         manifest_path = ROOT / "crates" / crate / "Cargo.toml"
         manifest = tomllib.loads(manifest_path.read_text())
-        if manifest["package"].get("rust-version") != "1.89":
-            errors.append(f"{crate} must declare rust-version = 1.89")
+        version = manifest["package"].get("rust-version")
+        if version == {"workspace": True}:
+            version = workspace_msrv
+        if version != "1.100":
+            errors.append(f"{crate} must declare or inherit rust-version = 1.100")
 
     members = {
         member.rstrip("/")

@@ -18160,6 +18160,9 @@ path = "crates/gpui-foreign-parent"
 id = "gpui-linux-foreign"
 path = "crates/gpui-linux-foreign"
 [[inventory.crate]]
+id = "gpui-macos-platform-view"
+path = "crates/gpui-macos-platform-view"
+[[inventory.crate]]
 id = "gpui-mesh"
 path = "crates/gpui-mesh"
 [[inventory.crate]]

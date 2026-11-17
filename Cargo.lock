@@ -2861,6 +2861,7 @@ name = "gpui-linux-foreign"
 version = "0.11.1"
 dependencies = [
  "gpui-foreign-parent",
+ "log",
  "sotf-gpui-toolkit-gpui",
  "sotf-gpui-toolkit-gpui-linux",
  "wayland-backend",

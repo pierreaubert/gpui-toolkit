@@ -37,7 +37,7 @@ cov_threshold := "73.5"
 cov_ignore_regex := '.*/(tests|benches|examples|target|crates/3rdparties|crates/gpui-au|crates/gpui-android|crates/gpui-ios|crates/gpui-miniapp|crates/.*/bin)/.*'
 cov_summary := "target/qa/cov/summary.json"
 cov_report := "target/qa/cov/report.md"
-perf_baseline := "qa/perf/baseline.json"
+perf_baselines := "qa/perf"
 perf_current := "target/qa/perf/current.json"
 perf_report := "target/qa/perf/report.md"
 # Cross-process Criterion runs on shared developer/CI hosts show up to ~18%
@@ -362,14 +362,15 @@ qa-cov-check:
 [group('qa')]
 qa-perf-update:
 	@echo "Updating performance baseline..."
-	python3 scripts/qa_perf_baseline.py --output {{perf_baseline}}
+	python3 scripts/qa_perf_baseline.py --output {{perf_current}}
+	python3 scripts/qa_perf_register.py --current {{perf_current}} --baseline-dir {{perf_baselines}}
 
 # Performance non-regression against the committed baseline.
 [group('qa')]
 qa-perf:
 	@echo "Running host performance checks..."
 	python3 scripts/qa_perf_baseline.py --output {{perf_current}}
-	python3 scripts/qa_perf_gate.py --baseline {{perf_baseline}} --current {{perf_current}} --threshold {{perf_threshold}} --noise-floor-ns {{perf_noise_floor_ns}} --output {{perf_report}} --retries 2 {{if os() == "linux" { "--allow-incomparable-host" } else { "" }}}
+	python3 scripts/qa_perf_gate.py --baseline-dir {{perf_baselines}} --current {{perf_current}} --threshold {{perf_threshold}} --noise-floor-ns {{perf_noise_floor_ns}} --output {{perf_report}} --retries 2
 
 # ----------------------------------------------------------------------
 # FORMAT / BUILD

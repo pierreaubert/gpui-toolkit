@@ -684,6 +684,18 @@ class ReleaseEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceError, "MeshPlot benchmark evidence is missing"):
             self.build(root)
 
+    def test_evidence_records_the_baseline_for_the_current_host(self):
+        root = self.make_repo()
+        current = root / "target/qa/perf/current.json"
+        data = json.loads(current.read_text(encoding="utf-8"))
+        data["metadata"]["environment"]["cpu_model"] = "another machine"
+        current.write_text(json.dumps(data), encoding="utf-8")
+        selected = root / "qa/perf/baselines/other.json"
+        selected.parent.mkdir(parents=True)
+        selected.write_text(json.dumps(data), encoding="utf-8")
+        manifest = self.build(root)
+        self.assertIn("qa/perf/baselines/other.json", {row["path"] for row in manifest["artifacts"]})
+
     def test_clean_manifest_requires_named_mesh_plot_workloads(self):
         root = self.make_repo()
         baseline = root / "qa/perf/baseline.json"

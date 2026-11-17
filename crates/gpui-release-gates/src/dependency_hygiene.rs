@@ -304,6 +304,15 @@ const DEPENDENCY_ADVISORY_TRIAGE: &[DependencyAdvisoryTriage] = &[
         current_decision: "Tracked as unmaintained-warning debt flagged by freshly published advisories; no safe upgrade until the vendored Linux backend moves to a maintained zbus stack.",
         required_action: "Keep the cargo-deny ignores visible in release notes and drop them once the vendored gpui_linux dependency closure leaves the unmaintained zbus support crates.",
     },
+    DependencyAdvisoryTriage {
+        advisory_id: "RUSTSEC-2026-0543",
+        crate_name: "chrono",
+        affected_versions: "0.4.45",
+        status: DependencyAdvisoryTriageStatus::WarningTracked,
+        affected_path: "Arrow and the GPUI fork depend transitively on chrono",
+        current_decision: "Tracked as unmaintained dependency debt; the advisory affects all versions and no upgrade is available.",
+        required_action: "Monitor upstream replacements and remove the cargo-deny exception when the dependency closure no longer requires chrono.",
+    },
 ];
 
 /// Return the current dependency hygiene report.

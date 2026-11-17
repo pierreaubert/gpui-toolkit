@@ -12,6 +12,7 @@ from unittest import mock
 import qa_perf_baseline
 import qa_perf_check
 import qa_perf_gate
+import qa_perf_register
 
 
 def fixture(environment: dict[str, object]) -> dict[str, object]:
@@ -27,6 +28,60 @@ def fixture(environment: dict[str, object]) -> dict[str, object]:
 
 
 class PerformanceEnvironmentTests(unittest.TestCase):
+    def test_linux_gpu_identity_uses_visible_render_devices(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            devices = root / "dev"
+            devices.mkdir()
+            self.assertEqual(qa_perf_baseline.linux_render_devices(devices, root / "sys"), "no-render-device")
+            (devices / "renderD128").touch()
+            pci = root / "sys/renderD128/device"
+            pci.mkdir(parents=True)
+            (pci / "vendor").write_text("0x10de\n")
+            (pci / "device").write_text("0x2bb1\n")
+            self.assertEqual(qa_perf_baseline.linux_render_devices(devices, root / "sys"), "render-devices:0x10de:0x2bb1")
+
+    def test_selects_by_machine_and_rejects_unknown_or_duplicate_hosts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            mac = fixture({"system": "Darwin", "machine": "arm64", "cpu_model": "Apple M4 Pro", "rustc": {"host": "aarch64-apple-darwin"}})
+            linux = fixture({"system": "Linux", "machine": "x86_64", "cpu_model": "Threadripper", "rustc": {"host": "x86_64-unknown-linux-gnu"}})
+            mac["records"] = linux["records"] = [timing_record()]
+            (root / "baseline.json").write_text(json.dumps(mac))
+            (root / "baselines").mkdir()
+            linux_path = root / "baselines/linux.json"
+            linux_path.write_text(json.dumps(linux))
+            self.assertEqual(qa_perf_check.host_baseline_path(root, mac), root / "baseline.json")
+            self.assertEqual(qa_perf_check.host_baseline_path(root, linux), linux_path)
+            different_gpu = fixture({"system": "Linux", "machine": "x86_64", "cpu_model": "Threadripper", "gpu_model": "no-render-device", "rustc": {"host": "x86_64-unknown-linux-gnu"}})
+            with self.assertRaisesRegex(qa_perf_check.InputError, "no performance baseline"):
+                qa_perf_check.host_baseline_path(root, different_gpu)
+            other = fixture({"system": "Windows", "machine": "AMD64", "cpu_model": "Other", "rustc": {"host": "x86_64-pc-windows-msvc"}})
+            with self.assertRaisesRegex(qa_perf_check.InputError, "just qa-perf-update"):
+                qa_perf_check.host_baseline_path(root, other)
+            (root / "baselines/duplicate.json").write_text(json.dumps(linux))
+            with self.assertRaisesRegex(qa_perf_check.InputError, "multiple performance baselines"):
+                qa_perf_check.host_baseline_path(root, linux)
+
+    def test_register_preserves_other_hosts_and_rejects_partial_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            environment = {"system": "Windows", "machine": "AMD64", "cpu_model": "Test CPU", "gpu_model": "unknown", "rustc": {"host": "x86_64-pc-windows-msvc"}}
+            data = fixture(environment)
+            data["metadata"]["collection"] = "fresh-run"
+            data["records"] = [timing_record()]
+            current = root / "current.json"
+            current.write_text(json.dumps(data))
+            spec = mock.Mock(key="crate:bench")
+            with mock.patch.object(qa_perf_baseline, "environment_metadata", return_value=environment), mock.patch.object(qa_perf_baseline, "host_benchmarks", return_value=[spec]):
+                path = qa_perf_register.register(current, root / "perf")
+                self.assertIn("windows-amd64", path.name)
+                self.assertEqual(qa_perf_register.register(current, root / "perf"), path)
+                data["metadata"]["collection"] = "existing-samples"
+                current.write_text(json.dumps(data))
+                with self.assertRaisesRegex(qa_perf_check.InputError, "fresh full"):
+                    qa_perf_register.register(current, root / "perf")
+
     def test_linux_benchmark_selection_excludes_ios(self) -> None:
         with mock.patch.object(qa_perf_baseline.sys, "platform", "linux"):
             self.assertNotIn(
@@ -373,6 +428,14 @@ def timing_record(crate: str = "crate", bench: str = "bench") -> dict[str, objec
 
 
 class PerformanceEvidenceTests(unittest.TestCase):
+    def test_retry_selection_uses_timing_regressions(self) -> None:
+        base = fixture({})
+        current = fixture({})
+        base["records"] = [timing_record()]
+        current["records"] = [{**timing_record(), "median_ns": 1500.0}]
+        regressed = qa_perf_gate._regressions(base, current, 20.0, 150.0)
+        self.assertEqual(qa_perf_gate.retry_bench_keys(regressed), ["crate:bench"])
+
     def test_incomparable_host_collects_samples_without_timing_comparison(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

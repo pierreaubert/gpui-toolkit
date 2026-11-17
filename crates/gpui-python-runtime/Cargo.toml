@@ -83,7 +83,6 @@ gpui-px = { workspace = true, default-features = false, optional = true }
 gpui-mesh = { workspace = true }
 gpui-dataset-transformation = { workspace = true }
 gpui-ui-kit = { workspace = true, optional = true }
-gpui_macos = { workspace = true, optional = true }
 glam = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -97,6 +96,7 @@ libc = { workspace = true }
 pyo3 = { version = "0.30.1", features = ["abi3-py310"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+gpui_macos = { workspace = true, optional = true }
 security-framework = { workspace = true }
 
 [[bin]]

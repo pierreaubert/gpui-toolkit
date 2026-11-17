@@ -8,10 +8,16 @@
 //! snapshots (wasm defaults: dark theme, neutral design).
 
 use crate::release_artifacts::{ShowcaseVisualCapture, slug};
-use crate::showcase::{Showcase, ShowcaseSection};
-use anyhow::{Context as _, Result};
+#[cfg(target_os = "macos")]
+use crate::showcase::Showcase;
+use crate::showcase::ShowcaseSection;
+#[cfg(target_os = "macos")]
+use anyhow::Context as _;
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::path::PathBuf;
 
 pub const SHOWCASE_CAPTURE_REPORT_SCHEMA_VERSION: u32 = 1;
 pub const SHOWCASE_CAPTURE_REPORT_TYPE: &str = "gpui-showcase-render-capture";

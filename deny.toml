@@ -23,6 +23,9 @@ ignore = [
     "RUSTSEC-2026-0370",
     "RUSTSEC-2026-0371",
     "RUSTSEC-2026-0372",
+    # Chrono is unmaintained in all versions and is required transitively by
+    # Arrow and the GPUI fork. Track replacement in dependency_hygiene.rs.
+    "RUSTSEC-2026-0543",
 ]
 
 [licenses]

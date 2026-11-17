@@ -224,7 +224,7 @@ pub const CRATE_STABILITY_MANIFEST: &[CrateStability] = &[
         aggregate_feature: AggregateFeature::Tooling,
         stability: StabilityLevel::ReleaseCandidate,
         publish_decision: PublishDecision::PublicCoreAfterGates,
-        required_gate: "locked dry-run, Rust 1.89 MSRV, allocator-conflict documentation, and feature/no-feature tests",
+        required_gate: "locked dry-run, Rust 1.100 MSRV, allocator-conflict documentation, and feature/no-feature tests",
         note: "Small GPUI-free profiling package selected for crates.io wave 1; enabling its global allocator remains opt-in.",
     },
     CrateStability {

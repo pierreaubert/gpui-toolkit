@@ -153,12 +153,15 @@ Two open source examples:
 | [gpui-keybinding](./crates/gpui-keybinding/) | Reusable keybinding framework with editor-style preset support for GPUI applications. |
 | [gpui-layout-expr](./crates/gpui-layout-expr/) | Compact layout-expression AST, parser, and validation shared by the CLI and the `layout!` macro. |
 | [gpui-linux-foreign](./crates/gpui-linux-foreign/) | Linux foreign-parent binding: GPUI editors in host-owned X11 windows (VST3/CLAP) and Wayland subsurfaces (CLAP). |
+| [gpui-macos-platform-view](./crates/gpui-macos-platform-view/) | AppKit native view embedding and frame synchronization for GPUI. |
 | [gpui-mesh](./crates/gpui-mesh/) | Mesh data model only: VTK-style cells (tet/hex/wedge/pyramid), scalar/vector/tensor/complex fields, boundary extraction, and bounded surface chunking. No GPUI/wgpu/IO. |
 | [gpui-miniapp](./crates/gpui-miniapp/) | Small application shell used by examples and showcases to select the right GPUI platform backend. |
 | [gpui-pretext](./crates/gpui-pretext/) | High-performance text measurement and multiline layout utilities. |
 | [gpui-profiler](./crates/gpui-profiler/) | Lightweight allocation profiling and hot-path regression utilities. |
 | [gpui-px](./crates/gpui-px/) | Plotly Express-style charting API built on `gpui-d3rs` for scatter, line, bar, heatmap, contour, surface, pie, boxplot, and treemap views. |
 | [gpui-python-runtime](./crates/gpui-python-runtime/) | Retained scene specification runtime for a GPUI Python wrapper, with desktop and embedded CPython mobile hosts. |
+| [gpui-python-mobile-android](./crates/gpui-python-runtime/mobile/android/) | Android host for the embedded Python runtime. |
+| [gpui-python-mobile-ios](./crates/gpui-python-runtime/mobile/ios/) | iOS host for the embedded Python runtime. |
 | [gpui-release-gates](./crates/gpui-release-gates/) | Release-QA metadata (stability, gates, publish plan) for the GPUI toolkit workspace. |
 | [gpui-scaffolder](./crates/gpui-scaffolder/) | CLI for creating standalone GPUI mini-app projects backed by `gpui-miniapp`. |
 | [gpui-scene3d](./crates/gpui-scene3d/) | 3D scene rendering: orbit camera, transfer functions, WGSL clipping planes, chunked GPU buffers, software rasterizer, volume raycasting, and time playback. |
@@ -237,15 +240,22 @@ just qa-cov-check # enforced current floor; 90% remains the release target
 just qa-release-contract # governance, MSRV metadata, packages, docs, and API policy
 ```
 
-The committed performance baseline was captured on macOS. Linux collects
-shorter portable benchmark samples and records a skipped timing comparison
-until a baseline from a comparable Linux host is available.
+Performance baselines are selected by OS, architecture, CPU, GPU, and Rust
+host triple. The repository includes the existing macOS M4 Pro baseline and a
+Linux x86-64 Threadripper baseline. Comparisons require matching benchmark
+configuration and Rust compiler series. An unrecognized machine fails with an
+instruction to capture its own baseline; it never overwrites another host's.
 
 Update the committed performance baseline after intentional improvements:
 
 ```bash
 just qa-perf-update
 ```
+
+Run that command on the intended reference machine to add or refresh its baseline,
+including on a Windows 11 x86-64 machine. Commit the generated JSON under
+`qa/perf/baselines/`. Capture on an idle machine, review the source revision and
+dirty-worktree metadata, and rerun `just qa-perf` to verify the comparison.
 
 See [`qa.md`](./qa.md) for the detailed coverage and non-regression plan, and
 [`docs/safety.md`](./docs/safety.md) for the enforced unsafe-Rust boundaries

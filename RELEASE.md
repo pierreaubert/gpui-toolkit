@@ -7,7 +7,7 @@ source while making narrower stability and registry claims.
 
 | Lane | Current scope | Promise |
 | --- | --- | --- |
-| crates.io wave 1 | `gpui-design`, `gpui-profiler`, `gpui-ui-kit-macros` | GPUI-free packages with locked dry-run, Rust 1.89 MSRV, docs, tests, and dependency gates. |
+| crates.io wave 1 | `gpui-design`, `gpui-profiler`, `gpui-ui-kit-macros` | GPUI-free packages with locked dry-run, Rust 1.100 MSRV, docs, tests, and dependency gates. |
 | crates.io deferred | `gpui-pretext`, then `gpui-builder` | Publish only after their registry predecessors exist and locked dry-runs pass. |
 | source beta | GPUI-dependent UI, audio, theme, chart, showcase, and tooling crates | Available from the signed/tagged source archive; APIs and platform coverage remain pre-1.0 beta. |
 | internal/experimental | aggregate, mobile backends, Audio Unit, scaffolder, and platform delivery artifacts | No registry or production-support claim without the target-specific gates in `qa.md`. |

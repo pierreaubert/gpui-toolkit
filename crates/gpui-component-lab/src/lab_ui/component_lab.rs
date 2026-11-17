@@ -4553,7 +4553,7 @@ impl ComponentLab {
         }
     }
 
-    #[cfg(feature = "visual-capture")]
+    #[cfg(all(feature = "visual-capture", target_os = "macos"))]
     pub(super) fn release_visual_capture_resources(&mut self, cx: &mut Context<Self>) {
         for showcase in self.ui_showcases.values() {
             showcase.update(cx, |showcase, _cx| {

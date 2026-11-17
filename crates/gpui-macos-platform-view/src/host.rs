@@ -13,7 +13,9 @@ use std::ffi::c_void;
 use gpui::Window;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-use crate::{MacRect, ViewHandle, registered_view, snapshot_frames};
+use crate::{MacRect, ViewHandle};
+#[cfg(target_os = "macos")]
+use crate::{registered_view, snapshot_frames};
 
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{NSView, NSWindow, NSWindowOrderingMode};
@@ -104,7 +106,7 @@ fn insert(window: &Window, view: ViewHandle, mode: NSWindowOrderingMode) -> bool
 /// the window is not AppKit-backed (or has no content view yet).
 ///
 /// For several below-GPUI views, insert them back-to-front
-/// ([`snapshot_frames`] order): each insertion lands directly below
+/// ([`crate::snapshot_frames`] order): each insertion lands directly below
 /// the GPUI view, in front of previously inserted ones.
 pub fn insert_below_gpui(window: &Window, view: ViewHandle) -> bool {
     #[cfg(target_os = "macos")]

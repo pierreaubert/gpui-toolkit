@@ -78,7 +78,7 @@ def _regressions(
     current = qa_perf_check.records_from_data(current_data, Path("current"))
     return qa_perf_check.compare(
         baseline, current, threshold, noise_floor_ns
-    )[-1]
+    )[4]
 
 
 def _check_args(args: argparse.Namespace) -> list[str]:
@@ -101,7 +101,9 @@ def _check_args(args: argparse.Namespace) -> list[str]:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--baseline", type=Path, required=True)
+    baseline_source = parser.add_mutually_exclusive_group(required=True)
+    baseline_source.add_argument("--baseline", type=Path)
+    baseline_source.add_argument("--baseline-dir", type=Path)
     parser.add_argument("--current", type=Path, required=True)
     parser.add_argument("--threshold", type=float, default=10.0)
     parser.add_argument("--noise-floor-ns", type=float, default=150.0)
@@ -116,8 +118,11 @@ def main(argv: list[str]) -> int:
         return 2
 
     try:
-        baseline_data = _load_validated(args.baseline)
         current_data = _load_validated(args.current)
+        if args.baseline_dir is not None:
+            args.baseline = qa_perf_check.host_baseline_path(args.baseline_dir, current_data)
+            print(f"Using performance baseline: {args.baseline}")
+        baseline_data = _load_validated(args.baseline)
         qa_perf_check.records_from_data(baseline_data, args.baseline)
         qa_perf_check.records_from_data(current_data, args.current)
     except qa_perf_check.InputError as exc:

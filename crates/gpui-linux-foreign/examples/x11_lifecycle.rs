@@ -266,21 +266,21 @@ mod native {
                     let mut dropped = 777usize;
                     let mut coalesced = 888usize;
                     // SAFETY: outputs are live aligned local counters; context is a token.
-                    unsafe {
+                    let () = unsafe {
                         ffi::gpui_linux_x11_frame_stats(
                             context,
                             &raw mut dropped,
                             &raw mut coalesced,
                         );
-                    }
+                    };
                     assert_eq!((dropped, coalesced), (777, 888));
                 })
                 .join()
                 .unwrap();
                 assert_eq!(state.children().len(), 1);
-                // SAFETY: context is a checked candidate token; no host objects are read.
                 let wrong_destroy: unsafe extern "C" fn(*mut LinuxForeignContext) =
                     ffi::gpui_linux_wayland_destroy;
+                // SAFETY: context is a checked candidate token; no host objects are read.
                 unsafe { wrong_destroy(state.context()) };
                 assert_eq!(state.children().len(), 1);
                 close(state.context());

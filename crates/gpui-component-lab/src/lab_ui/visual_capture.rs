@@ -1,6 +1,9 @@
+#[cfg(target_os = "macos")]
 use super::{ComponentLab, LabAppConfig};
 use crate::ComponentLabVisualCase;
-use anyhow::{Context as _, Result};
+#[cfg(target_os = "macos")]
+use anyhow::Context as _;
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -291,6 +294,7 @@ fn persist_capture(
     }
 }
 
+#[cfg(target_os = "macos")]
 fn capture_error(
     case: &ComponentLabVisualCase,
     status: ComponentLabCaptureStatus,

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Iterable
 
 from repo_paths import within_repo
+import qa_perf_check
 
 from mesh_wgpu_manifest import (
     COMPARISON_IDS,
@@ -284,6 +285,7 @@ def collect_artifacts(
         raise EvidenceError("missing required QA artifacts: " + ", ".join(missing))
 
     paths = required
+    paths.add(selected_performance_baseline(root))
     paths.update(relative for relative in APPLE_ONLY_ARTIFACTS if (root / relative).is_file())
     paths.update(relative for relative in OPTIONAL_ARTIFACTS if (root / relative).is_file())
     product_dir = root / MESH_PLOT_PRODUCT_VISUAL_DIR
@@ -415,6 +417,15 @@ def validate_mesh_plot_visual_capture(
         raise EvidenceError("MeshPlot local visual capture does not contain 108 unique actual images")
 
 
+def selected_performance_baseline(root: Path) -> str:
+    current_path = root / "target/qa/perf/current.json"
+    try:
+        current = qa_perf_check.validate_baseline(qa_perf_check.load_json(current_path), current_path)
+        return qa_perf_check.host_baseline_path(root / "qa/perf", current).relative_to(root).as_posix()
+    except (qa_perf_check.InputError, ValueError) as error:
+        raise EvidenceError(f"cannot select performance baseline: {error}") from error
+
+
 def validate_mesh_plot_benchmarks(
     root: Path,
     *,
@@ -429,7 +440,7 @@ def validate_mesh_plot_benchmarks(
     ``MESH_PLOT_BENCHMARK_WORKLOADS``.
     """
     missing: list[str] = []
-    for relative in ("qa/perf/baseline.json", "target/qa/perf/current.json"):
+    for relative in (selected_performance_baseline(root), "target/qa/perf/current.json"):
         path = root / relative
         try:
             data = json.loads(path.read_text(encoding="utf-8"))

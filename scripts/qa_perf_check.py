@@ -17,6 +17,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -69,7 +70,7 @@ def load_json(path: Path) -> Any:
         raise InputError(f"failed to read {path}: {exc}") from exc
 
 
-def validate_baseline(data: Any, path: Path) -> dict[str, Any]:
+def validate_baseline(data: Any, path: Path, *, require_records: bool = True) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise InputError(f"{path}: expected top-level JSON object")
 
@@ -80,7 +81,7 @@ def validate_baseline(data: Any, path: Path) -> dict[str, Any]:
     records = data.get("records")
     if not isinstance(records, list):
         raise InputError(f"{path}: expected 'records' to be a list")
-    if not records:
+    if require_records and not records:
         raise InputError(f"{path}: no benchmark records")
 
     metadata = data.get("metadata")
@@ -104,6 +105,49 @@ def comparable_environment(data: dict[str, Any]) -> dict[str, str]:
         "rustc_release": str(rustc.get("release", "unknown")) if isinstance(rustc, dict) else "unknown",
         "rustc_host": str(rustc.get("host", "unknown")) if isinstance(rustc, dict) else "unknown",
     }
+
+
+def host_identity(data: dict[str, Any]) -> tuple[str, str, str, str, str]:
+    """Identify a benchmark machine independently of its compiler version."""
+    env = comparable_environment(data)
+    return tuple(env[key] for key in ("system", "machine", "cpu_model", "gpu_model", "rustc_host"))
+
+
+def find_host_baseline(directory: Path, current: dict[str, Any]) -> Path | None:
+    """Find the unique baseline for a recorded machine, if one exists."""
+    identity = host_identity(current)
+    candidates = [directory / "baseline.json", *sorted((directory / "baselines").glob("*.json"))]
+    matches = []
+    for path in candidates:
+        if not path.is_file():
+            continue
+        baseline = validate_baseline(load_json(path), path, require_records=False)
+        if host_identity(baseline) == identity:
+            matches.append(path)
+    if len(matches) > 1:
+        raise InputError(f"multiple performance baselines match this machine: {matches}")
+    return matches[0] if matches else None
+
+
+def host_baseline_path(directory: Path, current: dict[str, Any]) -> Path:
+    path = find_host_baseline(directory, current)
+    if path is None:
+        raise InputError(
+            f"no performance baseline for machine {host_identity(current)}; run `just qa-perf-update` "
+            "on this machine to capture one"
+        )
+    return path
+
+
+def new_host_baseline_path(directory: Path, current: dict[str, Any]) -> Path:
+    """Derive a stable path without overwriting another machine's baseline."""
+    identity = host_identity(current)
+    system, machine, cpu, _gpu, host = identity
+    if any(value in ("", "unknown") for value in (system, machine, cpu, host)) or cpu == machine:
+        raise InputError("cannot register a baseline without a detailed CPU and Rust host identity")
+    digest = hashlib.sha256(json.dumps(identity).encode()).hexdigest()[:12]
+    slug = "-".join("".join(c.lower() if c.isalnum() else "-" for c in part).strip("-") for part in (system, machine))
+    return directory / "baselines" / f"{slug}-{digest}.json"
 
 
 def _cpu_models_comparable(

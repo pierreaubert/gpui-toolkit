@@ -32,7 +32,7 @@ impl LabAppConfig {
         self
     }
 
-    #[cfg(feature = "visual-capture")]
+    #[cfg(all(feature = "visual-capture", target_os = "macos"))]
     pub(crate) fn for_visual_capture(
         mut self,
         story_id: impl Into<String>,
