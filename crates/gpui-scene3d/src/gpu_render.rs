@@ -51,7 +51,7 @@ pub enum GpuRenderError {
 }
 
 struct GpuChunkBuffers {
-    /// Rebased-space AABB [min_xyz, max_xyz] for frustum culling.
+    /// Rebased-space AABB [`min_xyz`, `max_xyz`] for frustum culling.
     bounds: [[f32; 3]; 2],
     vertices: [wgpu::Buffer; 3],
     index: wgpu::Buffer,
@@ -141,6 +141,7 @@ const ACTOR_MATERIAL_BYTES: u64 = 256 * 4 + SCENE_UNIFORM_SIZE as u64;
 struct UploadPlan {
     geometry_bytes: u64,
     resource_bytes: u64,
+    actor_geometry: Vec<u64>,
 }
 
 fn checked_resource_sum(current: u64, additional: u64, limit: u64) -> Result<u64, SceneError> {
@@ -231,9 +232,11 @@ fn upload_plan(
     let mut plan = UploadPlan {
         geometry_bytes: 0,
         resource_bytes: 0,
+        actor_geometry: Vec::new(),
     };
     let mut live = checked_resource_sum(previous_bytes, 0, limits.max_resource_bytes)?;
     for geometry in prepared.actors.iter().flatten() {
+        let previous_geometry_bytes = plan.geometry_bytes;
         if SCENE_UNIFORM_SIZE as u64 > buffer_limit {
             return Err(SceneError::ResourceLimit {
                 resource: "GPU material uniform buffer bytes",
@@ -280,6 +283,8 @@ fn upload_plan(
             plan.resource_bytes += bytes;
             plan.geometry_bytes += bytes;
         }
+        plan.actor_geometry
+            .push(plan.geometry_bytes - previous_geometry_bytes);
     }
     Ok(plan)
 }
@@ -322,7 +327,7 @@ pub struct GpuScene {
 /// paged into GPU buffers across several `sync_with_budget` calls.
 struct PendingUpload {
     prepared: std::sync::Arc<crate::PreparedScene>,
-    visible: Vec<usize>,
+    visible: Vec<(usize, u64)>,
     next: usize,
     resource_bytes: u64,
     geometry_bytes: u64,
@@ -1525,6 +1530,7 @@ impl GpuRenderer {
                     .enumerate()
                     .filter(|(_, actor)| actor.visible)
                     .map(|(index, _)| index)
+                    .zip(plan.actor_geometry)
                     .collect(),
                 prepared,
                 next: 0,
@@ -1543,11 +1549,7 @@ impl GpuRenderer {
             let mut next = pending.next;
             let mut failure: Option<GpuRenderError> = None;
             while next < pending.visible.len() {
-                let index = pending.visible[next];
-                let cost = pending.prepared.actors[index]
-                    .as_ref()
-                    .expect("visible actor prepared")
-                    .byte_len();
+                let (index, cost) = pending.visible[next];
                 if spent > 0 && spent.saturating_add(cost) > budget {
                     break;
                 }
@@ -1956,8 +1958,11 @@ mod tests {
                 &[[0, 1, 2], [0, 2, 3]],
             )
         };
+        let mut hidden = Actor::new(quad_at(-50.0));
+        hidden.visible = false;
         let scene = Scene::new()
             .with_actor(Actor::new(quad_at(0.0)).color([1.0, 0.0, 0.0, 1.0]))
+            .with_actor(hidden)
             .with_actor(Actor::new(quad_at(50.0)).color([0.0, 1.0, 0.0, 1.0]))
             .with_actor(Actor::new(quad_at(100.0)).color([0.0, 0.0, 1.0, 1.0]));
         let mut uploaded = renderer.upload(&Scene::new()).unwrap();
@@ -1974,6 +1979,18 @@ mod tests {
         );
         assert!(uploaded.upload_complete());
         assert_eq!(uploaded.actors.len(), 3);
+        let mut paged = renderer.upload(&Scene::new()).unwrap();
+        let two_quad_bytes = 2 * (4 * 7 * 4 + 6 * 4);
+        renderer
+            .sync_with_budget(&mut paged, &scene, two_quad_bytes)
+            .unwrap();
+        assert!(!paged.upload_complete());
+        assert_eq!(paged.actors.len(), 2);
+        renderer
+            .sync_with_budget(&mut paged, &scene, two_quad_bytes)
+            .unwrap();
+        assert!(paged.upload_complete());
+        assert_eq!(paged.actors.len(), 3);
         // Camera fitted to the first quad only: the far quads' chunks
         // are frustum-culled, and resize to the same size reuses.
         let first_bounds = quad_at(0.0).bounds().unwrap();
@@ -2018,9 +2035,9 @@ mod tests {
 
     #[test]
     fn upload_arithmetic_and_shared_actor_storage_are_preflighted() {
-        assert!(checked_resource_sum(u64::MAX, 1, u64::MAX).is_err());
+        checked_resource_sum(u64::MAX, 1, u64::MAX).unwrap_err();
         assert_eq!(checked_resource_sum(17, 23, 40).unwrap(), 40);
-        assert!(checked_resource_sum(17, 23, 39).is_err());
+        checked_resource_sum(17, 23, 39).unwrap_err();
         let actor = Actor::new(DataSet::surface(
             "triangle",
             vec![[0.0; 3]; 3],
@@ -2040,6 +2057,7 @@ mod tests {
         };
         let plan = upload_plan(&prepared, u64::MAX, 256, limits, 0).unwrap();
         assert_eq!(plan.geometry_bytes, 192);
+        assert_eq!(plan.actor_geometry, [96, 96]);
         assert_eq!(plan.resource_bytes, expected);
         limits.max_resource_bytes -= 1;
         assert!(upload_plan(&prepared, u64::MAX, 256, limits, 0).is_err());
@@ -2063,6 +2081,26 @@ mod tests {
                 ..
             })
         ));
+        let line = Actor::new(DataSet::new(
+            "lines",
+            vec![[0.0; 3]; 2],
+            gpui_mesh::Cells::lines(&[[0, 1]; 9]),
+        ));
+        let mut hidden = scene.actors[0].clone();
+        hidden.visible = false;
+        let mixed = Scene::new()
+            .with_actor(line)
+            .with_actor(hidden)
+            .with_actor(scene.actors[0].clone());
+        let plan = upload_plan(
+            &mixed.prepare().unwrap(),
+            u64::MAX,
+            256,
+            crate::GpuUploadLimits::default(),
+            0,
+        )
+        .unwrap();
+        assert_eq!(plan.actor_geometry, [9 * 32, 96]);
     }
 
     #[test]
@@ -2112,7 +2150,7 @@ mod tests {
         let old_bytes = uploaded.resource_bytes();
         uploaded.geometry_bytes = 0; // Public diagnostics must not control admission.
         scene.gpu_upload_limits.max_resource_bytes = old_bytes - 1;
-        assert!(renderer.sync(&mut uploaded, &scene).is_err());
+        renderer.sync(&mut uploaded, &scene).unwrap_err();
         scene.gpu_upload_limits.max_resource_bytes = old_bytes;
         scene.gpu_upload_limits.max_primitive_staging_bytes = 0;
         assert!(
@@ -2186,7 +2224,7 @@ mod tests {
         let handles = uploaded.actors[0]
             .primitives
             .iter()
-            .map(|p| &p.vertices as *const wgpu::Buffer)
+            .map(|p| &raw const p.vertices)
             .collect::<Vec<_>>();
         let target = renderer.create_target(48, 48).unwrap();
         let mut camera = Camera::fitted(scene.bounds().unwrap());
@@ -2200,7 +2238,7 @@ mod tests {
                 uploaded.actors[0]
                     .primitives
                     .iter()
-                    .map(|p| &p.vertices as *const wgpu::Buffer)
+                    .map(|p| &raw const p.vertices)
                     .collect::<Vec<_>>()
             );
         }
@@ -2224,16 +2262,15 @@ mod tests {
         ));
         assert_eq!(index_count(u32::MAX as usize, "test").unwrap(), u32::MAX);
         #[cfg(target_pointer_width = "64")]
-        {
-            assert!(matches!(
+        assert!(
+            matches!(
                 index_count(u32::MAX as usize + 1, "test"),
                 Err(SceneError::ResourceLimit { .. })
-            ));
-            assert!(matches!(
+            ) && matches!(
                 buffer_bytes(usize::MAX, u64::MAX, "test"),
                 Err(SceneError::ResourceLimit { .. })
-            ));
-        }
+            )
+        );
         let mut chunk = crate::GpuChunk {
             origin: [0.0; 3],
             positions: vec![0.0; 9],
@@ -2273,7 +2310,7 @@ mod tests {
         let mut scene = Scene::new().with_actor(Actor::new(data).wireframe(true));
         let mut uploaded = renderer.upload(&scene).unwrap();
         assert_eq!(uploaded.geometry_bytes, 176);
-        let buffer = &uploaded.actors[0].chunks[0].edges.as_ref().unwrap().0 as *const wgpu::Buffer;
+        let buffer = &raw const uploaded.actors[0].chunks[0].edges.as_ref().unwrap().0;
         let target = renderer.create_target(32, 32).unwrap();
         let mut camera = Camera::fitted(scene.bounds().unwrap());
         for _ in 0..12 {
@@ -2284,7 +2321,7 @@ mod tests {
             renderer.render(&mut uploaded, &camera, &target).unwrap();
             assert_eq!(
                 buffer,
-                &uploaded.actors[0].chunks[0].edges.as_ref().unwrap().0 as *const wgpu::Buffer
+                &raw const uploaded.actors[0].chunks[0].edges.as_ref().unwrap().0
             );
         }
         assert_eq!(scene.preparation_stats().geometry_builds, 1);
@@ -2302,7 +2339,7 @@ mod tests {
             .unwrap()
             .with_field(Field::scalar(
                 "p",
-                (0..216).map(|i| i as f64 / 216.0).collect::<Vec<_>>(),
+                (0..216).map(|i| f64::from(i) / 216.0).collect::<Vec<_>>(),
             ));
         let scene = Scene::new().with_actor(
             Actor::new(dataset).coloured_by("p", TransferFunction::viridis([0.0, 1.0])),
@@ -2431,7 +2468,7 @@ mod tests {
         let mut scene = Scene::new().with_actor(Actor::new(dataset).color([1.0, 0.0, 0.0, 1.0]));
         let camera = Camera::fitted(scene.bounds().unwrap());
         let mut uploaded = renderer.upload(&scene).unwrap();
-        let buffer = &uploaded.actors[0].chunks[0].vertices[0] as *const wgpu::Buffer;
+        let buffer = &raw const uploaded.actors[0].chunks[0].vertices[0];
         scene.clear_preparation();
         let red = renderer.create_target(32, 32).unwrap();
         let green = renderer.create_target(32, 32).unwrap();
@@ -2441,10 +2478,7 @@ mod tests {
             .unwrap();
         scene.actors[0].color = [0.0, 1.0, 0.0, 1.0];
         assert!(!renderer.sync(&mut uploaded, &scene).unwrap());
-        assert_eq!(
-            buffer,
-            &uploaded.actors[0].chunks[0].vertices[0] as *const wgpu::Buffer
-        );
+        assert_eq!(buffer, &raw const uploaded.actors[0].chunks[0].vertices[0]);
         assert_eq!(scene.preparation_stats().retained_bytes, 0);
         assert_eq!(scene.preparation_stats().geometry_builds, 1);
         renderer
@@ -2500,7 +2534,9 @@ mod tests {
         // Flat colors pass through the byte LUT: 0.5 truncates to 127.
         let green = frame
             .rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .max_by_key(|pixel| pixel[1])
             .unwrap();
         assert!(
@@ -2509,7 +2545,13 @@ mod tests {
         );
         let cpu = crate::render(&flat_scene, &camera, 32, 32).unwrap();
         let mut compared = 0;
-        for (gpu, cpu) in frame.rgba.chunks_exact(4).zip(cpu.rgba.chunks_exact(4)) {
+        for (gpu, cpu) in frame
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(cpu.rgba.as_chunks::<4>().0.iter())
+        {
             if gpu[3] > 0 && cpu[3] > 0 {
                 compared += 1;
                 assert_eq!(gpu[3], cpu[3]);
@@ -2556,7 +2598,9 @@ mod tests {
             let frame = renderer.read_rgba(&target).unwrap();
             let red = frame
                 .rgba
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|p| p[0] > p[1].saturating_add(20))
                 .count();
             assert!(red > 100, "surface disappeared at {center}");
@@ -2569,7 +2613,9 @@ mod tests {
                 let cpu = crate::render(&scene, &camera, 64, 64).unwrap();
                 let cpu_red = cpu
                     .rgba
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .filter(|p| p[0] > p[1].saturating_add(20))
                     .count();
                 assert_eq!(red, cpu_red);
@@ -2586,7 +2632,9 @@ mod tests {
         let coverage = |frame: &Frame, channel: usize| {
             frame
                 .rgba
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|pixel| pixel[channel] > pixel[1 - channel].saturating_add(20))
                 .count()
         };
@@ -2670,8 +2718,8 @@ mod tests {
                 assert_eq!(full_gpu.rgba, gpu.rgba);
                 assert_eq!(full_cpu.rgba, cpu.rgba);
             } else {
-                assert!(gpu.rgba.chunks_exact(4).all(|p| p[0] < 30));
-                assert!(cpu.rgba.chunks_exact(4).all(|p| p[0] < 30));
+                assert!(gpu.rgba.as_chunks::<4>().0.iter().all(|p| p[0] < 30));
+                assert!(cpu.rgba.as_chunks::<4>().0.iter().all(|p| p[0] < 30));
             }
         }
     }
@@ -2744,8 +2792,10 @@ mod tests {
         assert_eq!(cpu.rgba, renderer.read_rgba(&target).unwrap().rgba);
         assert!(
             cpu.rgba
-                .chunks_exact(4)
-                .all(|pixel| pixel == [51, 102, 153, 255])
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| *pixel == [51, 102, 153, 255])
         );
     }
 

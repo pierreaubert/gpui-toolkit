@@ -66,10 +66,8 @@ where
 /// left and right axes; used by every axis config (and the matching
 /// margin computations) so widths stay consistent.
 pub(crate) const AXIS_TITLE_PADDING: f32 = 2.0;
-#[allow(unused_imports, reason = "legend helper kept for external batch/image consumers")]
 pub use generic::{
-    generic_legend_entries, render_generic_bars, render_generic_freq_chart, render_generic_polar,
-    render_generic_subplots,
+    render_generic_bars, render_generic_freq_chart, render_generic_polar, render_generic_subplots,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]

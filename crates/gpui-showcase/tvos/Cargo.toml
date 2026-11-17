@@ -28,12 +28,10 @@ spinorama = []
 tokio = []
 urlencoding = []
 
-[dependencies]
+[target.'cfg(target_os = "tvos")'.dependencies]
 gpui = { workspace = true }
 gpui-ios = { workspace = true }
 gpui-showcase = { workspace = true }
 gpui-ui-kit = { workspace = true }
 log = { workspace = true }
-
-[target.'cfg(target_os = "tvos")'.dependencies]
 oslog = { workspace = true }

@@ -76,10 +76,10 @@ impl ShowcaseApp {
     /// A failed build keeps the previous scene and reports the error.
     fn select_section(&mut self, section: MeshSection) {
         self.section = section;
-        if !self.scenes.contains_key(&section) {
+        if let std::collections::hash_map::Entry::Vacant(e) = self.scenes.entry(section) {
             match build_scene(section) {
                 Ok(built) => {
-                    self.scenes.insert(section, built);
+                    e.insert(built);
                     self.scene_error = None;
                 }
                 Err(error) => {

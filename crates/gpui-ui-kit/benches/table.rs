@@ -81,7 +81,7 @@ impl Render for TableBenchView {
         // Shared rows: rebuilding the table per frame clones only the
         // Arc. The paged bench still slices per page (that cost is the
         // app-side paging being measured), everything else shares.
-        let mut table = if self.page_size == usize::MAX {
+        let table = if self.page_size == usize::MAX {
             Table::with_shared_rows("bench-table", self.rows.clone())
         } else {
             let start = (self.page * self.page_size).min(self.rows.len());

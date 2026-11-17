@@ -133,8 +133,7 @@ fn capture_component_lab_cases_macos(
         .any(|case| case.pixel_scale != COMPONENT_LAB_HEADLESS_PIXEL_SCALE)
     {
         anyhow::bail!(
-            "Metal headless capture requires pixel_scale={}",
-            COMPONENT_LAB_HEADLESS_PIXEL_SCALE
+            "Metal headless capture requires pixel_scale={COMPONENT_LAB_HEADLESS_PIXEL_SCALE}"
         );
     }
 

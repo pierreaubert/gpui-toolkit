@@ -23,9 +23,8 @@ default = ["embedded"]
 embedded = ["gpui-python-runtime/embedded"]
 
 # Mirrors the dependency set the shared host facade references directly.
-[dependencies]
+[target.'cfg(target_os = "android")'.dependencies]
 gpui = { workspace = true }
-gpui-android = { workspace = true }
 gpui-audio-kit = { workspace = true }
 gpui-builder = { workspace = true }
 gpui-d3rs = { workspace = true }
@@ -37,7 +36,6 @@ gpui-miniapp = { workspace = true }
 gpui-pretext = { workspace = true }
 gpui-profiler = { workspace = true, features = ["global-allocator"] }
 gpui-px = { workspace = true, default-features = false }
-gpui-python-runtime = { workspace = true, features = ["showcase"] }
 gpui-scaffolder = { workspace = true }
 gpui-themes = { workspace = true }
 gpui-ui-kit = { workspace = true }
@@ -56,8 +54,8 @@ smallvec = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
-
-[target.'cfg(target_os = "android")'.dependencies]
+gpui-android = { workspace = true }
+gpui-python-runtime = { workspace = true, features = ["showcase"] }
 android-activity = { workspace = true }
 android_logger = { workspace = true }
 ndk = { workspace = true }

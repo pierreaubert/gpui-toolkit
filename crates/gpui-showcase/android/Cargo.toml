@@ -29,13 +29,11 @@ spinorama = []
 tokio = []
 urlencoding = []
 
-[dependencies]
+[target.'cfg(target_os = "android")'.dependencies]
 gpui = { workspace = true }
 gpui-android = { workspace = true }
 gpui-showcase = { workspace = true }
 gpui-ui-kit = { workspace = true }
 log = { workspace = true }
-
-[target.'cfg(target_os = "android")'.dependencies]
 android-activity = { workspace = true }
 android_logger = { workspace = true }

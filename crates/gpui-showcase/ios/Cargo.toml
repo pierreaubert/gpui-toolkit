@@ -29,13 +29,10 @@ spinorama = []
 tokio = []
 urlencoding = []
 
-[dependencies]
+[target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 gpui = { workspace = true }
 gpui-ios = { workspace = true }
 gpui-showcase = { workspace = true }
 gpui-ui-kit = { workspace = true }
 log = { workspace = true }
-
-# Apple-only logging (oslog wraps os/log.h, only available on Apple platforms)
-[target.'cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))'.dependencies]
 oslog = { workspace = true }

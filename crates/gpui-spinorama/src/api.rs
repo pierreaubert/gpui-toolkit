@@ -448,15 +448,6 @@ pub fn extract_cea2034_curves_original(
     Ok(curves)
 }
 
-/// Parses the angle curves of an SPL Horizontal/Vertical payload.
-///
-/// Public wrapper for the headless image renderer, which builds
-/// sphere (globe) data from the two plane payloads on disk.
-#[cfg(all(target_os = "macos", feature = "capture-bench"))]
-pub fn directivity_curves(plot: &Value) -> Result<Vec<DirectivityCurve>, String> {
-    directivity(plot)
-}
-
 fn directivity(plot: &Value) -> Result<Vec<DirectivityCurve>, String> {
     let traces = plot["data"]
         .as_array()

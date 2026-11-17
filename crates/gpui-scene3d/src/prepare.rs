@@ -139,6 +139,8 @@ fn scatter_global_normals(global: &GlobalNormals, point_ids: &[u32], normals: &m
 /// Rebased positions, packed scalars, and validity-filtered indices for
 /// one point-scalar chunk. Shared by the accumulation and build passes
 /// so both see identical triangles.
+type PointChunkParts = (Vec<f32>, Vec<f32>, Vec<u32>);
+
 fn point_chunk_parts(
     dataset: &gpui_mesh::DataSet,
     origin: [f64; 3],
@@ -146,7 +148,7 @@ fn point_chunk_parts(
     point_scalars: Option<&[f64]>,
     valid: Option<&[bool]>,
     transport: crate::scalar::ScalarTransport,
-) -> Result<(Vec<f32>, Vec<f32>, Vec<u32>), SceneError> {
+) -> Result<PointChunkParts, SceneError> {
     let vertex_count = chunk.point_ids.len();
     let mut positions = Vec::with_capacity(vertex_count * 3);
     let mut scalars = vec![0.0f32; vertex_count];

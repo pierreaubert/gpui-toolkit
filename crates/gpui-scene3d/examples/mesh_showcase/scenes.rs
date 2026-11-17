@@ -49,7 +49,7 @@ fn taylor_green(n: usize) -> DataSet {
             cx * cy * cz,
             -cx * cy * cz,
             0.0,
-            0.5 * (-sx * sy * cz + sx * sy * cz),
+            f64::midpoint(-sx * sy * cz, sx * sy * cz),
             0.5 * (cx * sy * sz),
             0.5 * (-sx * cy * sz),
         ]);
@@ -77,14 +77,15 @@ fn vortices_scene() -> Result<(Scene, Camera), String> {
     let min_lambda = with_swirling
         .field(gpui_mesh::Association::Point, "lambda2")
         .and_then(|field| field.as_scalar())
-        .map(|values| values.iter().copied().fold(f64::MAX, f64::min))
-        .unwrap_or(0.0);
+        .map_or(0.0, |values| {
+            values.iter().copied().fold(f64::MAX, f64::min)
+        });
     let cores =
         isosurface(&with_swirling, "lambda2", min_lambda * 0.3).map_err(|e| e.to_string())?;
 
     let mut seeds = Vec::new();
     for i in 0..10 {
-        let angle = TAU * i as f64 / 10.0;
+        let angle = TAU * f64::from(i) / 10.0;
         seeds.push([3.0 + 1.8 * angle.cos(), 3.0 + 1.8 * angle.sin(), 3.0]);
     }
     let lines = streamlines(&dataset, "velocity", &seeds, 0.12, 160).map_err(|e| e.to_string())?;
@@ -108,13 +109,13 @@ fn vortices_scene() -> Result<(Scene, Camera), String> {
             Actor::new(arrows).coloured_by("magnitude", TransferFunction::viridis([0.0, 1.2])),
         )
         .with_actor(Actor::new(dashes).color([1.0, 1.0, 1.0, 0.9]));
-    let camera = scene.bounds().map(Camera::fitted).unwrap_or_default();
+    let camera = scene.bounds().map_or_default(Camera::fitted);
     Ok((scene, camera))
 }
 
 /// Top-down camera over slice bounds.
 fn top_camera(dataset: &DataSet) -> Camera {
-    let mut camera = dataset.bounds().map(Camera::fitted).unwrap_or_default();
+    let mut camera = dataset.bounds().map_or_default(Camera::fitted);
     camera.azimuth = 0.0;
     camera.elevation = 0.0;
     camera
@@ -164,7 +165,7 @@ fn shells_scene() -> Result<(Scene, Camera), String> {
     let scene = Scene::new()
         .with_actor(Actor::new(hi).coloured_by("pressure", pressure.clone()))
         .with_actor(Actor::new(lo).coloured_by("pressure", pressure));
-    let camera = fine.bounds().map(Camera::fitted).unwrap_or_default();
+    let camera = fine.bounds().map_or_default(Camera::fitted);
     Ok((scene, camera))
 }
 

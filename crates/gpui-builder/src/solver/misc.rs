@@ -271,11 +271,10 @@ pub(super) fn compute_text_size(
             if !cache.prepared_vertical.contains_key(&measure_key)
                 && cache.prepared_vertical.len() >= TEXT_MEASURE_CACHE_MEASURE_CAPACITY
                 && let Some(evicted_key) = cache.prepared_vertical.keys().next().copied()
+                && let Some(evicted) = cache.prepared_vertical.remove(&evicted_key)
             {
-                if let Some(evicted) = cache.prepared_vertical.remove(&evicted_key) {
-                    for text in evicted.keys() {
-                        cache.uncharge(prepared_charge(text));
-                    }
+                for text in evicted.keys() {
+                    cache.uncharge(prepared_charge(text));
                 }
             }
             let prepared = cache.prepared_vertical.entry(measure_key).or_default();
@@ -306,11 +305,10 @@ pub(super) fn compute_text_size(
             if !cache.prepared_horizontal.contains_key(&measure_key)
                 && cache.prepared_horizontal.len() >= TEXT_MEASURE_CACHE_MEASURE_CAPACITY
                 && let Some(evicted_key) = cache.prepared_horizontal.keys().next().copied()
+                && let Some(evicted) = cache.prepared_horizontal.remove(&evicted_key)
             {
-                if let Some(evicted) = cache.prepared_horizontal.remove(&evicted_key) {
-                    for text in evicted.keys() {
-                        cache.uncharge(prepared_charge(text));
-                    }
+                for text in evicted.keys() {
+                    cache.uncharge(prepared_charge(text));
                 }
             }
             let prepared = cache.prepared_horizontal.entry(measure_key).or_default();
@@ -340,11 +338,10 @@ pub(super) fn compute_text_size(
     if !cache.sizes.contains_key(&params_key)
         && cache.sizes.len() >= TEXT_MEASURE_CACHE_SIZE_KEY_CAPACITY
         && let Some(evicted_key) = cache.sizes.keys().next().copied()
+        && let Some(evicted) = cache.sizes.remove(&evicted_key)
     {
-        if let Some(evicted) = cache.sizes.remove(&evicted_key) {
-            for _ in evicted.values() {
-                cache.uncharge(SIZE_ENTRY_CHARGE);
-            }
+        for _ in evicted.values() {
+            cache.uncharge(SIZE_ENTRY_CHARGE);
         }
     }
     let is_new_size = !cache

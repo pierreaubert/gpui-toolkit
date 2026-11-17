@@ -1,4 +1,4 @@
-//! Capture the retained MeshPlot scenes through the native Metal custom draw.
+//! Capture the retained `MeshPlot` scenes through the native Metal custom draw.
 //!
 //! The output uses the same six canonical scene IDs and 256x192 target size as
 //! `mesh_wgpu_visual_capture`, allowing the release QA wrapper to compare the

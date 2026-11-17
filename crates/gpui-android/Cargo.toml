@@ -34,8 +34,6 @@ accesskit = "0.25"
 anyhow = { workspace = true }
 futures = { workspace = true }
 gpui = { workspace = true }
-gpui-foreign-parent = { workspace = true }
-gpui_wgpu = { workspace = true }
 log = { workspace = true, features = ["kv_unstable_serde", "serde"] }
 parking_lot = { workspace = true }
 raw-window-handle = { workspace = true }
@@ -45,6 +43,8 @@ serde_json = { workspace = true }
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { workspace = true }
 android_logger = { workspace = true }
+gpui-foreign-parent = { workspace = true }
+gpui_wgpu = { workspace = true }
 jni = { workspace = true }
 # Must match ndk's jni-sys (0.3); jni 0.22 re-exports jni-sys 0.4, whose
 # JNIEnv/jobject are different types than the ones `from_surface` takes.

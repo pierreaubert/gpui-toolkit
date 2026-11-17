@@ -531,7 +531,7 @@ mod tests {
     }
 
     /// True only for the one tolerated absence: no ffmpeg on a host
-    /// that did not opt into GPUI_REQUIRE_FFMPEG=1.
+    /// that did not opt into `GPUI_REQUIRE_FFMPEG=1`.
     #[cfg(all(feature = "mp4", not(target_family = "wasm")))]
     fn absence_tolerated(error: &MovieError) -> bool {
         match error {
@@ -594,7 +594,7 @@ mod tests {
                 rgba,
             }
         }
-        let frames = (0..12).map(|index| (index as f64 * 0.1, noise_frame(index + 1)));
+        let frames = (0..12).map(|index| (f64::from(index) * 0.1, noise_frame(index + 1)));
         let mut out = Vec::new();
         match mux_mp4_to(frames, 10.0, &mut out) {
             Ok(()) => {

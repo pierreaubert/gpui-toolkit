@@ -1,7 +1,6 @@
 use gpui::prelude::FluentBuilder as _;
 use gpui::{FontWeight, IntoElement, ParentElement, Rgba, SharedString, Styled, div, px};
 use gpui_builder::{Axis, DisplayTier, SolvedNodeRef};
-use std::rc::Rc;
 
 pub(super) static INSPECTOR_TIERS: &[DisplayTier<'_>] = &[
     DisplayTier {
@@ -65,10 +64,7 @@ pub(super) fn panel_box(
 }
 
 pub(super) fn size_label(node: &SolvedNodeRef<'_, '_>) -> String {
-    let tier = node
-        .active_tier()
-        .map(|t| format!(" [{t}]"))
-        .unwrap_or_default();
+    let tier = node.active_tier().map_or_default(|t| format!(" [{t}]"));
     format!("{:.0} x {:.0}{tier}", node.width(), node.height())
 }
 
@@ -77,36 +73,5 @@ pub(super) fn axis_text(axis: Option<Axis>) -> &'static str {
         Some(Axis::Horizontal) => "H",
         Some(Axis::Vertical) => "V",
         None => "-",
-    }
-}
-
-pub(super) fn current_platform() -> Result<Rc<dyn gpui::Platform>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        Ok(Rc::new(gpui_macos::MacPlatform::new(false)))
-    }
-    #[cfg(target_os = "linux")]
-    {
-        Ok(gpui_linux::current_platform(false))
-    }
-    #[cfg(target_os = "windows")]
-    {
-        gpui_windows::WindowsPlatform::new(false)
-            .map(|p| Rc::new(p) as Rc<dyn gpui::Platform>)
-            .map_err(|e| format!("failed to create Windows platform: {e:?}"))
-    }
-    #[cfg(any(target_os = "ios", target_os = "tvos"))]
-    {
-        Ok(gpui_ios::current_platform(false))
-    }
-    #[cfg(not(any(
-        target_os = "macos",
-        target_os = "linux",
-        target_os = "windows",
-        target_os = "ios",
-        target_os = "tvos"
-    )))]
-    {
-        compile_error!("unsupported platform for layout showcase")
     }
 }

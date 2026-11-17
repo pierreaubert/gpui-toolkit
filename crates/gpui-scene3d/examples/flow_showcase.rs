@@ -50,7 +50,7 @@ fn taylor_green(n: usize, phase: f64) -> DataSet {
             cx * cy * cz,
             -cx * cy * cz,
             0.0,
-            0.5 * (-sx * sy * cz + sx * sy * cz),
+            f64::midpoint(-sx * sy * cz, sx * sy * cz),
             0.5 * (cx * sy * sz),
             0.5 * (-sx * cy * sz),
         ]);
@@ -84,7 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Hero: cores + tubes + ribbons + solid arrows + dashes, legend, triad.
     let mut seeds = Vec::new();
     for i in 0..10 {
-        let a = TAU * i as f64 / 10.0;
+        let a = TAU * f64::from(i) / 10.0;
         seeds.push([3.0 + 1.8 * a.cos(), 3.0 + 1.8 * a.sin(), 3.0]);
     }
     let lines = streamlines(&dataset, "velocity", &seeds, 0.12, 220)?;

@@ -522,7 +522,13 @@ mod tests {
         let wide = TransferFunction::coolwarm([-f64::MAX, f64::MAX]);
         assert_eq!(wide.normalize(0.0), 0.5);
         assert_eq!(wide.map(0.0), [0.865, 0.865, 0.865, 1.0]);
-        assert!(wide.lut_bytes().chunks_exact(4).all(|p| p[3] == 255));
+        assert!(
+            wide.lut_bytes()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| p[3] == 255)
+        );
         let logarithmic = TransferFunction::viridis([1e-300, 1e300]).log();
         assert!((logarithmic.normalize(1.0) - 0.5).abs() < 1e-12);
         let lo = 1e300f64;

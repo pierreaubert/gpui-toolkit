@@ -522,13 +522,6 @@ impl SpinoramaApp {
         self.contour_data_revision = self.contour_data_revision.wrapping_add(1);
     }
 
-    /// Replaces the directivity data used by the sphere (globe) view.
-    #[cfg(all(target_os = "macos", feature = "capture-bench"))]
-    pub fn set_directivity_data(&mut self, data: crate::api::DirectivityData) {
-        self.directivity_data = Some(data);
-        self.contour_data_revision = self.contour_data_revision.wrapping_add(1);
-    }
-
     pub(super) fn load_speakers(&mut self, cx: &mut Context<Self>) {
         // Unit tests must not spawn real network tasks on the
         // app's Tokio runtime from the GPUI test scheduler.

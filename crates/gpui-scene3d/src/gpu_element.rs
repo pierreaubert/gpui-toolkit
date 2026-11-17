@@ -945,12 +945,11 @@ mod tests {
             scene.background[0] = i as f32 / 32.0;
             paint(&scene, camera);
         }
-        {
-            let state = draw.draw.state.borrow();
-            assert_eq!(state.initialization_attempts, 1);
-            assert!(state.failure.is_some());
-            assert!(state.resources.is_none());
-        }
+        let state = draw.draw.state.borrow();
+        assert_eq!(state.initialization_attempts, 1);
+        assert!(state.failure.is_some());
+        assert!(state.resources.is_none());
+        drop(state);
         assert_eq!(scene.preparation_stats().retained_bytes, 0);
         scene.retry_gpu_resources();
         paint(&scene, camera);

@@ -36,7 +36,7 @@ fn native_platform_lock() -> MutexGuard<'static, ()> {
     // failures behind a poisoned test-serialization mutex.
     NATIVE_PLATFORM_LOCK
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn native_text_system() -> Arc<dyn gpui::PlatformTextSystem> {

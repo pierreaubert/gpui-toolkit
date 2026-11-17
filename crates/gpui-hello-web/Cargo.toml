@@ -14,13 +14,11 @@ workspace = true
 name = "gpui-hello-web"
 path = "src/main.rs"
 
-[dependencies]
+[target.'cfg(target_family = "wasm")'.dependencies]
 gpui = { workspace = true }
+gpui-design = { workspace = true }
 gpui-miniapp = { workspace = true }
 gpui-ui-kit = { workspace = true }
-gpui-design = { workspace = true }
-
-[target.'cfg(target_family = "wasm")'.dependencies]
 js-sys = "0.3"
 wasm-bindgen = "0.2"
 web-sys = { version = "0.3.104", features = ["Window", "Document", "Element", "HtmlElement", "console", "ResizeObserver", "ResizeObserverEntry", "DomRectReadOnly"] }

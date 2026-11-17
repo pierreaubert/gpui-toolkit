@@ -1299,14 +1299,3 @@ mod tests {
         assert!(clip_poly_to_rect(&poly, 100.0, 100.0).len() < 3);
     }
 }
-
-/// Legend for generic traces, in payload order with toggle support data.
-#[allow(dead_code, reason = "public legend helper for batch/image consumers")]
-pub fn generic_legend_entries(plot: &PlotData) -> Vec<(String, d3rs::color::D3Color)> {
-    let mut names = HashSet::new();
-    plot.traces
-        .iter()
-        .filter(|t| t.visible && t.show_legend && !t.name.is_empty() && names.insert(t.name.clone()))
-        .map(|t| (t.name.clone(), t.fill_color.unwrap_or(t.color)))
-        .collect()
-}

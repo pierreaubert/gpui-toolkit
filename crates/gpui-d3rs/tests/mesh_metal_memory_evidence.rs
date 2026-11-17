@@ -42,11 +42,9 @@ fn source_fields(manifest: &mut Value) {
         return;
     };
     manifest["source_revision"] = Value::String(revision);
-    manifest["source_dirty"] = Value::Bool(
-        env::var(SOURCE_DIRTY_ENV)
-            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE"))
-            .unwrap_or(true),
-    );
+    manifest["source_dirty"] = Value::Bool(env::var(SOURCE_DIRTY_ENV).map_or(true, |value| {
+        matches!(value.as_str(), "1" | "true" | "TRUE")
+    }));
 }
 
 fn write_manifest(mut manifest: Value) -> Result<(), String> {
@@ -129,9 +127,7 @@ fn draw(window: gpui::AnyWindowHandle, cx: &mut HeadlessAppContext) {
 #[test]
 fn metal_long_run_memory_release_evidence_covers_churn_and_teardown() {
     if MetalHeadlessRenderer::try_new().is_none() {
-        if metal_required() {
-            panic!("required Metal adapter is unavailable");
-        }
+        assert!(!metal_required(), "required Metal adapter is unavailable");
         eprintln!("SKIP Metal memory evidence: no compatible Metal device");
         write_skip("no usable Metal adapter");
         return;

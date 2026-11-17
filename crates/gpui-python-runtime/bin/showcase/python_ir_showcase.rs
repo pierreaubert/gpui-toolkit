@@ -463,7 +463,7 @@ mod native_mesh_plot_tests {
     fn native_platform_lock() -> MutexGuard<'static, ()> {
         NATIVE_PLATFORM_LOCK
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn native_text_system() -> Arc<dyn gpui::PlatformTextSystem> {
@@ -743,14 +743,12 @@ mod native_mesh_plot_tests {
             .0;
         assert!(
             red_pixel[0] > 200 && red_pixel[1] < 40 && red_pixel[2] < 40,
-            "responsive Scene2D red node should paint the left-center pixel, got {:?}",
-            red_pixel
+            "responsive Scene2D red node should paint the left-center pixel, got {red_pixel:?}"
         );
         assert!(
             board_background_pixel[2] > board_background_pixel[0]
                 && board_background_pixel[2] < 150,
-            "narrow layout should preserve the aspect fit and paint the board background, got {:?}",
-            board_background_pixel
+            "narrow layout should preserve the aspect fit and paint the board background, got {board_background_pixel:?}"
         );
 
         let gpui_python_runtime::scene2d::Scene2DNodeKind::Rect { rect, fill, .. } =
@@ -814,13 +812,11 @@ mod native_mesh_plot_tests {
             .0;
         assert!(
             patched_blue_pixel[2] > 200 && patched_blue_pixel[0] < 40,
-            "revision 2 should repaint the retained target node blue, got {:?}",
-            patched_blue_pixel
+            "revision 2 should repaint the retained target node blue, got {patched_blue_pixel:?}"
         );
         assert!(
             patched_background_pixel[2] > patched_background_pixel[0],
-            "revision 2 should expose the background where the target node shrank, got {:?}",
-            patched_background_pixel
+            "revision 2 should expose the background where the target node shrank, got {patched_background_pixel:?}"
         );
         if let Ok(path) = std::env::var("SCENE2D_HOST_SCREENSHOT_PATH") {
             let (width, height) = patched_screenshot.dimensions();
@@ -902,9 +898,10 @@ mod native_mesh_plot_tests {
             return;
         }
         let sources = games_qa_ir_paths(&input).expect("resolve light and dark games App IR");
-        let output_dir = std::env::var_os("GPUI_GAMES_QA_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::temp_dir().join("gpui-games-native-qa"));
+        let output_dir = std::env::var_os("GPUI_GAMES_QA_DIR").map_or_else(
+            || std::env::temp_dir().join("gpui-games-native-qa"),
+            PathBuf::from,
+        );
         fs::create_dir_all(&output_dir).expect("create games screenshot directory");
 
         let sizes = [

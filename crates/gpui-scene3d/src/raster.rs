@@ -1296,12 +1296,16 @@ mod tests {
             let frame = render(&scene, &camera, 96, 64).unwrap();
             let red = frame
                 .rgba
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|pixel| pixel[0] > pixel[1].saturating_add(20))
                 .count();
             let green = frame
                 .rgba
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|pixel| pixel[1] > pixel[0].saturating_add(20))
                 .count();
             assert!(
@@ -1396,7 +1400,9 @@ mod tests {
         let coverage = |frame: &Frame| {
             frame
                 .rgba
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|pixel| pixel[0] > pixel[1].saturating_add(20))
                 .collect::<Vec<_>>()
         };
@@ -1502,7 +1508,13 @@ mod tests {
             first.rgba, second.rgba,
             "coverage/composition independent of the internal diagonal"
         );
-        let covered: Vec<_> = first.rgba.chunks_exact(4).filter(|p| p[3] > 0).collect();
+        let covered: Vec<_> = first
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[3] > 0)
+            .collect();
         assert!(covered.len() > 100);
         assert!(covered.iter().all(|p| p[3] == 127 && p[0] == covered[0][0]));
         assert!(
@@ -1528,9 +1540,15 @@ mod tests {
         let mut scene = Scene::new().with_actor(line(0.0, [1.0, 0.0, 0.0, 0.5]));
         scene.background = [0.0; 4];
         let blended = render(&scene, &camera, 64, 64).unwrap();
-        let covered: Vec<_> = blended.rgba.chunks_exact(4).filter(|p| p[3] > 0).collect();
+        let covered: Vec<_> = blended
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[3] > 0)
+            .collect();
         assert!(covered.len() > 10);
-        assert!(covered.iter().all(|p| *p == [255, 0, 0, 127]));
+        assert!(covered.iter().all(|p| **p == [255, 0, 0, 127]));
         let mut opaque = Scene::new()
             .with_actor(line(1.0, [1.0, 0.0, 0.0, 1.0]))
             .with_actor(line(0.0, [0.0, 0.0, 1.0, 1.0]));
@@ -1572,7 +1590,9 @@ mod tests {
         let total_red = |frame: &Frame| {
             frame
                 .rgba
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|p| u64::from(p[0]))
                 .sum::<u64>()
         };

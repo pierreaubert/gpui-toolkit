@@ -24,7 +24,7 @@ embedded = ["gpui-python-runtime/embedded"]
 
 # Mirrors the dependency set the shared host facade (bin/showcase.rs and
 # its modules, included by path from src/lib.rs) references directly.
-[dependencies]
+[target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
 gpui = { workspace = true }
 gpui-audio-kit = { workspace = true }
 gpui-builder = { workspace = true }
@@ -32,13 +32,11 @@ gpui-d3rs = { workspace = true }
 gpui-dataset-transformation = { workspace = true }
 gpui-design = { workspace = true }
 gpui-design-tools = { workspace = true }
-gpui-ios = { workspace = true }
 gpui-mesh = { workspace = true }
 gpui-miniapp = { workspace = true }
 gpui-pretext = { workspace = true }
 gpui-profiler = { workspace = true, features = ["global-allocator"] }
 gpui-px = { workspace = true, default-features = false }
-gpui-python-runtime = { workspace = true, features = ["showcase"] }
 gpui-scaffolder = { workspace = true }
 gpui-themes = { workspace = true }
 gpui-ui-kit = { workspace = true }
@@ -57,9 +55,6 @@ smallvec = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
-
-[target.'cfg(any(target_os = "ios", target_os = "tvos", target_os = "macos"))'.dependencies]
+gpui-ios = { workspace = true }
+gpui-python-runtime = { workspace = true, features = ["showcase"] }
 oslog = { workspace = true }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-security-framework = { workspace = true }

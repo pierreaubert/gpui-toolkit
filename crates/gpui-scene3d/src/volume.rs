@@ -777,7 +777,14 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(frame.rgba.chunks_exact(4).all(|p| p == [51, 102, 153, 255]));
+        assert!(
+            frame
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| *p == [51, 102, 153, 255])
+        );
         let cancel = std::sync::atomic::AtomicBool::new(true);
         let frame = renderer
             .render_cancellable(
@@ -793,7 +800,14 @@ mod tests {
                 &cancel,
             )
             .unwrap();
-        assert!(frame.rgba.chunks_exact(4).all(|p| p == [51, 102, 153, 255]));
+        assert!(
+            frame
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| *p == [51, 102, 153, 255])
+        );
     }
 
     #[test]
@@ -831,8 +845,10 @@ mod tests {
             assert!(
                 frame
                     .rgba
-                    .chunks_exact(4)
-                    .all(|pixel| pixel == [51, 102, 153, 255])
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|pixel| *pixel == [51, 102, 153, 255])
             );
         }
         let mut field = gpui_mesh::Field::scalar("p", vec![0.5; 8]);
@@ -1036,7 +1052,9 @@ mod tests {
         assert!(
             reference
                 .rgba
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|pixel| pixel[0] > 10)
                 .count()
                 > 100
@@ -1064,8 +1082,10 @@ mod tests {
             assert!(
                 draw(&clipped)
                     .rgba
-                    .chunks_exact(4)
-                    .all(|pixel| pixel == [0, 0, 0, 255])
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|pixel| *pixel == [0, 0, 0, 255])
             );
         }
     }
@@ -1101,8 +1121,10 @@ mod tests {
         assert!(
             clear
                 .rgba
-                .chunks_exact(4)
-                .all(|pixel| pixel == [51, 102, 153, 63])
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| *pixel == [51, 102, 153, 63])
         );
         let red = renderer
             .render(
@@ -1190,8 +1212,19 @@ mod tests {
                     "mean byte error <= 1, offset {offset}, error {error}"
                 );
                 assert_eq!(
-                    reference.chunks_exact(4).filter(|p| p[0] > 0).count(),
-                    frame.rgba.chunks_exact(4).filter(|p| p[0] > 0).count()
+                    reference
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .filter(|p| p[0] > 0)
+                        .count(),
+                    frame
+                        .rgba
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .filter(|p| p[0] > 0)
+                        .count()
                 );
             } else {
                 reference = Some(frame.rgba);

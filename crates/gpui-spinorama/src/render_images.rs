@@ -162,8 +162,7 @@ fn parse_hex_color(text: &str) -> Option<D3Color> {
 fn tickvals(plot: &Value, axis: &str) -> Vec<f64> {
     plot.pointer(&format!("/layout/{axis}/tickvals"))
         .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(Value::as_f64).collect())
-        .unwrap_or_default()
+        .map_or_default(|items| items.iter().filter_map(Value::as_f64).collect())
 }
 
 fn trace_markers(
@@ -464,7 +463,7 @@ mod tests {
         image.put_pixel(1, 2, image::Rgba([0, 0, 0, 255]));
         let cropped = crop_blank_bottom(&image);
         // Last content row (2) plus 8 padding rows, capped by height.
-        assert_eq!(cropped.dimensions(), (4, 10.min(2 + 9)));
+        assert_eq!(cropped.dimensions(), (4, 10));
         let cropped = crop_blank_bottom(&image::RgbaImage::from_pixel(
             4,
             30,

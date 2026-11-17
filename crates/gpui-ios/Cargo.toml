@@ -43,22 +43,18 @@ serde_json = { workspace = true }
 # GPUI core (from workspace — same Zed rev as desktop)
 gpui = { workspace = true }
 
-# Shared foreign-parent embedding core (registry, throttle, debounce, slots)
-gpui-foreign-parent = { workspace = true }
-
-# wgpu renderer from Zed (Metal backend on iOS)
-gpui_wgpu = { workspace = true }
-wgpu = { workspace = true }
-
 # Text / font stack
-pathfinder_geometry = { workspace = true }
 smallvec = { workspace = true, features = ["union", "const_new"] }
 
 # UUID for display identification
 uuid = { workspace = true, features = ["v5"] }
 
-# Apple-only deps (Objective-C runtime, Apple frameworks, font-kit)
-[target.'cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))'.dependencies]
+# iOS/tvOS backend dependencies
+[target.'cfg(any(target_os = "ios", target_os = "tvos"))'.dependencies]
+gpui-foreign-parent = { workspace = true }
+gpui_wgpu = { workspace = true }
+wgpu = { workspace = true }
+pathfinder_geometry = { workspace = true }
 objc = { workspace = true }
 core-foundation = { workspace = true }
 # Must match font-kit's core-graphics version (0.24) for type compatibility

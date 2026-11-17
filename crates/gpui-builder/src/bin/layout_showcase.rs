@@ -33,7 +33,6 @@ mod showcase_view;
 #[path = "layout_showcase/types.rs"]
 mod types;
 
-use misc::current_platform;
 use showcase_view::ShowcaseView;
 
 fn main() {
@@ -44,8 +43,39 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
-    let platform =
-        current_platform().map_err(|error| format!("platform initialization failed: {error}"))?;
+    let platform: std::rc::Rc<dyn gpui::Platform> = {
+        #[cfg(target_os = "macos")]
+        {
+            std::rc::Rc::new(gpui_macos::MacPlatform::new(false))
+        }
+        #[cfg(target_os = "linux")]
+        {
+            gpui_linux::current_platform(false)
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let platform = gpui_windows::WindowsPlatform::new(false).map_err(|error| {
+                format!(
+                    "platform initialization failed: failed to create Windows platform: {error:?}"
+                )
+            })?;
+            std::rc::Rc::new(platform)
+        }
+        #[cfg(any(target_os = "ios", target_os = "tvos"))]
+        {
+            gpui_ios::current_platform(false)
+        }
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "windows",
+            target_os = "ios",
+            target_os = "tvos"
+        )))]
+        {
+            compile_error!("unsupported platform for layout showcase")
+        }
+    };
     let (smoke_test, smoke_artifact) = smoke_options()?;
     let render_count = Arc::new(AtomicUsize::new(0));
     let render_count_for_app = render_count.clone();

@@ -521,11 +521,8 @@ impl Viewer {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _, _, cx| {
-                    if this.clip_axis == axis && this.plane_enabled[axis] {
-                        this.plane_enabled[axis] = false;
-                    } else {
-                        this.plane_enabled[axis] = true;
-                    }
+                    this.plane_enabled[axis] =
+                        !(this.clip_axis == axis && this.plane_enabled[axis]);
                     this.clip_axis = axis;
                     let (min, max) = this.axis_extent();
                     let offset = &mut this.plane_offset[axis];

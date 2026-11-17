@@ -9076,8 +9076,8 @@ fn mesh_problem(spec_json: &str) -> String {
     crate::mesh_api::mesh_problem(spec_json)
 }
 
-#[pymodule]
-fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+#[pymodule(name = "_native")]
+fn native_module(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(mesh_filters, module)?)?;
     module.add_function(wrap_pyfunction!(mesh_geometry, module)?)?;
     module.add_function(wrap_pyfunction!(mesh_particles, module)?)?;

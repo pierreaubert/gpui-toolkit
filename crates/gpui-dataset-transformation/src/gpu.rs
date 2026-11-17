@@ -139,7 +139,7 @@ pub(crate) fn checked_storage_bytes(
     let limits = device.limits();
     let limit = limits
         .max_buffer_size
-        .min(u64::from(limits.max_storage_buffer_binding_size));
+        .min(limits.max_storage_buffer_binding_size);
     if bytes > limit {
         return Err(GpuError::TooLarge(format!(
             "{label}: {bytes} bytes exceeds the device storage limit {limit}"
@@ -701,7 +701,7 @@ mod tests {
         let (x, y, stride) = dispatch_plan_for(10_000_000, 65_535).unwrap();
         assert_eq!(x, 65_535);
         assert_eq!(stride, 65_535 * 64);
-        assert!((x as u64 * y as u64 * 64) >= 10_000_000);
+        assert!((u64::from(x) * u64::from(y) * 64) >= 10_000_000);
         assert!(y <= 65_535);
         // Small problems stay one-dimensional.
         assert_eq!(dispatch_plan_for(128, 65_535).unwrap(), (2, 1, 128));
@@ -1192,8 +1192,8 @@ impl PreparedFlow {
             pass.set_bind_group(0, &geo_bind_group, &[]);
             pass.dispatch_workgroups(geo_x, geo_y, 1);
             drop(pass);
-            queue.submit([encoder.finish()]);
-        }
+            queue.submit([encoder.finish()])
+        };
         let output_usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC;
         let make_output = |label: &str, size: u64| {
             device.create_buffer(&wgpu::BufferDescriptor {
@@ -1420,11 +1420,11 @@ impl PreparedFlow {
                 (self.point_count * 16) as u64,
             );
             self.queue.submit([encoder.finish()]);
-            {
+            validity_flat = {
                 let buffer = self.vorticity_readback.clone();
                 let count = self.point_count * 4;
-                validity_flat = self.read_counted(&buffer, count)?;
-            }
+                self.read_counted(&buffer, count)?
+            };
             &validity_flat
         };
         let mut fields: Vec<(Field, &str, &str)> = Vec::new();

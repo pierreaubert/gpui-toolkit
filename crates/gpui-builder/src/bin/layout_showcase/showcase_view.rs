@@ -506,15 +506,15 @@ impl ShowcaseView {
                         "sidebar: {sidebar_pct:.0}%  inspector: {inspector_pct:.0}%"
                     ))),
             )
-            .child(if !tabs.is_empty() {
+            .child(if tabs.is_empty() {
+                div().into_any_element()
+            } else {
                 let labels: Vec<&str> = tabs.iter().map(|(_, l)| *l).collect();
                 div()
                     .text_size(px(small_sz))
                     .text_color(accent)
                     .child(SharedString::from(format!("Tabs: {}", labels.join(", "))))
                     .into_any_element()
-            } else {
-                div().into_any_element()
             })
     }
 
@@ -544,7 +544,8 @@ impl ShowcaseView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let ds = cx.design();
-        let visible_divider_count = (sidebar.visible() as u8 + inspector.visible() as u8) as f32;
+        let visible_divider_count =
+            f32::from(u8::from(sidebar.visible()) + u8::from(inspector.visible()));
         let drag_extent =
             (if is_h { content_w } else { content_h } - 6.0 * visible_divider_count).max(1.0);
         let base = div()
@@ -831,8 +832,7 @@ impl ShowcaseView {
         let node_count = rows.len();
         let selected_size = solved
             .find(selected_id)
-            .map(|node| size_label(&node))
-            .unwrap_or_default();
+            .map_or_default(|node| size_label(&node));
         let tree_rows: Vec<AnyElement> = rows
             .into_iter()
             .map(|row| {
@@ -940,8 +940,7 @@ impl ShowcaseView {
             axis_text(row.resolved_axis),
             row.active_tier
                 .as_deref()
-                .map(|tier| format!("  tier={tier}"))
-                .unwrap_or_default()
+                .map_or_default(|tier| format!("  tier={tier}"))
         );
         let indent = row.depth as f32 * 14.0;
 

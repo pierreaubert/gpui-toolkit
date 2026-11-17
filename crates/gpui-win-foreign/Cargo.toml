@@ -14,11 +14,9 @@ repository.workspace = true
 [lints]
 workspace = true
 
-[dependencies]
+[target.'cfg(target_os = "windows")'.dependencies]
 gpui = { workspace = true }
 gpui-foreign-parent = { workspace = true }
 env_logger = { workspace = true }
-log = { workspace = true }
-
-[target.'cfg(target_os = "windows")'.dependencies]
 gpui_windows = { workspace = true }
+log = { workspace = true }
