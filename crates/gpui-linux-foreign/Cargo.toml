@@ -20,3 +20,9 @@ gpui-foreign-parent = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gpui_linux = { workspace = true, features = ["wayland", "x11"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+x11rb = { version = "0.13", features = ["xtest"] }
+wayland-client = "0.31"
+wayland-backend = { version = "0.3", features = ["client_system", "dlopen"] }
+wayland-protocols = { version = "0.32", features = ["client"] }

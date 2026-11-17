@@ -10,25 +10,28 @@
 //!
 //! [`linux_wayland_create_with`]: crate::wayland::linux_wayland_create_with
 
+// Rust guideline compliant 2026-02-21
+
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::lifecycle::AttachGuard;
 use gpui::{
     App, AppContext as _, Context, Entity, IntoElement, KeyDownEvent, KeyUpEvent, Keystroke,
     Modifiers, MouseDownEvent, MouseMoveEvent, PlatformInput, Render, ScrollDelta,
     ScrollWheelEvent, Styled as _, TouchPhase, Window, WindowOptions, div, point, px,
 };
-use gpui_foreign_parent::{FrameDecision, FrameScheduler, TransitionCell};
+use gpui_foreign_parent::{FrameDecision, FrameScheduler, TransitionCell, ffi_boundary};
 use gpui_linux::foreign_parent::{
     ForeignParentPlatform, WaylandForeignParent, clear_pending_wayland_foreign_parent,
     stash_pending_wayland_foreign_parent,
 };
 
 use crate::editor::{
-    ForeignBackend, LinuxForeignContext, LinuxForeignEditor, forward_input, pin_app_cell,
-    register_editor, unpin_app_cell, unregister_editor, with_editor,
+    ForeignBackend, LinuxForeignContext, LinuxForeignEditor, PendingAttach, claim_ui_thread,
+    forward_input, register_editor, unregister_editor, with_editor,
 };
 use crate::geometry::ForeignBounds;
 use crate::input::{
@@ -60,7 +63,7 @@ impl Render for PlaceholderRootView {
 ///
 /// `display` must be null or a live `wl_display*`, and `parent_surface`
 /// must be null or a live `wl_surface*` on that display; both must outlive
-/// the returned context.
+/// the editor and callbacks active when close is requested.
 pub unsafe fn linux_wayland_create_with<V: Render + 'static>(
     display: *mut c_void,
     parent_surface: *mut c_void,
@@ -70,96 +73,91 @@ pub unsafe fn linux_wayland_create_with<V: Render + 'static>(
     label: &str,
     build_root_view: impl FnOnce(&mut Window, &mut App) -> Entity<V> + 'static,
 ) -> *mut LinuxForeignContext {
-    // SAFETY: null-checked here; the caller guarantees the liveness documented above.
-    let (Some(host), Some(bounds)) = (
-        unsafe { WaylandForeignParent::new(display, parent_surface, width, height, scale) },
-        ForeignBounds::new(width, height, scale),
-    ) else {
-        return std::ptr::null_mut();
-    };
-    let platform = match ForeignParentPlatform::new_wayland(&host) {
-        Ok(platform) => Rc::new(platform),
-        Err(_) => return std::ptr::null_mut(),
-    };
-
-    // Stash the host record so `open_window` takes it one-shot during
-    // `app.run()`.
-    stash_pending_wayland_foreign_parent(host);
-    let app = gpui::Application::with_platform(platform.clone());
-    // The foreign `run()` invokes the launch callback synchronously, so
-    // pin the app cell for the lifetime of the editor.
-    let app_cell = app.clone_app_cell();
-
-    let opened = Rc::new(Cell::new(None));
-    let opened_capture = Rc::clone(&opened);
-    let create_label = label.to_owned();
-    app.run(move |cx: &mut App| {
-        match cx.open_window(
-            WindowOptions {
-                window_bounds: None,
-                ..Default::default()
-            },
-            build_root_view,
-        ) {
-            // `WindowHandle` derefs to its `AnyWindowHandle`.
-            Ok(handle) => opened_capture.set(Some(*handle)),
-            Err(err) => {
-                eprintln!(
-                    "gpui-linux-foreign: Wayland open_window failed for {create_label}: {err:#}"
-                );
-            }
+    ffi_boundary(std::ptr::null_mut(), || {
+        // SAFETY: null-checked here; the caller guarantees the liveness documented above.
+        let (Some(host), Some(bounds)) = (
+            unsafe { WaylandForeignParent::new(display, parent_surface, width, height, scale) },
+            ForeignBounds::new(width, height, scale),
+        ) else {
+            return std::ptr::null_mut();
+        };
+        if !claim_ui_thread() {
+            return std::ptr::null_mut();
         }
-    });
+        let Some(_attach) = AttachGuard::enter() else {
+            return std::ptr::null_mut();
+        };
+        let mut pending = PendingAttach::new();
+        let platform = match ForeignParentPlatform::new_wayland(&host) {
+            Ok(platform) => Rc::new(platform),
+            Err(_) => return std::ptr::null_mut(),
+        };
 
-    let Some(window) = opened.get() else {
-        clear_pending_wayland_foreign_parent();
-        return std::ptr::null_mut();
-    };
+        // Stash the host record so `open_window` takes it one-shot during
+        // `app.run()`.
+        stash_pending_wayland_foreign_parent(host);
+        let app = gpui::Application::with_platform(platform.clone());
+        // The foreign `run()` invokes the launch callback synchronously, so
+        // pin the app cell for the lifetime of the editor.
+        let app_cell = app.clone_app_cell();
+        pending.pin = Some(app_cell.clone());
 
-    let active = TransitionCell::new(false);
-    let hovered = TransitionCell::new(false);
-    let platform_capture = Rc::clone(&platform);
-    active.on_change(move |value| platform_capture.set_foreign_active(window, value));
-    let platform_capture = Rc::clone(&platform);
-    hovered.on_change(move |value| platform_capture.set_foreign_hovered(window, value));
+        let opened = Rc::new(Cell::new(None));
+        let opened_capture = Rc::clone(&opened);
+        let create_label = label.to_owned();
+        app.run(move |cx: &mut App| {
+            match cx.open_window(
+                WindowOptions {
+                    window_bounds: None,
+                    ..Default::default()
+                },
+                build_root_view,
+            ) {
+                // `WindowHandle` derefs to its `AnyWindowHandle`.
+                Ok(handle) => opened_capture.set(Some(*handle)),
+                Err(err) => {
+                    eprintln!(
+                        "gpui-linux-foreign: Wayland open_window failed for {create_label}: {err:#}"
+                    );
+                }
+            }
+        });
 
-    let editor = LinuxForeignEditor {
-        platform,
-        window,
-        backend: ForeignBackend::Wayland,
-        label: label.to_owned(),
-        bounds: Cell::new(bounds),
-        scheduler: FrameScheduler::new(),
-        dropped_frames: AtomicUsize::new(0),
-        active,
-        hovered,
-        last_click_ms: Cell::new(0),
-        last_click_button: Cell::new(None),
-        last_click_at: Cell::new((0.0, 0.0)),
-        click_count: Cell::new(0),
-    };
-    // Ownership moves to the owned registry until `linux_wayland_destroy`.
-    let Some(editor_id) = register_editor(editor) else {
-        return std::ptr::null_mut();
-    };
-    pin_app_cell(editor_id, app_cell);
+        let Some(window) = opened.get() else {
+            clear_pending_wayland_foreign_parent();
+            return std::ptr::null_mut();
+        };
 
-    Box::into_raw(Box::new(LinuxForeignContext::new(editor_id)))
+        let active = TransitionCell::new(false);
+        let hovered = TransitionCell::new(false);
+        let platform_capture = Rc::clone(&platform);
+        active.on_change(move |value| platform_capture.set_foreign_active(window, value));
+        let platform_capture = Rc::clone(&platform);
+        hovered.on_change(move |value| platform_capture.set_foreign_hovered(window, value));
+
+        let editor = LinuxForeignEditor {
+            platform,
+            window,
+            bounds: Cell::new(bounds),
+            scheduler: FrameScheduler::new(),
+            dropped_frames: AtomicUsize::new(0),
+            active,
+            hovered,
+            last_click_ms: Cell::new(0),
+            last_click_button: Cell::new(None),
+            last_click_at: Cell::new((0.0, 0.0)),
+            click_count: Cell::new(0),
+        };
+        register_editor(ForeignBackend::Wayland, editor, app_cell)
+    })
 }
 
-/// Destroy a Wayland foreign editor. Unknown ids are ignored. Unregisters
-/// the instance, drops GPU resources with the app state, then drops the
-/// context — late host calls resolve to "no instance" and no-op.
+/// Closes a Wayland token, deferring resources and the app pin through active callbacks.
+///
+/// Unknown, stale, wrong-backend and wrong-thread ids do nothing. The host
+/// parent must outlive callbacks already in progress when close is requested.
 pub fn linux_wayland_destroy(editor_id: u64) {
-    let describe = crate::editor::describe_editor(editor_id);
-    unregister_editor(editor_id);
-    if !unpin_app_cell(editor_id)
-        && let Some((backend, label)) = describe
-    {
-        eprintln!(
-            "gpui-linux-foreign: {backend:?} editor {editor_id} ({label}) destroyed on a different thread than its create; app state leaked"
-        );
-    }
+    unregister_editor(editor_id, ForeignBackend::Wayland);
 }
 
 /// Request one frame. Call from the host frame timer: pumps native events,
@@ -167,8 +165,11 @@ pub fn linux_wayland_destroy(editor_id: u64) {
 /// request — overdrive is coalesced, and pumps while windowless are
 /// dropped and counted.
 pub fn linux_wayland_request_frame(editor_id: u64) {
-    with_editor(editor_id, |editor| {
+    with_editor(editor_id, ForeignBackend::Wayland, |editor| {
         editor.platform.pump_events();
+        if editor.is_closed() {
+            return;
+        }
         if !editor.platform.has_window(editor.window) {
             editor.dropped_frames.fetch_add(1, Ordering::Relaxed);
             return;
@@ -196,7 +197,7 @@ pub fn linux_wayland_resize(editor_id: u64, width: u32, height: u32, scale: f32)
     let Some(bounds) = ForeignBounds::new(width, height, scale) else {
         return;
     };
-    with_editor(editor_id, |editor| {
+    with_editor(editor_id, ForeignBackend::Wayland, |editor| {
         editor.bounds.set(bounds);
         editor
             .scheduler
@@ -211,14 +212,14 @@ pub fn linux_wayland_resize(editor_id: u64, width: u32, height: u32, scale: f32)
 
 /// Report host focus changes; transitions only reach GPUI.
 pub fn linux_wayland_set_active(editor_id: u64, active: bool) {
-    with_editor(editor_id, |editor| {
+    with_editor(editor_id, ForeignBackend::Wayland, |editor| {
         editor.active.update(active);
     });
 }
 
 /// Report host pointer enter/leave; transitions only reach GPUI.
 pub fn linux_wayland_set_hovered(editor_id: u64, hovered: bool) {
-    with_editor(editor_id, |editor| {
+    with_editor(editor_id, ForeignBackend::Wayland, |editor| {
         editor.hovered.update(hovered);
     });
 }
@@ -230,6 +231,7 @@ pub fn linux_wayland_mouse_move(editor_id: u64, x: f32, y: f32, modifiers: Modif
     }
     forward_input(
         editor_id,
+        ForeignBackend::Wayland,
         PlatformInput::MouseMove(MouseMoveEvent {
             position: point(px(x), px(y)),
             pressed_button: None,
@@ -252,7 +254,7 @@ pub fn linux_wayland_mouse_button(
     if !x.is_finite() || !y.is_finite() {
         return;
     }
-    with_editor(editor_id, |editor| {
+    with_editor(editor_id, ForeignBackend::Wayland, |editor| {
         let button = wayland_button_to_gpui(button_code);
         let position = point(px(x), px(y));
         if pressed {
@@ -271,6 +273,7 @@ pub fn linux_wayland_mouse_button(
             editor.last_click_at.set((x, y));
             forward_input(
                 editor_id,
+                ForeignBackend::Wayland,
                 PlatformInput::MouseDown(MouseDownEvent {
                     button,
                     position,
@@ -282,6 +285,7 @@ pub fn linux_wayland_mouse_button(
         } else {
             forward_input(
                 editor_id,
+                ForeignBackend::Wayland,
                 PlatformInput::MouseUp(gpui::MouseUpEvent {
                     button,
                     position,
@@ -307,6 +311,7 @@ pub fn linux_wayland_scroll(
     }
     forward_input(
         editor_id,
+        ForeignBackend::Wayland,
         PlatformInput::ScrollWheel(ScrollWheelEvent {
             position: point(px(x), px(y)),
             delta: ScrollDelta::Lines(point(delta_x, delta_y)),
@@ -335,6 +340,7 @@ pub fn linux_wayland_key(
     if pressed {
         forward_input(
             editor_id,
+            ForeignBackend::Wayland,
             PlatformInput::KeyDown(KeyDownEvent {
                 keystroke: Keystroke {
                     modifiers,
@@ -348,6 +354,7 @@ pub fn linux_wayland_key(
     } else {
         forward_input(
             editor_id,
+            ForeignBackend::Wayland,
             PlatformInput::KeyUp(KeyUpEvent {
                 keystroke: Keystroke {
                     modifiers,

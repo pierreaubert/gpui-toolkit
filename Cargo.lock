@@ -2863,6 +2863,10 @@ dependencies = [
  "gpui-foreign-parent",
  "sotf-gpui-toolkit-gpui",
  "sotf-gpui-toolkit-gpui-linux",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
+ "x11rb",
 ]
 
 [[package]]

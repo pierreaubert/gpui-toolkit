@@ -3,8 +3,6 @@
 //! One entry point per lifecycle transition, each idempotent and
 //! null-safe: `create` returns null on failure, `destroy` on null is a
 //! no-op, and stats leave out-pointers untouched for null contexts.
-//! Every export runs inside `ffi_boundary`, so a guest panic unwinds to
-//! the ABI fallback (null / no-op) instead of across the C boundary.
 //!
 //! # Host notes
 //!
@@ -23,7 +21,8 @@
 //!   track immediately; the surface reconfigures within ~16 ms. The guest
 //!   also honors host-initiated `ConfigureNotify` on the child.
 //! - Focus/hover: `set_active`/`set_hovered` forward on transition only.
-//! - Detach: `destroy` once per context; never reuse the pointer after.
+//! - Detach: close the opaque token. Repeated/stale calls are harmless. Keep
+//!   the host parent alive through callbacks already in progress.
 //!
 //! ## Wayland (`gpui_linux_wayland_*`; CLAP-wayland)
 //!
@@ -38,11 +37,16 @@
 //!   favor of the `resize` scale. Fractional scales use `wp_viewporter`
 //!   when the compositor offers it.
 
+// Rust guideline compliant 2026-02-21
+
 use std::ffi::{c_char, c_void};
 
+use crate::lifecycle::context_handle;
 use gpui_foreign_parent::{ffi_boundary, optional_c_string};
 
-use crate::editor::{LinuxForeignContext, frame_stats};
+use crate::editor::{
+    ForeignBackend, LinuxForeignContext, frame_stats, permits_create, with_editor,
+};
 use crate::wayland::{
     linux_wayland_create_placeholder, linux_wayland_destroy, linux_wayland_key,
     linux_wayland_modifiers, linux_wayland_mouse_button, linux_wayland_mouse_move,
@@ -55,18 +59,17 @@ use crate::x11::{
     linux_x11_set_active, linux_x11_set_hovered,
 };
 
-/// Resolve a context pointer to its editor id, if non-null.
+/// Decodes an opaque numeric token without touching caller memory.
 fn editor_id(context: *mut LinuxForeignContext) -> Option<u64> {
-    if context.is_null() {
-        return None;
-    }
-    // SAFETY: non-null contexts name live `LinuxForeignContext`s until
-    // `destroy`; only the id (Copy) is read out.
-    Some(unsafe { &*context }.editor_id())
+    u64::try_from(context_handle(context)?.as_usize()).ok()
 }
 
-/// Copy the label out of a C string; null or invalid UTF-8 becomes "".
-fn label_text(label: *const c_char) -> String {
+/// Copies a label out of caller-owned C memory.
+///
+/// # Safety
+///
+/// Label must be null or a readable NUL-terminated C string.
+unsafe fn label_text(label: *const c_char) -> String {
     // SAFETY: the caller guarantees null or a valid NUL-terminated string.
     unsafe { optional_c_string(label) }.unwrap_or_default()
 }
@@ -90,36 +93,32 @@ pub unsafe extern "C" fn gpui_linux_x11_create(
     label: *const c_char,
 ) -> *mut LinuxForeignContext {
     ffi_boundary(std::ptr::null_mut(), || {
-        let label = label_text(label);
+        if !permits_create() {
+            return std::ptr::null_mut();
+        }
+        // SAFETY: null or a readable NUL-terminated label by the export contract.
+        let label = unsafe { label_text(label) };
         linux_x11_create_placeholder(parent, width, height, scale, &label)
     })
 }
 
-/// Destroy an editor created by [`gpui_linux_x11_create`]. Null is a no-op;
-/// never reuse the pointer afterwards.
+/// Closes this backend's opaque editor token; active callbacks retain its resources.
 ///
-/// # Safety
-///
-/// `context` must be null or a live context from `gpui_linux_x11_create`,
-/// passed exactly once. Call on the host UI thread.
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing. The host parent
+/// must outlive callbacks already in progress when close is requested.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_x11_destroy(context: *mut LinuxForeignContext) {
+pub extern "C" fn gpui_linux_x11_destroy(context: *mut LinuxForeignContext) {
     ffi_boundary((), || {
         if let Some(editor_id) = editor_id(context) {
             linux_x11_destroy(editor_id);
-            // SAFETY: this is the single destroy for the context (see above).
-            drop(unsafe { Box::from_raw(context) });
         }
     });
 }
 
 /// Pump native events and forward one throttled frame request.
-///
-/// # Safety
-///
-/// See [`gpui_linux_x11_destroy`], except the context stays live.
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_x11_request_frame(context: *mut LinuxForeignContext) {
+pub extern "C" fn gpui_linux_x11_request_frame(context: *mut LinuxForeignContext) {
     ffi_boundary((), || {
         if let Some(editor_id) = editor_id(context) {
             linux_x11_request_frame(editor_id);
@@ -128,12 +127,9 @@ pub unsafe extern "C" fn gpui_linux_x11_request_frame(context: *mut LinuxForeign
 }
 
 /// Host-driven resize in logical pixels plus backing scale.
-///
-/// # Safety
-///
-/// See [`gpui_linux_x11_request_frame`].
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_x11_resize(
+pub extern "C" fn gpui_linux_x11_resize(
     context: *mut LinuxForeignContext,
     width: u32,
     height: u32,
@@ -147,15 +143,9 @@ pub unsafe extern "C" fn gpui_linux_x11_resize(
 }
 
 /// Report host focus changes (`active` != 0 means focused).
-///
-/// # Safety
-///
-/// See [`gpui_linux_x11_request_frame`].
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_x11_set_active(
-    context: *mut LinuxForeignContext,
-    active: bool,
-) {
+pub extern "C" fn gpui_linux_x11_set_active(context: *mut LinuxForeignContext, active: bool) {
     ffi_boundary((), || {
         if let Some(editor_id) = editor_id(context) {
             linux_x11_set_active(editor_id, active);
@@ -164,15 +154,9 @@ pub unsafe extern "C" fn gpui_linux_x11_set_active(
 }
 
 /// Report host pointer enter/leave (`hovered` != 0 means inside).
-///
-/// # Safety
-///
-/// See [`gpui_linux_x11_request_frame`].
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_x11_set_hovered(
-    context: *mut LinuxForeignContext,
-    hovered: bool,
-) {
+pub extern "C" fn gpui_linux_x11_set_hovered(context: *mut LinuxForeignContext, hovered: bool) {
     ffi_boundary((), || {
         if let Some(editor_id) = editor_id(context) {
             linux_x11_set_hovered(editor_id, hovered);
@@ -181,12 +165,9 @@ pub unsafe extern "C" fn gpui_linux_x11_set_hovered(
 }
 
 /// Forwarded pointer motion: logical position plus the X11 state mask.
-///
-/// # Safety
-///
-/// See [`gpui_linux_x11_request_frame`].
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_x11_mouse_move(
+pub extern "C" fn gpui_linux_x11_mouse_move(
     context: *mut LinuxForeignContext,
     x: f32,
     y: f32,
@@ -201,12 +182,9 @@ pub unsafe extern "C" fn gpui_linux_x11_mouse_move(
 
 /// Forwarded button press/release: X11 detail (1/2/3/8/9), logical
 /// position, and the X11 state mask.
-///
-/// # Safety
-///
-/// See [`gpui_linux_x11_request_frame`].
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_x11_mouse_button(
+pub extern "C" fn gpui_linux_x11_mouse_button(
     context: *mut LinuxForeignContext,
     detail: u32,
     pressed: bool,
@@ -230,12 +208,9 @@ pub unsafe extern "C" fn gpui_linux_x11_mouse_button(
 }
 
 /// Forwarded scroll in lines at a logical position, plus the X11 state mask.
-///
-/// # Safety
-///
-/// See [`gpui_linux_x11_request_frame`].
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_x11_scroll(
+pub extern "C" fn gpui_linux_x11_scroll(
     context: *mut LinuxForeignContext,
     x: f32,
     y: f32,
@@ -255,8 +230,8 @@ pub unsafe extern "C" fn gpui_linux_x11_scroll(
 ///
 /// # Safety
 ///
-/// `text` must be null or point to a valid NUL-terminated C string; see
-/// [`gpui_linux_x11_request_frame`] for the context rules.
+/// Non-null `text` must point to a readable NUL-terminated C string for the call.
+/// Context is an opaque token, never dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gpui_linux_x11_key(
     context: *mut LinuxForeignContext,
@@ -268,16 +243,18 @@ pub unsafe extern "C" fn gpui_linux_x11_key(
 ) {
     ffi_boundary((), || {
         if let Some(editor_id) = editor_id(context) {
-            // SAFETY: null or a valid string by contract; copied out immediately.
-            let text = unsafe { optional_c_string(text) };
-            linux_x11_key(
-                editor_id,
-                keysym,
-                pressed,
-                is_repeat,
-                text.as_deref(),
-                state_mask,
-            );
+            with_editor(editor_id, ForeignBackend::X11, |_| {
+                // SAFETY: null or a valid string by contract; copied out immediately.
+                let text = unsafe { optional_c_string(text) };
+                linux_x11_key(
+                    editor_id,
+                    keysym,
+                    pressed,
+                    is_repeat,
+                    text.as_deref(),
+                    state_mask,
+                );
+            });
         }
     });
 }
@@ -288,8 +265,9 @@ pub unsafe extern "C" fn gpui_linux_x11_key(
 ///
 /// # Safety
 ///
-/// `dropped`/`coalesced` must be null or writable; see
-/// [`gpui_linux_x11_request_frame`] for the context rules.
+/// Non-null output pointers must be aligned and writable for one usize without
+/// violating Rust aliasing rules. Unknown, stale, wrong-backend and wrong-thread
+/// contexts leave outputs untouched.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gpui_linux_x11_frame_stats(
     context: *mut LinuxForeignContext,
@@ -298,7 +276,11 @@ pub unsafe extern "C" fn gpui_linux_x11_frame_stats(
 ) {
     ffi_boundary((), || {
         if let Some(editor_id) = editor_id(context) {
-            let (dropped_frames, coalesced_frames) = frame_stats(editor_id);
+            let Some((dropped_frames, coalesced_frames)) =
+                frame_stats(editor_id, ForeignBackend::X11)
+            else {
+                return;
+            };
             if !dropped.is_null() {
                 // SAFETY: null-checked; the caller guarantees a writable out count.
                 unsafe {
@@ -324,7 +306,7 @@ pub unsafe extern "C" fn gpui_linux_x11_frame_stats(
 /// # Safety
 ///
 /// `display`/`parent_surface` must be null or live host objects that
-/// outlive the context; `label` must be null or a valid NUL-terminated C
+/// outlive the editor and callbacks active at close; `label` must be null or a valid NUL-terminated C
 /// string. Call on the host UI thread.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gpui_linux_wayland_create(
@@ -336,7 +318,11 @@ pub unsafe extern "C" fn gpui_linux_wayland_create(
     label: *const c_char,
 ) -> *mut LinuxForeignContext {
     ffi_boundary(std::ptr::null_mut(), || {
-        let label = label_text(label);
+        if !permits_create() {
+            return std::ptr::null_mut();
+        }
+        // SAFETY: null or a readable NUL-terminated label by the export contract.
+        let label = unsafe { label_text(label) };
         // SAFETY: forwarded from the caller contract above.
         unsafe {
             linux_wayland_create_placeholder(display, parent_surface, width, height, scale, &label)
@@ -344,32 +330,23 @@ pub unsafe extern "C" fn gpui_linux_wayland_create(
     })
 }
 
-/// Destroy an editor created by [`gpui_linux_wayland_create`]. Null is a
-/// no-op; never reuse the pointer afterwards.
+/// Closes this backend's opaque editor token; active callbacks retain its resources.
 ///
-/// # Safety
-///
-/// `context` must be null or a live context from
-/// `gpui_linux_wayland_create`, passed exactly once. Call on the host UI
-/// thread.
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing. The host parent
+/// must outlive callbacks already in progress when close is requested.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_wayland_destroy(context: *mut LinuxForeignContext) {
+pub extern "C" fn gpui_linux_wayland_destroy(context: *mut LinuxForeignContext) {
     ffi_boundary((), || {
         if let Some(editor_id) = editor_id(context) {
             linux_wayland_destroy(editor_id);
-            // SAFETY: this is the single destroy for the context (see above).
-            drop(unsafe { Box::from_raw(context) });
         }
     });
 }
 
 /// Pump native events and forward one throttled frame request.
-///
-/// # Safety
-///
-/// See [`gpui_linux_wayland_destroy`], except the context stays live.
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_wayland_request_frame(context: *mut LinuxForeignContext) {
+pub extern "C" fn gpui_linux_wayland_request_frame(context: *mut LinuxForeignContext) {
     ffi_boundary((), || {
         if let Some(editor_id) = editor_id(context) {
             linux_wayland_request_frame(editor_id);
@@ -378,12 +355,9 @@ pub unsafe extern "C" fn gpui_linux_wayland_request_frame(context: *mut LinuxFor
 }
 
 /// Host-driven resize in logical pixels plus backing scale.
-///
-/// # Safety
-///
-/// See [`gpui_linux_wayland_request_frame`].
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_wayland_resize(
+pub extern "C" fn gpui_linux_wayland_resize(
     context: *mut LinuxForeignContext,
     width: u32,
     height: u32,
@@ -397,15 +371,9 @@ pub unsafe extern "C" fn gpui_linux_wayland_resize(
 }
 
 /// Report host focus changes (`active` != 0 means focused).
-///
-/// # Safety
-///
-/// See [`gpui_linux_wayland_request_frame`].
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_wayland_set_active(
-    context: *mut LinuxForeignContext,
-    active: bool,
-) {
+pub extern "C" fn gpui_linux_wayland_set_active(context: *mut LinuxForeignContext, active: bool) {
     ffi_boundary((), || {
         if let Some(editor_id) = editor_id(context) {
             linux_wayland_set_active(editor_id, active);
@@ -414,15 +382,9 @@ pub unsafe extern "C" fn gpui_linux_wayland_set_active(
 }
 
 /// Report host pointer enter/leave (`hovered` != 0 means inside).
-///
-/// # Safety
-///
-/// See [`gpui_linux_wayland_request_frame`].
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_wayland_set_hovered(
-    context: *mut LinuxForeignContext,
-    hovered: bool,
-) {
+pub extern "C" fn gpui_linux_wayland_set_hovered(context: *mut LinuxForeignContext, hovered: bool) {
     ffi_boundary((), || {
         if let Some(editor_id) = editor_id(context) {
             linux_wayland_set_hovered(editor_id, hovered);
@@ -432,12 +394,9 @@ pub unsafe extern "C" fn gpui_linux_wayland_set_hovered(
 
 /// Forwarded pointer motion at a logical position plus modifier bits
 /// (0x01 shift, 0x02 control, 0x04 alt, 0x08 platform).
-///
-/// # Safety
-///
-/// See [`gpui_linux_wayland_request_frame`].
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_wayland_mouse_move(
+pub extern "C" fn gpui_linux_wayland_mouse_move(
     context: *mut LinuxForeignContext,
     x: f32,
     y: f32,
@@ -452,12 +411,9 @@ pub unsafe extern "C" fn gpui_linux_wayland_mouse_move(
 
 /// Forwarded button press/release: evdev code, logical position, and
 /// modifier bits.
-///
-/// # Safety
-///
-/// See [`gpui_linux_wayland_request_frame`].
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_wayland_mouse_button(
+pub extern "C" fn gpui_linux_wayland_mouse_button(
     context: *mut LinuxForeignContext,
     button_code: u32,
     pressed: bool,
@@ -481,12 +437,9 @@ pub unsafe extern "C" fn gpui_linux_wayland_mouse_button(
 }
 
 /// Forwarded scroll in lines at a logical position, plus modifier bits.
-///
-/// # Safety
-///
-/// See [`gpui_linux_wayland_request_frame`].
+/// Null, stale, wrong-backend and wrong-thread tokens do nothing.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gpui_linux_wayland_scroll(
+pub extern "C" fn gpui_linux_wayland_scroll(
     context: *mut LinuxForeignContext,
     x: f32,
     y: f32,
@@ -513,8 +466,8 @@ pub unsafe extern "C" fn gpui_linux_wayland_scroll(
 ///
 /// # Safety
 ///
-/// `text` must be null or point to a valid NUL-terminated C string; see
-/// [`gpui_linux_wayland_request_frame`] for the context rules.
+/// Non-null `text` must point to a readable NUL-terminated C string for the call.
+/// Context is an opaque token, never dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gpui_linux_wayland_key(
     context: *mut LinuxForeignContext,
@@ -526,16 +479,18 @@ pub unsafe extern "C" fn gpui_linux_wayland_key(
 ) {
     ffi_boundary((), || {
         if let Some(editor_id) = editor_id(context) {
-            // SAFETY: null or a valid string by contract; copied out immediately.
-            let text = unsafe { optional_c_string(text) };
-            linux_wayland_key(
-                editor_id,
-                keysym,
-                pressed,
-                is_repeat,
-                text.as_deref(),
-                linux_wayland_modifiers(modifiers),
-            );
+            with_editor(editor_id, ForeignBackend::Wayland, |_| {
+                // SAFETY: null or a valid string by contract; copied out immediately.
+                let text = unsafe { optional_c_string(text) };
+                linux_wayland_key(
+                    editor_id,
+                    keysym,
+                    pressed,
+                    is_repeat,
+                    text.as_deref(),
+                    linux_wayland_modifiers(modifiers),
+                );
+            });
         }
     });
 }
@@ -546,8 +501,9 @@ pub unsafe extern "C" fn gpui_linux_wayland_key(
 ///
 /// # Safety
 ///
-/// `dropped`/`coalesced` must be null or writable; see
-/// [`gpui_linux_wayland_request_frame`] for the context rules.
+/// Non-null output pointers must be aligned and writable for one usize without
+/// violating Rust aliasing rules. Unknown, stale, wrong-backend and wrong-thread
+/// contexts leave outputs untouched.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gpui_linux_wayland_frame_stats(
     context: *mut LinuxForeignContext,
@@ -556,7 +512,11 @@ pub unsafe extern "C" fn gpui_linux_wayland_frame_stats(
 ) {
     ffi_boundary((), || {
         if let Some(editor_id) = editor_id(context) {
-            let (dropped_frames, coalesced_frames) = frame_stats(editor_id);
+            let Some((dropped_frames, coalesced_frames)) =
+                frame_stats(editor_id, ForeignBackend::Wayland)
+            else {
+                return;
+            };
             if !dropped.is_null() {
                 // SAFETY: null-checked; the caller guarantees a writable out count.
                 unsafe {

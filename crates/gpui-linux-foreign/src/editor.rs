@@ -1,64 +1,28 @@
-//! Shared editor lifecycle for the Linux bindings (contract §§4, 8, 9).
+//! Shared Linux editor lifetime and UI-thread entry guards.
 //!
-//! One [`LinuxForeignEditor`] per host editor: the platform handle, the
-//! GPUI window id, the newest host bounds, and the shared host/guest
-//! policies (frame throttle, resize debounce, transition-only focus and
-//! hover, health counters). Instances are owned by a thread-local
-//! [`OwnedEditorRegistry`] under non-reused checked tokens; the numeric
-//! editor id in the FFI context is that token, never a pointer. Closing
-//! a token during a callback defers destruction until the callback
-//! returns, so reentrant host teardown cannot dangle a live borrow.
-//! The `AppCell` pin also lives in thread-local storage because `Rc` is
-//! `!Send`.
-//!
-//! Affinity: every entry runs on the host UI thread. The first call pins
-//! the UI thread id; calls from other threads are rejected (resolve to
-//! "no instance") in every build profile, not just debug.
+//! Each typed lease retains editor policy, platform and its `AppCell` pin through
+//! active callbacks. Closing removes the token immediately. Context addresses
+//! are numeric tokens, never allocations owned by the caller.
 
-use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::LazyLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::thread::{ThreadId, current};
-
-use gpui::{AnyWindowHandle, AppCell, PlatformInput};
-use gpui_foreign_parent::{EditorHandle, FrameScheduler, OwnedEditorRegistry, TransitionCell};
-use gpui_linux::foreign_parent::ForeignParentPlatform;
+// Rust guideline compliant 2026-02-21
 
 use crate::geometry::ForeignBounds;
+use crate::lifecycle::{EditorState, LocalEditors, ThreadAffinity, context_from_handle, id_handle};
+#[doc(inline)]
+pub use crate::lifecycle::{ForeignBackend, LinuxForeignContext};
+use gpui::{AnyWindowHandle, AppCell, PlatformInput};
+use gpui_foreign_parent::{FrameScheduler, TransitionCell};
+use gpui_linux::foreign_parent::{
+    ForeignParentPlatform, clear_pending_wayland_foreign_parent, clear_pending_x11_foreign_parent,
+};
+use std::cell::Cell;
+use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Which native parent backs an editor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ForeignBackend {
-    /// Host X11 window (VST3, CLAP-x11).
-    X11,
-    /// Host Wayland surface (CLAP-wayland).
-    Wayland,
-}
-
-/// Opaque host handle for one editor; passed back verbatim.
-pub struct LinuxForeignContext {
-    editor_id: u64,
-}
-
-impl LinuxForeignContext {
-    pub(crate) fn new(editor_id: u64) -> Self {
-        Self { editor_id }
-    }
-
-    pub(crate) fn editor_id(&self) -> u64 {
-        self.editor_id
-    }
-}
-
-/// One live foreign editor. Main-thread use only; shared reads go through
-/// the registry with the lock released before any callback runs.
+/// One live foreign editor, borrowed through a typed UI-thread lease.
 pub(crate) struct LinuxForeignEditor {
     pub platform: Rc<ForeignParentPlatform>,
     pub window: AnyWindowHandle,
-    pub backend: ForeignBackend,
-    pub label: String,
     /// Newest host geometry; updated synchronously on every resize while
     /// the surface reconfigure is debounced.
     pub bounds: Cell<ForeignBounds>,
@@ -75,114 +39,104 @@ pub(crate) struct LinuxForeignEditor {
     pub click_count: Cell<usize>,
 }
 
-/// Whether the current thread is the pinned host UI thread.
-///
-/// The first caller pins the thread. Every entry point checks this in
-/// release builds too and rejects foreign threads by resolving to "no
-/// instance" — editor state is `!Send` and must never be touched
-/// cross-thread.
-pub(crate) fn on_ui_thread() -> bool {
-    static UI_THREAD: LazyLock<ThreadId> = LazyLock::new(|| current().id());
-    current().id() == *UI_THREAD
-}
-
+type LinuxEditorState = EditorState<LinuxForeignEditor, Rc<AppCell>>;
+static UI_THREAD: ThreadAffinity = ThreadAffinity::new();
 thread_local! {
-    static EDITORS: OwnedEditorRegistry<LinuxForeignEditor> = OwnedEditorRegistry::new();
-    static APP_CELLS: RefCell<Option<HashMap<u64, Rc<AppCell>>>> = const { RefCell::new(None) };
+    static EDITORS: LocalEditors<LinuxForeignEditor, Rc<AppCell>> = LocalEditors::new();
 }
 
-fn handle_of(id: u64) -> Option<EditorHandle> {
-    EditorHandle::from_usize(usize::try_from(id).ok()?)
+pub(crate) fn permits_create() -> bool {
+    UI_THREAD.permits_create()
+}
+pub(crate) fn claim_ui_thread() -> bool {
+    UI_THREAD.claim()
 }
 
-/// Move `editor` into the owned registry; returns its checked token as
-/// the numeric editor id. `None` off the UI thread or on token
-/// exhaustion (never wraps).
-pub(crate) fn register_editor(editor: LinuxForeignEditor) -> Option<u64> {
-    if !on_ui_thread() {
-        return None;
+/// Clears pending parent records before releasing a failed attach's app pin.
+pub(crate) struct PendingAttach {
+    pub pin: Option<Rc<AppCell>>,
+}
+impl PendingAttach {
+    pub(crate) fn new() -> Self {
+        Self { pin: None }
     }
-    EDITORS.with(|editors| {
-        editors
-            .insert(editor)
-            .ok()
-            .map(|handle| handle.as_usize() as u64)
-    })
+}
+impl Drop for PendingAttach {
+    fn drop(&mut self) {
+        clear_pending_x11_foreign_parent();
+        clear_pending_wayland_foreign_parent();
+    }
 }
 
-/// Close `id`'s token, dropping its editor once active callbacks return.
-pub(crate) fn unregister_editor(id: u64) {
-    if !on_ui_thread() {
+/// Registers the editor and pin as one owned lifetime.
+pub(crate) fn register_editor(
+    backend: ForeignBackend,
+    editor: LinuxForeignEditor,
+    pin: Rc<AppCell>,
+) -> *mut LinuxForeignContext {
+    if !UI_THREAD.is_current() {
+        return std::ptr::null_mut();
+    }
+    EDITORS
+        .try_with(|editors| editors.insert(backend, editor, pin))
+        .ok()
+        .and_then(Result::ok)
+        .map_or(std::ptr::null_mut(), context_from_handle)
+}
+
+pub(crate) fn unregister_editor(id: u64, backend: ForeignBackend) {
+    if !UI_THREAD.is_current() {
+        if UI_THREAD.claimed_elsewhere() {
+            // The editor lives in the owner thread's TLS registry and
+            // cannot be reached from here; say so instead of silently
+            // leaking it (the host violated the UI-thread contract).
+            log::warn!(
+                "gpui-linux-foreign: {backend:?} editor {id} destroyed on a different thread than its create; app state leaked"
+            );
+        }
         return;
     }
-    if let Some(handle) = handle_of(id) {
-        EDITORS.with(|editors| editors.close(handle));
+    if let Some(handle) = id_handle(id) {
+        let _ = EDITORS.try_with(|editors| editors.close(handle, backend));
     }
 }
 
-/// Run `f` against the editor registered under `id`, if any.
-pub(crate) fn with_editor<R>(id: u64, f: impl FnOnce(&LinuxForeignEditor) -> R) -> Option<R> {
-    if !on_ui_thread() {
-        return None;
-    }
-    let handle = handle_of(id)?;
-    EDITORS.with(|editors| editors.with(handle, f))
+pub(crate) fn with_editor<R>(
+    id: u64,
+    backend: ForeignBackend,
+    f: impl FnOnce(&LinuxEditorState) -> R,
+) -> Option<R> {
+    // Only the claimed UI thread can register state. This !Send/!Sync registry
+    // stays in TLS, so another thread cannot resolve a live native instance.
+    // Lookups need no extra thread-id syscall/TLS read on every host tick.
+    let handle = id_handle(id)?;
+    EDITORS
+        .try_with(|editors| editors.with(handle, backend, f))
+        .ok()
+        .flatten()
 }
 
-/// Backend and label of the editor registered under `id`, if any.
-/// Used for destroy-path diagnostics.
-pub(crate) fn describe_editor(id: u64) -> Option<(ForeignBackend, String)> {
-    with_editor(id, |editor| (editor.backend, editor.label.clone()))
-}
-
-/// Pin the app state for `id` on this thread.
-pub(crate) fn pin_app_cell(id: u64, cell: Rc<AppCell>) {
-    APP_CELLS.with(|cells| {
-        cells
-            .borrow_mut()
-            .get_or_insert_with(HashMap::new)
-            .insert(id, cell);
-    });
-}
-
-/// Release the app-state pin for `id`. False when no pin exists on this
-/// thread (a cross-thread destroy, which leaks that editor's app state
-/// rather than risking undefined behavior).
-pub(crate) fn unpin_app_cell(id: u64) -> bool {
-    APP_CELLS.with(|cells| {
-        cells
-            .borrow_mut()
-            .as_mut()
-            .and_then(|cells| cells.remove(&id))
-            .is_some()
-    })
-}
-
-/// Forward one normalized input to an editor. Unknown ids are ignored.
-pub(crate) fn forward_input(id: u64, input: PlatformInput) {
-    with_editor(id, |editor| {
+/// Forwards normalized input while retaining its editor and app state.
+pub(crate) fn forward_input(id: u64, backend: ForeignBackend, input: PlatformInput) {
+    with_editor(id, backend, |editor| {
         editor.platform.input_foreign(editor.window, input);
     });
 }
 
-/// Boot time in milliseconds, the clock for forwarded click counts.
+/// Monotonic milliseconds used only for forwarded click counts.
 pub(crate) fn boot_ms() -> u64 {
     static BOOT: std::sync::LazyLock<std::time::Instant> =
         std::sync::LazyLock::new(std::time::Instant::now);
-    BOOT.elapsed().as_millis() as u64
+    u64::try_from(BOOT.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
-/// Realtime health counters: frames dropped while windowless and host
-/// ticks coalesced by the frame throttle. Unknown ids report zeros, and a
-/// null context leaves outputs untouched (see `ffi`).
-pub(crate) fn frame_stats(id: u64) -> (usize, usize) {
-    with_editor(id, |editor| {
+pub(crate) fn frame_stats(id: u64, backend: ForeignBackend) -> Option<(usize, usize)> {
+    with_editor(id, backend, |editor| {
         (
             editor.dropped_frames.load(Ordering::Relaxed),
             editor.scheduler.coalesced(),
         )
     })
-    .unwrap_or((0, 0))
 }
 
 #[cfg(test)]
@@ -191,19 +145,20 @@ mod tests {
 
     #[test]
     fn unknown_and_garbage_ids_resolve_to_no_instance() {
-        assert!(with_editor(0, |_| ()).is_none());
-        assert!(with_editor(u64::MAX, |_| ()).is_none());
-        unregister_editor(0);
-        unregister_editor(u64::MAX);
-        assert_eq!(frame_stats(0), (0, 0));
+        assert!(with_editor(0, ForeignBackend::X11, |_| ()).is_none());
+        assert!(with_editor(u64::MAX, ForeignBackend::Wayland, |_| ()).is_none());
+        unregister_editor(0, ForeignBackend::X11);
+        unregister_editor(u64::MAX, ForeignBackend::Wayland);
+        assert_eq!(frame_stats(0, ForeignBackend::X11), None);
     }
 
     #[test]
-    fn foreign_threads_are_rejected_in_every_profile() {
-        assert!(on_ui_thread());
-        let resolved = std::thread::spawn(|| (on_ui_thread(), with_editor(1, |_| ()).is_some()))
+    fn foreign_threads_cannot_resolve_editors() {
+        // The registry is thread-local to the claimed UI thread, so a
+        // lookup from any other thread resolves to no instance.
+        let resolved = std::thread::spawn(|| with_editor(1, ForeignBackend::X11, |_| ()).is_some())
             .join()
             .unwrap();
-        assert_eq!(resolved, (false, false));
+        assert!(!resolved);
     }
 }

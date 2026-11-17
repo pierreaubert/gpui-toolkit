@@ -16,6 +16,9 @@
 pub mod geometry;
 pub mod input;
 
+#[cfg(any(target_os = "linux", test))]
+mod lifecycle;
+
 #[cfg(target_os = "linux")]
 pub mod editor;
 #[cfg(target_os = "linux")]
