@@ -103,7 +103,10 @@ impl std::fmt::Debug for Gpui3DCache {
             .field("line_count", &self.lines.len())
             .field("mesh_count", &self.meshes.len())
             .field("mesh_state_count", &self.mesh_states.len())
+            .field("scene_state_count", &self.scene_states.len())
             .field("scene_count", &self.scenes.len())
+            .field("gpu_state_count", &self.gpu_states.len())
+            .field("gpu_renderer_count", &self.gpu_renderers.len())
             .finish()
     }
 }
@@ -540,7 +543,7 @@ fn scene_gpu_upload(spec: &SceneSpec) -> (MeshUpload, Vec<[f32; 4]>, bool) {
                                 Point3::new(xs[column] as f32, ys[row] as f32, z_flat[index] as f32)
                             });
                             let value =
-                                vertices.iter().map(|point| point.z as f64).sum::<f64>() / 3.0;
+                                vertices.iter().map(|point| f64::from(point.z)).sum::<f64>() / 3.0;
                             let normalized_value = if maximum > minimum {
                                 ((value - minimum) / (maximum - minimum)).clamp(0.0, 1.0) as f32
                             } else {
@@ -626,7 +629,7 @@ fn scene_bounds(spec: &SceneSpec) -> (Vec3, Vec3) {
             }
             SceneNode::Mesh(mesh) => mesh.vertices.iter().copied().for_each(&mut include),
             SceneNode::Surface(surface) => {
-                surface_points(surface).into_iter().for_each(&mut include)
+                surface_points(surface).into_iter().for_each(&mut include);
             }
             SceneNode::Light(_) => {}
         }
@@ -681,7 +684,7 @@ fn legacy_scene_gpu_upload(scene: &Lines3DScene) -> (MeshUpload, Vec<[f32; 4]>) 
             continue;
         };
         let base = positions.len() as u32;
-        positions.extend(polygon.vertices.iter().map(|point| point.to_array()));
+        positions.extend(polygon.vertices.iter().map(glam::Vec3::to_array));
         colors.extend(std::iter::repeat_n(
             [color.r, color.g, color.b, color.a],
             polygon.vertices.len(),
@@ -830,17 +833,14 @@ fn scene_scene(spec: &SceneSpec) -> Lines3DScene {
             SceneNode::Light(_) => Vec::new(),
         })
         .collect::<Vec<_>>();
-    let (min, max) = points
-        .first()
-        .map(|point| {
-            points
-                .iter()
-                .skip(1)
-                .fold((vec3(*point), vec3(*point)), |(min, max), point| {
-                    (min.min(vec3(*point)), max.max(vec3(*point)))
-                })
-        })
-        .unwrap_or((Vec3::ZERO, Vec3::ONE));
+    let (min, max) = points.first().map_or((Vec3::ZERO, Vec3::ONE), |point| {
+        points
+            .iter()
+            .skip(1)
+            .fold((vec3(*point), vec3(*point)), |(min, max), point| {
+                (min.min(vec3(*point)), max.max(vec3(*point)))
+            })
+    });
     let center = (min + max) * 0.5;
     let scale = 2.0 / (max - min).max_element().max(f32::EPSILON);
     let normalize = |point: Point3| (vec3(point) - center) * scale;
@@ -863,7 +863,7 @@ fn scene_scene(spec: &SceneSpec) -> Lines3DScene {
                     to: normalize(segment.to),
                     color: rgba(segment.color),
                     width: segment.width,
-                }))
+                }));
             }
             SceneNode::Mesh(mesh) => {
                 polygons.extend(mesh.indices.as_chunks::<3>().0.iter().enumerate().map(
@@ -887,7 +887,7 @@ fn scene_scene(spec: &SceneSpec) -> Lines3DScene {
                 ));
             }
             SceneNode::Surface(surface) => {
-                polygons.extend(surface_polygons(surface, &normalize, &lights))
+                polygons.extend(surface_polygons(surface, &normalize, &lights));
             }
             SceneNode::Light(_) => {}
         }
@@ -924,17 +924,17 @@ fn surface_polygons(
 ) -> Vec<Polygon3D> {
     let points = surface_points(spec);
     let (_, width, height) = spec.z.as_flat();
-    let (minimum, maximum) = spec
-        .z_range
-        .map(|range| (range.min, range.max))
-        .unwrap_or_else(|| {
+    let (minimum, maximum) = spec.z_range.map_or_else(
+        || {
             spec.z
                 .values
                 .iter()
                 .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
                     (min.min(*value), max.max(*value))
                 })
-        });
+        },
+        |range| (range.min, range.max),
+    );
     let mut polygons = Vec::with_capacity(width.saturating_sub(1) * height.saturating_sub(1) * 2);
     for row in 0..height.saturating_sub(1) {
         for column in 0..width.saturating_sub(1) {
@@ -944,7 +944,7 @@ fn surface_polygons(
                 [first + 1, first + width + 1, first + width],
             ] {
                 let vertices = indices.map(|index| points[index]);
-                let value = vertices.iter().map(|point| point.z as f64).sum::<f64>() / 3.0;
+                let value = vertices.iter().map(|point| f64::from(point.z)).sum::<f64>() / 3.0;
                 let normalized_value = if maximum > minimum {
                     ((value - minimum) / (maximum - minimum)).clamp(0.0, 1.0) as f32
                 } else {
@@ -1007,10 +1007,8 @@ fn mesh_triangle_fill(mesh: &MeshSpec, triangle: &[u32], triangle_index: usize) 
         }
         ScalarAssociation::Cell => field.values[triangle_index],
     };
-    let (min, max) = field
-        .range
-        .map(|range| (range.min, range.max))
-        .unwrap_or_else(|| {
+    let (min, max) = field.range.map_or_else(
+        || {
             field
                 .values
                 .iter()
@@ -1018,7 +1016,9 @@ fn mesh_triangle_fill(mesh: &MeshSpec, triangle: &[u32], triangle_index: usize) 
                 .fold((f64::INFINITY, f64::NEG_INFINITY), |range, value| {
                     (range.0.min(value), range.1.max(value))
                 })
-        });
+        },
+        |range| (range.min, range.max),
+    );
     let normalized = (if max > min {
         ((value - min) / (max - min)).clamp(0.0, 1.0)
     } else {
@@ -1471,7 +1471,7 @@ mod tests {
 
         let mut invalid = valid.clone();
         invalid.geometry = serde_json::json!({"positions": [], "triangles": []});
-        assert!(cache.upsert(invalid).is_err());
+        cache.upsert(invalid).unwrap_err();
         assert_eq!(cache.get("plot"), Some(&valid));
 
         let mut stale = valid.clone();

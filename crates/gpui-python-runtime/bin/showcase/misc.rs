@@ -11,8 +11,7 @@ pub(super) fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(3)
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."))
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
 }
 
 pub(super) fn apply_size(mut element: Div, width: Option<f32>, height: Option<f32>) -> Div {

@@ -1,14 +1,14 @@
 //! Android host for Python-authored GPUI apps.
 //!
 //! `NativeActivity` loads this `.so` and calls `android_main`, which
-//! extracts the bundled CPython home + app assets into internal storage
-//! (mirroring the CPython Android testbed), points the interpreter at
+//! extracts the bundled `CPython` home + app assets into internal storage
+//! (mirroring the `CPython` Android testbed), points the interpreter at
 //! them, and launches the shared Python host from
 //! `gpui-python-runtime` (`bin/showcase.rs`, included by path exactly
 //! like the desktop `gpui-python-host` binary does).
 //!
 //! APK contract (assembled by `scripts/stage-android-resources.sh`):
-//! - `assets/python/` — CPython home (`lib/python3.15` stdlib).
+//! - `assets/python/` — `CPython` home (`lib/python3.15` stdlib).
 //! - `assets/app/main_app.py` — the Python app entry (`build_app()`/`app`).
 //! - `assets/app/gpui_toolkit/` — toolkit package incl. `_native.abi3.so`.
 //! - `assets/gpui_bundle_manifest.txt` — one relative path per line for

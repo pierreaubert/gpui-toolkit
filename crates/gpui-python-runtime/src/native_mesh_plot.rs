@@ -1,4 +1,4 @@
-//! Translation from the versioned Python MeshPlot IR to native `gpui-px`
+//! Translation from the versioned Python `MeshPlot` IR to native `gpui-px`
 //! builder options.
 //!
 //! Keep this conversion in the runtime library rather than the showcase
@@ -890,13 +890,13 @@ pub fn decode_ids(
 pub type SelectionCallback = Rc<dyn Fn(Option<MeshPlotPick>)>;
 pub type ExportCallback = Rc<dyn Fn(Result<String, gpui_px::ChartError>)>;
 
-/// Construct a retained native MeshPlot from a versioned Python spec.
+/// Construct a retained native `MeshPlot` from a versioned Python spec.
 ///
 /// This is deliberately in the runtime library rather than a particular host
 /// binary so resource-backed and inline plots have identical native state,
 /// validation, camera, selection, and colorbar behavior everywhere.
 /// Decoded mesh data reused by native construction and the host's
-/// lightweight diagnostics for one validated MeshPlot spec.
+/// lightweight diagnostics for one validated `MeshPlot` spec.
 #[derive(Clone)]
 pub struct PreparedMeshPlot {
     mesh: Arc<TriangleMesh>,
@@ -1004,7 +1004,7 @@ pub fn build(
     )
 }
 
-/// Build the live native MeshPlot from already decoded mesh data.
+/// Build the live native `MeshPlot` from already decoded mesh data.
 pub fn build_prepared(
     spec: &MeshPlotSpec,
     prepared: &PreparedMeshPlot,
@@ -1494,15 +1494,14 @@ mod tests {
             )
         };
 
-        let error = match build(
+        let Err(error) = build(
             &plot_spec,
             &MeshFrameStore::new(),
             Some(state.clone()),
             None,
             None,
-        ) {
-            Ok(_) => panic!("an invalid camera must reject the native build"),
-            Err(error) => error,
+        ) else {
+            panic!("an invalid camera must reject the native build")
         };
         assert!(error.contains("camera target"));
 
@@ -1546,15 +1545,14 @@ mod tests {
             )
         };
 
-        let error = match build(
+        let Err(error) = build(
             &plot_spec,
             &MeshFrameStore::new(),
             Some(state.clone()),
             None,
             None,
-        ) {
-            Ok(_) => panic!("a field-length mismatch must reject the native build"),
-            Err(error) => error,
+        ) else {
+            panic!("a field-length mismatch must reject the native build")
         };
         assert!(error.contains("expected 3"));
 

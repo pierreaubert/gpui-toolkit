@@ -79,10 +79,7 @@ impl PresentationStore {
     }
 
     pub fn snapshot(&self) -> PresentationState {
-        self.state
-            .lock()
-            .map(|state| state.clone())
-            .unwrap_or_default()
+        self.state.lock().map_or_default(|state| state.clone())
     }
 
     pub fn set_section(&self, section: Option<String>) {
@@ -141,8 +138,7 @@ fn state_path() -> PathBuf {
                     home.join("Library/Application Support")
                 } else {
                     env::var_os("XDG_DATA_HOME")
-                        .map(PathBuf::from)
-                        .unwrap_or_else(|| home.join(".local/share"))
+                        .map_or_else(|| home.join(".local/share"), PathBuf::from)
                 }
             })
         })

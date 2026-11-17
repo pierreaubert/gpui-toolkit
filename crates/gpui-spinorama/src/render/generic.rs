@@ -402,7 +402,7 @@ pub fn render_generic_freq_chart(
                 let start = (center.0 + dx * edge_t, center.1 + dy * edge_t);
                 let leader = canvas(
                     move |_b, _w, _c| (),
-                    move |bounds, _, window, _cx| {
+                    move |bounds, (), window, _cx| {
                         let ox: f32 = bounds.origin.x.into();
                         let oy: f32 = bounds.origin.y.into();
                         let mut path = PathBuilder::stroke(px(scale));
@@ -434,7 +434,7 @@ pub fn render_generic_freq_chart(
                 let annotation_text = a.text.clone();
                 let label_text = canvas(
                     move |_b, _w, _c| (),
-                    move |bounds, _, window, cx| {
+                    move |bounds, (), window, cx| {
                         let x: f32 = bounds.origin.x.into();
                         let y: f32 = bounds.origin.y.into();
                         paint_chart_text_at(

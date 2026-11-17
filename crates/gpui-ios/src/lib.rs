@@ -137,7 +137,7 @@ pub fn dispatch_thermal_state_change() -> bool {
 /// calling `gpui_ios_set_app_callback` + `run_app()` exactly as in the
 /// app-delegate flow, and let the scene delegate drive launching,
 /// lifecycle forwarding, and the display link from here instead.
-pub const IOS_SCENE_LIFECYCLE_TEMPLATE: &str = r#"
+pub const IOS_SCENE_LIFECYCLE_TEMPLATE: &str = r"
 import SwiftUI
 import UIKit
 
@@ -223,7 +223,7 @@ struct GPUIHostApp: App {
         }
     }
 }
-"#;
+";
 
 // ── Software keyboard control ────────────────────────────────────────────────
 

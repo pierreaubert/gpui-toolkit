@@ -88,8 +88,7 @@ pub fn is_metal_capture_active() -> bool {
 fn now_unix_micros() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_micros())
-        .unwrap_or_default()
+        .map_or_default(|duration| duration.as_micros())
 }
 
 #[cfg(test)]

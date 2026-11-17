@@ -78,8 +78,8 @@ mod tests {
 
     #[test]
     fn rejects_invalid_requests_before_platform_access() {
-        assert!(handle(&json!({"operation": "store", "reference": ""})).is_err());
-        assert!(handle(&json!({"operation": "read", "reference": "token"})).is_err());
-        assert!(handle(&json!({"operation": "store", "reference": "token"})).is_err());
+        handle(&json!({"operation": "store", "reference": ""})).unwrap_err();
+        handle(&json!({"operation": "read", "reference": "token"})).unwrap_err();
+        handle(&json!({"operation": "store", "reference": "token"})).unwrap_err();
     }
 }

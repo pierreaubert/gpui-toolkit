@@ -8,9 +8,9 @@ use gpui_ui_kit::button::Button;
 use gpui_ui_kit::focus::FocusTrap;
 
 struct FocusTrapView {
-    first_handle: FocusHandle,
-    middle_handle: FocusHandle,
-    last_handle: FocusHandle,
+    first: FocusHandle,
+    middle: FocusHandle,
+    last: FocusHandle,
 }
 
 impl Render for FocusTrapView {
@@ -19,11 +19,7 @@ impl Render for FocusTrapView {
             .size_full()
             .child(
                 FocusTrap::new("button-trap")
-                    .focus_targets([
-                        self.first_handle.clone(),
-                        self.middle_handle.clone(),
-                        self.last_handle.clone(),
-                    ])
+                    .focus_targets([self.first.clone(), self.middle.clone(), self.last.clone()])
                     .children([
                         Button::new("trap-first", "First").into_any_element(),
                         Button::new("trap-middle", "Middle").into_any_element(),
@@ -36,7 +32,7 @@ impl Render for FocusTrapView {
 
 #[gpui::test]
 async fn test_focus_trap_wraps_from_last_button(cx: &mut TestAppContext) {
-    let (first_handle, middle_handle, last_handle, outside_handle) = cx.update(|cx| {
+    let (first, middle, last, outside_handle) = cx.update(|cx| {
         (
             Button::focus_handle_for("trap-first", cx),
             Button::focus_handle_for("trap-middle", cx),
@@ -44,27 +40,23 @@ async fn test_focus_trap_wraps_from_last_button(cx: &mut TestAppContext) {
             Button::focus_handle_for("trap-outside", cx),
         )
     });
-    let view_handles = (
-        first_handle.clone(),
-        middle_handle.clone(),
-        last_handle.clone(),
-    );
+    let view_handles = (first.clone(), middle.clone(), last.clone());
     let window = cx.add_window(move |_window, _cx| FocusTrapView {
-        first_handle: view_handles.0,
-        middle_handle: view_handles.1,
-        last_handle: view_handles.2,
+        first: view_handles.0,
+        middle: view_handles.1,
+        last: view_handles.2,
     });
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     cx.run_until_parked();
-    cx.update(|window, app| window.focus(&last_handle, app));
+    cx.update(|window, app| window.focus(&last, app));
     cx.run_until_parked();
-    assert!(cx.update(|window, _| last_handle.is_focused(window)));
+    assert!(cx.update(|window, _| last.is_focused(window)));
 
     cx.simulate_keystrokes("tab");
     cx.run_until_parked();
 
     assert!(
-        cx.update(|window, _| first_handle.is_focused(window)),
+        cx.update(|window, _| first.is_focused(window)),
         "Tab from the last trap target should wrap to the first"
     );
     assert!(
@@ -75,11 +67,11 @@ async fn test_focus_trap_wraps_from_last_button(cx: &mut TestAppContext) {
     cx.simulate_keystrokes("shift-tab");
     cx.run_until_parked();
     assert!(
-        cx.update(|window, _| last_handle.is_focused(window)),
+        cx.update(|window, _| last.is_focused(window)),
         "Shift+Tab from the first trap target should wrap to the last"
     );
     assert!(
-        cx.update(|window, _| !middle_handle.is_focused(window)),
+        cx.update(|window, _| !middle.is_focused(window)),
         "wrap must not stop at the middle target"
     );
 }

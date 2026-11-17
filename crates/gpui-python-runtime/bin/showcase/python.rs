@@ -136,15 +136,12 @@ fn send_inbound(
     if !budget.acquire(charge) {
         return false;
     }
-    match tx.send((charge, message)) {
-        Ok(()) => {
-            wake.notify();
-            true
-        }
-        Err(_) => {
-            budget.release(charge);
-            false
-        }
+    if let Ok(()) = tx.send((charge, message)) {
+        wake.notify();
+        true
+    } else {
+        budget.release(charge);
+        false
     }
 }
 
@@ -475,9 +472,8 @@ fn patch_event_identity(
 fn run_outbound_writer(mut writer: impl Write, shared: Arc<OutboundWriterShared>) {
     loop {
         let next = {
-            let mut state = match shared.state.lock() {
-                Ok(state) => state,
-                Err(_) => return,
+            let Ok(mut state) = shared.state.lock() else {
+                return;
             };
             loop {
                 apply_requested_close(&shared, &mut state);
@@ -502,37 +498,35 @@ fn run_outbound_writer(mut writer: impl Write, shared: Arc<OutboundWriterShared>
             }
         };
 
-        let (bytes, is_recovery) = match next {
-            Some(bytes) => (bytes, false),
-            None => {
-                let sequence = shared.event_sequence.fetch_add(1, Ordering::Relaxed) + 1;
-                let recovery = HostMessage::Event(UiEvent {
-                    id: format!("event-{sequence:020}"),
-                    sequence,
-                    node_id: "__host__".into(),
-                    event: "scene2d.cancel_all".into(),
-                    action: Some("scene2d_cancel_all".into()),
-                    payload: serde_json::json!({
-                        "type": "scene2d.cancel_all",
-                        "reason": "outbound_overflow",
-                    }),
-                });
-                let mut bytes = match serde_json::to_vec(&recovery) {
-                    Ok(bytes) => bytes,
-                    Err(error) => {
-                        fail_outbound_writer(&shared, error.to_string());
-                        return;
-                    }
-                };
-                bytes.push(b'\n');
-                (bytes, true)
-            }
+        let (bytes, is_recovery) = if let Some(bytes) = next {
+            (bytes, false)
+        } else {
+            let sequence = shared.event_sequence.fetch_add(1, Ordering::Relaxed) + 1;
+            let recovery = HostMessage::Event(UiEvent {
+                id: format!("event-{sequence:020}"),
+                sequence,
+                node_id: "__host__".into(),
+                event: "scene2d.cancel_all".into(),
+                action: Some("scene2d_cancel_all".into()),
+                payload: serde_json::json!({
+                    "type": "scene2d.cancel_all",
+                    "reason": "outbound_overflow",
+                }),
+            });
+            let mut bytes = match serde_json::to_vec(&recovery) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    fail_outbound_writer(&shared, error.to_string());
+                    return;
+                }
+            };
+            bytes.push(b'\n');
+            (bytes, true)
         };
 
         let result = writer.write_all(&bytes).and_then(|()| writer.flush());
-        let mut state = match shared.state.lock() {
-            Ok(state) => state,
-            Err(_) => return,
+        let Ok(mut state) = shared.state.lock() else {
+            return;
         };
         match result {
             Ok(()) if is_recovery => {
@@ -774,8 +768,7 @@ impl PythonSession {
     pub fn stderr_diagnostics(&self) -> String {
         self.stderr
             .lock()
-            .map(|log| log.lines.iter().rev().take(30).cloned().collect::<Vec<_>>())
-            .unwrap_or_default()
+            .map_or_default(|log| log.lines.iter().rev().take(30).cloned().collect::<Vec<_>>())
             .into_iter()
             .rev()
             .collect::<Vec<_>>()
@@ -860,8 +853,7 @@ fn shutdown_timeout() -> Duration {
     env::var("GPUI_TOOLKIT_SHUTDOWN_TIMEOUT_MS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
-        .map(Duration::from_millis)
-        .unwrap_or(Duration::from_secs(2))
+        .map_or(Duration::from_secs(2), Duration::from_millis)
 }
 
 fn send_shutdown_when_available(outbound: &PythonOutboundWriter) {
@@ -888,8 +880,7 @@ fn send_shutdown_when_available(outbound: &PythonOutboundWriter) {
 pub(super) fn spawn_python_session() -> Result<PythonSession, Box<dyn Error + Send + Sync>> {
     let script = env::args_os()
         .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(default_showcase_path);
+        .map_or_else(default_showcase_path, PathBuf::from);
     spawn_python_session_for_script(script)
 }
 
@@ -907,7 +898,7 @@ fn spawn_python_session_for_script(
             resource_directory.path(),
             std::fs::Permissions::from_mode(0o700),
         )?;
-    }
+    };
     let resource_token = resource_directory
         .path()
         .file_name()
@@ -1562,7 +1553,7 @@ mod tests {
     }
 
     impl Write for BlockFirstWrite {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             if !self.blocked {
                 self.blocked = true;
                 let _ = self.entered.send(());
@@ -1571,8 +1562,8 @@ mod tests {
             self.output
                 .lock()
                 .map_err(|_| io::Error::other("test output lock poisoned"))?
-                .extend_from_slice(bytes);
-            Ok(bytes.len())
+                .extend_from_slice(buf);
+            Ok(buf.len())
         }
 
         fn flush(&mut self) -> io::Result<()> {
@@ -1583,12 +1574,12 @@ mod tests {
     struct CapturedWriter(Arc<Mutex<Vec<u8>>>);
 
     impl Write for CapturedWriter {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             self.0
                 .lock()
                 .map_err(|_| io::Error::other("captured writer lock poisoned"))?
-                .extend_from_slice(bytes);
-            Ok(bytes.len())
+                .extend_from_slice(buf);
+            Ok(buf.len())
         }
 
         fn flush(&mut self) -> io::Result<()> {
@@ -1632,6 +1623,8 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(2);
         let lines = loop {
             let output = output.lock().expect("test output lock").clone();
+            // Test polling loop over a small buffer; bytecount is not a dependency.
+            #[allow(clippy::naive_bytecount)]
             let line_count = output.iter().filter(|byte| **byte == b'\n').count();
             if line_count == MAX_OUTBOUND_MESSAGES + 1 {
                 break output
@@ -1989,10 +1982,13 @@ for line in sys.stdin:
         let budget = Arc::new(InboundBudget::new(1024));
         let (tx, rx) = mpsc::sync_channel(MAX_INBOUND_MESSAGES);
         let wake = PythonSessionWake::new();
-        let stream = (0..100)
-            .map(|index| format!("{{\"type\":\"heartbeat\",\"id\":\"hb-{index}\"}}\n"))
-            .collect::<String>()
-            .into_bytes();
+        let mut stream = String::new();
+        for index in 0..100 {
+            use std::fmt::Write as _;
+            writeln!(stream, "{{\"type\":\"heartbeat\",\"id\":\"hb-{index}\"}}")
+                .expect("write to string");
+        }
+        let stream = stream.into_bytes();
         let reader_budget = budget.clone();
         let reader = std::thread::spawn(move || {
             read_python_messages_with_mmap(Cursor::new(stream), tx, reader_budget, wake, None);
@@ -2027,7 +2023,7 @@ for line in sys.stdin:
         // draining it returns the budget to zero.
         let (charge, message) = rx.recv().expect("stream-close diagnostic");
         budget.release(charge);
-        assert!(matches!(message, Err(_)));
+        message.unwrap_err();
         assert_eq!(budget.outstanding_bytes(), 0);
     }
 
@@ -2248,7 +2244,7 @@ for line in sys.stdin:
         {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-        }
+        };
         let config = MmapSessionConfig {
             directory: directory.path().to_path_buf(),
             token: "session-token".into(),

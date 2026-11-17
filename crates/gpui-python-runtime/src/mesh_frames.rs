@@ -1010,7 +1010,7 @@ impl MeshFrameStore {
         {
             decoded.triangle_meshes.clear();
             decoded.scalar_fields.clear();
-        }
+        };
         self.bytes_used = self.bytes_used.saturating_sub(match &entry {
             MeshEntry::Assembly(assembly) => assembly.bytes,
             MeshEntry::Resource(resource) => resource.payload.len(),

@@ -402,9 +402,9 @@ async fn test_dialog_empty_content(cx: &mut TestAppContext) {
 // ============================================================================
 
 struct FooterFocusDialogView {
-    dialog_handle: FocusHandle,
-    cancel_handle: FocusHandle,
-    ok_handle: FocusHandle,
+    dialog: FocusHandle,
+    cancel: FocusHandle,
+    ok: FocusHandle,
     close_count: Arc<AtomicUsize>,
 }
 
@@ -415,9 +415,9 @@ impl Render for FooterFocusDialogView {
             Dialog::new("escape-dialog")
                 .title("Title")
                 .content("Body")
-                .focus_handle(self.dialog_handle.clone())
+                .focus_handle(self.dialog.clone())
                 .trap_focus(true)
-                .trap_targets([self.cancel_handle.clone(), self.ok_handle.clone()])
+                .trap_targets([self.cancel.clone(), self.ok.clone()])
                 .on_close(move |_window, _cx| {
                     close_count.fetch_add(1, Ordering::SeqCst);
                 })
@@ -435,25 +435,25 @@ impl Render for FooterFocusDialogView {
 async fn test_dialog_escape_closes_when_footer_button_focused(cx: &mut TestAppContext) {
     let close_count = Arc::new(AtomicUsize::new(0));
     let close_count_clone = close_count.clone();
-    let (ok_handle, cancel_handle, dialog_handle) = cx.update(|cx| {
+    let (ok, cancel, dialog) = cx.update(|cx| {
         (
             Button::focus_handle_for("ok", cx),
             Button::focus_handle_for("cancel", cx),
             cx.focus_handle(),
         )
     });
-    let view_ok_handle = ok_handle.clone();
+    let view_ok = ok.clone();
     let window = cx.add_window(move |_window, _cx| FooterFocusDialogView {
-        dialog_handle,
-        cancel_handle,
-        ok_handle: view_ok_handle,
+        dialog,
+        cancel,
+        ok: view_ok,
         close_count: close_count_clone,
     });
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     cx.run_until_parked();
-    cx.update(|window, app| window.focus(&ok_handle, app));
+    cx.update(|window, app| window.focus(&ok, app));
     cx.run_until_parked();
-    assert!(cx.update(|window, _| ok_handle.is_focused(window)));
+    assert!(cx.update(|window, _| ok.is_focused(window)));
 
     cx.simulate_keystrokes("escape");
     cx.run_until_parked();
@@ -468,9 +468,9 @@ async fn test_dialog_escape_closes_when_footer_button_focused(cx: &mut TestAppCo
 #[gpui::test]
 async fn test_dialog_tab_from_last_button_wraps_inside_dialog(cx: &mut TestAppContext) {
     struct TrappedDialogView {
-        dialog_handle: FocusHandle,
-        cancel_handle: FocusHandle,
-        ok_handle: FocusHandle,
+        dialog: FocusHandle,
+        cancel: FocusHandle,
+        ok: FocusHandle,
     }
 
     impl Render for TrappedDialogView {
@@ -482,9 +482,9 @@ async fn test_dialog_tab_from_last_button_wraps_inside_dialog(cx: &mut TestAppCo
                     Dialog::new("trap-dialog")
                         .title("Title")
                         .content("Body")
-                        .focus_handle(self.dialog_handle.clone())
+                        .focus_handle(self.dialog.clone())
                         .trap_focus(true)
-                        .trap_targets([self.cancel_handle.clone(), self.ok_handle.clone()])
+                        .trap_targets([self.cancel.clone(), self.ok.clone()])
                         .footer(
                             div()
                                 .flex()
@@ -496,7 +496,7 @@ async fn test_dialog_tab_from_last_button_wraps_inside_dialog(cx: &mut TestAppCo
         }
     }
 
-    let (after_handle, cancel_handle, ok_handle, dialog_handle) = cx.update(|cx| {
+    let (after_handle, cancel, ok, dialog) = cx.update(|cx| {
         (
             Button::focus_handle_for("trap-after", cx),
             Button::focus_handle_for("trap-cancel", cx),
@@ -504,23 +504,23 @@ async fn test_dialog_tab_from_last_button_wraps_inside_dialog(cx: &mut TestAppCo
             cx.focus_handle(),
         )
     });
-    let (view_cancel, view_ok) = (cancel_handle.clone(), ok_handle.clone());
+    let (view_cancel, view_ok) = (cancel.clone(), ok.clone());
     let window = cx.add_window(move |_window, _cx| TrappedDialogView {
-        dialog_handle,
-        cancel_handle: view_cancel,
-        ok_handle: view_ok,
+        dialog,
+        cancel: view_cancel,
+        ok: view_ok,
     });
     let mut cx = VisualTestContext::from_window(window.into(), cx);
     cx.run_until_parked();
-    cx.update(|window, app| window.focus(&ok_handle, app));
+    cx.update(|window, app| window.focus(&ok, app));
     cx.run_until_parked();
-    assert!(cx.update(|window, _| ok_handle.is_focused(window)));
+    assert!(cx.update(|window, _| ok.is_focused(window)));
 
     cx.simulate_keystrokes("tab");
     cx.run_until_parked();
 
     assert!(
-        cx.update(|window, _| cancel_handle.is_focused(window)),
+        cx.update(|window, _| cancel.is_focused(window)),
         "Tab from the last dialog button must wrap to the first trap target"
     );
     assert!(

@@ -2,14 +2,14 @@
 //!
 //! This crate compiles to a static library the Xcode project links. The
 //! Swift `AppDelegate` calls `python_mobile_ios_start()`, which points
-//! CPython at the bundled `python/` home, registers the shared Python
+//! `CPython` at the bundled `python/` home, registers the shared Python
 //! host from `gpui-python-runtime` (`bin/showcase.rs`, included by path
 //! exactly like the desktop `gpui-python-host` binary does), and hands
 //! the run loop to `gpui-ios`.
 //!
 //! Bundle contract (assembled by `scripts/stage-ios-resources.sh` and the
 //! Xcode `install_python` phase):
-//! - `python/` — CPython home (`lib/python3.15` stdlib).
+//! - `python/` — `CPython` home (`lib/python3.15` stdlib).
 //! - `app/main_app.py` — the Python app entry (`build_app()` or `app`).
 //! - `app/gpui_toolkit/` — the toolkit package, incl. `_native.abi3.so`
 //!   (converted to a signed framework by the Xcode phase).

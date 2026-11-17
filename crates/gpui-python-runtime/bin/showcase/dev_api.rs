@@ -1,7 +1,7 @@
 //! Opt-in file mailbox for native input smoke tests and local debugging.
 //!
 //! Clients atomically publish request.json and read response.json in the directory
-//! named by GPUI_TOOLKIT_DEV_API. Only one request may be outstanding per host.
+//! named by `GPUI_TOOLKIT_DEV_API`. Only one request may be outstanding per host.
 
 // Rust guideline compliant 2026-02-21
 
@@ -173,7 +173,7 @@ impl PythonIrShowcase {
                     }))
                 }).collect::<serde_json::Map<String, Value>>(),
                 "app": self.app_value,
-                "stderr": self.session.as_ref().map(|session| session.stderr_diagnostics()),
+                "stderr": self.session.as_ref().map(super::super::python::PythonSession::stderr_diagnostics),
             })),
             Command::Select { section } => {
                 if !self

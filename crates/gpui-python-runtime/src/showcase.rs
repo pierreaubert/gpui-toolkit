@@ -12,7 +12,7 @@ fn normalized_eq(value: &str, target: &str) -> bool {
     loop {
         match (value.next(), target.next()) {
             (Some(v), Some(t)) if !v.eq_ignore_ascii_case(&t) => return false,
-            (Some(_), Some(_)) => continue,
+            (Some(_), Some(_)) => {}
             (None, None) => return true,
             _ => return false,
         }

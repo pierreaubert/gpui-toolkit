@@ -105,8 +105,8 @@ use std::time::{Duration, Instant};
 struct ElementIdHasher(std::collections::hash_map::DefaultHasher);
 
 impl fmt::Write for ElementIdHasher {
-    fn write_str(&mut self, value: &str) -> fmt::Result {
-        value.hash(&mut self.0);
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        s.hash(&mut self.0);
         Ok(())
     }
 }
@@ -185,7 +185,7 @@ fn mesh_selection_payload(pick: &MeshPlotPick) -> Value {
 }
 
 fn mesh_selection_event_payload(selection: Option<&MeshPlotPick>) -> Value {
-    selection.map(mesh_selection_payload).unwrap_or(Value::Null)
+    selection.map_or(Value::Null, mesh_selection_payload)
 }
 
 fn cached_meshplot_fallback(
@@ -598,12 +598,12 @@ mod native_mesh_plot_tests {
     struct CapturedPipe(Arc<Mutex<Vec<u8>>>);
 
     impl Write for CapturedPipe {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             self.0
                 .lock()
                 .map_err(|_| io::Error::other("captured pipe lock poisoned"))?
-                .extend_from_slice(bytes);
-            Ok(bytes.len())
+                .extend_from_slice(buf);
+            Ok(buf.len())
         }
 
         fn flush(&mut self) -> io::Result<()> {
@@ -3215,7 +3215,7 @@ mod runtime_resource_release_tests {
         let mut malformed = mesh_frame("pressure");
         malformed.generation = 3;
         malformed.payload.pop();
-        assert!(showcase.apply_mesh_frame_message(malformed).is_err());
+        showcase.apply_mesh_frame_message(malformed).unwrap_err();
         assert!(showcase.mesh_frames.get("pressure", 3).is_none());
         assert!(
             showcase
@@ -3340,7 +3340,7 @@ mod runtime_resource_release_tests {
         let mut invalid = mesh_frame("pressure");
         invalid.generation = 2;
         invalid.payload.pop();
-        assert!(showcase.apply_mesh_frame_message(invalid).is_err());
+        showcase.apply_mesh_frame_message(invalid).unwrap_err();
 
         assert_eq!(showcase.load_error, None);
         assert!(
@@ -3381,7 +3381,7 @@ mod runtime_resource_release_tests {
         let mut invalid = mesh_frame("pressure");
         invalid.generation = 2;
         invalid.payload.pop();
-        assert!(showcase.apply_mesh_frame_message(invalid).is_err());
+        showcase.apply_mesh_frame_message(invalid).unwrap_err();
 
         assert!(showcase.mesh_frames.get("pressure", 2).is_none());
         assert!(
@@ -4233,7 +4233,7 @@ fn d3_algorithm_command(arguments: &Value) -> Result<Value, String> {
             let space = string("space")?;
             let components = command_numbers(arguments, "components")?;
             let color = match (space, components.as_slice()) {
-                ("hex", [hex]) if *hex >= 0.0 && *hex <= u32::MAX as f64 => {
+                ("hex", [hex]) if *hex >= 0.0 && *hex <= f64::from(u32::MAX) => {
                     d3rs::color::D3Color::from_hex(*hex as u32)
                 }
                 ("hsl", [h, s, l]) => {
@@ -5363,20 +5363,12 @@ mod d3_algorithm_command_tests {
 
     #[::core::prelude::v1::test]
     fn rejects_unknown_variants_instead_of_silently_falling_back() {
-        assert!(
-            d3_algorithm_command(&json!({"operation": "ease", "kind": "mystery", "values": [0.5]}))
-                .is_err()
-        );
-        assert!(
-            d3_algorithm_command(&json!({"operation": "random", "kind": "mystery", "count": 1}))
-                .is_err()
-        );
-        assert!(
-            d3_algorithm_command(
-                &json!({"operation": "dsv_parse", "delimiter": "::", "input": "a"})
-            )
-            .is_err()
-        );
+        d3_algorithm_command(&json!({"operation": "ease", "kind": "mystery", "values": [0.5]}))
+            .unwrap_err();
+        d3_algorithm_command(&json!({"operation": "random", "kind": "mystery", "count": 1}))
+            .unwrap_err();
+        d3_algorithm_command(&json!({"operation": "dsv_parse", "delimiter": "::", "input": "a"}))
+            .unwrap_err();
     }
 
     #[::core::prelude::v1::test]
@@ -6133,10 +6125,11 @@ mod dataset_view_tests {
         assert_eq!(view.sort_field, Some("frequency"));
         assert!(view.sort_descending);
         assert_eq!(view.row_range, Some((0, 50)));
-        assert!(view.require_projected_fields(["spl"]).is_ok());
-        assert!(view.require_projected_fields(["channel"]).is_err());
+        view.require_projected_fields(["spl"])
+            .expect("spl is projected");
+        view.require_projected_fields(["channel"]).unwrap_err();
 
-        assert!(supported_dataset_view(&source, false).is_err());
+        supported_dataset_view(&source, false).unwrap_err();
         let invalid_order = serde_json::json!({
             "kind": "dataset_view",
             "dataset": {"kind": "dataset", "id": "events", "generation": 1},
@@ -6145,7 +6138,7 @@ mod dataset_view_tests {
                 {"op": "sort", "field": "frequency"}
             ]
         });
-        assert!(supported_dataset_view(&invalid_order, true).is_err());
+        supported_dataset_view(&invalid_order, true).unwrap_err();
 
         let aggregate = serde_json::json!({
             "kind": "dataset_view",
@@ -6166,11 +6159,9 @@ mod dataset_view_tests {
             view.derived_fields,
             Some(vec!["channel".into(), "mean_spl".into(), "rows".into()])
         );
-        assert!(
-            view.require_projected_fields(["channel", "mean_spl"])
-                .is_ok()
-        );
-        assert!(view.require_projected_fields(["spl"]).is_err());
+        view.require_projected_fields(["channel", "mean_spl"])
+            .expect("aggregated fields are projected");
+        view.require_projected_fields(["spl"]).unwrap_err();
 
         let filtered = serde_json::json!({
             "kind": "dataset_view",
@@ -6196,7 +6187,7 @@ mod dataset_view_tests {
             "dataset": {"kind": "dataset", "id": "events", "generation": 1},
             "operations": [{"op": "group_by", "fields": ["channel"]}]
         });
-        assert!(supported_dataset_view(&group_only, true).is_err());
+        supported_dataset_view(&group_only, true).unwrap_err();
     }
 }
 
@@ -6569,7 +6560,7 @@ fn px_rgb_to_hsl(color: Rgba) -> (f32, f32, f32) {
     let (red, green, blue) = (color.r, color.g, color.b);
     let max = red.max(green).max(blue);
     let min = red.min(green).min(blue);
-    let light = (max + min) / 2.0;
+    let light = f32::midpoint(max, min);
     if (max - min).abs() < f32::EPSILON {
         return (0.0, 0.0, light);
     }
@@ -7285,10 +7276,9 @@ fn aggregate_chart_rows(
     if view.aggregations.is_empty() {
         return Ok(None);
     }
-    let (start, count) = view
-        .row_range
-        .map(|(start, stop)| (start, stop.saturating_sub(start).min(point_limit)))
-        .unwrap_or((0, point_limit));
+    let (start, count) = view.row_range.map_or((0, point_limit), |(start, stop)| {
+        (start, stop.saturating_sub(start).min(point_limit))
+    });
     store
         .aggregate_rows_filtered(
             resource_id,
@@ -7808,7 +7798,7 @@ pub(super) struct PythonIrShowcase {
     mesh_frames: MeshFrameStore,
     dataset_frames: DatasetFrameStore,
     prepared_mesh_plots: HashMap<String, CachedNativeMeshPlot>,
-    /// Native MeshPlot owners keep their decoded resource generations alive
+    /// Native `MeshPlot` owners keep their decoded resource generations alive
     /// until the corresponding plot is replaced or removed.
     mesh_plot_resource_refs: HashMap<String, Vec<(String, u64)>>,
     /// Mesh interaction state is host-owned and survives declarative patches.
@@ -7817,7 +7807,7 @@ pub(super) struct PythonIrShowcase {
     /// its last valid frame remains visible instead of replacing the whole
     /// application with a session error screen.
     mesh_plot_errors: HashMap<String, String>,
-    /// Native Scene2D state survives declarative frames and retargets
+    /// Native `Scene2D` state survives declarative frames and retargets
     /// animation from the currently presented values after each revision.
     scene2d_states: HashMap<String, Scene2DState>,
     /// Invalid surface patches are isolated to that surface; its last valid
@@ -8012,7 +8002,7 @@ impl PythonIrShowcase {
             .any(|section| section.id == self.current_section)
             && let Some(section) = app.sections.first()
         {
-            self.current_section = section.id.clone();
+            self.current_section.clone_from(&section.id);
             self.presentation.set_section(Some(section.id.clone()));
         }
         self.app_value = serde_json::to_value(&app).ok();
@@ -8155,9 +8145,9 @@ impl PythonIrShowcase {
         let error = error.into();
         let mut recorded_scene = false;
         for operation in &patch.ops {
-            let id = match operation {
-                PatchOp::Scene2DReplace { id, .. } | PatchOp::Scene2DPatch { id, .. } => id,
-                _ => continue,
+            let (PatchOp::Scene2DReplace { id, .. } | PatchOp::Scene2DPatch { id, .. }) = operation
+            else {
+                continue;
             };
             self.scene2d_errors.insert(id.clone(), error.clone());
             recorded_scene = true;
@@ -8252,7 +8242,7 @@ impl PythonIrShowcase {
 
     /// Commit a Python snapshot as one resource-ownership transaction.
     ///
-    /// Snapshots may legally arrive before their binary MeshFrames. In that
+    /// Snapshots may legally arrive before their binary `MeshFrames`. In that
     /// case the new declarative app is committed so the first complete frame
     /// can render it, while the previous plot cache remains available for the
     /// last-valid fallback. If a snapshot is malformed, or retaining a fully
@@ -8275,7 +8265,7 @@ impl PythonIrShowcase {
                 &self.current_section.clone(),
                 gpui_ui_kit::Scene2DLifecycleReason::SectionChanged,
             );
-            self.current_section = section.id.clone();
+            self.current_section.clone_from(&section.id);
             self.presentation.set_section(Some(section.id.clone()));
         }
         let mut next_resource_refs = HashMap::new();
@@ -8329,19 +8319,13 @@ impl PythonIrShowcase {
                 .any(|(id, retained_generation)| {
                     id == resource_id && *retained_generation == generation
                 });
-        if ((!released_mesh && !released_dataset) && active_plot_owns_generation)
-            || (!released_audio && !released_mesh && !released_dataset)
-        {
+        if !released_mesh && !released_dataset && (active_plot_owns_generation || !released_audio) {
             let message = if active_plot_owns_generation && !released_mesh && !released_dataset {
                 format!(
-                    "mesh resource {:?} generation {} is still owned by an active plot",
-                    resource_id, generation
+                    "mesh resource {resource_id:?} generation {generation} is still owned by an active plot"
                 )
             } else {
-                format!(
-                    "mesh resource {:?} generation {} was not retained",
-                    resource_id, generation
-                )
+                format!("mesh resource {resource_id:?} generation {generation} was not retained")
             };
             self.record_mesh_resource_error(resource_id, generation, message);
         }
@@ -8398,7 +8382,7 @@ impl PythonIrShowcase {
                 gpui_ui_kit::Scene2DLifecycleReason::SectionChanged,
             );
         }
-        self.current_section = section.clone();
+        self.current_section.clone_from(&section);
         self.presentation.set_section(Some(section));
         if changed {
             self.resume_scene2d_surfaces_in_section(&self.current_section.clone(), cx);
@@ -8414,8 +8398,7 @@ impl PythonIrShowcase {
         let ids = self
             .app_value
             .as_ref()
-            .map(|app| scene2d_surface_ids_in_section(app, section))
-            .unwrap_or_default();
+            .map_or_default(|app| scene2d_surface_ids_in_section(app, section));
         for id in ids {
             if let Some(state) = self.scene2d_states.get(&id) {
                 state.set_suspended(true);
@@ -8430,8 +8413,7 @@ impl PythonIrShowcase {
         let ids = self
             .app_value
             .as_ref()
-            .map(|app| scene2d_surface_ids_in_section(app, section))
-            .unwrap_or_default();
+            .map_or_default(|app| scene2d_surface_ids_in_section(app, section));
         let sink = self.scene2d_sink();
         let mut resumed_animation = false;
         for id in ids {
@@ -8478,9 +8460,11 @@ impl PythonIrShowcase {
     }
 
     fn scene2d_sink(&self) -> Option<super::python::PythonEventSink> {
-        self.scene2d_event_sink
-            .clone()
-            .or_else(|| self.session.as_ref().map(|session| session.event_sink()))
+        self.scene2d_event_sink.clone().or_else(|| {
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink)
+        })
     }
 
     fn set_tick_interval(&mut self, seconds: Option<f64>) {
@@ -8536,22 +8520,25 @@ impl PythonIrShowcase {
         }) else {
             return;
         };
-        let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) else {
+        let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        else {
             return;
         };
         let now = Instant::now();
         let elapsed = self
             .tick_last_sent
             .replace(now)
-            .map(|last| now.saturating_duration_since(last))
-            .unwrap_or_default()
+            .map_or_default(|last| now.saturating_duration_since(last))
             .min(Duration::from_millis(250));
         let frame = self.tick_frame.saturating_add(1);
         let payload = serde_json::json!({
             "type": "scene2d.tick",
             "tick": {
                 "surface_id": surface_id,
-                "elapsed_ns": elapsed.as_nanos().min(u64::MAX as u128) as u64,
+                "elapsed_ns": elapsed.as_nanos().min(u128::from(u64::MAX)) as u64,
                 "frame": frame,
             }
         });
@@ -8589,7 +8576,7 @@ impl PythonIrShowcase {
         self.window_active = window.is_window_active();
         self.activation_subscription =
             Some(cx.observe_window_activation(window, |this, window, cx| {
-                this.set_window_active(window.is_window_active(), cx)
+                this.set_window_active(window.is_window_active(), cx);
             }));
     }
 
@@ -8619,7 +8606,7 @@ impl PythonIrShowcase {
         let entity = cx.weak_entity();
         window.on_window_should_close(cx, move |_window, cx| {
             entity
-                .update(cx, |this, cx| this.request_window_close(cx))
+                .update(cx, PythonIrShowcase::request_window_close)
                 .unwrap_or(true)
         });
     }
@@ -8629,7 +8616,11 @@ impl PythonIrShowcase {
             return true;
         }
         if self.pending_confirmation.is_none() {
-            if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+            if let Some(sink) = self
+                .session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink)
+            {
                 let _ = sink.dispatch(
                     "window",
                     "close_requested",
@@ -8650,7 +8641,11 @@ impl PythonIrShowcase {
     }
 
     fn start_session_updates(&mut self, cx: &mut Context<Self>) {
-        let Some(wake) = self.session.as_ref().map(|session| session.wake_handle()) else {
+        let Some(wake) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::wake_handle)
+        else {
             return;
         };
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
@@ -8703,11 +8698,8 @@ impl PythonIrShowcase {
                         let mut values = pair.split(',');
                         let x = values.next()?.parse::<f32>().ok()?;
                         let y = values.next()?.parse::<f32>().ok()?;
-                        if x.is_finite() && y.is_finite() && x >= 0.0 && y >= 0.0 {
-                            Some(point(px(x), px(y)))
-                        } else {
-                            None
-                        }
+                        (x.is_finite() && y.is_finite() && x >= 0.0 && y >= 0.0)
+                            .then(|| point(px(x), px(y)))
                     })
                     .collect::<Vec<_>>()
             })
@@ -8720,8 +8712,10 @@ impl PythonIrShowcase {
         let delay = env::var("GPUI_TOOLKIT_QA_POINTER_DELAY_MS")
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
-            .map(|value| Duration::from_millis(value.clamp(100, 30_000)))
-            .unwrap_or_else(|| Duration::from_millis(750));
+            .map_or_else(
+                || Duration::from_millis(750),
+                |value| Duration::from_millis(value.clamp(100, 30_000)),
+            );
         self.qa_pointer_task = Some(cx.spawn_in(
             window,
             async move |_this, cx: &mut AsyncWindowContext| {
@@ -8930,11 +8924,12 @@ impl PythonIrShowcase {
             .find(|section| section.id == self.current_section)
             .or_else(|| app.sections.first())
             .map(|section| &section.content);
-        let content = selected_content
-            .map(|node| self.render_node(node, theme, ds, cx))
-            .unwrap_or_else(|| {
-                self.render_error("Python app did not define any sections", theme, ds)
-            });
+        // Two separate closures cannot both borrow `self` mutably, so
+        // dispatch with a match instead of `map_or_else`.
+        let content = match selected_content {
+            Some(node) => self.render_node(node, theme, ds, cx),
+            None => self.render_error("Python app did not define any sections", theme, ds),
+        };
         self.app_value = serde_json::to_value(&app).ok();
         self.app = Some(app);
 
@@ -9116,7 +9111,11 @@ impl PythonIrShowcase {
         if !self.color_picker_subscriptions.contains_key(&node.id) {
             let id = node.id.clone();
             let subscription = cx.observe(&picker, move |this, picker, cx| {
-                let Some(sink) = this.session.as_ref().map(|session| session.event_sink()) else {
+                let Some(sink) = this
+                    .session
+                    .as_ref()
+                    .map(super::python::PythonSession::event_sink)
+                else {
                     return;
                 };
                 let color = picker.read(cx).color().to_hex_string();
@@ -9426,7 +9425,9 @@ impl PythonIrShowcase {
 
         if let (Some(action), Some(sink), Some(node_id)) = (
             node.action.clone(),
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.id.clone(),
         ) {
             let key_sink = sink.clone();
@@ -9487,7 +9488,11 @@ impl PythonIrShowcase {
         if let Some(placeholder) = &node.placeholder {
             input = input.placeholder(placeholder.clone());
         }
-        if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+        if let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        {
             let node_id = node.id.clone();
             let action = node.action.clone();
             input = input.on_text_change(move |value, _, _| {
@@ -9499,14 +9504,22 @@ impl PythonIrShowcase {
                 );
             });
         }
-        if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+        if let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        {
             let node_id = node.id.clone();
             let action = node.action.clone();
             input = input.on_edit_start(move |_, _| {
                 let _ = sink.dispatch(node_id.clone(), "focus", action.clone(), Value::Null);
             });
         }
-        if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+        if let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        {
             let node_id = node.id.clone();
             let action = node.action.clone();
             input = input.on_edit_end(move |value, _, _| {
@@ -9518,7 +9531,11 @@ impl PythonIrShowcase {
                 );
             });
         }
-        if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+        if let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        {
             let node_id = node.id.clone();
             let action = node.commit_action.clone();
             input = input.on_change(move |value, _, _| {
@@ -9530,7 +9547,11 @@ impl PythonIrShowcase {
                 );
             });
         }
-        if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+        if let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        {
             let node_id = node.id.clone();
             let action = node.selection_action.clone();
             input = input.on_selection_change(move |selection, _, _| {
@@ -9586,7 +9607,11 @@ impl PythonIrShowcase {
                     label.clone()
                 });
             }
-            if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+            if let Some(sink) = self
+                .session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink)
+            {
                 let node_id = node.id.clone();
                 let action = node.action.clone();
                 input = input.on_text_change(move |value, _, _| {
@@ -9598,7 +9623,11 @@ impl PythonIrShowcase {
                     );
                 });
             }
-            if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+            if let Some(sink) = self
+                .session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink)
+            {
                 let node_id = node.id.clone();
                 let action = node.commit_action.clone();
                 input = input.on_change(move |value, _, _| {
@@ -9652,7 +9681,11 @@ impl PythonIrShowcase {
         if let Some(precision) = node.precision {
             input = input.decimals(precision.into());
         }
-        if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+        if let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        {
             let node_id = node.id.clone();
             let action = node.action.clone();
             input = input.on_change(move |value, _, _| {
@@ -9694,7 +9727,11 @@ impl PythonIrShowcase {
         if let Some(width) = node.presentation.width {
             slider = slider.width(width);
         }
-        if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+        if let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        {
             let node_id = node.id.clone();
             let action = node.action.clone();
             slider = slider.on_change(move |value, _, _| {
@@ -9706,7 +9743,11 @@ impl PythonIrShowcase {
                 );
             });
         }
-        if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+        if let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        {
             let node_id = node.id.clone();
             let action = node.commit_action.clone();
             slider = slider.on_drag_end(move |value, _, _| {
@@ -9752,7 +9793,9 @@ impl PythonIrShowcase {
                 .unwrap_or_else(|| node.label.clone()),
         );
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.action.clone(),
         ) {
             let id = node.id.clone();
@@ -9766,7 +9809,9 @@ impl PythonIrShowcase {
             });
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.commit_action.clone(),
         ) {
             let id = node.id.clone();
@@ -9819,7 +9864,9 @@ impl PythonIrShowcase {
             control = control.height(height);
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.action.clone(),
         ) {
             let id = node.id.clone();
@@ -9833,7 +9880,9 @@ impl PythonIrShowcase {
             });
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.commit_action.clone(),
         ) {
             let id = node.id.clone();
@@ -9865,7 +9914,9 @@ impl PythonIrShowcase {
                     .unwrap_or_else(|| node.label.clone()),
             );
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.action.clone(),
         ) {
             let id = node.id.clone();
@@ -9879,7 +9930,9 @@ impl PythonIrShowcase {
             });
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.commit_action.clone(),
         ) {
             let id = node.id.clone();
@@ -9893,7 +9946,9 @@ impl PythonIrShowcase {
             });
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.mute_action.clone(),
         ) {
             let id = node.id.clone();
@@ -9989,17 +10044,14 @@ impl PythonIrShowcase {
             .as_deref()
             .and_then(|id| self.audio_frames.get(id))
             .filter(|frame| frame.frame_kind == AudioFrameKind::Spectrum);
-        let magnitudes = stream
-            .map(|frame| frame.values.clone())
-            .unwrap_or_else(|| node.magnitudes.clone());
+        let magnitudes =
+            stream.map_or_else(|| node.magnitudes.clone(), |frame| frame.values.clone());
         let minimum_frequency = stream
             .and_then(|frame| frame.minimum_frequency)
-            .map(|value| value as f32)
-            .unwrap_or(node.minimum_frequency);
+            .map_or(node.minimum_frequency, |value| value as f32);
         let maximum_frequency = stream
             .and_then(|frame| frame.maximum_frequency)
-            .map(|value| value as f32)
-            .unwrap_or(node.maximum_frequency);
+            .map_or(node.maximum_frequency, |value| value as f32);
         let mut spectrum = SpectrumElement::new(Arc::<[f32]>::from(magnitudes))
             .frequency_range(minimum_frequency, maximum_frequency)
             .smoothing(node.smoothing);
@@ -10053,8 +10105,12 @@ impl PythonIrShowcase {
                 toggle_state.borrow_mut().insert(toggle_id.clone(), open);
                 window.refresh();
             });
-        }
-        if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+        };
+        if let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        {
             let node_id = node.id.clone();
             // A `theme:`-prefixed action lets an in-app picker drive the
             // shell theme (mirroring the `select:` section-navigation
@@ -10075,8 +10131,10 @@ impl PythonIrShowcase {
                 let selected = choices
                     .iter()
                     .find(|(wire_value, _)| wire_value == value.as_ref())
-                    .map(|(_, value)| value.clone())
-                    .unwrap_or_else(|| Value::String(value.to_string()));
+                    .map_or_else(
+                        || Value::String(value.to_string()),
+                        |(_, value)| value.clone(),
+                    );
                 let _ = sink.dispatch(
                     node_id.clone(),
                     "change",
@@ -10119,7 +10177,11 @@ impl PythonIrShowcase {
         if let Some(placeholder) = &node.placeholder {
             input = input.placeholder(placeholder.clone());
         }
-        if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+        if let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        {
             let node_id = node.id.clone();
             let action = node.action.clone();
             let mode = node.mode.clone();
@@ -10134,7 +10196,11 @@ impl PythonIrShowcase {
                 );
             });
         }
-        if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+        if let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        {
             let node_id = node.id.clone();
             let action = node.commit_action.clone();
             let mode = node.mode.clone();
@@ -10162,7 +10228,10 @@ impl PythonIrShowcase {
             let filters = node.filters.clone();
             let must_exist = node.must_exist;
             let initial_path = node.value.clone();
-            let sink = self.session.as_ref().map(|session| session.event_sink());
+            let sink = self
+                .session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink);
             row = row.child(
                 div()
                     .id(stable_element_id(format_args!(
@@ -10189,8 +10258,7 @@ impl PythonIrShowcase {
                             } else {
                                 initial
                                     .parent()
-                                    .map(Path::to_path_buf)
-                                    .unwrap_or_else(|| PathBuf::from("."))
+                                    .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
                             };
                             let suggested_name = Path::new(&picked_initial_path)
                                 .file_name()
@@ -10216,9 +10284,9 @@ impl PythonIrShowcase {
                             });
                             cx.spawn(async move |_, _| {
                                 let payload = match receiver.await {
-                                    Ok(Ok(Some(paths))) => paths
-                                        .first()
-                                        .map(|path| {
+                                    Ok(Ok(Some(paths))) => paths.first().map_or_else(
+                                        || serde_json::json!({"cancelled": true}),
+                                        |path| {
                                             path_event_payload(
                                                 path,
                                                 &picked_mode,
@@ -10226,8 +10294,8 @@ impl PythonIrShowcase {
                                                 must_exist,
                                                 "browse",
                                             )
-                                        })
-                                        .unwrap_or_else(|| serde_json::json!({"cancelled": true})),
+                                        },
+                                    ),
                                     Ok(Ok(None)) => serde_json::json!({"cancelled": true}),
                                     Ok(Err(error)) => {
                                         serde_json::json!({"error": error.to_string()})
@@ -10282,7 +10350,10 @@ impl PythonIrShowcase {
         if !node.recent_values.is_empty() {
             let action = node.action.clone();
             let node_id = node.id.clone();
-            let sink = self.session.as_ref().map(|session| session.event_sink());
+            let sink = self
+                .session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink);
             field = field.child(
                 div()
                     .flex()
@@ -10343,7 +10414,11 @@ impl PythonIrShowcase {
                 .label(node.label.clone())
                 .disabled(node.disabled)
                 .aria_label(node.label.clone());
-        if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+        if let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        {
             let node_id = node.id.clone();
             let action = node.action.clone();
             checkbox = checkbox.on_change(move |value, _, _| {
@@ -10369,7 +10444,11 @@ impl PythonIrShowcase {
             .label(node.label.clone())
             .disabled(node.disabled)
             .aria_label(node.label.clone());
-        if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+        if let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        {
             let node_id = node.id.clone();
             let action = node.action.clone();
             toggle = toggle.on_change(move |value, _, _| {
@@ -10477,7 +10556,7 @@ impl PythonIrShowcase {
                 .cursor_pointer()
                 .child(label)
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.job_log_filter = filter.clone();
+                    this.job_log_filter.clone_from(&filter);
                     cx.notify();
                 }))
         };
@@ -10645,7 +10724,7 @@ impl PythonIrShowcase {
                                         .on_click(move |_, _, cx| {
                                             cx.write_to_clipboard(ClipboardItem::new_string(
                                                 copied_logs.clone(),
-                                            ))
+                                            ));
                                         })
                                 })
                                 .child({
@@ -10730,7 +10809,7 @@ impl PythonIrShowcase {
                     if cancel {
                         row = row.child(
                             div()
-                                .id(stable_element_id(format_args!("python-cancel-{}", job_id)))
+                                .id(stable_element_id(format_args!("python-cancel-{job_id}")))
                                 .self_start()
                                 .px(px(ds.spacing.control_padding_x))
                                 .py(px(ds.spacing.grid_unit))
@@ -10883,15 +10962,12 @@ impl PythonIrShowcase {
         ds: &DesignSystem,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let state = match node.state.parse::<OrbState>() {
-            Ok(state) => state,
-            Err(()) => {
-                return self.render_error(
-                    &format!("Invalid thinking orb state {:?}", node.state),
-                    theme,
-                    ds,
-                );
-            }
+        let Ok(state) = node.state.parse::<OrbState>() else {
+            return self.render_error(
+                &format!("Invalid thinking orb state {:?}", node.state),
+                theme,
+                ds,
+            );
         };
         let color = match Color::from_hex_string(&node.dot_color) {
             Some(color) => color.to_rgba(),
@@ -10981,7 +11057,9 @@ impl PythonIrShowcase {
             .collect();
         let mut breadcrumbs = Breadcrumbs::new().items(items).separator(separator);
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11014,7 +11092,9 @@ impl PythonIrShowcase {
             alert = alert.title(title.clone());
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11043,7 +11123,9 @@ impl PythonIrShowcase {
             toast = toast.title(title.clone());
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11141,7 +11223,9 @@ impl PythonIrShowcase {
             dialog = dialog.title(title.clone());
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.close_action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11175,7 +11259,9 @@ impl PythonIrShowcase {
             dialog = dialog.title(title.clone());
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.confirm_action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11189,7 +11275,9 @@ impl PythonIrShowcase {
             });
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.cancel_action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11239,7 +11327,9 @@ impl PythonIrShowcase {
             menu = menu.focused_index(index);
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11253,7 +11343,9 @@ impl PythonIrShowcase {
             });
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.close_action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11262,7 +11354,9 @@ impl PythonIrShowcase {
             });
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.focus_action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11289,7 +11383,9 @@ impl PythonIrShowcase {
             menu = menu.focused_index(index);
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11303,7 +11399,9 @@ impl PythonIrShowcase {
             });
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.close_action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11312,7 +11410,9 @@ impl PythonIrShowcase {
             });
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.focus_action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11339,7 +11439,9 @@ impl PythonIrShowcase {
             .collect();
         let mut bar = MenuBar::new(bar_items).active_menu(node.active_menu.clone().map(Into::into));
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.toggle_action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11348,7 +11450,7 @@ impl PythonIrShowcase {
                     node_id.clone(),
                     "toggle",
                     Some(action.clone()),
-                    serde_json::json!({"menu_id": menu_id.map(|id| id.as_ref())}),
+                    serde_json::json!({"menu_id": menu_id.map(std::convert::AsRef::as_ref)}),
                 );
             });
         }
@@ -11362,7 +11464,9 @@ impl PythonIrShowcase {
             )
             .focus_handle(cx.focus_handle());
             if let (Some(sink), Some(action)) = (
-                self.session.as_ref().map(|session| session.event_sink()),
+                self.session
+                    .as_ref()
+                    .map(super::python::PythonSession::event_sink),
                 node.action.clone(),
             ) {
                 let node_id = node.id.clone();
@@ -11376,7 +11480,9 @@ impl PythonIrShowcase {
                 });
             }
             if let (Some(sink), Some(action)) = (
-                self.session.as_ref().map(|session| session.event_sink()),
+                self.session
+                    .as_ref()
+                    .map(super::python::PythonSession::event_sink),
                 node.toggle_action.clone(),
             ) {
                 let node_id = node.id.clone();
@@ -11442,7 +11548,9 @@ impl PythonIrShowcase {
                 .active(item.active)
                 .disabled(item.disabled);
             if let (Some(sink), Some(action)) = (
-                self.session.as_ref().map(|session| session.event_sink()),
+                self.session
+                    .as_ref()
+                    .map(super::python::PythonSession::event_sink),
                 node.action.clone(),
             ) {
                 let node_id = node.id.clone();
@@ -11477,7 +11585,9 @@ impl PythonIrShowcase {
             nav = nav.selected(selected.clone());
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11509,7 +11619,9 @@ impl PythonIrShowcase {
         }
         field = field.disabled(node.disabled).clearable(node.clearable);
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11519,8 +11631,8 @@ impl PythonIrShowcase {
                     "change",
                     Some(action.clone()),
                     serde_json::json!({
-                        "start": start.map(|date| date.to_ymd_string()),
-                        "end": end.map(|date| date.to_ymd_string()),
+                        "start": start.map(gpui_ui_kit::CalendarDate::to_ymd_string),
+                        "end": end.map(gpui_ui_kit::CalendarDate::to_ymd_string),
                     }),
                 );
             });
@@ -11538,7 +11650,9 @@ impl PythonIrShowcase {
         }
         field = field.disabled(node.disabled).clearable(node.clearable);
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11548,7 +11662,7 @@ impl PythonIrShowcase {
                     "change",
                     Some(action.clone()),
                     serde_json::json!({
-                        "value": value.map(|time| time.to_hm_string()),
+                        "value": value.map(gpui_ui_kit::ClockTime::to_hm_string),
                     }),
                 );
             });
@@ -11572,7 +11686,9 @@ impl PythonIrShowcase {
         }
         field = field.disabled(node.disabled).clearable(node.clearable);
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11582,8 +11698,8 @@ impl PythonIrShowcase {
                     "change",
                     Some(action.clone()),
                     serde_json::json!({
-                        "date": date.map(|date| date.to_ymd_string()),
-                        "time": time.map(|time| time.to_hm_string()),
+                        "date": date.map(gpui_ui_kit::CalendarDate::to_ymd_string),
+                        "time": time.map(gpui_ui_kit::ClockTime::to_hm_string),
                     }),
                 );
             });
@@ -11644,7 +11760,9 @@ impl PythonIrShowcase {
         }
         if let (Some(action), Some(sink), Some(node_id)) = (
             node.change_action.clone(),
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.id.clone(),
         ) {
             carousel = carousel.on_change(move |index, _, _| {
@@ -11674,7 +11792,9 @@ impl PythonIrShowcase {
         }
         if let (Some(action), Some(sink), Some(node_id)) = (
             node.action.clone(),
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.id.clone(),
         ) {
             card = card.on_click(move |_, _| {
@@ -11741,7 +11861,9 @@ impl PythonIrShowcase {
         }
         input = input.disabled(node.disabled);
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11768,7 +11890,9 @@ impl PythonIrShowcase {
         }
         tokens = tokens.disabled(node.disabled);
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -11933,7 +12057,9 @@ impl PythonIrShowcase {
         }
         if let (Some(action), Some(sink), Some(node_id)) = (
             node.select_action.clone(),
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.id.clone(),
         ) {
             calendar = calendar.on_select(move |date, _, _| {
@@ -11958,7 +12084,9 @@ impl PythonIrShowcase {
         .siblings(node.siblings);
         if let (Some(action), Some(sink), Some(node_id)) = (
             node.change_action.clone(),
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.id.clone(),
         ) {
             pager = pager.on_change(move |page, _, _| {
@@ -11996,7 +12124,9 @@ impl PythonIrShowcase {
         }
         if let (Some(action), Some(sink), Some(node_id)) = (
             node.select_action.clone(),
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.id.clone(),
         ) {
             list = list.on_select(move |id, _, _| {
@@ -12045,7 +12175,9 @@ impl PythonIrShowcase {
             popover = popover.width(px(width));
         }
         if let (Some(sink), Some(action)) = (
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
             node.close_action.clone(),
         ) {
             let node_id = node.id.clone();
@@ -12074,7 +12206,10 @@ impl PythonIrShowcase {
             .or_insert_with(|| cx.focus_handle())
             .clone();
         let action = node.action.clone();
-        let sink = self.session.as_ref().map(|session| session.event_sink());
+        let sink = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink);
         let node_id = node.id.clone();
         let items = node.items.clone();
         let active = node.active;
@@ -12186,7 +12321,10 @@ impl PythonIrShowcase {
                     .child(format!("{}  {}", index + 1, step));
                 if disabled {
                     item = item.cursor_not_allowed();
-                } else if let Some(sink) = self.session.as_ref().map(|session| session.event_sink())
+                } else if let Some(sink) = self
+                    .session
+                    .as_ref()
+                    .map(super::python::PythonSession::event_sink)
                 {
                     let node_id = node.id.clone();
                     let action = node.action.clone();
@@ -12242,7 +12380,11 @@ impl PythonIrShowcase {
         if node.multiple {
             accordion = accordion.mode(AccordionMode::Multiple);
         }
-        if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+        if let Some(sink) = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink)
+        {
             let node_id = node.id.clone();
             let action = node.action.clone();
             accordion = accordion.on_change(move |item_id, expanded, _, _| {
@@ -12275,7 +12417,11 @@ impl PythonIrShowcase {
                     )))
                     .text_color(theme.text_muted)
                     .child("Remove")
-            } else if let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) {
+            } else if let Some(sink) = self
+                .session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink)
+            {
                 let list_id = node.id.clone();
                 let action = node.remove_action.clone();
                 div()
@@ -12337,7 +12483,10 @@ impl PythonIrShowcase {
         .show_handles(!node.disabled)
         .gap(px(ds.spacing.grid_unit));
         if !node.disabled
-            && let Some(sink) = self.session.as_ref().map(|session| session.event_sink())
+            && let Some(sink) = self
+                .session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink)
         {
             let list_id = node.id.clone();
             let action = node.reorder_action.clone();
@@ -12374,7 +12523,9 @@ impl PythonIrShowcase {
         if !node.disabled
             && let (Some(action), Some(sink)) = (
                 node.add_action.clone(),
-                self.session.as_ref().map(|session| session.event_sink()),
+                self.session
+                    .as_ref()
+                    .map(super::python::PythonSession::event_sink),
             )
         {
             let list_id = node.id.clone();
@@ -12676,7 +12827,10 @@ impl PythonIrShowcase {
             .min(total_rows.saturating_sub(1));
         let selection_action = node.selection_action.clone();
         let selection_mode = node.selection_mode.clone();
-        let selection_sink = self.session.as_ref().map(|session| session.event_sink());
+        let selection_sink = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink);
         let selection_table_id = node.id.clone();
         let selected_keys = self
             .dataset_table_selections
@@ -12684,7 +12838,7 @@ impl PythonIrShowcase {
             .cloned()
             .unwrap_or_default();
         let window_label = if rendered_rows == 0 {
-            format!("no rows available ({} declared)", total_rows)
+            format!("no rows available ({total_rows} declared)")
         } else {
             format!(
                 "rows {}–{} of {}",
@@ -12894,7 +13048,10 @@ impl PythonIrShowcase {
             return Some(state.clone());
         }
         let entity = cx.weak_entity();
-        let sink = self.session.as_ref().map(|session| session.event_sink());
+        let sink = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink);
         let node_id = node.id.clone();
         let state = InteractiveChartState::new(x_min, x_max, y_min, y_max)
             .with_size(node.width.unwrap_or(640.0), node.height.unwrap_or(320.0))
@@ -13088,7 +13245,7 @@ impl PythonIrShowcase {
             }
             return chart
                 .resource_static_result(options)
-                .map_err(|error| error.to_string());
+                .map_err(|error| error.clone());
         }
 
         if matches!(
@@ -13211,7 +13368,7 @@ impl PythonIrShowcase {
                 }
                 _ => unreachable!("guarded grid chart kind"),
             }
-            .map_err(|error| error.to_string());
+            .map_err(|error| error.clone());
         }
 
         let roles = roles.ok_or("resource chart export requires data-binding roles")?;
@@ -13284,7 +13441,7 @@ impl PythonIrShowcase {
                 }
                 return chart
                     .resource_static_result(options)
-                    .map_err(|error| error.to_string());
+                    .map_err(|error| error.clone());
             }
             let (labels, values) = match aggregated.as_ref().or(filtered.as_ref()) {
                 Some(rows) => rows
@@ -13351,7 +13508,7 @@ impl PythonIrShowcase {
                 }
                 _ => unreachable!("guarded categorical chart kind"),
             }
-            .map_err(|error| error.to_string());
+            .map_err(|error| error.clone());
         }
 
         let series_field = roles.get("series").and_then(Value::as_str);
@@ -13502,7 +13659,7 @@ impl PythonIrShowcase {
                 }
                 return chart
                     .resource_static_result(options)
-                    .map_err(|error| error.to_string());
+                    .map_err(|error| error.clone());
             }
             let mut chart = line(&first.x, &first.y)
                 .title(title)
@@ -13582,7 +13739,7 @@ impl PythonIrShowcase {
             }
             return chart
                 .resource_static_result(options)
-                .map_err(|error| error.to_string());
+                .map_err(|error| error.clone());
         }
 
         if node.chart == "area"
@@ -13664,7 +13821,7 @@ impl PythonIrShowcase {
             }
             return chart
                 .resource_static_result(options)
-                .map_err(|error| error.to_string());
+                .map_err(|error| error.clone());
         }
 
         let (mut x, mut y) = if let Some(rows) = aggregated.as_ref().or(filtered.as_ref()) {
@@ -13859,7 +14016,7 @@ impl PythonIrShowcase {
             }
             other => return Err(format!("unsupported resource chart export {other:?}")),
         }
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.clone())
     }
 
     fn render_resource_chart(
@@ -14033,7 +14190,9 @@ impl PythonIrShowcase {
                 chart = px_apply_treemap_presentation(chart, node, theme);
                 if let (Some(action), Some(sink)) = (
                     node.selection_action.clone(),
-                    self.session.as_ref().map(|session| session.event_sink()),
+                    self.session
+                        .as_ref()
+                        .map(super::python::PythonSession::event_sink),
                 ) {
                     let node_id = node.id.clone();
                     chart = chart.on_click(move |row_id, value| {
@@ -14439,7 +14598,9 @@ impl PythonIrShowcase {
                     if let (Some(state), Some(action), Some(sink), Some(domains)) = (
                         interaction.clone(),
                         node.selection_action.clone(),
-                        self.session.as_ref().map(|session| session.event_sink()),
+                        self.session
+                            .as_ref()
+                            .map(super::python::PythonSession::event_sink),
                         active_domains,
                     ) {
                         let candidates = series
@@ -14561,7 +14722,9 @@ impl PythonIrShowcase {
                         chart = px_apply_line_primary(chart, node, theme);
                         if let (Some(action), Some(sink)) = (
                             node.legend_action.clone(),
-                            self.session.as_ref().map(|session| session.event_sink()),
+                            self.session
+                                .as_ref()
+                                .map(super::python::PythonSession::event_sink),
                         ) {
                             let node_id = node.id.clone();
                             chart = chart.on_legend_click(move |index, _window, _cx| {
@@ -15002,7 +15165,9 @@ impl PythonIrShowcase {
                         }
                         if let (Some(action), Some(sink)) = (
                             node.viewport_action.clone(),
-                            self.session.as_ref().map(|session| session.event_sink()),
+                            self.session
+                                .as_ref()
+                                .map(super::python::PythonSession::event_sink),
                         ) {
                             let node_id = node.id.clone();
                             chart = chart.on_camera_change(move |camera| {
@@ -15130,7 +15295,9 @@ impl PythonIrShowcase {
                     chart = px_apply_line_primary(chart, node, theme);
                     if let (Some(action), Some(sink)) = (
                         node.legend_action.clone(),
-                        self.session.as_ref().map(|session| session.event_sink()),
+                        self.session
+                            .as_ref()
+                            .map(super::python::PythonSession::event_sink),
                     ) {
                         let node_id = node.id.clone();
                         chart = chart.on_legend_click(move |index, _window, _cx| {
@@ -15265,7 +15432,10 @@ impl PythonIrShowcase {
                         .map_err(|error| error.to_string())
                 }
                 "bar" => {
-                    let categories = x.iter().map(|value| value.to_string()).collect::<Vec<_>>();
+                    let categories = x
+                        .iter()
+                        .map(std::string::ToString::to_string)
+                        .collect::<Vec<_>>();
                     let mut chart = bar(&categories, &y)
                         .title(title)
                         .annotations(px_annotation_nodes(&node.annotations))
@@ -15433,7 +15603,10 @@ impl PythonIrShowcase {
                 .selection_action
                 .clone()
                 .or_else(|| node.row_action.clone());
-            let sink = self.session.as_ref().map(|session| session.event_sink());
+            let sink = self
+                .session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink);
             let keyboard_rows = rows
                 .iter()
                 .map(|(row_id, _, _)| row_id.clone())
@@ -15654,7 +15827,7 @@ impl PythonIrShowcase {
                     let widths_on_move = widths.clone();
                     let widths_on_up = widths.clone();
                     let notify_entity = entity.clone();
-                    let sink = self.session.as_ref().map(|session| session.event_sink());
+                    let sink = self.session.as_ref().map(super::python::PythonSession::event_sink);
                     let column_id = column.id.clone();
                     let initial_width = width;
                     let grip = div()
@@ -15709,7 +15882,7 @@ impl PythonIrShowcase {
                     if let (Some(table_id), Some(action), Some(sink)) = (
                         node.id.clone(),
                         node.sort_action.clone(),
-                        self.session.as_ref().map(|session| session.event_sink()),
+                        self.session.as_ref().map(super::python::PythonSession::event_sink),
                     ) {
                         let column_id = column.id.clone();
                         cell.cursor_pointer().on_click(move |_, _, _| {
@@ -16326,9 +16499,9 @@ impl PythonIrShowcase {
         node: &MeshPlotNode,
         theme: &Theme,
         ds: &DesignSystem,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
-        let source_address = (&node.spec as *const Value) as usize;
+        let source_address = (&raw const node.spec) as usize;
         let cached = self.prepared_mesh_plots.get(&node.id).cloned();
         let (spec, prepared, unchanged_source) = if let Some(cached) = cached.as_ref()
             && cached.source_address == source_address
@@ -16350,7 +16523,7 @@ impl PythonIrShowcase {
                     "stale mesh_plot revision",
                     theme,
                     ds,
-                    _cx,
+                    cx,
                 );
             }
             if let Err(error) = validate_mesh_plot_spec_resources(
@@ -16364,7 +16537,7 @@ impl PythonIrShowcase {
                     &error.to_string(),
                     theme,
                     ds,
-                    _cx,
+                    cx,
                 );
             }
             let prepared = match gpui_python_runtime::native_mesh_plot::prepare_with_array_data(
@@ -16375,7 +16548,7 @@ impl PythonIrShowcase {
                 Ok(prepared) => prepared,
                 Err(error) => {
                     return self
-                        .render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, _cx);
+                        .render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, cx);
                 }
             };
             self.prepared_mesh_plots.insert(
@@ -16415,7 +16588,9 @@ impl PythonIrShowcase {
         let retained_state = self.mesh_plot_states.get(&spec.id).cloned();
         let host_selection_callback: Option<Rc<dyn Fn(Option<MeshPlotPick>)>> = match (
             node.selection_action.clone(),
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
         ) {
             (Some(action), Some(sink)) => {
                 let node_id = node.id.clone();
@@ -16437,7 +16612,9 @@ impl PythonIrShowcase {
         };
         let host_export_callback: Option<ChartExportCallback> = match (
             node.export_action.clone(),
-            self.session.as_ref().map(|session| session.event_sink()),
+            self.session
+                .as_ref()
+                .map(super::python::PythonSession::event_sink),
         ) {
             (Some(action), Some(sink)) => {
                 let node_id = node.id.clone();
@@ -16463,7 +16640,7 @@ impl PythonIrShowcase {
             Ok((element, state)) => (Some(element), Some(state)),
             Err(error) => {
                 return self
-                    .render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, _cx);
+                    .render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, cx);
             }
         };
         if let Some(state) = retained_state.as_ref() {
@@ -16491,7 +16668,7 @@ impl PythonIrShowcase {
         if !unchanged_source {
             if let Err(error) = self.sync_mesh_plot_resource_refs_for_spec(&spec) {
                 return self
-                    .render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, _cx);
+                    .render_meshplot_error_or_last_valid(node, &spec, &error, theme, ds, cx);
             }
             if let Err(error) = self.mesh_plots.upsert((*spec).clone()) {
                 return self.render_error(&error, theme, ds);
@@ -16625,10 +16802,8 @@ impl PythonIrShowcase {
 
         match self.gpui_3d.surface_element(&spec) {
             Ok(element) => {
-                let range = spec
-                    .z_range
-                    .map(|range| (range.min, range.max))
-                    .unwrap_or_else(|| {
+                let range = spec.z_range.map_or_else(
+                    || {
                         spec.z
                             .values
                             .iter()
@@ -16636,7 +16811,9 @@ impl PythonIrShowcase {
                             .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
                                 (min.min(value), max.max(value))
                             })
-                    });
+                    },
+                    |range| (range.min, range.max),
+                );
                 div()
                     .size_full()
                     .flex()
@@ -16668,20 +16845,19 @@ impl PythonIrShowcase {
         };
 
         match self.gpui_3d.lines_element(&spec) {
-            Ok(element) => self
-                .gpui_3d
-                .lines_state(&spec.id)
-                .map(|state| {
-                    interactive_3d_view(
-                        &spec.id,
-                        element.clone(),
-                        state,
-                        &spec.interactions,
-                        theme,
-                        ds,
-                    )
-                })
-                .unwrap_or_else(|| element.into_any_element()),
+            // A match keeps the two arms' borrows of `element` disjoint
+            // (map_or_else would hold both closures at once).
+            Ok(element) => match self.gpui_3d.lines_state(&spec.id) {
+                Some(state) => interactive_3d_view(
+                    &spec.id,
+                    element.clone(),
+                    state,
+                    &spec.interactions,
+                    theme,
+                    ds,
+                ),
+                None => element.into_any_element(),
+            },
             Err(error) => self.render_error(&error.to_string(), theme, ds),
         }
     }
@@ -16699,24 +16875,23 @@ impl PythonIrShowcase {
         };
         match self.gpui_3d.mesh_element(&spec) {
             Ok(element) => {
-                let viewport = self
-                    .gpui_3d
-                    .mesh_state(&spec.id)
-                    .map(|state| {
+                let viewport = match self.gpui_3d.mesh_state(&spec.id) {
+                    Some(state) => {
                         interactive_3d_view(&spec.id, element.clone(), state, &[], theme, ds)
-                    })
-                    .unwrap_or_else(|| element.into_any_element());
+                    }
+                    None => element.into_any_element(),
+                };
                 if let Some(field) = &spec.scalar_field {
                     let range =
-                        field
-                            .range
-                            .map(|range| (range.min, range.max))
-                            .unwrap_or_else(|| {
+                        field.range.map_or_else(
+                            || {
                                 field.values.iter().copied().fold(
                                     (f64::INFINITY, f64::NEG_INFINITY),
                                     |(min, max), value| (min.min(value), max.max(value)),
                                 )
-                            });
+                            },
+                            |range| (range.min, range.max),
+                        );
                     div()
                         .size_full()
                         .flex()
@@ -16743,20 +16918,17 @@ impl PythonIrShowcase {
             Err(error) => return self.render_error(&error, theme, ds),
         };
         match self.gpui_3d.scene_element(&spec) {
-            Ok(element) => self
-                .gpui_3d
-                .scene_state(&spec.id)
-                .map(|state| {
-                    interactive_3d_view(
-                        &spec.id,
-                        element.clone(),
-                        state,
-                        &spec.interactions,
-                        theme,
-                        ds,
-                    )
-                })
-                .unwrap_or_else(|| element.into_any_element()),
+            Ok(element) => match self.gpui_3d.scene_state(&spec.id) {
+                Some(state) => interactive_3d_view(
+                    &spec.id,
+                    element.clone(),
+                    state,
+                    &spec.interactions,
+                    theme,
+                    ds,
+                ),
+                None => element.into_any_element(),
+            },
             Err(error) => self.render_error(&error.to_string(), theme, ds),
         }
     }
@@ -17619,7 +17791,7 @@ impl PythonIrShowcase {
                         }
                         UiNode::AudioSpectrum(node) => {
                             let stream = node.stream_id.as_deref().and_then(|id| self.audio_frames.get(id)).filter(|frame| frame.frame_kind == AudioFrameKind::Spectrum);
-                            let bins = stream.map(|frame| frame.values.len()).unwrap_or(node.magnitudes.len());
+                            let bins = stream.map_or(node.magnitudes.len(), |frame| frame.values.len());
                             let minimum_frequency = stream.and_then(|frame| frame.minimum_frequency).unwrap_or(f64::from(node.minimum_frequency));
                             let maximum_frequency = stream.and_then(|frame| frame.maximum_frequency).unwrap_or(f64::from(node.maximum_frequency));
                             Ok(vec![serde_json::json!({
@@ -18081,7 +18253,7 @@ impl PythonIrShowcase {
                                 .filter(|value| value.is_finite() && *value >= 0.0)
                                 .ok_or_else(|| format!("builder section {id} requires min_width"))? as f32;
                             let preferred_width = section.get("preferred_width").and_then(Value::as_f64)
-                                .filter(|value| value.is_finite() && *value >= min_width as f64)
+                                .filter(|value| value.is_finite() && *value >= f64::from(min_width))
                                 .ok_or_else(|| format!("builder section {id} requires preferred_width >= min_width"))? as f32;
                             let priority = section.get("priority").and_then(Value::as_f64).unwrap_or(1.0);
                             if !priority.is_finite() { return Err(format!("builder section {id} priority must be finite")); }
@@ -18426,8 +18598,10 @@ impl PythonIrShowcase {
                 let result = cx
                     .read_from_clipboard()
                     .and_then(|item| item.text())
-                    .map(|text| serde_json::json!({"ok": true, "text": text}))
-                    .unwrap_or_else(|| serde_json::json!({"ok": true, "empty": true}));
+                    .map_or_else(
+                        || serde_json::json!({"ok": true, "empty": true}),
+                        |text| serde_json::json!({"ok": true, "text": text}),
+                    );
                 self.send_effect_result(request_id, result);
             }
             "open_with_system" | "reveal_path" => {
@@ -18496,7 +18670,11 @@ impl PythonIrShowcase {
                         .map(|extension| SharedString::from(extension.trim_start_matches('.')))
                         .collect(),
                 });
-                let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) else {
+                let Some(sink) = self
+                    .session
+                    .as_ref()
+                    .map(super::python::PythonSession::event_sink)
+                else {
                     return;
                 };
                 cx.spawn(async move |_, _| {
@@ -18517,11 +18695,14 @@ impl PythonIrShowcase {
                 let directory = arguments
                     .get("initial_directory")
                     .and_then(Value::as_str)
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| PathBuf::from("."));
+                    .map_or_else(|| PathBuf::from("."), PathBuf::from);
                 let suggested_name = arguments.get("suggested_name").and_then(Value::as_str);
                 let receiver = cx.prompt_for_new_path(Path::new(&directory), suggested_name);
-                let Some(sink) = self.session.as_ref().map(|session| session.event_sink()) else {
+                let Some(sink) = self
+                    .session
+                    .as_ref()
+                    .map(super::python::PythonSession::event_sink)
+                else {
                     return;
                 };
                 cx.spawn(async move |_, _| {
@@ -18669,7 +18850,7 @@ impl PythonIrShowcase {
     }
 
     /// Apply a revisioned UI patch after validating both the generic session
-    /// ordering and all MeshPlot resource references. Keeping this transaction
+    /// ordering and all `MeshPlot` resource references. Keeping this transaction
     /// separate from the GPUI message-drain loop makes the ownership and
     /// last-valid-frame contract testable without starting a native window.
     fn apply_patch_message(&mut self, patch: Patch) {
@@ -18724,7 +18905,7 @@ impl PythonIrShowcase {
                         }
                     };
                     self.app = Some(next_app);
-                    self.last_mesh_patch_id = patch.request_id.clone();
+                    self.last_mesh_patch_id.clone_from(&patch.request_id);
                     self.session_state = next_state;
                     self.clear_patch_errors(&patch, Some(&next_app_value));
                     for operation in &patch.ops {
@@ -18779,12 +18960,11 @@ impl PythonIrShowcase {
                 self.clear_mesh_resource_error(&resource_id, generation);
                 Ok(true)
             }
-            Ok(MeshFrameOutcome::Incomplete) | Ok(MeshFrameOutcome::DroppedStale) => Ok(false),
+            Ok(MeshFrameOutcome::Incomplete | MeshFrameOutcome::DroppedStale) => Ok(false),
             Err(error) => {
                 let patch_id = self.last_mesh_patch_id.as_deref().unwrap_or("<stream>");
                 let error = format!(
-                    "mesh resource {:?} generation {} (patch {}) failed: {}",
-                    resource_id, generation, patch_id, error
+                    "mesh resource {resource_id:?} generation {generation} (patch {patch_id}) failed: {error}"
                 );
                 self.record_mesh_resource_error(&resource_id, generation, error.clone());
                 Err(error)
@@ -18803,7 +18983,11 @@ impl PythonIrShowcase {
                 budget_exhausted = true;
                 break;
             }
-            let Some(message) = self.session.as_ref().and_then(|session| session.try_recv()) else {
+            let Some(message) = self
+                .session
+                .as_ref()
+                .and_then(super::python::PythonSession::try_recv)
+            else {
                 break;
             };
             processed += 1;
@@ -18849,17 +19033,14 @@ impl PythonIrShowcase {
                         }
                         Some(declared_generation) if declared_generation == generation => {
                             Err(format!(
-                                "dataset resource {:?} schema fingerprint does not match its declaration",
-                                resource_id
+                                "dataset resource {resource_id:?} schema fingerprint does not match its declaration"
                             ))
                         }
                         Some(declared_generation) => Err(format!(
-                            "dataset resource {:?} generation {} does not match declared generation {}",
-                            resource_id, generation, declared_generation
+                            "dataset resource {resource_id:?} generation {generation} does not match declared generation {declared_generation}"
                         )),
                         None => Err(format!(
-                            "dataset frame references undeclared resource {:?}",
-                            resource_id
+                            "dataset frame references undeclared resource {resource_id:?}"
                         )),
                     };
                     let (accepted, complete, error) = match outcome {
@@ -18907,17 +19088,14 @@ impl PythonIrShowcase {
                         }
                         Some(declared_generation) if declared_generation == generation => {
                             Err(format!(
-                                "mapped dataset resource {:?} schema fingerprint does not match its declaration",
-                                resource_id
+                                "mapped dataset resource {resource_id:?} schema fingerprint does not match its declaration"
                             ))
                         }
                         Some(declared_generation) => Err(format!(
-                            "mapped dataset resource {:?} generation {} does not match declared generation {}",
-                            resource_id, generation, declared_generation
+                            "mapped dataset resource {resource_id:?} generation {generation} does not match declared generation {declared_generation}"
                         )),
                         None => Err(format!(
-                            "mapped dataset frame references undeclared resource {:?}",
-                            resource_id
+                            "mapped dataset frame references undeclared resource {resource_id:?}"
                         )),
                     };
                     let (accepted, complete, error) = match outcome {
@@ -19007,7 +19185,7 @@ impl PythonIrShowcase {
                         .as_ref()
                         .is_some_and(|request_id| self.superseded_requests.remove(request_id))
                     {
-                        self.load_error = Some(format!("{}: {}", error.code, error.message))
+                        self.load_error = Some(format!("{}: {}", error.code, error.message));
                     }
                 }
                 Ok(PythonMessage::Superseded(outcome)) => {
@@ -19017,13 +19195,13 @@ impl PythonIrShowcase {
                     if let Some(request_id) = error.request_id.as_deref() {
                         self.clear_tick_request(request_id);
                     }
-                    self.load_error = Some(format!("{}: {}", error.code, error.message))
+                    self.load_error = Some(format!("{}: {}", error.code, error.message));
                 }
                 Err(error) => {
                     let diagnostics = self
                         .session
                         .as_ref()
-                        .map(|session| session.stderr_diagnostics())
+                        .map(super::python::PythonSession::stderr_diagnostics)
                         .filter(|diagnostics| !diagnostics.is_empty());
                     if error == "Python process closed its session stream" {
                         self.shutdown_scene2d_runtime(
@@ -19086,7 +19264,10 @@ impl PythonIrShowcase {
         let Some(config) = self.app.as_ref().and_then(|app| app.miniapp.as_ref()) else {
             return;
         };
-        let sink = self.session.as_ref().map(|session| session.event_sink());
+        let sink = self
+            .session
+            .as_ref()
+            .map(super::python::PythonSession::event_sink);
         if config.with_theme
             && let Some(theme) = cx
                 .try_global::<ThemeState>()
@@ -19558,12 +19739,12 @@ mod scene2d_tick_ack_tests {
     struct CapturedTickWriter(Arc<Mutex<Vec<u8>>>);
 
     impl Write for CapturedTickWriter {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
             self.0
                 .lock()
                 .map_err(|_| std::io::Error::other("captured tick writer lock poisoned"))?
-                .extend_from_slice(bytes);
-            Ok(bytes.len())
+                .extend_from_slice(buf);
+            Ok(buf.len())
         }
 
         fn flush(&mut self) -> std::io::Result<()> {

@@ -551,34 +551,32 @@ impl Select {
 
         // Measure the trigger in window coordinates so the dropdown
         // can flip upward instead of clipping at the window bottom.
-        {
-            let placement_id = dropdown_id.clone();
-            let max_height = self.dropdown_max_height;
-            trigger = trigger.relative().child(
-                gpui::canvas(
-                    move |bounds, window, _cx| {
-                        let placement = dropdown_placement(
-                            window.viewport_size().height.into(),
-                            bounds.top().into(),
-                            bounds.bottom().into(),
-                            max_height,
-                        );
-                        SELECT_PLACEMENTS.with(|placements| {
-                            let mut placements = placements.borrow_mut();
-                            if !placements.contains_key(&placement_id)
-                                && placements.len() >= MAX_SELECT_FOCUS_ENTRIES
-                            {
-                                placements.clear();
-                            }
-                            placements.insert(placement_id.clone(), placement);
-                        });
-                    },
-                    |_, _, _, _| {},
-                )
-                .absolute()
-                .inset_0(),
-            );
-        }
+        let placement_id = dropdown_id.clone();
+        let max_height = self.dropdown_max_height;
+        trigger = trigger.relative().child(
+            gpui::canvas(
+                move |bounds, window, _cx| {
+                    let placement = dropdown_placement(
+                        window.viewport_size().height.into(),
+                        bounds.top().into(),
+                        bounds.bottom().into(),
+                        max_height,
+                    );
+                    SELECT_PLACEMENTS.with(|placements| {
+                        let mut placements = placements.borrow_mut();
+                        if !placements.contains_key(&placement_id)
+                            && placements.len() >= MAX_SELECT_FOCUS_ENTRIES
+                        {
+                            placements.clear();
+                        }
+                        placements.insert(placement_id.clone(), placement);
+                    });
+                },
+                |_, (), _, _| {},
+            )
+            .absolute()
+            .inset_0(),
+        );
 
         // Dropdown arrow
         trigger = trigger.child(
