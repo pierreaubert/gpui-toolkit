@@ -1877,12 +1877,18 @@ for line in sys.stdin:
         );
 
         let deadline = Instant::now() + Duration::from_secs(3);
-        while !marker.exists() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(5));
+        // Poll the *contents*, not just existence: `write_text` creates
+        // the file at open() and only flushes on close, so an exists()
+        // check can observe an empty file mid-write.
+        let mut marker_contents = String::new();
+        while marker_contents != "shutdown" && Instant::now() < deadline {
+            marker_contents = std::fs::read_to_string(&marker).unwrap_or_default();
+            if marker_contents != "shutdown" {
+                std::thread::sleep(Duration::from_millis(5));
+            }
         }
         assert_eq!(
-            std::fs::read_to_string(&marker).expect("read asynchronous shutdown marker"),
-            "shutdown",
+            marker_contents, "shutdown",
             "the background reaper should deliver shutdown and let the child exit"
         );
         while resource_directory.exists() && Instant::now() < deadline {
