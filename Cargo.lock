@@ -2866,7 +2866,7 @@ dependencies = [
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
- "x11rb",
+ "x11rb 0.13.2",
 ]
 
 [[package]]
@@ -3249,7 +3249,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-ui-kit"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "block2 0.6.2",
  "criterion",
@@ -7190,7 +7190,7 @@ dependencies = [
  "wayland-protocols",
  "wayland-protocols-plasma",
  "wayland-protocols-wlr",
- "x11rb",
+ "x11rb 0.14.0",
  "xkbcommon",
 ]
 
@@ -7767,7 +7767,7 @@ dependencies = [
  "log",
  "sotf-xim-ctext",
  "sotf-xim-parser",
- "x11rb",
+ "x11rb 0.14.0",
 ]
 
 [[package]]
@@ -9513,6 +9513,17 @@ dependencies = [
 
 [[package]]
 name = "x11rb"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9993aa5be5a26815fe2c3eacfc1fde061fc1a1f094bf1ad2a18bf9c495dd7414"
+dependencies = [
+ "gethostname",
+ "rustix",
+ "x11rb-protocol 0.13.2",
+]
+
+[[package]]
+name = "x11rb"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a8885a854a8bfdf87a301e53e41b17c5f8f33639903131338b997b1eb614f44"
@@ -9521,9 +9532,15 @@ dependencies = [
  "gethostname",
  "libc",
  "rustix",
- "x11rb-protocol",
+ "x11rb-protocol 0.14.0",
  "xcursor",
 ]
+
+[[package]]
+name = "x11rb-protocol"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
 
 [[package]]
 name = "x11rb-protocol"
