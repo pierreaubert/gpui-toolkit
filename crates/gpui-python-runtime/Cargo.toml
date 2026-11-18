@@ -51,6 +51,7 @@ native-qa = [
     "gpui_macos/test-support",
     "gpui_macos/font-kit",
 ]
+perf-test = ["showcase", "gpui/test-support", "dep:gpui_wgpu"]
 python-extension = [
     "dep:pyo3",
     "pyo3/extension-module",
@@ -69,6 +70,7 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 gpui = { workspace = true, optional = true }
+gpui_wgpu = { workspace = true, optional = true }
 gpui-d3rs = { workspace = true, optional = true }
 gpui-design = { workspace = true, optional = true }
 gpui-design-tools = { workspace = true, optional = true }

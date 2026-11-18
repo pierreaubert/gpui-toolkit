@@ -1,0 +1,623 @@
+{
+  "baseline_revision": "af46f41dd78a6252d7cbc1b890b78bc4d9a4c6dc",
+  "build_features": "perf-test,native-qa",
+  "timestamp_utc": "2026-11-18T09:13:29.241401+00:00",
+  "platform": "macOS-27.2.1-arm64-arm-64bit-Mach-O",
+  "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+  "logical_cpus": 14,
+  "load_before": [
+    16.447265625,
+    12.6904296875,
+    12.765625
+  ],
+  "binary_sha256": {
+    "baseline": "2089da4ed17d0c05e16010be6dc11b04c79e6e1aad77c174f397a35a24dd1333",
+    "candidate": "9be1f61e3c4851e2c4290bd184e369856ef5050e83650dffe37a00c311eb2506"
+  },
+  "comparison_script_sha256": "e7c9411861786a014fde91324009c577f2cc086f99f88f3f62f1274618578423",
+  "candidate_source_sha256": {
+    "Cargo.lock": "a8e0162767688b05b251b2d303d80a6fc553ac68ace8762f10ee5e51fcb6398d",
+    "crates/gpui-python-runtime/Cargo.toml": "2b56de10c6e9600c4366bdf6e41b0f5156fc3fd2811bc32eb6273a632d55ec03",
+    "crates/gpui-python-runtime/bin/showcase/python_ir_showcase.rs": "2a02a552f54e6804e8ecc139356d13f9c93a565c52504e8068e75976840e61aa",
+    "crates/gpui-python-runtime/bin/showcase/python_table_rows.rs": "75c336d2c4f2ad92a9e4af0bb1776dc66a2471184f0d59afdcf4ceb17c6492e8",
+    "crates/gpui-python-runtime/bin/showcase/python_ir_lifecycle_tests.rs": "aea134445133034dcc355977a7686776309a435317676873b211fb0c8cc36d37",
+    "crates/gpui-python-runtime/bin/showcase/python_ir_perf_tests.rs": "d16cb47c386379f1def34335b247ad3f0ff785c5cc4b0c31e5ce229358c7493d"
+  },
+  "runs_per_side": 7,
+  "iterations_per_run": 11,
+  "text_system": "CosmicTextSystem with bundled IBM Plex Sans fonts",
+  "renderer": "Metal offscreen rendering with synchronous pixel readback",
+  "baseline_preparation": "original revision with the same perf-test feature and benchmark module added",
+  "allocations": "process-wide allocation counters, averaged per timed iteration",
+  "cold_scope": "window open and first draw; excludes snapshot loading and font registration",
+  "iteration_scope": "notified update and draw; scroll moves the list offset, patch commits a selection update",
+  "cases": {
+    "table_refresh_10000": {
+      "section": "table",
+      "mode": "refresh",
+      "rows": 10000,
+      "runs": {
+        "baseline": [
+          {
+            "cold_ns": 34809625,
+            "median_ns": 8072000,
+            "min_ns": 7762542,
+            "max_ns": 8413792,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 28256386,
+            "alloc_calls_per_iter": 150935,
+            "image_hash": 11512505334970422630
+          },
+          {
+            "cold_ns": 24980084,
+            "median_ns": 8085792,
+            "min_ns": 7816667,
+            "max_ns": 9096542,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 28256386,
+            "alloc_calls_per_iter": 150935,
+            "image_hash": 11512505334970422630
+          },
+          {
+            "cold_ns": 25421583,
+            "median_ns": 8055917,
+            "min_ns": 7638291,
+            "max_ns": 8537583,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 28256386,
+            "alloc_calls_per_iter": 150935,
+            "image_hash": 11512505334970422630
+          },
+          {
+            "cold_ns": 24673791,
+            "median_ns": 7979000,
+            "min_ns": 7536125,
+            "max_ns": 8564250,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 28256386,
+            "alloc_calls_per_iter": 150935,
+            "image_hash": 11512505334970422630
+          },
+          {
+            "cold_ns": 24454542,
+            "median_ns": 8147042,
+            "min_ns": 7399667,
+            "max_ns": 9102458,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 28256386,
+            "alloc_calls_per_iter": 150935,
+            "image_hash": 11512505334970422630
+          },
+          {
+            "cold_ns": 25535916,
+            "median_ns": 7981625,
+            "min_ns": 7589834,
+            "max_ns": 8387292,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 28256386,
+            "alloc_calls_per_iter": 150935,
+            "image_hash": 11512505334970422630
+          },
+          {
+            "cold_ns": 24754209,
+            "median_ns": 8004583,
+            "min_ns": 7860541,
+            "max_ns": 8408708,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 28256386,
+            "alloc_calls_per_iter": 150935,
+            "image_hash": 11512505334970422630
+          }
+        ],
+        "candidate": [
+          {
+            "cold_ns": 22565542,
+            "median_ns": 4920958,
+            "min_ns": 4396791,
+            "max_ns": 5378875,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 17446685,
+            "alloc_calls_per_iter": 849,
+            "image_hash": 11512505334970422630
+          },
+          {
+            "cold_ns": 23334167,
+            "median_ns": 5003000,
+            "min_ns": 4381917,
+            "max_ns": 5434541,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 17446685,
+            "alloc_calls_per_iter": 849,
+            "image_hash": 11512505334970422630
+          },
+          {
+            "cold_ns": 21545667,
+            "median_ns": 4558083,
+            "min_ns": 4448875,
+            "max_ns": 5259500,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 17446685,
+            "alloc_calls_per_iter": 849,
+            "image_hash": 11512505334970422630
+          },
+          {
+            "cold_ns": 22171416,
+            "median_ns": 4865792,
+            "min_ns": 4633000,
+            "max_ns": 5711417,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 17446685,
+            "alloc_calls_per_iter": 849,
+            "image_hash": 11512505334970422630
+          },
+          {
+            "cold_ns": 22867875,
+            "median_ns": 5124584,
+            "min_ns": 4925375,
+            "max_ns": 5746000,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 17446685,
+            "alloc_calls_per_iter": 849,
+            "image_hash": 11512505334970422630
+          },
+          {
+            "cold_ns": 21632958,
+            "median_ns": 5110125,
+            "min_ns": 4507292,
+            "max_ns": 5530208,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 17446685,
+            "alloc_calls_per_iter": 849,
+            "image_hash": 11512505334970422630
+          },
+          {
+            "cold_ns": 21863583,
+            "median_ns": 5145417,
+            "min_ns": 4572333,
+            "max_ns": 5669375,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 17446685,
+            "alloc_calls_per_iter": 849,
+            "image_hash": 11512505334970422630
+          }
+        ]
+      },
+      "baseline": {
+        "median_ns": 8055917,
+        "median_range_ns": [
+          7979000,
+          8147042
+        ],
+        "cold_median_ns": 24980084,
+        "cold_range_ns": [
+          24454542,
+          34809625
+        ],
+        "alloc_bytes_per_iteration": 28256386,
+        "alloc_calls_per_iteration": 150935
+      },
+      "candidate": {
+        "median_ns": 5003000,
+        "median_range_ns": [
+          4558083,
+          5145417
+        ],
+        "cold_median_ns": 22171416,
+        "cold_range_ns": [
+          21545667,
+          23334167
+        ],
+        "alloc_bytes_per_iteration": 17446685,
+        "alloc_calls_per_iteration": 849
+      },
+      "change_percent": -37.89657961967582
+    },
+    "table_scroll_10000": {
+      "section": "table",
+      "mode": "scroll",
+      "rows": 10000,
+      "runs": {
+        "baseline": [
+          {
+            "cold_ns": 25214583,
+            "median_ns": 8053417,
+            "min_ns": 7773792,
+            "max_ns": 8601667,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 28406145,
+            "alloc_calls_per_iter": 151372,
+            "image_hash": 13698724931871453409
+          },
+          {
+            "cold_ns": 24036750,
+            "median_ns": 8293792,
+            "min_ns": 8158916,
+            "max_ns": 8474042,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 28406145,
+            "alloc_calls_per_iter": 151372,
+            "image_hash": 13698724931871453409
+          },
+          {
+            "cold_ns": 24380500,
+            "median_ns": 8068250,
+            "min_ns": 7552583,
+            "max_ns": 9059708,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 28406145,
+            "alloc_calls_per_iter": 151372,
+            "image_hash": 13698724931871453409
+          },
+          {
+            "cold_ns": 24613583,
+            "median_ns": 8031250,
+            "min_ns": 7802916,
+            "max_ns": 8398875,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 28406145,
+            "alloc_calls_per_iter": 151372,
+            "image_hash": 13698724931871453409
+          },
+          {
+            "cold_ns": 24360625,
+            "median_ns": 8147833,
+            "min_ns": 7696834,
+            "max_ns": 8394375,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 28406145,
+            "alloc_calls_per_iter": 151372,
+            "image_hash": 13698724931871453409
+          },
+          {
+            "cold_ns": 25705667,
+            "median_ns": 8113541,
+            "min_ns": 7549167,
+            "max_ns": 9904875,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 28406145,
+            "alloc_calls_per_iter": 151372,
+            "image_hash": 13698724931871453409
+          },
+          {
+            "cold_ns": 24441291,
+            "median_ns": 8398833,
+            "min_ns": 8128416,
+            "max_ns": 8486500,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 28406145,
+            "alloc_calls_per_iter": 151372,
+            "image_hash": 13698724931871453409
+          }
+        ],
+        "candidate": [
+          {
+            "cold_ns": 22586000,
+            "median_ns": 5023125,
+            "min_ns": 4509000,
+            "max_ns": 5330416,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 17596452,
+            "alloc_calls_per_iter": 1286,
+            "image_hash": 13698724931871453409
+          },
+          {
+            "cold_ns": 22409542,
+            "median_ns": 5256125,
+            "min_ns": 4481834,
+            "max_ns": 5397791,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 17596452,
+            "alloc_calls_per_iter": 1286,
+            "image_hash": 13698724931871453409
+          },
+          {
+            "cold_ns": 21818625,
+            "median_ns": 5117334,
+            "min_ns": 4648291,
+            "max_ns": 5990709,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 17596452,
+            "alloc_calls_per_iter": 1286,
+            "image_hash": 13698724931871453409
+          },
+          {
+            "cold_ns": 22953375,
+            "median_ns": 4900625,
+            "min_ns": 4585833,
+            "max_ns": 5508833,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 17596452,
+            "alloc_calls_per_iter": 1286,
+            "image_hash": 13698724931871453409
+          },
+          {
+            "cold_ns": 21140917,
+            "median_ns": 5226208,
+            "min_ns": 5111041,
+            "max_ns": 6542791,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 17596452,
+            "alloc_calls_per_iter": 1286,
+            "image_hash": 13698724931871453409
+          },
+          {
+            "cold_ns": 22879958,
+            "median_ns": 4844958,
+            "min_ns": 4395917,
+            "max_ns": 5480292,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 17596452,
+            "alloc_calls_per_iter": 1286,
+            "image_hash": 13698724931871453409
+          },
+          {
+            "cold_ns": 21790584,
+            "median_ns": 4984750,
+            "min_ns": 4724541,
+            "max_ns": 5393000,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 17596452,
+            "alloc_calls_per_iter": 1286,
+            "image_hash": 13698724931871453409
+          }
+        ]
+      },
+      "baseline": {
+        "median_ns": 8113541,
+        "median_range_ns": [
+          8031250,
+          8398833
+        ],
+        "cold_median_ns": 24441291,
+        "cold_range_ns": [
+          24036750,
+          25705667
+        ],
+        "alloc_bytes_per_iteration": 28406145,
+        "alloc_calls_per_iteration": 151372
+      },
+      "candidate": {
+        "median_ns": 5023125,
+        "median_range_ns": [
+          4844958,
+          5256125
+        ],
+        "cold_median_ns": 22409542,
+        "cold_range_ns": [
+          21140917,
+          22953375
+        ],
+        "alloc_bytes_per_iteration": 17596452,
+        "alloc_calls_per_iteration": 1286
+      },
+      "change_percent": -38.08960847058023
+    },
+    "table_selection_patch_10000": {
+      "section": "table",
+      "mode": "patch",
+      "rows": 10000,
+      "runs": {
+        "baseline": [
+          {
+            "cold_ns": 24882791,
+            "median_ns": 12437542,
+            "min_ns": 11928917,
+            "max_ns": 14814458,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 41556182,
+            "alloc_calls_per_iter": 311123,
+            "image_hash": 5336045554852882962
+          },
+          {
+            "cold_ns": 23973958,
+            "median_ns": 12654959,
+            "min_ns": 12324291,
+            "max_ns": 14808291,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 41556182,
+            "alloc_calls_per_iter": 311123,
+            "image_hash": 5336045554852882962
+          },
+          {
+            "cold_ns": 24596125,
+            "median_ns": 12438208,
+            "min_ns": 12070375,
+            "max_ns": 14649042,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 41556182,
+            "alloc_calls_per_iter": 311123,
+            "image_hash": 5336045554852882962
+          },
+          {
+            "cold_ns": 24657542,
+            "median_ns": 12717709,
+            "min_ns": 12402417,
+            "max_ns": 14505834,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 41556182,
+            "alloc_calls_per_iter": 311123,
+            "image_hash": 5336045554852882962
+          },
+          {
+            "cold_ns": 24929333,
+            "median_ns": 12358291,
+            "min_ns": 12133333,
+            "max_ns": 14740375,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 41556182,
+            "alloc_calls_per_iter": 311123,
+            "image_hash": 5336045554852882962
+          },
+          {
+            "cold_ns": 26026583,
+            "median_ns": 12443000,
+            "min_ns": 11932208,
+            "max_ns": 14928167,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 41556182,
+            "alloc_calls_per_iter": 311123,
+            "image_hash": 5336045554852882962
+          },
+          {
+            "cold_ns": 24709708,
+            "median_ns": 12761625,
+            "min_ns": 12270833,
+            "max_ns": 14939709,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 41556182,
+            "alloc_calls_per_iter": 311123,
+            "image_hash": 5336045554852882962
+          }
+        ],
+        "candidate": [
+          {
+            "cold_ns": 23072209,
+            "median_ns": 12369042,
+            "min_ns": 12109458,
+            "max_ns": 15040084,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 41157420,
+            "alloc_calls_per_iter": 301137,
+            "image_hash": 5336045554852882962
+          },
+          {
+            "cold_ns": 22015750,
+            "median_ns": 12338917,
+            "min_ns": 12014083,
+            "max_ns": 15227417,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 41157420,
+            "alloc_calls_per_iter": 301137,
+            "image_hash": 5336045554852882962
+          },
+          {
+            "cold_ns": 21560166,
+            "median_ns": 12516459,
+            "min_ns": 12282542,
+            "max_ns": 15635250,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 41157420,
+            "alloc_calls_per_iter": 301137,
+            "image_hash": 5336045554852882962
+          },
+          {
+            "cold_ns": 22396833,
+            "median_ns": 12193000,
+            "min_ns": 11831666,
+            "max_ns": 14841250,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 41157420,
+            "alloc_calls_per_iter": 301137,
+            "image_hash": 5336045554852882962
+          },
+          {
+            "cold_ns": 22008375,
+            "median_ns": 12631458,
+            "min_ns": 12190625,
+            "max_ns": 15524084,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 41157420,
+            "alloc_calls_per_iter": 301137,
+            "image_hash": 5336045554852882962
+          },
+          {
+            "cold_ns": 21446541,
+            "median_ns": 12437250,
+            "min_ns": 12094791,
+            "max_ns": 15408167,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 41157420,
+            "alloc_calls_per_iter": 301137,
+            "image_hash": 5336045554852882962
+          },
+          {
+            "cold_ns": 23233250,
+            "median_ns": 12410666,
+            "min_ns": 12019166,
+            "max_ns": 15740417,
+            "frames": 22,
+            "views_built": 11,
+            "alloc_bytes_per_iter": 41157420,
+            "alloc_calls_per_iter": 301137,
+            "image_hash": 5336045554852882962
+          }
+        ]
+      },
+      "baseline": {
+        "median_ns": 12443000,
+        "median_range_ns": [
+          12358291,
+          12761625
+        ],
+        "cold_median_ns": 24709708,
+        "cold_range_ns": [
+          23973958,
+          26026583
+        ],
+        "alloc_bytes_per_iteration": 41556182,
+        "alloc_calls_per_iteration": 311123
+      },
+      "candidate": {
+        "median_ns": 12410666,
+        "median_range_ns": [
+          12193000,
+          12631458
+        ],
+        "cold_median_ns": 22015750,
+        "cold_range_ns": [
+          21446541,
+          23233250
+        ],
+        "alloc_bytes_per_iteration": 41157420,
+        "alloc_calls_per_iteration": 301137
+      },
+      "change_percent": -0.259856947681425
+    }
+  },
+  "load_after": [
+    14.68017578125,
+    12.4365234375,
+    12.67431640625
+  ]
+}

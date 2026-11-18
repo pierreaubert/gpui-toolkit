@@ -1,6 +1,18 @@
 #[path = "dev_api.rs"]
 mod dev_api;
 
+#[path = "python_table_rows.rs"]
+mod python_table_rows;
+
+#[cfg(test)]
+#[path = "python_ir_lifecycle_tests.rs"]
+mod python_ir_lifecycle_tests;
+
+#[cfg(all(test, feature = "perf-test"))]
+#[path = "python_ir_perf_tests.rs"]
+mod python_ir_perf_tests;
+
+use self::python_table_rows::TableRows;
 use super::host_state::PresentationStore;
 use super::misc::apply_size;
 use super::misc::badge_colors;
@@ -925,8 +937,8 @@ mod native_mesh_plot_tests {
             .expect("games App IR has sections")
             .id
             .clone();
-        showcase.app_value = Some(serde_json::to_value(&first_ir).expect("serialize app IR"));
-        showcase.app = Some(first_ir);
+        let first_app_value = serde_json::to_value(&first_ir).expect("serialize app IR");
+        showcase.commit_app(first_ir, Some(first_app_value));
         let text_system = native_mac_text_system();
         let mut cx = HeadlessAppContext::with_platform(text_system, Arc::new(()), || {
             Ok(Some(Box::new(MetalHeadlessRenderer::new())))
@@ -1002,8 +1014,7 @@ mod native_mesh_plot_tests {
                                 view.scene2d_states.clear();
                                 view.scene2d_errors.clear();
                             }
-                            view.app = Some(case_ir);
-                            view.app_value = Some(case_app_value);
+                            view.commit_app(case_ir, Some(case_app_value));
                             view.current_section = selected_section.clone();
                             view.presentation.set_section(Some(selected_section));
                             view.content_scroll.set_offset(point(px(0.0), px(0.0)));
@@ -2822,7 +2833,7 @@ mod runtime_resource_release_tests {
     fn native_patch_transaction_keeps_newest_valid_resources_and_rejects_late_updates() {
         let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
         showcase.mesh_frames = resource_mesh_store();
-        showcase.app = Some(app_with_resource_mesh("pressure", 1));
+        showcase.commit_app(app_with_resource_mesh("pressure", 1), None);
 
         let mut initial_refs = HashMap::new();
         initial_refs.insert(
@@ -2972,7 +2983,7 @@ mod runtime_resource_release_tests {
         let mut showcase = PythonIrShowcase::new_empty(PresentationStore::open());
         showcase.mesh_frames = resource_mesh_store();
         let initial = app_with_resource_mesh("pressure", 1);
-        showcase.app = Some(initial.clone());
+        showcase.commit_app(initial.clone(), None);
 
         let mut refs = HashMap::new();
         refs.insert(
@@ -7762,7 +7773,7 @@ fn px_chart_ids(value: &Value, live_ids: &mut HashSet<String>) {
 const PYTHON_SHOWCASE_SIDEBAR_WIDTH: f32 = 240.0;
 
 pub(super) struct PythonIrShowcase {
-    pub(super) app: Option<PythonAppIr>,
+    app: Option<PythonAppIr>,
     /// JSON form of the committed app, retained for patch/resource bookkeeping.
     /// Render code continues to use the typed IR above.
     app_value: Option<Value>,
@@ -7822,6 +7833,9 @@ pub(super) struct PythonIrShowcase {
     activation_subscription: Option<Subscription>,
     last_mesh_patch_id: Option<String>,
     table_scrolls: HashMap<String, UniformListScrollHandle>,
+    // Node addresses are stable within a committed app. Every app replacement
+    // clears this cache before those addresses can be reused.
+    table_rows: HashMap<*const TableNode, Rc<TableRows>>,
     /// Dataset-backed tables retain a host-owned row window offset. Resource
     /// data stays in Arrow frames; moving this offset never patches Python IR.
     dataset_table_offsets: HashMap<String, usize>,
@@ -7937,6 +7951,7 @@ impl PythonIrShowcase {
             activation_subscription: None,
             last_mesh_patch_id: None,
             table_scrolls: HashMap::new(),
+            table_rows: HashMap::new(),
             dataset_table_offsets: HashMap::new(),
             dataset_table_selections: HashMap::new(),
             table_focus: HashMap::new(),
@@ -7987,6 +8002,25 @@ impl PythonIrShowcase {
         showcase
     }
 
+    fn commit_app(&mut self, app: PythonAppIr, app_value: Option<Value>) {
+        self.table_rows.clear();
+        self.app = Some(app);
+        self.app_value = app_value;
+    }
+
+    fn retained_table_rows(
+        &mut self,
+        node: &TableNode,
+        offset: usize,
+        count: usize,
+    ) -> Rc<TableRows> {
+        Rc::clone(
+            self.table_rows
+                .entry(std::ptr::from_ref(node))
+                .or_insert_with(|| Rc::new(TableRows::new(node, offset, count))),
+        )
+    }
+
     fn install_loaded_session(
         &mut self,
         app: PythonAppIr,
@@ -8002,10 +8036,10 @@ impl PythonIrShowcase {
             self.current_section.clone_from(&section.id);
             self.presentation.set_section(Some(section.id.clone()));
         }
-        self.app_value = serde_json::to_value(&app).ok();
+        let app_value = serde_json::to_value(&app).ok();
         let tick_interval = app.tick_interval;
         self.scene2d_event_sink = Some(session.event_sink());
-        self.app = Some(app);
+        self.commit_app(app, app_value);
         self.session = Some(session);
         self.start_session_updates(cx);
         self.set_tick_interval(tick_interval);
@@ -8295,9 +8329,8 @@ impl PythonIrShowcase {
         }
 
         self.prune_scene2d_runtime_ids(&app_value);
-        self.app_value = Some(app_value);
         self.set_tick_interval(app_ir.tick_interval);
-        self.app = Some(app_ir);
+        self.commit_app(app_ir, Some(app_value));
         self.prune_mesh_plot_runtime_ids(&live_mesh_ids, &live_chart_ids);
         self.load_error = None;
         for live_id in live_mesh_ids {
@@ -8351,6 +8384,7 @@ impl PythonIrShowcase {
         self.load_error = None;
         self.shutdown_scene2d_runtime(gpui_ui_kit::Scene2DLifecycleReason::Disconnected);
         self.reset_mesh_plot_runtime_state();
+        self.table_rows.clear();
         self.app = None;
         self.app_value = None;
         self.session = None;
@@ -8374,6 +8408,7 @@ impl PythonIrShowcase {
     fn select_section(&mut self, section: String, cx: &mut Context<Self>) {
         let changed = self.current_section != section;
         if changed {
+            self.table_rows.clear();
             self.cancel_scene2d_surfaces_in_section(
                 &self.current_section.clone(),
                 gpui_ui_kit::Scene2DLifecycleReason::SectionChanged,
@@ -8927,7 +8962,6 @@ impl PythonIrShowcase {
             Some(node) => self.render_node(node, theme, ds, cx),
             None => self.render_error("Python app did not define any sections", theme, ds),
         };
-        self.app_value = serde_json::to_value(&app).ok();
         self.app = Some(app);
 
         let jobs = self.render_job_panel(theme, ds, cx);
@@ -15554,34 +15588,7 @@ impl PythonIrShowcase {
         // set, materializing only rows inside the native viewport.
         let visible_count = node.row_limit.unwrap_or(available).min(available);
         if let Some(table_id) = node.id.as_ref().filter(|id| !id.is_empty()) {
-            let rows = if node.typed_rows.is_empty() {
-                node.rows
-                    .iter()
-                    .enumerate()
-                    .skip(offset)
-                    .take(visible_count)
-                    .map(|(index, cells)| {
-                        let cells = cells
-                            .iter()
-                            .map(|cell| Value::String(cell.clone()))
-                            .collect::<Vec<_>>();
-                        (format!("row-{index}"), cells, false)
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                node.typed_rows
-                    .iter()
-                    .skip(offset)
-                    .take(visible_count)
-                    .map(|row| {
-                        (
-                            row.id.clone(),
-                            row.cells.clone(),
-                            node.selected_row.as_deref() == Some(row.id.as_str()),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            };
+            let rows = self.retained_table_rows(node, offset, visible_count);
             let scroll = self
                 .table_scrolls
                 .entry(table_id.clone())
@@ -15604,10 +15611,7 @@ impl PythonIrShowcase {
                 .session
                 .as_ref()
                 .map(super::python::PythonSession::event_sink);
-            let keyboard_rows = rows
-                .iter()
-                .map(|(row_id, _, _)| row_id.clone())
-                .collect::<Vec<_>>();
+            let keyboard_rows = Rc::clone(&rows);
             let list_table_id = table_id.clone();
             let list_action = action.clone();
             let list_sink = sink.clone();
@@ -15627,10 +15631,12 @@ impl PythonIrShowcase {
                     move |range, _, _| {
                         range
                             .map(|index| {
-                                let (row_id, values, selected) = &rows[index];
+                                let (row_id, values, selected) = rows
+                                    .row(index)
+                                    .expect("uniform list requested a row outside its window");
                                 let display = values.iter().map(table_cell_text).collect::<Vec<_>>();
                                 let row_id_for_event = row_id.clone();
-                                let values_for_event = values.clone();
+                                let values_for_event = values;
                                 let table_id_for_event = list_table_id.clone();
                                 let action = list_action.clone();
                                 let sink = list_sink.clone();
@@ -15640,7 +15646,7 @@ impl PythonIrShowcase {
                                     .h(px(row_height))
                                     .flex()
                                     .items_center()
-                                    .bg(if *selected { table_accent } else { table_surface })
+                                    .bg(if selected { table_accent } else { table_surface })
                                     .border_b_1()
                                     .border_color(table_border)
                                     .cursor_pointer()
@@ -15654,7 +15660,7 @@ impl PythonIrShowcase {
                                             .w(px(width))
                                             .px(px(table_padding_x))
                                             .text_size(px(table_small_text))
-                                            .text_color(if *selected { table_selected_text } else { table_text })
+                                            .text_color(if selected { table_selected_text } else { table_text })
                                             .child(display.get(*source).cloned().unwrap_or_default())
                                     }))
                                     .on_click(move |_, window, cx| {
@@ -15680,9 +15686,7 @@ impl PythonIrShowcase {
                 let action = action.clone();
                 let sink = sink.clone();
                 let table_id = table_id.clone();
-                let selected_index = node.selected_row.as_ref().and_then(|selected| {
-                    keyboard_rows.iter().position(|row_id| row_id == selected)
-                });
+                let selected_index = keyboard_rows.selected_index();
                 let key_focus = focus_handle.clone();
                 table = table.track_focus(&focus_handle).focusable().on_key_down(
                     move |event: &KeyDownEvent, window, cx| {
@@ -15707,7 +15711,7 @@ impl PythonIrShowcase {
                             _ => None,
                         };
                         let Some(index) = next else { return };
-                        let Some(row_id) = keyboard_rows.get(index) else {
+                        let Some(row_id) = keyboard_rows.id(index) else {
                             return;
                         };
                         if let Some(sink) = &sink {
@@ -18901,7 +18905,8 @@ impl PythonIrShowcase {
                             return;
                         }
                     };
-                    self.app = Some(next_app);
+                    let committed_app_value = serde_json::to_value(&next_app).ok();
+                    self.commit_app(next_app, committed_app_value);
                     self.last_mesh_patch_id.clone_from(&patch.request_id);
                     self.session_state = next_state;
                     self.clear_patch_errors(&patch, Some(&next_app_value));
@@ -18941,7 +18946,6 @@ impl PythonIrShowcase {
                     px_chart_ids(&next_app_value, &mut live_chart_ids);
                     self.prune_mesh_plot_runtime_ids(&live_mesh_ids, &live_chart_ids);
                     self.prune_scene2d_runtime_ids(&next_app_value);
-                    self.app_value = Some(next_app_value);
                 }
             }
         } else {
