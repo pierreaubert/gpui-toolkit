@@ -2757,7 +2757,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-dataset-transformation"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -2854,7 +2854,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-layout-expr"
-version = "0.11.1"
+version = "0.11.2"
 
 [[package]]
 name = "gpui-linux-foreign"
@@ -2887,7 +2887,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-mesh"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "gpui-profiler",
  "thiserror 2.0.21",
@@ -3040,7 +3040,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-python-runtime"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "arrow-array",
  "arrow-cast",
@@ -3076,7 +3076,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-release-gates"
-version = "0.11.1"
+version = "0.11.2"
 
 [[package]]
 name = "gpui-scaffolder"
@@ -3091,7 +3091,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-scene3d"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "bytemuck",
  "criterion",
@@ -3209,7 +3209,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "gpui-au",
  "gpui-audio-kit",
@@ -3234,7 +3234,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-toolkit-cli"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "clap",
  "gpui-component-lab",
@@ -5860,9 +5860,9 @@ dependencies = [
 
 [[package]]
 name = "qrcode"
-version = "0.14.1"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
+checksum = "ace1a365f55004297f2cf24acfd96d02966246ca423385273b58a7dc873ee14d"
 dependencies = [
  "image",
 ]

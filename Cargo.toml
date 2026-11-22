@@ -170,7 +170,7 @@ pathfinder_geometry = "0.5"
 smallvec = { version = "1.6", features = ["union", "const_new"] }
 
 # Camera and QR examples
-qrcode = "0.14"
+qrcode = "0.15"
 rqrr = "0.11.0"
 
 # Apple platform bindings
